@@ -121,6 +121,11 @@ const employeeMenuItems = [
     icon: Cylinder,
   },
   {
+    title: "Reports",
+    url: "employee-reports",
+    icon: FileText,
+  },
+  {
     title: "Notifications",
     url: "notifications",
     icon: Bell,

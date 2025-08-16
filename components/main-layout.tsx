@@ -17,6 +17,7 @@ import ProfitLoss from "@/components/pages/profit-loss"
 import { EmployeeDashboard } from "@/components/pages/employee-dashboard"
 import { EmployeeGasSales } from "@/components/pages/employee-gas-sales"
 import { EmployeeCylinderSales } from "@/components/pages/employee-cylinder-sales"
+import EmployeeReports from "@/components/pages/employee-reports"
 import { Notifications } from "@/components/pages/notifications"
 import { NotificationPopup } from "@/components/notification-popup"
 import { LogoutConfirmation } from "@/components/logout-confirmation"
@@ -54,12 +55,16 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
       if (user?.role === "employee" && user?.id) {
         try {
           const response = await fetch(`/api/employee-sales?employeeId=${user.id}`)
-          const salesData = await response.json()
-          const salesArray = Array.isArray(salesData) ? salesData : []
+          const salesData = await response.json().catch(() => ({}))
+          const salesArray = Array.isArray(salesData)
+            ? salesData
+            : Array.isArray(salesData?.data)
+              ? salesData.data
+              : []
           
           // Calculate Debit (Total Amount) and Credit (Received Amount)
-          const debit = salesArray.reduce((sum: number, sale: any) => sum + (sale.totalAmount || 0), 0)
-          const credit = salesArray.reduce((sum: number, sale: any) => sum + (sale.receivedAmount || 0), 0)
+          const debit = salesArray.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0)
+          const credit = salesArray.reduce((sum: number, sale: any) => sum + (Number(sale.receivedAmount) || 0), 0)
           
           setDebitAmount(debit)
           setCreditAmount(credit)
@@ -118,6 +123,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
           return <EmployeeGasSales user={user} />
         case "employee-cylinder-sales":
           return <EmployeeCylinderSales user={user} />
+        case "employee-reports":
+          return <EmployeeReports user={user} />
         case "notifications":
           return <Notifications user={user} setUnreadCount={setUnreadCount} />
         case "dashboard":
