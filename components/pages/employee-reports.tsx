@@ -182,6 +182,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     const payload = {
       date: closingDialog.date,
       itemName: closingDialog.itemName,
+      employeeId: user.id,
       closingFull: cf,
       closingEmpty: ce,
     }
@@ -315,6 +316,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         const payload: any = {
           date,
           itemName: r.itemName,
+          employeeId: user.id,
           openingFull: toNumber(r.openingFull),
           openingEmpty: toNumber(r.openingEmpty),
         }
@@ -486,6 +488,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     const payload: any = {
       date: editForm.date,
       itemName: editForm.itemName.trim(),
+      employeeId: user.id,
       openingFull: parseNum(editForm.openingFull),
       openingEmpty: parseNum(editForm.openingEmpty),
       refilled: parseNum(editForm.refilled),
@@ -551,7 +554,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const deleteEntry = async (e: DailyStockEntry) => {
     if (!confirm(`Delete DSR for ${e.itemName} on ${e.date}?`)) return
     try {
-      const url = `${API_BASE}?itemName=${encodeURIComponent(e.itemName)}&date=${encodeURIComponent(e.date)}`
+      const url = `${API_BASE}?itemName=${encodeURIComponent(e.itemName)}&date=${encodeURIComponent(e.date)}&employeeId=${encodeURIComponent(user.id)}`
       const res = await fetch(url, { method: 'DELETE' })
       if (!res.ok) throw new Error('delete failed')
     } catch (err) {
@@ -564,8 +567,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   }
 
   // Helpers: API endpoints + localStorage fallback
-  const DSR_KEY = "daily_stock_reports"
-  const API_BASE = "/api/daily-stock-reports"
+  const DSR_KEY = "employee_daily_stock_reports"
+  const API_BASE = "/api/employee-daily-stock-reports"
   const saveDsrLocal = (items: DailyStockEntry[]) => {
     try { localStorage.setItem(DSR_KEY, JSON.stringify(items)) } catch {}
   }
@@ -579,7 +582,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   }
   const fetchDsrEntries = async () => {
     try {
-      const res = await fetch(API_BASE, { cache: "no-store" })
+      const url = new URL(API_BASE, window.location.origin)
+      url.searchParams.set('employeeId', user.id)
+      const res = await fetch(url.toString(), { cache: "no-store" })
       if (!res.ok) throw new Error("api failed")
       const data = await res.json()
       const items = (data?.data || data?.results || []) as any[]
@@ -617,7 +622,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     if (!date || !itemName) return
     ;(async () => {
       try {
-        const url = `${API_BASE}/previous?itemName=${encodeURIComponent(itemName)}&date=${encodeURIComponent(date)}`
+        const url = `${API_BASE}/previous?itemName=${encodeURIComponent(itemName)}&date=${encodeURIComponent(date)}&employeeId=${encodeURIComponent(user.id)}`
         const res = await fetch(url, { cache: "no-store" })
         if (res.ok) {
           const json = await res.json()
@@ -685,6 +690,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     const payload = {
       date: dsrForm.date,
       itemName: dsrForm.itemName.trim(),
+      employeeId: user.id,
       openingFull: parseNum(dsrForm.openingFull),
       openingEmpty: parseNum(dsrForm.openingEmpty),
       refilled: parseNum(dsrForm.refilled),

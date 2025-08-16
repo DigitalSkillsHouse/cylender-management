@@ -80,6 +80,7 @@ export function Reports() {
     closingEmpty?: number
     createdAt: string
   }
+  interface EmployeeLite { _id: string; name?: string; email?: string }
   // Download the grid view for a specific date as PDF
   const downloadDsrGridPdf = (date: string) => {
     try {
@@ -233,6 +234,173 @@ export function Reports() {
   }
   const [dsrGrid, setDsrGrid] = useState<DsrGridRow[]>([])
   
+  // Types and state for Employee-scoped Daily Stock Report viewing
+  interface EmployeeLite { _id: string; name?: string; email?: string }
+  const [showEmployeeDSR, setShowEmployeeDSR] = useState(false)
+  const [employees, setEmployees] = useState<EmployeeLite[]>([])
+  const [empLoading, setEmpLoading] = useState(false)
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("")
+  const [employeeDsrDate, setEmployeeDsrDate] = useState<string>(new Date().toISOString().slice(0,10))
+  const [employeeDsrEntries, setEmployeeDsrEntries] = useState<DailyStockEntry[]>([])
+  const [empGridRows, setEmpGridRows] = useState<{ itemName: string; openingFull: number; openingEmpty: number; refilled: number; cylinderSales: number; gasSales: number; closingFull?: number; closingEmpty?: number }[]>([])
+
+  // Load employees when the Employee DSR dialog opens
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        setEmpLoading(true)
+        const res = await fetch('/api/employees', { cache: 'no-store' })
+        const json = await res.json().catch(() => ({}))
+        const list: any[] = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.data?.data)
+            ? json.data.data
+            : Array.isArray(json?.data)
+              ? json.data
+              : []
+        const mapped: EmployeeLite[] = list.map((e: any) => ({ _id: String(e._id || e.id), name: e.name, email: e.email }))
+        setEmployees(mapped)
+      } catch (e) {
+        console.error('Failed to load employees', e)
+        setEmployees([])
+      } finally {
+        setEmpLoading(false)
+      }
+    }
+    if (showEmployeeDSR) loadEmployees()
+  }, [showEmployeeDSR])
+
+  // Fetch per-employee DSR for selected date and build grid rows
+  const loadEmployeeDsr = async () => {
+    if (!selectedEmployeeId || !employeeDsrDate) return
+    try {
+      setEmpLoading(true)
+      const url = new URL('/api/employee-daily-stock-reports', window.location.origin)
+      url.searchParams.set('employeeId', selectedEmployeeId)
+      url.searchParams.set('date', employeeDsrDate)
+      const res = await fetch(url.toString(), { cache: 'no-store' })
+      const json = await res.json().catch(() => ({}))
+      const list: any[] = Array.isArray(json)
+        ? json
+        : Array.isArray(json?.data?.data)
+          ? json.data.data
+          : Array.isArray(json?.data)
+            ? json.data
+            : []
+      const mapped: DailyStockEntry[] = list.map((d: any) => ({
+        id: String(d._id || `${d.itemName}-${d.date}`),
+        date: d.date,
+        itemName: d.itemName,
+        openingFull: Number(d.openingFull || 0),
+        openingEmpty: Number(d.openingEmpty || 0),
+        refilled: Number(d.refilled || 0),
+        cylinderSales: Number(d.cylinderSales || 0),
+        gasSales: Number(d.gasSales || 0),
+        closingFull: typeof d?.closingFull === 'number' ? d.closingFull : undefined,
+        closingEmpty: typeof d?.closingEmpty === 'number' ? d.closingEmpty : undefined,
+        createdAt: d.createdAt || new Date().toISOString(),
+      }))
+      setEmployeeDsrEntries(mapped)
+
+      const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(mapped.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
+      const byKey = new Map<string, DailyStockEntry>()
+      mapped.forEach(e => byKey.set(e.itemName.toLowerCase(), e))
+      const rows = rowsSource.map((p: any) => {
+        const e = byKey.get(String(p.name).toLowerCase())
+        return {
+          itemName: p.name,
+          openingFull: e ? e.openingFull : 0,
+          openingEmpty: e ? e.openingEmpty : 0,
+          refilled: e ? e.refilled : 0,
+          cylinderSales: e ? e.cylinderSales : 0,
+          gasSales: e ? e.gasSales : 0,
+          closingFull: typeof e?.closingFull === 'number' ? e!.closingFull : undefined,
+          closingEmpty: typeof e?.closingEmpty === 'number' ? e!.closingEmpty : undefined,
+        }
+      })
+      setEmpGridRows(rows)
+    } catch (e) {
+      console.error('Failed to load employee DSR', e)
+      setEmployeeDsrEntries([])
+      setEmpGridRows([])
+    } finally {
+      setEmpLoading(false)
+    }
+  }
+
+  // Download Employee DSR grid as PDF
+  const downloadEmployeeDsrGridPdf = (date: string) => {
+    try {
+      const byKey = new Map<string, DailyStockEntry>()
+      employeeDsrEntries.forEach(e => byKey.set(e.itemName.toLowerCase(), e))
+      const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(employeeDsrEntries.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
+      const rows = rowsSource.map(p => {
+        const e = byKey.get(String(p.name).toLowerCase())
+        return `
+          <tr>
+            <td>${p.name}</td>
+            <td>${e ? e.openingFull : 0}</td>
+            <td>${e ? e.openingEmpty : 0}</td>
+            <td>${e ? e.refilled : 0}</td>
+            <td>${e ? e.cylinderSales : 0}</td>
+            <td>${e ? e.gasSales : 0}</td>
+            <td>${typeof e?.closingFull === 'number' ? e!.closingFull : 0}</td>
+            <td>${typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</td>
+          </tr>
+        `
+      }).join('')
+
+      const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset=\"utf-8\" />
+          <title>Employee Daily Stock Report – ${date}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 16px; }
+            h1 { font-size: 18px; margin: 0 0 12px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 12px; }
+            th { background: #f7f7f7; text-align: left; }
+          </style>
+        </head>
+        <body>
+          <h1>Employee Daily Stock Report – ${date}</h1>
+          <table>
+            <thead>
+              <tr>
+                <th>Items</th>
+                <th colspan=2>Opening</th>
+                <th colspan=3>During the day</th>
+                <th colspan=2>Closing</th>
+              </tr>
+              <tr>
+                <th></th>
+                <th>Full</th>
+                <th>Empty</th>
+                <th>Refilled</th>
+                <th>Cylinder Sales</th>
+                <th>Gas Sales</th>
+                <th>Full</th>
+                <th>Empty</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </body>
+      </html>`
+      const win = window.open('', '_blank')
+      if (win) {
+        win.document.write(html)
+        win.document.close()
+        win.focus()
+        win.print()
+      }
+    } catch (e) {
+      console.error('Failed to print employee DSR', e)
+    }
+  }
   // Load products when DSR form opens and build empty grid
   useEffect(() => {
     if (!showDSRForm) return
@@ -1151,7 +1319,7 @@ export function Reports() {
           <CardTitle style={{ color: "#2B3068" }}>Daily Stock Report</CardTitle>
           <p className="text-sm text-gray-600">Track opening/closing stock with daily refills and sales. Stored locally on this device.</p>
         </CardHeader>
-        <CardContent className="flex flex-col sm:flex-row gap-3">
+        <CardContent className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
           <Button onClick={() => setShowDSRForm(true)} className="w-full sm:w-auto" style={{ backgroundColor: "#2B3068" }}>
             <PlusCircle className="h-4 w-4 mr-2" />
             Daily Stock Report
@@ -1160,8 +1328,89 @@ export function Reports() {
             <ListChecks className="h-4 w-4 mr-2" />
             View Reports
           </Button>
+          <div className="sm:ml-auto w-full sm:w-auto">
+            <Button variant="secondary" onClick={() => setShowEmployeeDSR(true)} className="w-full sm:w-auto">
+              View Employee Daily Stock Report
+            </Button>
+          </div>
         </CardContent>
       </Card>
+
+      {/* View Employee DSR Dialog */}
+      <Dialog open={showEmployeeDSR} onOpenChange={setShowEmployeeDSR}>
+        <DialogContent className="max-w-[900px] sm:max-w-[1000px]">
+          <DialogHeader>
+            <DialogTitle>Employee Daily Stock Report</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Employee and Date selectors */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <Label>Employee</Label>
+                <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
+                  <SelectTrigger className="w-full"><SelectValue placeholder={empLoading ? "Loading..." : "Select employee"} /></SelectTrigger>
+                  <SelectContent>
+                    {employees.map(e => (
+                      <SelectItem key={String(e._id)} value={String(e._id)}>
+                        {e.name || e.email || e._id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Date</Label>
+                <Input type="date" value={employeeDsrDate} onChange={(e) => setEmployeeDsrDate(e.target.value)} />
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button disabled={!selectedEmployeeId || empLoading} onClick={loadEmployeeDsr} style={{ backgroundColor: "#2B3068" }}>
+                {empLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />} Load Report
+              </Button>
+              <Button variant="outline" disabled={employeeDsrEntries.length === 0} onClick={() => downloadEmployeeDsrGridPdf(employeeDsrDate)}>
+                <FileText className="h-4 w-4 mr-2" /> Download PDF
+              </Button>
+            </div>
+
+            {/* Read-only grid like existing layout */}
+            <div className="overflow-x-auto border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Items</TableHead>
+                    <TableHead>Opening Full</TableHead>
+                    <TableHead>Opening Empty</TableHead>
+                    <TableHead>Refilled</TableHead>
+                    <TableHead>Cylinder Sales</TableHead>
+                    <TableHead>Gas Sales</TableHead>
+                    <TableHead>Closing Full</TableHead>
+                    <TableHead>Closing Empty</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {empGridRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-gray-500">{selectedEmployeeId ? "No data for selected date" : "Select employee and date to view"}</TableCell>
+                    </TableRow>
+                  ) : empGridRows.map((r) => (
+                    <TableRow key={r.itemName}>
+                      <TableCell className="font-medium">{r.itemName}</TableCell>
+                      <TableCell>{r.openingFull}</TableCell>
+                      <TableCell>{r.openingEmpty}</TableCell>
+                      <TableCell>{r.refilled}</TableCell>
+                      <TableCell>{r.cylinderSales}</TableCell>
+                      <TableCell>{r.gasSales}</TableCell>
+                      <TableCell>{typeof r.closingFull === 'number' ? r.closingFull : '-'}</TableCell>
+                      <TableCell>{typeof r.closingEmpty === 'number' ? r.closingEmpty : '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Daily Stock Report - Excel-like Dialog */}
       <Dialog open={showDSRForm} onOpenChange={setShowDSRForm}>
