@@ -1267,7 +1267,18 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 
       {/* Daily Stock Report - Excel-like Dialog */}
       <Dialog open={showDSRForm} onOpenChange={setShowDSRForm}>
-        <DialogContent className="max-w-[900px] sm:max-w-[1000px]">
+        <DialogContent
+          className="w-screen max-w-screen sm:w-[95vw] sm:max-w-[1000px] p-3 sm:p-6 overflow-x-visible"
+          style={{
+            width: '100vw',
+            maxWidth: '100vw',
+            overflowX: 'visible',
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehaviorX: 'contain',
+            overscrollBehavior: 'contain',
+            touchAction: 'pan-x pan-y',
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Daily Stock Report</DialogTitle>
           </DialogHeader>
@@ -1283,9 +1294,10 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
               />
             </div>
 
-            <div className="overflow-auto border rounded-md">
-              <table className="min-w-full border-collapse">
-                <thead>
+            <div className="w-screen sm:w-auto px-2 sm:px-0">
+              <div className="overflow-x-scroll sm:overflow-x-auto w-full max-w-full border rounded-md touch-pan-x px-4 pointer-events-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', overflowX: 'auto', overscrollBehaviorX: 'contain' }}>
+                <table className="min-w-[1200px] sm:min-w-[1000px] border-collapse whitespace-nowrap">
+                  <thead>
                   <tr>
                     <th className="border px-3 py-2 text-left bg-gray-50">Items</th>
                     <th className="border px-3 py-2 text-center bg-gray-50" colSpan={2}>Opening</th>
@@ -1307,13 +1319,14 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                   ) : (
                     dsrGrid.map(row => (
                       <tr key={row.itemId}>
-                        <td className="border px-3 py-2 whitespace-nowrap">{row.itemName}</td>
+                        <td className="border px-3 py-2 whitespace-nowrap min-w-[12rem]">{row.itemName}</td>
                         <td className="border px-2 py-1 w-28">
                           <Input
                             type="number"
                             min={0}
                             value={row.openingFull}
                             onChange={(e) => updateDsrGridCell(row.itemId, 'openingFull', e.target.value)}
+                            className="w-full min-w-[6.5rem] touch-pan-x"
                           />
                         </td>
                         <td className="border px-2 py-1 w-28">
@@ -1322,6 +1335,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                             min={0}
                             value={row.openingEmpty}
                             onChange={(e) => updateDsrGridCell(row.itemId, 'openingEmpty', e.target.value)}
+                            className="w-full min-w-[6.5rem] touch-pan-x"
                           />
                         </td>
                         <td className="border px-2 py-1 w-28">
@@ -1330,6 +1344,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                             min={0}
                             value={row.closingFull}
                             onChange={(e) => updateDsrGridCell(row.itemId, 'closingFull', e.target.value)}
+                            className="w-full min-w-[6.5rem] touch-pan-x"
                           />
                         </td>
                         <td className="border px-2 py-1 w-28">
@@ -1338,6 +1353,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                             min={0}
                             value={row.closingEmpty}
                             onChange={(e) => updateDsrGridCell(row.itemId, 'closingEmpty', e.target.value)}
+                            className="w-full min-w-[6.5rem] touch-pan-x"
                           />
                         </td>
                       </tr>
@@ -1345,6 +1361,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                   )}
                 </tbody>
               </table>
+            </div>
             </div>
 
             <div className="flex justify-end gap-2">

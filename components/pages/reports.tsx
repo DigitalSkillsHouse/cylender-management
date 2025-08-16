@@ -1375,7 +1375,7 @@ export function Reports() {
 
             {/* Read-only grid like existing layout */}
             <div className="overflow-x-auto border rounded-md">
-              <Table>
+              <Table className="min-w-[760px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Items</TableHead>
@@ -1414,7 +1414,7 @@ export function Reports() {
 
       {/* Daily Stock Report - Excel-like Dialog */}
       <Dialog open={showDSRForm} onOpenChange={setShowDSRForm}>
-        <DialogContent className="max-w-[900px] sm:max-w-[1000px]">
+        <DialogContent className="w-screen max-w-screen sm:w-[95vw] sm:max-w-[1000px] p-0 sm:p-6 overflow-x-visible" style={{ overflowX: 'visible' }}>
           <DialogHeader>
             <DialogTitle>Daily Stock Report</DialogTitle>
           </DialogHeader>
@@ -1430,20 +1430,22 @@ export function Reports() {
               />
             </div>
 
-            <div className="overflow-auto border rounded-md">
-              <table className="min-w-full border-collapse">
-                <thead>
+            {/* Force full-viewport width on mobile so horizontal scroll is available */}
+            <div className="w-screen sm:w-auto -mx-4 sm:mx-0">
+              <div className="overflow-x-auto sm:overflow-x-auto overscroll-x-contain w-full max-w-full border rounded-md touch-pan-x px-4 pointer-events-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
+                <table className="min-w-[1200px] sm:min-w-[1000px] border-collapse whitespace-nowrap">
+                  <thead>
                   <tr>
-                    <th className="border px-3 py-2 text-left bg-gray-50">Items</th>
-                    <th className="border px-3 py-2 text-center bg-gray-50" colSpan={2}>Opening</th>
-                    <th className="border px-3 py-2 text-center bg-gray-50" colSpan={2}>Closing</th>
+                    <th className="border px-3 py-2 text-left bg-gray-50 min-w-[12rem]">Items</th>
+                    <th className="border px-3 py-2 text-center bg-gray-50 min-w-[8rem]" colSpan={2}>Opening</th>
+                    <th className="border px-3 py-2 text-center bg-gray-50 min-w-[8rem]" colSpan={2}>Closing</th>
                   </tr>
                   <tr>
-                    <th className="border px-3 py-2 text-left bg-white"></th>
-                    <th className="border px-3 py-2 text-center bg-white">Full</th>
-                    <th className="border px-3 py-2 text-center bg-white">Empty</th>
-                    <th className="border px-3 py-2 text-center bg-white">Full</th>
-                    <th className="border px-3 py-2 text-center bg-white">Empty</th>
+                    <th className="border px-3 py-2 text-left bg-white whitespace-nowrap min-w-[12rem]"></th>
+                    <th className="border px-3 py-2 text-center bg-white whitespace-nowrap min-w-[7.5rem]">Full</th>
+                    <th className="border px-3 py-2 text-center bg-white whitespace-nowrap min-w-[7.5rem]">Empty</th>
+                    <th className="border px-3 py-2 text-center bg-white whitespace-nowrap min-w-[7.5rem]">Full</th>
+                    <th className="border px-3 py-2 text-center bg-white whitespace-nowrap min-w-[7.5rem]">Empty</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1454,44 +1456,49 @@ export function Reports() {
                   ) : (
                     dsrGrid.map(row => (
                       <tr key={row.itemId}>
-                        <td className="border px-3 py-2 whitespace-nowrap">{row.itemName}</td>
-                        <td className="border px-2 py-1 w-28">
+                        <td className="border px-3 py-2 whitespace-nowrap min-w-[12rem]">{row.itemName}</td>
+                        <td className="border px-2 py-1 w-28 min-w-[7.5rem]">
                           <Input
                             type="number"
                             min={0}
                             value={row.openingFull}
                             onChange={(e) => updateDsrGridCell(row.itemId, 'openingFull', e.target.value)}
+                            className="w-full min-w-[6.5rem]"
                           />
                         </td>
-                        <td className="border px-2 py-1 w-28">
+                        <td className="border px-2 py-1 w-28 min-w-[7.5rem]">
                           <Input
                             type="number"
                             min={0}
                             value={row.openingEmpty}
                             onChange={(e) => updateDsrGridCell(row.itemId, 'openingEmpty', e.target.value)}
+                            className="w-full min-w-[6.5rem]"
                           />
                         </td>
-                        <td className="border px-2 py-1 w-28">
+                        <td className="border px-2 py-1 w-28 min-w-[7.5rem]">
                           <Input
                             type="number"
                             min={0}
                             value={row.closingFull}
                             onChange={(e) => updateDsrGridCell(row.itemId, 'closingFull', e.target.value)}
+                            className="w-full min-w-[6.5rem]"
                           />
                         </td>
-                        <td className="border px-2 py-1 w-28">
+                        <td className="border px-2 py-1 w-28 min-w-[7.5rem]">
                           <Input
                             type="number"
                             min={0}
                             value={row.closingEmpty}
                             onChange={(e) => updateDsrGridCell(row.itemId, 'closingEmpty', e.target.value)}
+                            className="w-full min-w-[6.5rem]"
                           />
                         </td>
                       </tr>
                     ))
                   )}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2">
@@ -1513,7 +1520,7 @@ export function Reports() {
             <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[10.5rem]" />
           </div>
           <div className="border rounded-lg overflow-x-auto">
-            <Table>
+            <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Items</TableHead>
