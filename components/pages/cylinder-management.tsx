@@ -2169,11 +2169,11 @@ export function CylinderManagement() {
 
       <Card className="border-0 shadow-lg">
         <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
             <CardTitle>Cylinder Transactions</CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
               {showExportInput && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                   <div className="relative">
                     <Input
                       placeholder="Enter customer or company name"
@@ -2181,7 +2181,7 @@ export function CylinderManagement() {
                       onChange={(e) => handleExportSearchChange(e.target.value)}
                       onFocus={handleExportInputFocus}
                       onBlur={handleExportInputBlur}
-                      className="bg-white text-gray-900 placeholder:text-gray-500 w-64 h-9"
+                      className="bg-white text-gray-900 placeholder:text-gray-500 w-full sm:w-64 h-9"
                     />
                     {showExportSuggestions && filteredExportSuggestions.length > 0 && (
                       <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
