@@ -164,10 +164,7 @@ const ReceiptPrintPage = () => {
           </div>
         </section>
 
-        <section className="text-right mt-6 text-sm font-medium">
-          <div><strong>Payment Method:</strong> {sale.paymentMethod.toUpperCase()}</div>
-          <div><strong>Status:</strong> {sale.paymentStatus.toUpperCase()}</div>
-        </section>
+        {/* Removed Payment Method and Status section as requested */}
 
         <footer className="text-center pt-8 mt-8 border-t-2 border-gray-300 relative">
           {/* The footer image acts as a container */}

@@ -944,25 +944,34 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             type: transaction.type,
             displayType: `Cylinder ${transaction.type}`,
             description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
-            amount: transaction.amount,
-            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0), // EXCLUDE refill amounts
+            // EXCLUDE refills from amount totals
+            amount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
+            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
             status: transaction.status,
           }))
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       // Create receipt items from All Transactions data
-      const items = allTransactions.map((transaction, index) => ({
-        product: {
-          name: `${transaction.displayType} - ${transaction.description}`,
-          price: transaction.paidAmount
-        },
-        quantity: transaction.type === 'gas_sale' ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1) : (transaction.quantity || 1),
-        price: transaction.paidAmount,
-        total: transaction.paidAmount
-      }));
+      // IMPORTANT: Use transaction total amounts, not paid amounts (pending sales would otherwise show 0)
+      const items = allTransactions.map((transaction, index) => {
+        const qty = transaction.type === 'gas_sale'
+          ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1)
+          : (transaction.quantity || 1)
+        const lineTotal = Number(transaction.amount || 0)
+        const unitPrice = qty > 0 ? lineTotal / qty : lineTotal
+        return ({
+          product: {
+            name: `${transaction.displayType} - ${transaction.description}`,
+            price: unitPrice,
+          },
+          quantity: qty,
+          price: unitPrice,
+          total: lineTotal,
+        })
+      });
 
-      // Calculate total amount (excluding refills)
-      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (transaction.paidAmount || 0), 0);
+      // Calculate total amount using transaction.amount (refills already excluded in allTransactions mapping)
+      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
       
       // If no items, add a placeholder
       if (items.length === 0) {
@@ -1289,25 +1298,33 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             type: transaction.type,
             displayType: `Cylinder ${transaction.type}`,
             description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
-            amount: transaction.amount,
-            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0), // EXCLUDE refill amounts
+            // EXCLUDE refills from amount totals
+            amount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
+            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
             status: transaction.status,
           }))
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-      // Create receipt items from All Transactions data
-      const items = allTransactions.map((transaction, index) => ({
-        product: {
-          name: `${transaction.displayType} - ${transaction.description}`,
-          price: transaction.paidAmount
-        },
-        quantity: transaction.type === 'gas_sale' ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1) : (transaction.quantity || 1),
-        price: transaction.paidAmount,
-        total: transaction.paidAmount
-      }));
+      // Create receipt items from All Transactions data (use amount-based totals)
+      const items = allTransactions.map((transaction, index) => {
+        const qty = transaction.type === 'gas_sale'
+          ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1)
+          : (transaction.quantity || 1)
+        const lineTotal = Number(transaction.amount || 0)
+        const unitPrice = qty > 0 ? lineTotal / qty : lineTotal
+        return ({
+          product: {
+            name: `${transaction.displayType} - ${transaction.description}`,
+            price: unitPrice,
+          },
+          quantity: qty,
+          price: unitPrice,
+          total: lineTotal,
+        })
+      });
 
-      // Calculate total amount (excluding refills)
-      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (transaction.paidAmount || 0), 0);
+      // Calculate total amount using transaction.amount
+      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
       
       // If no items, add a placeholder
       if (items.length === 0) {

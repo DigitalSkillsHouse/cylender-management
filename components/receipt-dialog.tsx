@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -36,6 +36,7 @@ interface ReceiptDialogProps {
 
 export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     try {
@@ -103,200 +104,48 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
     window.open(`/print/receipt/${sale._id}`, '_blank');
   }
 
-  const handleDownload = () => {
-    const signatureData = signatureToUse || ""
-    const adminSignatureData = adminSignature || ""
+  const handleDownload = async () => {
+    // Dynamically import to avoid SSR issues
+    const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf'),
+    ])
 
-    // Create a blob with the receipt HTML
-    const receiptHTML = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Receipt - ${sale.invoiceNumber}</title>
-          <meta charset="utf-8">
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              max-width: 400px;
-              margin: 0 auto;
-              padding: 20px;
-              font-size: 14px;
-              line-height: 1.6;
-            }
-            .header {
-              text-align: center;
-              margin-bottom: 30px;
-              border-bottom: 2px solid #2B3068;
-              padding-bottom: 15px;
-            }
-            .company-name {
-              font-size: 24px;
-              font-weight: bold;
-              color: #2B3068;
-              margin-bottom: 5px;
-            }
-            .subtitle {
-              color: #666;
-              font-size: 16px;
-            }
-            .section {
-              margin: 20px 0;
-              padding: 15px;
-              background-color: #f8f9fa;
-              border-radius: 8px;
-            }
-            .section-title {
-              font-weight: bold;
-              color: #2B3068;
-              margin-bottom: 10px;
-              font-size: 16px;
-            }
-            .items-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin: 20px 0;
-            }
-            .items-table th,
-            .items-table td {
-              padding: 10px;
-              text-align: left;
-              border-bottom: 1px solid #ddd;
-            }
-            .items-table th {
-              background-color: #2B3068;
-              color: white;
-              font-weight: bold;
-            }
-            .total-section {
-              background-color: #2B3068;
-              color: white;
-              padding: 20px;
-              border-radius: 8px;
-              text-align: center;
-              margin: 20px 0;
-            }
-            .total-amount {
-              font-size: 24px;
-              font-weight: bold;
-            }
-            .signature-section {
-              margin: 30px 0;
-              text-align: center;
-              padding: 20px;
-              border: 2px dashed #2B3068;
-              border-radius: 8px;
-            }
-            .signature-image {
-              max-width: 250px;
-              max-height: 120px;
-              border: 1px solid #ddd;
-              margin: 15px 0;
-              border-radius: 4px;
-            }
-            .footer {
-              text-align: center;
-              margin-top: 40px;
-              padding-top: 20px;
-              border-top: 2px solid #2B3068;
-              color: #666;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <img src="${window.location.origin}/images/header-invoice.jpeg" alt="BARAKAH ALJAZEERA Header" style="max-width: 100%; height: auto; margin: 0 auto; display: block;" />
-          </div>
-          
-          <div class="section">
-            <div class="section-title">Invoice Information</div>
-            <div><strong>Invoice Number:</strong> ${sale.invoiceNumber}</div>
-            <div><strong>Date:</strong> ${new Date(sale.createdAt).toLocaleDateString()}</div>
-            <div><strong>Time:</strong> ${new Date(sale.createdAt).toLocaleTimeString()}</div>
-          </div>
-          
-          <div class="section">
-            <div class="section-title">Customer Information</div>
-            <div><strong>Name:</strong> ${sale.customer.name}</div>
-            <div><strong>Phone:</strong> ${sale.customer.phone}</div>
-            <div><strong>Address:</strong> ${sale.customer.address}</div>
-          </div>
-          
-          <table class="items-table">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${sale.items
-                .map(
-                  (item) => `
-                <tr>
-                  <td>${item.product.name}</td>
-                  <td>${item.quantity}</td>
-                  <td>AED ${item.price.toFixed(2)}</td>
-                  <td>AED ${item.total.toFixed(2)}</td>
-                </tr>
-              `,
-                )
-                .join("")}
-            </tbody>
-          </table>
-          
-          <table class="items-table" style="margin-top: 20px;">
-            <tbody>
-              <tr>
-                <td style="text-align: right;">Subtotal</td>
-                <td style="text-align: right; width: 120px;">AED ${subtotal.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td style="text-align: right;">VAT (5%)</td>
-                <td style="text-align: right; width: 120px;">AED ${vatAmount.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td style="text-align: right; font-weight: bold; font-size: 18px;">Total</td>
-                <td style="text-align: right; font-weight: bold; font-size: 18px; width: 120px;">AED ${totalWithVat.toFixed(2)}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div style="margin-top: 15px; font-size: 14px; text-align: right;">
-              <div><strong>Payment Method:</strong> ${sale.paymentMethod.toUpperCase()}</div>
-              <div><strong>Status:</strong> ${sale.paymentStatus.toUpperCase()}</div>
-          </div>
-          
-          <div class="footer" style="position: relative; text-align: center; margin-top: 40px;">
-            <img src="${window.location.origin}/images/footer.png" alt="BARAKAH ALJAZEERA Footer" style="max-width: 100%; height: auto; margin: 0 auto; display: block;" />
-            ${
-              signatureData
-                ? `<div style="position: absolute; bottom: 10px; right: 30px;">
-                     <img src="${signatureData}" alt="Customer Signature" style="max-height: 50px; object-fit: contain; opacity: 0.9; mix-blend-mode: multiply; filter: drop-shadow(0 0 2px rgba(255,255,255,0.8));" />
-                   </div>`
-                : ''
-            }
-            ${
-              adminSignatureData
-                ? `<div style="position: absolute; bottom: 10px; left: 30px;">
-                     <img src="${adminSignatureData}" alt="Admin Signature" style="max-height: 50px; object-fit: contain; opacity: 0.9; mix-blend-mode: multiply; filter: drop-shadow(0 0 2px rgba(255,255,255,0.8));" />
-                   </div>`
-                : ''
-            }
-          </div>
-        </body>
-      </html>
-    `
+    const node = contentRef.current
+    if (!node) return
 
-    const blob = new Blob([receiptHTML], { type: "text/html" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `receipt-${sale.invoiceNumber}.html`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    // Render the receipt content to a canvas
+    const canvas = await html2canvas(node, {
+      scale: 4, // even sharper to reduce blurriness
+      backgroundColor: '#ffffff',
+      useCORS: true,
+    })
+    const imgData = canvas.toDataURL('image/png')
+
+    // Create PDF (A4 portrait)
+    const pdf = new (jsPDFModule as any).jsPDF('p', 'mm', 'a4')
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+
+    // Add margins (10mm on each side)
+    const margin = 10
+    const imgWidth = pageWidth - margin * 2
+    const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+    let heightLeft = imgHeight
+    let position = 0
+
+    pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
+    heightLeft -= pageHeight
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight
+      pdf.addPage()
+      pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
+      heightLeft -= pageHeight
+    }
+
+    pdf.save(`receipt-${sale.invoiceNumber}.pdf`)
   }
 
 
@@ -318,6 +167,7 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
         </div>
 
         <div className="space-y-6">
+          <div ref={contentRef}>
           {/* Company Header Image */}
           <div className="text-center pb-4">
             <img 
@@ -417,12 +267,6 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
                 </tr>
               </tbody>
             </table>
-            <div className="flex justify-end text-sm mt-4">
-              <div className="text-right">
-                <div>Payment Method: {(sale?.paymentMethod || '-').toUpperCase()}</div>
-                <div>Status: {(sale?.paymentStatus || '-').toUpperCase()}</div>
-              </div>
-            </div>
           </div>
 
           {/* Footer with Signature */}
@@ -444,6 +288,7 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
                   alt="Customer Signature" 
                   className="max-h-12 object-contain opacity-90"
                   style={{
+                    backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
                     filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))'
                   }}
@@ -457,12 +302,14 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
                   alt="Admin Signature" 
                   className="max-h-12 object-contain opacity-90"
                   style={{
+                    backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
                     filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))'
                   }}
                 />
               </div>
             )}
+          </div>
           </div>
 
           {/* Action Buttons - Moved to bottom */}

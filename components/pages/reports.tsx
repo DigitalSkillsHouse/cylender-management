@@ -67,6 +67,23 @@ export function Reports() {
   const [loading, setLoading] = useState(true)
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set())
 
+  // Compute a customer's aggregate ledger status for the summary row and filters
+  // Priority: overdue > pending > cleared (if no dues) > fallback to existing status
+  const computeLedgerStatus = (c: CustomerLedgerData): 'pending' | 'cleared' | 'overdue' | 'error' => {
+    try {
+      const sales = Array.isArray(c.recentSales) ? c.recentSales : []
+      const cyl = Array.isArray(c.recentCylinderTransactions) ? c.recentCylinderTransactions : []
+      const hasOverdue = sales.some((s: any) => s?.paymentStatus === 'overdue') || cyl.some((t: any) => t?.status === 'overdue')
+      if (hasOverdue) return 'overdue'
+      const hasPending = sales.some((s: any) => s?.paymentStatus === 'pending') || cyl.some((t: any) => t?.status === 'pending')
+      if (hasPending) return 'pending'
+      if ((c.balance ?? 0) <= 0) return 'cleared'
+      return (c.status || 'cleared') as any
+    } catch {
+      return c.status
+    }
+  }
+
   // Daily Stock Report local model (stored in localStorage)
   interface DailyStockEntry {
     id: string
@@ -1101,25 +1118,34 @@ export function Reports() {
             type: transaction.type,
             displayType: `Cylinder ${transaction.type}`,
             description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
-            amount: transaction.amount,
-            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0), // EXCLUDE refill amounts
+            // EXCLUDE refills from amount totals
+            amount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
+            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
             status: transaction.status,
           }))
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       // Create receipt items from All Transactions data
-      const items = allTransactions.map((transaction, index) => ({
-        product: {
-          name: `${transaction.displayType} - ${transaction.description}`,
-          price: transaction.paidAmount
-        },
-        quantity: transaction.type === 'gas_sale' ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1) : (transaction.quantity || 1),
-        price: transaction.paidAmount,
-        total: transaction.paidAmount
-      }));
+      // IMPORTANT: Use transaction total amounts, not paid amounts (pending sales would otherwise show 0)
+      const items = allTransactions.map((transaction, index) => {
+        const qty = transaction.type === 'gas_sale'
+          ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1)
+          : (transaction.quantity || 1)
+        const lineTotal = Number(transaction.amount || 0)
+        const unitPrice = qty > 0 ? lineTotal / qty : lineTotal
+        return ({
+          product: {
+            name: `${transaction.displayType} - ${transaction.description}`,
+            price: unitPrice,
+          },
+          quantity: qty,
+          price: unitPrice,
+          total: lineTotal,
+        })
+      });
 
-      // Calculate total amount (excluding refills)
-      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (transaction.paidAmount || 0), 0);
+      // Calculate total amount using transaction.amount (refills already excluded via amount=0)
+      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
       
       // If no items, add a placeholder
       if (items.length === 0) {
@@ -1334,25 +1360,33 @@ export function Reports() {
             type: transaction.type,
             displayType: `Cylinder ${transaction.type}`,
             description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
-            amount: transaction.amount,
-            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0), // EXCLUDE refill amounts
+            // EXCLUDE refills from amount totals
+            amount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
+            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
             status: transaction.status,
           }))
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-      // Create receipt items from All Transactions data
-      const items = allTransactions.map((transaction, index) => ({
-        product: {
-          name: `${transaction.displayType} - ${transaction.description}`,
-          price: transaction.paidAmount
-        },
-        quantity: transaction.type === 'gas_sale' ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1) : (transaction.quantity || 1),
-        price: transaction.paidAmount,
-        total: transaction.paidAmount
-      }));
+      // Create receipt items from All Transactions data (use amount-based totals)
+      const items = allTransactions.map((transaction, index) => {
+        const qty = transaction.type === 'gas_sale'
+          ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1)
+          : (transaction.quantity || 1)
+        const lineTotal = Number(transaction.amount || 0)
+        const unitPrice = qty > 0 ? lineTotal / qty : lineTotal
+        return ({
+          product: {
+            name: `${transaction.displayType} - ${transaction.description}`,
+            price: unitPrice,
+          },
+          quantity: qty,
+          price: unitPrice,
+          total: lineTotal,
+        })
+      });
 
-      // Calculate total amount (excluding refills)
-      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (transaction.paidAmount || 0), 0);
+      // Calculate total amount using transaction.amount
+      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
       
       // If no items, add a placeholder
       if (items.length === 0) {
@@ -1794,9 +1828,8 @@ export function Reports() {
                           <span>Phone: {customer.phone}</span>
                           <TableCell className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                             {(() => {
-                              const dynamicStatus = customer.balance <= 0 ? 'cleared' : customer.status;
-                              // It then renders the badge with the correct, dynamic status.
-                              return getStatusBadge(dynamicStatus);
+                              const aggStatus = computeLedgerStatus(customer as any)
+                              return getStatusBadge(aggStatus)
                             })()}
                           </TableCell>
                         </div>
@@ -1875,8 +1908,8 @@ export function Reports() {
                   .filter((customer) => {
                     // Filter by status
                     if (filters.status !== 'all') {
-                      const dynamicStatus = customer.balance <= 0 ? 'cleared' : customer.status;
-                      if (dynamicStatus !== filters.status) {
+                      const aggStatus = computeLedgerStatus(customer)
+                      if (aggStatus !== filters.status) {
                         return false;
                       }
                     }
@@ -1933,8 +1966,8 @@ export function Reports() {
                       </TableCell>
                       <TableCell>
                         {(() => {
-                          const dynamicStatus = customer.balance <= 0 ? 'cleared' : customer.status;
-                          return getStatusBadge(dynamicStatus);
+                          const aggStatus = computeLedgerStatus(customer)
+                          return getStatusBadge(aggStatus)
                         })()}
                       </TableCell>
                       <TableCell>
