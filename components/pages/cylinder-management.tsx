@@ -121,6 +121,10 @@ export function CylinderManagement() {
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false)
   const [filteredSearchSuggestions, setFilteredSearchSuggestions] = useState<Customer[]>([])
 
+  // Product autocomplete state (per item)
+  const [productSearchTerms, setProductSearchTerms] = useState<string[]>([])
+  const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
+
   // Stock validation popup state
   const [showStockValidationPopup, setShowStockValidationPopup] = useState(false)
   const [stockValidationMessage, setStockValidationMessage] = useState("")
@@ -405,10 +409,10 @@ export function CylinderManagement() {
   const getProductById = (id: string) => products.find(p => p._id === id)
 
   const addItem = () => {
-    const firstProduct = products[0]
-    const defaultProductId = firstProduct?._id || ""
-    const defaultName = firstProduct?.name || ""
-    const defaultPrice = firstProduct?.leastPrice || 0
+    // Start with empty fields so user explicitly selects
+    const defaultProductId = ""
+    const defaultName = ""
+    const defaultPrice = 0
     setFormData(prev => ({
       ...prev,
       items: [
@@ -416,12 +420,14 @@ export function CylinderManagement() {
         {
           productId: defaultProductId,
           productName: defaultName,
-          cylinderSize: "small",
+          cylinderSize: "",
           quantity: 1,
           amount: Number(defaultPrice.toFixed(2))
         }
       ]
     }))
+    setProductSearchTerms(prev => [...prev, defaultName])
+    setShowProductSuggestions(prev => [...prev, false])
   }
 
   const updateItem = (index: number, field: keyof (typeof formData.items)[number], value: any) => {
@@ -432,8 +438,10 @@ export function CylinderManagement() {
       // If product changed, auto update name and default amount from leastPrice
       if (field === 'productId') {
         const p = getProductById(value)
-        item.productName = p?.name || ''
-        if (p) item.amount = Number((p.leastPrice).toFixed(2))
+        if (p) {
+          item.productName = p.name
+          item.amount = Number((p.leastPrice).toFixed(2))
+        }
       }
       items[index] = item
       return { ...prev, items }
@@ -442,6 +450,8 @@ export function CylinderManagement() {
 
   const removeItem = (index: number) => {
     setFormData(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }))
+    setProductSearchTerms(prev => prev.filter((_, i) => i !== index))
+    setShowProductSuggestions(prev => prev.filter((_, i) => i !== index))
   }
 
   const totalItemsAmount = () => formData.items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0)
@@ -1246,10 +1256,12 @@ export function CylinderManagement() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <Label className="text-lg font-semibold">Items</Label>
-                  <Button type="button" variant="outline" size="sm" onClick={addItem}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Item
-                  </Button>
+                  {formData.items.length === 0 && (
+                    <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Item
+                    </Button>
+                  )}
                 </div>
 
                 {formData.items.length > 0 && (
@@ -1267,25 +1279,68 @@ export function CylinderManagement() {
                         {formData.items.map((item, index) => (
                           <div key={index} className="grid grid-cols-[2fr_1fr_1fr_1fr_0.6fr] gap-3 px-2 py-3 border-b last:border-b-0">
                             {/* Product */}
-                            <div className="space-y-2">
+                            <div className="space-y-2 relative">
                               <Label className="md:hidden">Product</Label>
-                              <Select
-                                value={item.productId}
-                                onValueChange={(productId) => {
-                                  updateItem(index, 'productId', productId)
+                              <Input
+                                value={productSearchTerms[index] ?? item.productName ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setProductSearchTerms(prev => {
+                                    const cp = [...prev]
+                                    cp[index] = val
+                                    return cp
+                                  })
+                                  setShowProductSuggestions(prev => {
+                                    const cp = [...prev]
+                                    cp[index] = val.trim().length > 0
+                                    return cp
+                                  })
                                 }}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select product" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {products.map((p) => (
-                                    <SelectItem key={p._id} value={p._id}>
-                                      {p.name} ({p.cylinderSize}) - AED {p.leastPrice.toFixed(2)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                onBlur={() => {
+                                  setTimeout(() => {
+                                    setShowProductSuggestions(prev => {
+                                      const cp = [...prev]
+                                      cp[index] = false
+                                      return cp
+                                    })
+                                  }, 150)
+                                }}
+                                placeholder="Select product"
+                                autoComplete="off"
+                              />
+                              {showProductSuggestions[index] && (productSearchTerms[index]?.trim()?.length ?? 0) > 0 && (
+                                <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
+                                  {products
+                                    .filter(p => p.category === 'cylinder' && (
+                                      (productSearchTerms[index] ?? '').trim() === '' || p.name.toLowerCase().includes((productSearchTerms[index] ?? '').toLowerCase())
+                                    ))
+                                    .slice(0, 5)
+                                    .map(p => (
+                                      <li
+                                        key={p._id}
+                                        className="p-2 hover:bg-gray-100 cursor-pointer"
+                                        onMouseDown={() => {
+                                          updateItem(index, 'productId', p._id as any)
+                                          setProductSearchTerms(prev => {
+                                            const cp = [...prev]
+                                            cp[index] = p.name
+                                            return cp
+                                          })
+                                          setShowProductSuggestions(prev => {
+                                            const cp = [...prev]
+                                            cp[index] = false
+                                            return cp
+                                          })
+                                        }}
+                                      >
+                                        {p.name} - AED {p.leastPrice.toFixed(2)}
+                                      </li>
+                                    ))}
+                                  {(productSearchTerms[index]?.trim()?.length ?? 0) > 0 && products.filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes((productSearchTerms[index] ?? '').toLowerCase())).length === 0 && (
+                                    <li className="p-2 text-gray-500">No matches</li>
+                                  )}
+                                </ul>
+                              )}
                             </div>
 
                             {/* Size */}
@@ -1340,10 +1395,14 @@ export function CylinderManagement() {
                           </div>
                         ))}
                         {/* Total items amount */}
-                        <div className="flex justify-end px-2 py-3">
+                        <div className="flex justify-between items-center px-2 py-3">
                           <div className="text-sm font-semibold text-gray-800">
                             Total Items Amount: AED {formData.items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0).toFixed(2)}
                           </div>
+                          <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add Item
+                          </Button>
                         </div>
                       </div>
                     </div>

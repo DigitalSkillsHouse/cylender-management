@@ -124,6 +124,10 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([])
 
+  // Product autocomplete state (per item)
+  const [productSearchTerms, setProductSearchTerms] = useState<string[]>([])
+  const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
+
   // Form state
   const [formData, setFormData] = useState({
     type: "deposit",
@@ -159,20 +163,22 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const getProductById = (id: string) => products.find(p => p._id === id)
 
   const addItem = () => {
-    const first = products[0]
+    // Start empty; user will select explicitly
     setFormData(prev => ({
       ...prev,
       items: [
         ...prev.items,
         {
-          productId: first?._id || "",
-          productName: first?.name || "",
-          cylinderSize: "small",
+          productId: "",
+          productName: "",
+          cylinderSize: "",
           quantity: 1,
-          amount: Number((first?.leastPrice || 0).toFixed(2))
+          amount: Number((0).toFixed(2))
         }
       ]
     }))
+    setProductSearchTerms(prev => [...prev, ""])
+    setShowProductSuggestions(prev => [...prev, false])
   }
 
   const updateItem = (index: number, field: keyof (typeof formData.items)[number], value: any) => {
@@ -192,6 +198,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
   const removeItem = (index: number) => {
     setFormData(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }))
+    setProductSearchTerms(prev => prev.filter((_, i) => i !== index))
+    setShowProductSuggestions(prev => prev.filter((_, i) => i !== index))
   }
 
   const totalItemsAmount = () => formData.items.reduce((s, it) => s + (Number(it.amount) || 0), 0)
@@ -1138,14 +1146,16 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       </div>
     )}
 
-    {/* Items Section Toggle */}
+    {/* Items Section Info */}
     <div className="md:col-span-2 flex items-center justify-between">
       <div className="text-sm text-gray-600">
         {formData.items.length > 0 ? `Items in this transaction: ${formData.items.length}` : 'Single item mode'}
       </div>
-      <Button type="button" variant="outline" onClick={addItem} className="h-8">
-        Add Item
-      </Button>
+      {formData.items.length === 0 && (
+        <Button type="button" variant="outline" onClick={addItem} className="h-8">
+          Add Item
+        </Button>
+      )}
     </div>
 
     {/* Multi-Item UI or Single-Item Fields */}
@@ -1153,18 +1163,70 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       <div className="md:col-span-2 space-y-3">
         {formData.items.map((it, idx) => (
           <div key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end border p-3 rounded-lg">
-            <div>
+            <div className="relative">
               <Label>Product</Label>
-              <Select value={it.productId} onValueChange={(val) => updateItem(idx, 'productId', val)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map(p => (
-                    <SelectItem key={p._id} value={p._id}>{p.name} - AED {p.leastPrice.toFixed(2)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                value={productSearchTerms[idx] ?? it.productName ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setProductSearchTerms(prev => {
+                    const cp = [...prev]
+                    cp[idx] = val
+                    return cp
+                  })
+                  setShowProductSuggestions(prev => {
+                    const cp = [...prev]
+                    cp[idx] = val.trim().length > 0
+                    return cp
+                  })
+                }}
+                onFocus={() => { /* do not auto-open suggestions */ }}
+                onBlur={() => {
+                  setTimeout(() => {
+                    setShowProductSuggestions(prev => {
+                      const cp = [...prev]
+                      cp[idx] = false
+                      return cp
+                    })
+                  }, 150)
+                }}
+                placeholder="Select product"
+                autoComplete="off"
+              />
+              {showProductSuggestions[idx] && ((productSearchTerms[idx] ?? '').trim().length > 0) && (
+                <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
+                  {products
+                    .filter(p => p.category === 'cylinder' && (
+                      (productSearchTerms[idx] ?? '').trim() === '' || p.name.toLowerCase().includes((productSearchTerms[idx] ?? '').toLowerCase())
+                    ))
+                    .slice(0, 5)
+                    .map(p => (
+                      <li
+                        key={p._id}
+                        className="p-2 hover:bg-gray-100 cursor-pointer"
+                        onMouseDown={() => {
+                          // set selected
+                          updateItem(idx, 'productId', p._id as any)
+                          setProductSearchTerms(prev => {
+                            const cp = [...prev]
+                            cp[idx] = p.name
+                            return cp
+                          })
+                          setShowProductSuggestions(prev => {
+                            const cp = [...prev]
+                            cp[idx] = false
+                            return cp
+                          })
+                        }}
+                      >
+                        {p.name} - AED {p.leastPrice.toFixed(2)}
+                      </li>
+                    ))}
+                  {products.filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes((productSearchTerms[idx] ?? '').toLowerCase())).length === 0 && (
+                    <li className="p-2 text-gray-500">No matches</li>
+                  )}
+                </ul>
+              )}
             </div>
             <div>
               <Label>Cylinder Size</Label>
@@ -1196,6 +1258,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         <div className="flex items-center justify-between text-sm text-gray-700">
           <div>Total Quantity: <span className="font-semibold">{totalItemsQuantity()}</span></div>
           <div>Total Amount: <span className="font-semibold">AED {totalItemsAmount().toFixed(2)}</span></div>
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button type="button" variant="outline" onClick={addItem} className="h-8">
+            Add Item
+          </Button>
         </div>
       </div>
     ) : (
