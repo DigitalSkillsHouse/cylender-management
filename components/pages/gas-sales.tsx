@@ -18,6 +18,8 @@ import { ReceiptDialog } from "@/components/receipt-dialog"
 import { SignatureDialog } from "@/components/signature-dialog"
 import { CustomerDropdown } from "@/components/ui/customer-dropdown"
 import { ProductDropdown } from "@/components/ui/product-dropdown"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import jsPDF from "jspdf"
 
 interface Sale {
   _id: string
@@ -237,6 +239,150 @@ export function GasSales() {
     } catch (err) {
       console.error("Failed to export sales CSV:", err)
       alert("Failed to export CSV")
+    }
+  }
+
+  // PDF export for Sales History (filtered by exportSearch) with compact layout and multiline rows
+  const exportSalesPDF = () => {
+    try {
+      const term = (exportSearch || "").trim().toLowerCase()
+      const sourceArray = Array.isArray(sales) ? sales : []
+      const filtered = term
+        ? sourceArray.filter((s: Sale) => (s.customer?.name || "").toLowerCase().includes(term))
+        : sourceArray
+
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      const marginX = 32
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      let y = 52
+
+      // Title
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text('Gas Sales Export', marginX, y)
+      y += 10
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7.5)
+      if (term) { doc.text(`Filter: ${term}`, marginX, y); y += 9 }
+      doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, y); y += 10
+
+      // Header bar
+      const headerHeight = 16
+      const headerY = y
+      doc.setFillColor(43, 48, 104)
+      doc.rect(marginX - 4, headerY - 14, pageWidth - marginX * 2 + 8, headerHeight, 'F')
+
+      // Expanded headers to show all customer data in a row
+      const headers = [
+        'Invoice #','Customer','Phone','Address','Items','Total (AED)','Received (AED)','Payment Method','Payment Status','Notes','Added By','Date'
+      ]
+      const colWidths = [
+        70, 90, 80, 140, 220, 70, 80, 90, 90, 130, 70, 90
+      ]
+
+      // Draw headers
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7.5)
+      let xh = marginX
+      headers.forEach((h, i) => { doc.text(h, xh, headerY); xh += (colWidths[i] || 80) })
+      doc.setTextColor(0, 0, 0)
+      y += 12
+
+      // Row drawing with dynamic height
+      const baseFontSize = 7
+      const lineHeight = 9
+      let rowIndex = 0
+      const drawRow = (cells: string[]) => {
+        // Page break + header redraw
+        if (y > pageHeight - 52) {
+          doc.addPage()
+          y = 52
+          doc.setFont('helvetica', 'bold')
+          doc.setFontSize(11)
+          doc.text('Gas Sales Export (cont.)', marginX, y)
+          y += 10
+          const newHeaderY = y
+          doc.setFillColor(43, 48, 104)
+          doc.rect(marginX - 4, newHeaderY - 14, pageWidth - marginX * 2 + 8, headerHeight, 'F')
+          doc.setTextColor(255,255,255)
+          doc.setFontSize(7.5)
+          let nx = marginX
+          headers.forEach((h, i) => { doc.text(h, nx, newHeaderY); nx += (colWidths[i] || 80) })
+          doc.setTextColor(0,0,0)
+          y += 12
+          rowIndex = 0
+        }
+
+        // Measure lines for each cell
+        doc.setFont('helvetica', 'normal')
+        const cellLines: string[][] = []
+        const widths: number[] = []
+        cells.forEach((cell, i) => {
+          const cw = colWidths[i] || 80
+          const text = String(cell ?? '')
+          const lines = doc.splitTextToSize(text, Math.max(10, cw - 4)) as string[]
+          cellLines.push(lines)
+          widths.push(cw)
+        })
+        const maxLines = cellLines.reduce((m, l) => Math.max(m, l.length), 1)
+        const rowHeight = Math.max(12, maxLines * lineHeight)
+
+        // Zebra background
+        if (rowIndex % 2 === 1) {
+          doc.setFillColor(245, 247, 250)
+          doc.rect(marginX - 4, y - (lineHeight - 2), pageWidth - marginX * 2 + 8, rowHeight, 'F')
+        }
+
+        // Draw text
+        doc.setFontSize(baseFontSize)
+        let cx = marginX
+        cellLines.forEach((lines, i) => {
+          const cw = widths[i]
+          lines.forEach((line, li) => { doc.text(String(line), cx, y + (li * lineHeight)) })
+          cx += cw
+        })
+
+        y += rowHeight
+        rowIndex++
+      }
+
+      // Rows
+      filtered.forEach((s: Sale) => {
+        const itemsDesc = (s.items || []).map((it: any) => {
+          const name = it?.product?.name || 'Product'
+          const qty = Number(it?.quantity)||0
+          const price = Number(it?.price)||0
+          return `${name} x${qty} @ ${price}`
+        }).join(' | ')
+        const addedBy = s.employee?.name ? `Employee: ${s.employee.name}` : 'Admin'
+        const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleString() : ''
+        const totalStr = ((s as any).totalAmount ?? 0).toFixed ? (s as any).totalAmount.toFixed(2) : String((s as any).totalAmount || 0)
+        const receivedStr = ((s as any).receivedAmount ?? 0).toFixed ? (s as any).receivedAmount.toFixed(2) : String((s as any).receivedAmount || 0)
+        const row = [
+          s.invoiceNumber || '',
+          s.customer?.name || '',
+          s.customer?.phone || '',
+          s.customer?.address || '',
+          itemsDesc,
+          totalStr,
+          receivedStr,
+          s.paymentMethod || '',
+          s.paymentStatus || '',
+          s.notes || '',
+          addedBy,
+          dateStr,
+        ]
+        drawRow(row)
+      })
+
+      const ts = new Date().toISOString().replace(/[:.]/g, '-')
+      const namePart = term ? `-${term.replace(/\s+/g, '_')}` : ''
+      doc.save(`sales-export${namePart}-${ts}.pdf`)
+    } catch (err) {
+      console.error('Failed to export sales PDF:', err)
+      alert('Failed to export PDF')
     }
   }
 
@@ -1281,13 +1427,21 @@ export function GasSales() {
                 </div>
               )}
               {showExportInput && (
-                <Button
-                  variant="secondary"
-                  className="bg-white text-[#2B3068] hover:bg-gray-100"
-                  onClick={exportSalesCSV}
-                >
-                  Export
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="secondary" className="bg-white text-[#2B3068] hover:bg-gray-100">
+                      Export
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={exportSalesPDF}>
+                      Download PDF
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={exportSalesCSV}>
+                      Download CSV
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
               <Button
                 variant="secondary"

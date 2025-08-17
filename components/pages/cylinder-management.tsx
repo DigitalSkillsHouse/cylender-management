@@ -19,9 +19,11 @@ import { CustomerDropdown } from "@/components/ui/customer-dropdown"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { SignatureDialog } from "@/components/signature-dialog"
 import SecuritySelectDialog from "@/components/security-select-dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import jsPDF from "jspdf"
 
 interface CylinderTransaction {
-  _id: string
+  _id: string  
   type: "deposit" | "refill" | "return"
   customer?: {
     _id: string
@@ -503,6 +505,176 @@ export function CylinderManagement() {
     } catch (e) {
       console.error('[CylinderManagement] Export failed:', e)
       alert('Failed to export CSV')
+    }
+  }
+
+  // Export PDF of transactions with styled header and no Customer/Supplier column
+  const exportCylinderPDF = () => {
+    try {
+      const term = (exportSearch || '').trim().toLowerCase()
+      const list = (Array.isArray(transactions) ? transactions : [])
+        .filter((t) => {
+          if (!term) return true
+          const cname = t.customer?.name?.toLowerCase() || ''
+          const sname = t.supplier?.companyName?.toLowerCase() || ''
+          return cname.includes(term) || sname.includes(term)
+        })
+
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      const marginX = 32
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      let y = 52
+
+      // Title
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text('Cylinder Transactions', marginX, y)
+      y += 10
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7.5)
+      if (term) { doc.text(`Filter: ${term}`, marginX, y); y += 9 }
+      doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, y)
+      y += 10
+
+      // Header bar styling
+      const headerHeight = 16
+      const headerY = y
+      doc.setFillColor(43, 48, 104) // brand-like dark blue
+      doc.rect(marginX - 4, headerY - 14, pageWidth - marginX * 2 + 8, headerHeight, 'F')
+
+      // Define columns (expanded set)
+      const headers = [
+        'Type','Customer','Product Items / Cylinder Size','Quantity','Amount',
+        'Deposit Amount','Refill Amount','Return Amount','Payment Method','Security Cash','Bank Name','Check Number','Notes','Status','Date'
+      ]
+      const colWidths = [
+        30, 70, 160, 35, 50,
+        60, 60, 60, 65, 60, 65, 70, 100, 50, 60
+      ]
+
+      // Draw header text in white
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7.5)
+      let xh = marginX
+      headers.forEach((h, i) => {
+        doc.text(h, xh, headerY)
+        xh += (colWidths[i] || 80)
+      })
+      // Reset for body
+      doc.setTextColor(0, 0, 0)
+      y += 12
+
+      // Helper to draw a row with optional zebra striping
+      const baseFontSize = 7
+      const minFontSize = 6
+      const lineHeight = 9
+      let rowIndex = 0
+      const drawRow = (cells: string[]) => {
+        let x = marginX
+        // Page break check: leave bottom margin
+        if (y > pageHeight - 52) {
+          doc.addPage();
+          // re-draw header on new page
+          y = 52
+          doc.setFont('helvetica', 'bold')
+          doc.setFontSize(11)
+          doc.text('Cylinder Transactions (cont.)', marginX, y)
+          y += 10
+          doc.setFillColor(43, 48, 104)
+          const newHeaderY = y
+          doc.rect(marginX - 4, newHeaderY - 14, pageWidth - marginX * 2 + 8, 16, 'F')
+          doc.setTextColor(255, 255, 255)
+          doc.setFontSize(7.5)
+          let nx = marginX
+          headers.forEach((h, i) => { doc.text(h, nx, newHeaderY); nx += (colWidths[i] || 80) })
+          doc.setTextColor(0,0,0)
+          y += 12
+          rowIndex = 0
+        }
+        // Background for zebra striping
+        if (rowIndex % 2 === 1) {
+          doc.setFillColor(245, 247, 250)
+          // height will be determined after measuring text; draw later if needed
+        }
+        // Measure wrapped text for each cell
+        doc.setFont('helvetica', 'normal')
+        const cellLines: string[][] = []
+        const cellWidths: number[] = []
+        cells.forEach((cell, i) => {
+          const cw = colWidths[i] || 80
+          const padding = 2
+          const maxW = cw - padding * 2
+          const text = String(cell ?? '')
+          const lines = doc.splitTextToSize(text, Math.max(10, maxW)) as string[]
+          cellLines.push(lines)
+          cellWidths.push(cw)
+        })
+        const maxLines = cellLines.reduce((m, lines) => Math.max(m, lines.length), 1)
+        const rowHeight = Math.max(12, maxLines * lineHeight)
+        // Draw zebra background now that we know height
+        if (rowIndex % 2 === 1) {
+          doc.setFillColor(245, 247, 250)
+          doc.rect(marginX - 4, y - (lineHeight - 2), pageWidth - marginX * 2 + 8, rowHeight, 'F')
+        }
+        // Draw text per cell
+        doc.setFontSize(baseFontSize)
+        let cx = marginX
+        cellLines.forEach((lines, i) => {
+          const cw = cellWidths[i]
+          lines.forEach((line, li) => {
+            doc.text(String(line), cx, y + (li * lineHeight))
+          })
+          cx += cw
+        })
+        y += rowHeight
+        rowIndex++
+      }
+
+      // Rows
+      list.forEach((t) => {
+        const items = (t as any).items as any[] | undefined
+        const hasItems = items && items.length > 0
+        const productOrItems = hasItems
+          ? items!.map((it) => `${it.productName || ''} x${Number(it.quantity)||0} (AED ${(Number(it.amount)||0).toFixed(2)})`).join(' | ')
+          : (t.product?.name || '')
+        const cylSize = hasItems
+          ? items!.map((it) => `${it.cylinderSize || '-'}`).join(' | ')
+          : (t.cylinderSize || '-')
+        const qty = hasItems
+          ? items!.reduce((s, it) => s + (Number(it.quantity)||0), 0)
+          : (t.quantity || 0)
+        const amt = hasItems
+          ? items!.reduce((s, it) => s + (Number(it.amount)||0), 0)
+          : (t.amount || 0)
+        const party = t.customer?.name || t.supplier?.companyName || ''
+        const row = [
+          t.type,
+          party,
+          `${productOrItems} / ${cylSize}`,
+          String(qty),
+          Number(amt).toFixed(2),
+          t.depositAmount ? Number(t.depositAmount).toFixed(2) : '',
+          t.refillAmount ? Number(t.refillAmount).toFixed(2) : '',
+          t.returnAmount ? Number(t.returnAmount).toFixed(2) : '',
+          t.paymentMethod || '',
+          t.cashAmount ? Number(t.cashAmount).toFixed(2) : '',
+          t.bankName || '',
+          t.checkNumber || '',
+          t.notes || '',
+          t.status,
+          new Date(t.createdAt).toLocaleDateString(),
+        ]
+        drawRow(row)
+      })
+
+      const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')
+      const suffix = term ? `-${term.replace(/[^a-z0-9-_]+/g,'_')}` : ''
+      doc.save(`cylinder-transactions${suffix}-${ts}.pdf`)
+    } catch (e) {
+      console.error('[CylinderManagement] PDF export failed:', e)
+      alert('Failed to export PDF')
     }
   }
 
@@ -2019,20 +2191,29 @@ export function CylinderManagement() {
                       </div>
                     )}
                   </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="h-9"
-                    onClick={() => exportCylinderCSV()}
-                  >
-                    Export
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto"
+                      >
+                        Export
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuItem onClick={exportCylinderPDF}>
+                        Download PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={exportCylinderCSV}>
+                        Download CSV
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               )}
               <Button
-                size="sm"
                 variant="secondary"
-                className="h-9"
+                className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto"
                 onClick={() => setShowExportInput((v) => !v)}
               >
                 Export Data
