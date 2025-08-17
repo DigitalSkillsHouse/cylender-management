@@ -14,6 +14,7 @@ import { reportsAPI } from "@/lib/api";
 import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { DialogDescription } from "@radix-ui/react-dialog"
 
 interface CustomerLedgerData {
   _id: string
@@ -85,18 +86,32 @@ export function Reports() {
   const downloadDsrGridPdf = (date: string) => {
     try {
       const byKey = new Map<string, DailyStockEntry>()
-      dsrEntries.filter(e => e.date === date).forEach(e => byKey.set(e.itemName.toLowerCase(), e))
-      const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(dsrEntries.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
+      dsrEntries.filter(e => e.date === date).forEach(e => byKey.set(normalizeName(e.itemName), e))
+      // Build rows from multiple sources similar to DSR Grid View
+      const rowsSource = (() => {
+        if (dsrProducts.length > 0) return dsrProducts
+        const nameSet = new Set<string>()
+        dsrEntries.filter(e => e.date === date).forEach(e => nameSet.add(normalizeName(String(e.itemName))))
+        Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+        const arr = Array.from(nameSet)
+        return arr.map((n, i) => ({ _id: String(i), name: n } as any))
+      })()
       const rows = rowsSource.map(p => {
-        const e = byKey.get(String(p.name).toLowerCase())
+        const key = normalizeName(p.name)
+        const e = byKey.get(key)
+        const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
+        const cylSalesVal = dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0)
+        const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
         return `
           <tr>
             <td>${p.name}</td>
             <td>${e ? e.openingFull : 0}</td>
             <td>${e ? e.openingEmpty : 0}</td>
-            <td>${e ? e.refilled : 0}</td>
-            <td>${e ? e.cylinderSales : 0}</td>
-            <td>${e ? e.gasSales : 0}</td>
+            <td>${refilledVal || 0}</td>
+            <td>${cylSalesVal || 0}</td>
+            <td>${gasSalesVal || 0}</td>
             <td>${typeof e?.closingFull === 'number' ? e!.closingFull : 0}</td>
             <td>${typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</td>
           </tr>
@@ -233,6 +248,20 @@ export function Reports() {
     closingEmpty: string
   }
   const [dsrGrid, setDsrGrid] = useState<DsrGridRow[]>([])
+  // Consistent name normalizer used across aggregation and rendering
+  const normalizeName = (s: any) => (typeof s === 'string' || typeof s === 'number')
+    ? String(s).replace(/\s+/g, ' ').trim().toLowerCase()
+    : ''
+  // Aggregated daily totals fed into the DSR view grid (by product name, lowercase)
+  const [dailyAggGasSales, setDailyAggGasSales] = useState<Record<string, number>>({})
+  const [dailyAggCylinderSales, setDailyAggCylinderSales] = useState<Record<string, number>>({})
+  const [dailyAggRefills, setDailyAggRefills] = useState<Record<string, number>>({})
+  // Also aggregate by product ID to avoid any name mismatch issues
+  const [dailyAggGasSalesById, setDailyAggGasSalesById] = useState<Record<string, number>>({})
+  const [dailyAggCylinderSalesById, setDailyAggCylinderSalesById] = useState<Record<string, number>>({})
+  const [dailyAggRefillsById, setDailyAggRefillsById] = useState<Record<string, number>>({})
+  // Aggregation readiness flag
+  const [aggReady, setAggReady] = useState<boolean>(false)
   
   // Types and state for Employee-scoped Daily Stock Report viewing
   interface EmployeeLite { _id: string; name?: string; email?: string }
@@ -776,6 +805,110 @@ export function Reports() {
     fetchDsrEntries()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Compute daily aggregates (Gas Sales, Cylinder Sales, Refilled) by product for selected DSR view date
+  useEffect(() => {
+    if (!dsrViewDate) return
+    setAggReady(false)
+    // Build local start/end of selected day to avoid timezone/string mismatches
+    const getDayBounds = (ymd: string) => {
+      // ymd expected format: YYYY-MM-DD
+      const [y, m, d] = ymd.split('-').map((n) => parseInt(n, 10))
+      if (!y || !m || !d) return { start: 0, end: 0 }
+      const start = new Date(y, m - 1, d, 0, 0, 0, 0).getTime()
+      const end = new Date(y, m - 1, d, 23, 59, 59, 999).getTime()
+      return { start, end }
+    }
+    const { start: dayStart, end: dayEnd } = getDayBounds(dsrViewDate)
+    const inSelectedDay = (val: any) => {
+      const t = new Date(val).getTime()
+      return Number.isFinite(t) && t >= dayStart && t <= dayEnd
+    }
+    const inc = (map: Record<string, number>, key: string, by: number) => {
+      const k = normalizeName(key)
+      if (!k) return
+      map[k] = (map[k] || 0) + (Number(by) || 0)
+    }
+    const incId = (map: Record<string, number>, id: any, by: number) => {
+      const k = (typeof id === 'string' || typeof id === 'number') ? String(id) : ''
+      if (!k) return
+      map[k] = (map[k] || 0) + (Number(by) || 0)
+    }
+    ;(async () => {
+      try {
+        // Admin-side only: Sales (gas + cylinder) and Cylinders (refill)
+        const [salesRes, cylTxRes] = await Promise.all([
+          fetch('/api/sales', { cache: 'no-store' }),
+          fetch('/api/cylinders', { cache: 'no-store' }),
+        ])
+        const salesJson = await salesRes.json().catch(() => ({}))
+        const cylTxJson = await cylTxRes.json().catch(() => ({}))
+        console.log('[DSR] Aggregation start for date:', dsrViewDate)
+
+        const gas: Record<string, number> = {}
+        const gasById: Record<string, number> = {}
+        const cyl: Record<string, number> = {}
+        const cylById: Record<string, number> = {}
+        const ref: Record<string, number> = {}
+        const refById: Record<string, number> = {}
+
+        // Admin sales
+        const salesList: any[] = Array.isArray(salesJson?.data) ? salesJson.data : (Array.isArray(salesJson) ? salesJson : [])
+        console.log('[DSR] /api/sales count:', Array.isArray(salesList) ? salesList.length : 0)
+        for (const s of salesList) {
+          if (!inSelectedDay(s?.createdAt)) continue
+          const items: any[] = Array.isArray(s?.items) ? s.items : []
+          if (!items.length) {
+            console.debug('[DSR] Sale has no items, invoice:', s?.invoiceNumber)
+          }
+          for (const it of items) {
+            const product = it?.product
+            const name = product?.name || ''
+            const pid = product?._id
+            const qty = Number(it?.quantity) || 0
+            const category = product?.category || ''
+            if (category === 'gas') { inc(gas, name, qty); incId(gasById, pid, qty) }
+            else if (category === 'cylinder') { inc(cyl, name, qty); incId(cylById, pid, qty) }
+          }
+        }
+
+        // Refills from admin cylinder transactions (type=refill)
+        const cylTxList: any[] = Array.isArray(cylTxJson?.data) ? cylTxJson.data : (Array.isArray(cylTxJson) ? cylTxJson : [])
+        console.log('[DSR] /api/cylinders count:', Array.isArray(cylTxList) ? cylTxList.length : 0)
+        for (const t of cylTxList) {
+          if (t?.type !== 'refill') continue
+          if (!inSelectedDay(t?.createdAt)) continue
+          // Admin cylinder transaction shape: single product per tx
+          const name = t?.product?.name || ''
+          const pid = t?.product?._id
+          const qty = Number(t?.quantity) || 0
+          inc(ref, name, qty)
+          incId(refById, pid, qty)
+        }
+
+        console.log('[DSR] Totals gas:', gas)
+        console.log('[DSR] Totals cylinder:', cyl)
+        console.log('[DSR] Totals refilled:', ref)
+
+        setDailyAggGasSales(gas)
+        setDailyAggCylinderSales(cyl)
+        setDailyAggRefills(ref)
+        setDailyAggGasSalesById(gasById)
+        setDailyAggCylinderSalesById(cylById)
+        setDailyAggRefillsById(refById)
+        setAggReady(true)
+      } catch (err) {
+        console.error('[DSR] Aggregation failed:', err)
+        setDailyAggGasSales({})
+        setDailyAggCylinderSales({})
+        setDailyAggRefills({})
+        setDailyAggGasSalesById({})
+        setDailyAggCylinderSalesById({})
+        setDailyAggRefillsById({})
+        setAggReady(false)
+      }
+    })()
+  }, [dsrViewDate])
 
   // Prefill opening from previous day closing for same item (API first, fallback local)
   const prefillOpeningFromPrevious = (date: string, itemName: string) => {
@@ -1324,7 +1457,7 @@ export function Reports() {
             <PlusCircle className="h-4 w-4 mr-2" />
             Daily Stock Report
           </Button>
-          <Button variant="outline" onClick={() => setShowDSRList(true)} className="w-full sm:w-auto">
+          <Button variant="outline" onClick={() => setShowDSRView(true)} className="w-full sm:w-auto">
             <ListChecks className="h-4 w-4 mr-2" />
             View Reports
           </Button>
@@ -1414,7 +1547,7 @@ export function Reports() {
 
       {/* Daily Stock Report - Excel-like Dialog */}
       <Dialog open={showDSRForm} onOpenChange={setShowDSRForm}>
-        <DialogContent className="w-screen max-w-screen sm:w-[95vw] sm:max-w-[1000px] p-0 sm:p-6 overflow-x-visible" style={{ overflowX: 'visible' }}>
+        <DialogContent className="w-screen max-w-screen sm:w-[95vw] sm:max-w-[1090px] p-0 sm:p-6 overflow-x-visible" style={{ overflowX: 'visible' }}>
           <DialogHeader>
             <DialogTitle>Daily Stock Report</DialogTitle>
           </DialogHeader>
@@ -1514,10 +1647,14 @@ export function Reports() {
         <DialogContent className="w-[95vw] max-w-[900px] p-3 sm:p-6 rounded-lg">
           <DialogHeader>
             <DialogTitle>Daily Stock Report – {dsrViewDate}</DialogTitle>
+            <DialogDescription className="sr-only">Daily totals are derived from admin gas/cylinder sales and admin refills for the selected date.</DialogDescription>
           </DialogHeader>
           <div className="mb-3 flex items-center gap-2">
             <Label className="whitespace-nowrap">Date</Label>
             <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[10.5rem]" />
+            <Button variant="outline" onClick={() => downloadDsrGridPdf(dsrViewDate)} className="ml-auto">
+              <FileText className="h-4 w-4 mr-2" /> Download PDF
+            </Button>
           </div>
           <div className="border rounded-lg overflow-x-auto">
             <Table className="min-w-[900px]">
@@ -1545,19 +1682,44 @@ export function Reports() {
                   const byKey = new Map<string, DailyStockEntry>()
                   dsrEntries
                     .filter(e => e.date === dsrViewDate)
-                    .forEach(e => byKey.set(e.itemName.toLowerCase(), e))
-                  const rows = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(dsrEntries.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
+                    .forEach(e => byKey.set(normalizeName(e.itemName), e))
+                  // Build rows from multiple sources to ensure items that only appear in today's aggregates are shown
+                  const rows = (() => {
+                    if (dsrProducts.length > 0) return dsrProducts
+                    const nameSet = new Set<string>()
+                    // Names from DSR entries for selected date
+                    dsrEntries.filter(e => e.date === dsrViewDate).forEach(e => nameSet.add(normalizeName(String(e.itemName))))
+                    // Names from daily aggregates (gas, cylinder, refills)
+                    Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
+                    Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
+                    Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+                    const arr = Array.from(nameSet)
+                    return arr.map((n, i) => ({ _id: String(i), name: n } as any))
+                  })()
                   return rows.length > 0 ? (
                     rows.map(p => {
-                      const e = byKey.get(String(p.name).toLowerCase())
+                      const key = normalizeName(p.name)
+                      const e = byKey.get(key)
+                      const idKey = p._id ? String(p._id) : ''
+                      const refV = (dailyAggRefills[key]
+                        ?? (idKey ? dailyAggRefillsById[idKey] : undefined)
+                        ?? (e ? e.refilled : 0)) ?? 0
+                      const cylV = (dailyAggCylinderSales[key]
+                        ?? (idKey ? dailyAggCylinderSalesById[idKey] : undefined)
+                        ?? (e ? e.cylinderSales : 0)) ?? 0
+                      const gasV = (dailyAggGasSales[key]
+                        ?? (idKey ? dailyAggGasSalesById[idKey] : undefined)
+                        ?? (e ? e.gasSales : 0)) ?? 0
+                      // Temporary debug per row
+                      try { console.debug('[DSR Row]', { name: p.name, key, refV, cylV, gasV }) } catch {}
                       return (
                         <TableRow key={p._id || p.name}>
                           <TableCell className="font-medium">{p.name}</TableCell>
                           <TableCell>{e ? e.openingFull : 0}</TableCell>
                           <TableCell>{e ? e.openingEmpty : 0}</TableCell>
-                          <TableCell>{e ? e.refilled : 0}</TableCell>
-                          <TableCell>{e ? e.cylinderSales : 0}</TableCell>
-                          <TableCell>{e ? e.gasSales : 0}</TableCell>
+                          <TableCell>{refV}</TableCell>
+                          <TableCell>{cylV}</TableCell>
+                          <TableCell>{gasV}</TableCell>
                           <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
                           <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
                         </TableRow>
@@ -2121,12 +2283,13 @@ export function Reports() {
         <DialogContent className="w-[95vw] max-w-[900px] p-3 sm:p-6 rounded-lg">
           <DialogHeader>
             <DialogTitle>Daily Stock Reports</DialogTitle>
+            <DialogDescription className="sr-only">Grid view shows admin totals for the selected date. Use the date input to change day.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-2">
             <div className="text-sm text-gray-600">Grid view · Select date to view</div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[9.5rem]" />
-              <Button className="w-full bg-yellow-500 sm:w-auto" variant="outline" onClick={() => downloadDsrGridPdf(dsrViewDate)}>Download PDF</Button>
+              <Button className="w-full bg-yellow-500 sm:w-auto" variant="outline" disabled={!aggReady} title={!aggReady ? 'Please wait… loading daily totals' : ''} onClick={() => downloadDsrGridPdf(dsrViewDate)}>Download PDF</Button>
             </div>
           </div>
           <div className="border rounded-lg overflow-x-auto">
@@ -2152,7 +2315,7 @@ export function Reports() {
               <TableBody>
                 {(() => {
                   const byKey = new Map<string, DailyStockEntry>()
-                  dsrEntries.filter(e => e.date === dsrViewDate).forEach(e => byKey.set(e.itemName.toLowerCase(), e))
+                  dsrEntries.filter(e => e.date === dsrViewDate).forEach(e => byKey.set(normalizeName(e.itemName), e))
                   const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(dsrEntries.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
                   if (rowsSource.length === 0) {
                     return (
@@ -2162,7 +2325,7 @@ export function Reports() {
                     )
                   }
                   return rowsSource.map((p: any) => {
-                    const e = byKey.get(String(p.name).toLowerCase())
+                    const e = byKey.get(normalizeName(p.name))
                     return (
                       <TableRow key={p._id || p.name}>
                         <TableCell className="font-medium">{p.name}</TableCell>
