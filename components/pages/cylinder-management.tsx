@@ -335,16 +335,14 @@ export function CylinderManagement() {
       actions: () => (
         <TableCell className="p-4">
           <div className="flex space-x-2">
-            {transaction.type !== "return" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleReceiptClick(transaction)}
-                className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
-              >
-                Receipt
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleReceiptClick(transaction)}
+              className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
+            >
+              Receipt
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -881,11 +879,7 @@ export function CylinderManagement() {
   }
 
   const handleReceiptClick = (transaction: CylinderTransaction) => {
-    // Don't generate receipt for cylinder return transactions
-    if (transaction.type === "return") {
-      console.log(`Receipt not available for return transactions`);
-      return;
-    }
+    // Allow receipt generation for all types, including 'return'
 
     if (!customerSignature) {
       // No signature yet - show signature dialog first
@@ -933,6 +927,8 @@ export function CylinderManagement() {
         totalAmount,
         paymentMethod: (transaction as any).paymentMethod || "cash",
         paymentStatus: transaction.status || "pending",
+        // include type to support header selection logic in receipt
+        type: transaction.type,
         createdAt: transaction.createdAt,
         customerSignature: customerSignature,
       }
@@ -992,6 +988,8 @@ export function CylinderManagement() {
         totalAmount,
         paymentMethod: (pendingTransaction as any).paymentMethod || "cash",
         paymentStatus: pendingTransaction.status || "pending",
+        // include type to support header selection logic in receipt
+        type: pendingTransaction.type,
         createdAt: pendingTransaction.createdAt,
         customerSignature: signature,
       }

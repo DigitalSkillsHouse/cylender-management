@@ -27,6 +27,8 @@ interface Sale {
   paymentStatus: string;
   createdAt: string;
   customerSignature?: string;
+  // Optional: used for cylinder returns to pick the correct header
+  type?: 'deposit' | 'refill' | 'return' | string;
 }
 
 const ReceiptPrintPage = () => {
@@ -84,6 +86,17 @@ const ReceiptPrintPage = () => {
     return sum + itemTotal
   }, 0);
 
+  // Header selection based on status/type
+  const normalizedStatus = (sale?.paymentStatus || '').toString().toLowerCase();
+  const normalizedType = (sale?.type || '').toString().toLowerCase();
+  const headerSrc = normalizedType === 'return'
+    ? '/images/Header-Tax-invoice.jpg'
+    : (normalizedStatus === 'cleared' || normalizedStatus === 'cleard')
+      ? '/images/Header-deposit-invoice.jpg'
+      : (normalizedStatus === 'pending')
+        ? '/images/Header-Receiving-invoice.jpg'
+        : '/images/header-invoice.jpeg';
+
   return (
     <div className="bg-gray-100 min-h-screen print:bg-white">
       {/* This is the non-printable header with the print button */}
@@ -99,7 +112,7 @@ const ReceiptPrintPage = () => {
       <main className="printable-area max-w-3xl mx-auto p-8 bg-white">
         <div className="text-center pb-4 border-b-2 border-gray-300">
           <img 
-            src="/images/header-invoice.jpeg"
+            src={headerSrc}
             alt="Company Header"
             className="mx-auto max-w-full h-auto"
           />

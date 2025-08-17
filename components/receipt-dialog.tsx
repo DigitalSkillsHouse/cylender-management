@@ -27,6 +27,8 @@ interface ReceiptDialogProps {
     totalAmount: number
     paymentMethod: string
     paymentStatus: string
+    // Optional: used for cylinder returns to pick the correct header
+    type?: 'deposit' | 'refill' | 'return' | string
     createdAt: string
     customerSignature?: string // Add signature to sale object
   }
@@ -60,7 +62,18 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
   }, 0)
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
-  
+
+  // Select header image based on status/type
+  const normalizedStatus = (sale?.paymentStatus || '').toString().toLowerCase()
+  const normalizedType = (sale as any)?.type ? ((sale as any).type as string).toLowerCase() : ''
+  const headerSrc = normalizedType === 'return'
+    ? '/images/Header-Tax-invoice.jpg'
+    : (normalizedStatus === 'cleared' || normalizedStatus === 'cleard')
+      ? '/images/Header-deposit-invoice.jpg'
+      : (normalizedStatus === 'pending')
+        ? '/images/Header-Receiving-invoice.jpg'
+        : '/images/header-invoice.jpeg'
+
   console.log('ReceiptDialog - Sale:', sale?.invoiceNumber)
   console.log('ReceiptDialog - Signature prop:', signature?.length)
   console.log('ReceiptDialog - Sale signature:', sale.customerSignature?.length)
@@ -168,7 +181,7 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
           {/* Company Header Image */}
           <div className="text-center pb-4">
             <img 
-              src="/images/header-invoice.jpeg"
+              src={headerSrc}
               alt="BARAKAH ALJAZEERA Header" 
               className="mx-auto max-w-full h-auto"
             />
