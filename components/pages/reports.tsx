@@ -80,6 +80,139 @@ export function Reports() {
     setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '' })
   }
 
+  // Auto-calculate Closing Full/Empty for a given date (admin scope) and roll forward to next day openings
+  const autoCalcAndSaveDsrForDate = async (date: string) => {
+    try {
+      if (!date) return
+      // Build item set from products, existing entries and aggregates; also keep display names
+      const byKey = new Map<string, DailyStockEntry>()
+      dsrEntries.filter(e => e.date === date).forEach(e => byKey.set(normalizeName(e.itemName), e))
+      const nameSet = new Set<string>()
+      const nameToDisplay = new Map<string, string>()
+      // Prefer product list names if present
+      if (dsrProducts.length > 0) dsrProducts.forEach(p => {
+        const k = normalizeName(p.name)
+        nameSet.add(k)
+        if (!nameToDisplay.has(k)) nameToDisplay.set(k, p.name)
+      })
+      // Existing entries for the date
+      dsrEntries.filter(e => e.date === date).forEach(e => {
+        const k = normalizeName(String(e.itemName))
+        nameSet.add(k)
+        if (!nameToDisplay.has(k)) nameToDisplay.set(k, e.itemName)
+      })
+      // Aggregates
+      Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
+      Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
+      Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+      Object.keys(dailyAggDeposits || {}).forEach(k => nameSet.add(k))
+      Object.keys(dailyAggReturns || {}).forEach(k => nameSet.add(k))
+
+      const items = Array.from(nameSet)
+      if (items.length === 0) return
+
+      // Build previous day's map to backfill today's openings
+      const prevDate = new Date(date)
+      prevDate.setDate(prevDate.getDate() - 1)
+      const prevDateStr = prevDate.toISOString().slice(0, 10)
+      const prevByKey = new Map<string, DailyStockEntry>()
+      dsrEntries.filter(e => e.date === prevDateStr).forEach(e => prevByKey.set(normalizeName(e.itemName), e))
+
+      // Compute closings per formula
+      const computed: { itemName: string; closingFull: number; closingEmpty: number; openingFull: number; openingEmpty: number; refilled: number; cylinderSales: number; gasSales: number; deposit: number; ret: number }[] = []
+      for (const key of items) {
+        const rec = byKey.get(key)
+        const openingFull = Number((rec?.openingFull ?? prevByKey.get(key)?.closingFull) ?? 0)
+        const openingEmpty = Number((rec?.openingEmpty ?? prevByKey.get(key)?.closingEmpty) ?? 0)
+        const refilled = Number((dailyAggRefills as any)?.[key] ?? rec?.refilled ?? 0)
+        const cylinderSales = Number((dailyAggCylinderSales as any)?.[key] ?? rec?.cylinderSales ?? 0)
+        const gasSales = Number((dailyAggGasSales as any)?.[key] ?? rec?.gasSales ?? 0)
+        const deposit = Number((dailyAggDeposits as any)?.[key] ?? 0)
+        const ret = Number((dailyAggReturns as any)?.[key] ?? 0)
+
+        // Updated: Closing Full = (Opening Full + Refilled) - Gas Sales
+        let closingFull = (openingFull + refilled) - gasSales
+        if (closingFull < 0) closingFull = 0
+        let closingEmpty = (openingFull + openingEmpty) - cylinderSales - deposit + ret - closingFull
+        if (closingEmpty < 0) closingEmpty = 0
+
+        const itemName = nameToDisplay.get(key) || rec?.itemName || key
+        computed.push({ itemName, closingFull, closingEmpty, openingFull, openingEmpty, refilled, cylinderSales, gasSales, deposit, ret })
+      }
+
+      // Persist closings for the date (upsert)
+      const saveResults = await Promise.all(computed.map(async (c) => {
+        const payload: any = {
+          date,
+          itemName: c.itemName,
+          closingFull: c.closingFull,
+          closingEmpty: c.closingEmpty,
+        }
+        // include openings and during-day values if known, useful for upsert completeness
+        payload.openingFull = c.openingFull
+        payload.openingEmpty = c.openingEmpty
+        payload.refilled = c.refilled
+        payload.cylinderSales = c.cylinderSales
+        payload.gasSales = c.gasSales
+        try {
+          const res = await fetch(API_BASE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          if (!res.ok) throw new Error('post failed')
+          const json = await res.json().catch(() => ({}))
+          return json?.data || payload
+        } catch {
+          return payload
+        }
+      }))
+
+      // Roll forward: save next day's openings as today's closings
+      const nextDate = new Date(date)
+      nextDate.setDate(nextDate.getDate() + 1)
+      const nextDateStr = nextDate.toISOString().slice(0, 10)
+      await Promise.all(computed.map(async (c) => {
+        const payload: any = {
+          date: nextDateStr,
+          itemName: c.itemName,
+          openingFull: c.closingFull,
+          openingEmpty: c.closingEmpty,
+        }
+        try {
+          const res = await fetch(API_BASE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          if (!res.ok) throw new Error('post failed')
+          return await res.json().catch(() => ({}))
+        } catch {
+          return null
+        }
+      }))
+
+      // Merge into local state for current date rows
+      const merged = [...dsrEntries]
+      for (const d of saveResults as any[]) {
+        const id = d._id || `${d.itemName}-${d.date}`
+        const idx = merged.findIndex(x => x.itemName && normalizeName(x.itemName) === normalizeName(d.itemName) && x.date === d.date)
+        const entry = {
+          id,
+          date: d.date,
+          itemName: d.itemName,
+          openingFull: Number(d.openingFull ?? byKey.get(normalizeName(d.itemName))?.openingFull ?? 0),
+          openingEmpty: Number(d.openingEmpty ?? byKey.get(normalizeName(d.itemName))?.openingEmpty ?? 0),
+          refilled: Number(d.refilled ?? (dailyAggRefills as any)?.[normalizeName(d.itemName)] ?? 0),
+          cylinderSales: Number(d.cylinderSales ?? (dailyAggCylinderSales as any)?.[normalizeName(d.itemName)] ?? 0),
+          gasSales: Number(d.gasSales ?? (dailyAggGasSales as any)?.[normalizeName(d.itemName)] ?? 0),
+          closingFull: Number(d.closingFull ?? 0),
+          closingEmpty: Number(d.closingEmpty ?? 0),
+          createdAt: d.createdAt || new Date().toISOString(),
+        } as DailyStockEntry
+        if (idx >= 0) merged[idx] = entry; else merged.unshift(entry)
+      }
+      setDsrEntries(merged)
+      saveDsrLocal(merged)
+      alert('Auto-calculated and saved closing stock for the selected date. Next day openings updated.')
+    } catch (e) {
+      console.error('autoCalcAndSaveDsrForDate failed', e)
+      alert('Failed to auto-calc. Please try again.')
+    }
+  }
+
   const closeReceiveDialog = () => {
     setReceiveDialog(prev => ({ ...prev, open: false, inputAmount: '', targetId: null }))
   }
@@ -2466,6 +2599,7 @@ export function Reports() {
             <div className="text-sm text-gray-600">Grid view · Select date to view</div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[9.5rem]" />
+              <Button className="w-full sm:w-auto" variant="outline" disabled={!aggReady} title={!aggReady ? 'Please wait… loading daily totals' : ''} onClick={() => autoCalcAndSaveDsrForDate(dsrViewDate)}>Auto-calc & Save</Button>
               <Button className="w-full bg-yellow-500 sm:w-auto" variant="outline" disabled={!aggReady} title={!aggReady ? 'Please wait… loading daily totals' : ''} onClick={() => downloadDsrGridPdf(dsrViewDate)}>Download PDF</Button>
             </div>
           </div>

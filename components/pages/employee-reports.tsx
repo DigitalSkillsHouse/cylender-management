@@ -14,6 +14,7 @@ import { DollarSign, Users, Fuel, Cylinder, UserCheck, ChevronDown, ChevronRight
 import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { toast } from "sonner"
 
 interface CustomerLedgerData {
   _id: string
@@ -81,6 +82,145 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 
   const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'cylinder' }) => {
     setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '' })
+  }
+
+  // Auto-calculate Closing Full/Empty for selected date and roll forward as next day's Opening
+  const autoCalcAndSaveDsrForDate = async (date: string) => {
+    try {
+      if (!date) return;
+      // Build easy access map of existing entries for this date
+      const entriesForDate = dsrEntries.filter(e => e.date === date)
+      const byKey = new Map<string, DailyStockEntry>()
+      entriesForDate.forEach(e => byKey.set(normalizeName(e.itemName), e))
+
+      // Determine all item keys we should process (ensure all employee products are included)
+      const nameSet = new Set<string>()
+      const nameToDisplay = new Map<string, string>()
+      // Existing entries for this date
+      entriesForDate.forEach(e => {
+        const k = normalizeName(e.itemName)
+        nameSet.add(k)
+        if (!nameToDisplay.has(k)) nameToDisplay.set(k, e.itemName)
+      })
+      // Aggregates
+      Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
+      Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
+      Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+      Object.keys((dailyAggDeposits as any) || {}).forEach(k => nameSet.add(k))
+      Object.keys((dailyAggReturns as any) || {}).forEach(k => nameSet.add(k))
+      // Employee assigned products first (preferred list)
+      if (Array.isArray(assignedProducts) && assignedProducts.length > 0) {
+        assignedProducts.forEach((p: any) => {
+          const k = normalizeName(p.name)
+          nameSet.add(k)
+          if (!nameToDisplay.has(k)) nameToDisplay.set(k, String((p as any).displayName || p.name))
+        })
+      }
+      // Fallback to dsrProducts if assigned list is empty
+      else if (Array.isArray(dsrProducts) && dsrProducts.length > 0) {
+        dsrProducts.forEach((p: any) => {
+          const k = normalizeName(p.name)
+          nameSet.add(k)
+          if (!nameToDisplay.has(k)) nameToDisplay.set(k, String(p.name))
+        })
+      }
+
+      // Helper to get next/prev day in YYYY-MM-DD
+      const nextDay = (d: string) => {
+        const dt = new Date(d + 'T00:00:00')
+        dt.setDate(dt.getDate() + 1)
+        const yyyy = dt.getFullYear()
+        const mm = String(dt.getMonth() + 1).padStart(2, '0')
+        const dd = String(dt.getDate()).padStart(2, '0')
+        return `${yyyy}-${mm}-${dd}`
+      }
+      const prevDay = (d: string) => {
+        const dt = new Date(d + 'T00:00:00')
+        dt.setDate(dt.getDate() - 1)
+        const yyyy = dt.getFullYear()
+        const mm = String(dt.getMonth() + 1).padStart(2, '0')
+        const dd = String(dt.getDate()).padStart(2, '0')
+        return `${yyyy}-${mm}-${dd}`
+      }
+
+      const results: Array<{ itemName: string; closingFull: number; closingEmpty: number; openingFull: number; openingEmpty: number; }>
+        = []
+
+      // Build previous day's closing map to backfill openings when missing
+      const prevDate = prevDay(date)
+      const prevByKey = new Map<string, DailyStockEntry>()
+      dsrEntries.filter(e => e.date === prevDate).forEach(e => prevByKey.set(normalizeName(e.itemName), e))
+
+      for (const key of nameSet) {
+        const entry = byKey.get(key)
+        const displayName = nameToDisplay.get(key) || entry?.itemName || key // user-friendly label if available
+
+        // Inputs
+        const openingFull = Number(
+          (entry?.openingFull ?? (prevByKey.get(key)?.closingFull)) ?? 0
+        )
+        const openingEmpty = Number(
+          (entry?.openingEmpty ?? (prevByKey.get(key)?.closingEmpty)) ?? 0
+        )
+        const refilled = Number((dailyAggRefills as any)?.[key] ?? entry?.refilled ?? 0)
+        const gasSales = Number((dailyAggGasSales as any)?.[key] ?? entry?.gasSales ?? 0)
+        const cylinderSales = Number((dailyAggCylinderSales as any)?.[key] ?? entry?.cylinderSales ?? 0)
+        const depositCyl = Number((dailyAggDeposits as any)?.[key] ?? 0)
+        const returnCyl = Number((dailyAggReturns as any)?.[key] ?? 0)
+
+        // Calculations per updated requirements:
+        // Closing Full = (Opening Full + Refilled) - Gas Sales
+        const closingFullRaw = (openingFull + refilled) - gasSales
+        const closingFull = Math.max(0, Math.floor(closingFullRaw))
+
+        // Total inventory units = (Opening Full + Opening Empty) - Cylinder Sales - Deposit + Return
+        const totalUnitsRaw = (openingFull + openingEmpty) - cylinderSales - depositCyl + returnCyl
+        const totalUnits = Math.max(0, Math.floor(totalUnitsRaw))
+
+        // Closing Empty = Total - Closing Full (not below zero)
+        const closingEmpty = Math.max(0, totalUnits - closingFull)
+
+        results.push({ itemName: displayName, closingFull, closingEmpty, openingFull, openingEmpty })
+      }
+
+      // Persist closings for current date, and roll forward as next day's openings
+      const nextDate = nextDay(date)
+
+      for (const r of results) {
+        // Upsert current day closings
+        await fetch('/api/daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date,
+            itemName: r.itemName,
+            openingFull: r.openingFull,
+            openingEmpty: r.openingEmpty,
+            closingFull: r.closingFull,
+            closingEmpty: r.closingEmpty,
+          })
+        })
+
+        // Upsert next day openings from today's closings
+        await fetch('/api/daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: nextDate,
+            itemName: r.itemName,
+            openingFull: r.closingFull,
+            openingEmpty: r.closingEmpty,
+          })
+        })
+      }
+
+      // Refresh local data after save (non-blocking where possible)
+      await fetchDsrEntries()
+      toast.success('DSR updated', { description: `Closings saved for ${date} and openings rolled to ${nextDate}.` })
+    } catch (err) {
+      console.error('Auto-calc DSR error', err)
+      toast.error('Failed to auto-calculate and save DSR.')
+    }
   }
 
   const closeReceiveDialog = () => {
@@ -319,6 +459,25 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const [dailyAggReturns, setDailyAggReturns] = useState<Record<string, number>>({})
   // Assigned products for the employee to ensure baseline rows
   const [assignedProducts, setAssignedProducts] = useState<ProductLite[]>([])
+  // Track which dates have had auto-calc executed in this session to avoid repeated calls
+  const [autoCalcRanForDate, setAutoCalcRanForDate] = useState<Record<string, boolean>>({})
+
+  // Automatically run Daily Stock Report auto-calc once per date when inputs are ready
+  useEffect(() => {
+    const date = dsrViewDate
+    if (!date) return
+    if (autoCalcRanForDate[date]) return
+    // Ensure we have some baseline products to process (assigned or dsrProducts)
+    const haveProducts = (assignedProducts && assignedProducts.length > 0) || (dsrProducts && dsrProducts.length > 0)
+    if (!haveProducts) return
+    ;(async () => {
+      try {
+        await autoCalcAndSaveDsrForDate(date)
+      } finally {
+        setAutoCalcRanForDate(prev => ({ ...prev, [date]: true }))
+      }
+    })()
+  }, [dsrViewDate, assignedProducts, dsrProducts, dailyAggRefills, dailyAggCylinderSales, dailyAggGasSales, dailyAggDeposits, dailyAggReturns])
   
   // Ensure assigned products (employee inventory) are available globally for grid/PDF without opening form
   useEffect(() => {
