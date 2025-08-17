@@ -112,6 +112,45 @@ export function CylinderManagement() {
   const [customerSignature, setCustomerSignature] = useState<string>("") 
   const [statusFilter, setStatusFilter] = useState("all")
   const [activeTab, setActiveTab] = useState("all")
+  // Export controls
+  const [showExportInput, setShowExportInput] = useState(false)
+  const [exportSearch, setExportSearch] = useState("")
+  const [showExportSuggestions, setShowExportSuggestions] = useState(false)
+  const [filteredExportSuggestions, setFilteredExportSuggestions] = useState<string[]>([])
+  
+  // Export autocomplete - build suggestions from customers and suppliers
+  const handleExportSearchChange = (value: string) => {
+    setExportSearch(value)
+    const v = value.trim().toLowerCase()
+    if (v.length === 0) {
+      setShowExportSuggestions(false)
+      setFilteredExportSuggestions([])
+      return
+    }
+    const customerNames = (customers || []).map((c: Customer) => c.name || "").filter(Boolean)
+    const supplierNames = (suppliers || []).map((s: Supplier) => s.companyName || "").filter(Boolean)
+    const allNames = Array.from(new Set([...customerNames, ...supplierNames]))
+    const filtered = allNames
+      .filter((n) => n.toLowerCase().includes(v))
+      .slice(0, 5)
+    setFilteredExportSuggestions(filtered)
+    setShowExportSuggestions(filtered.length > 0)
+  }
+
+  const handleExportSuggestionClick = (name: string) => {
+    setExportSearch(name)
+    setShowExportSuggestions(false)
+  }
+
+  const handleExportInputFocus = () => {
+    if (exportSearch.trim().length > 0 && filteredExportSuggestions.length > 0) {
+      setShowExportSuggestions(true)
+    }
+  }
+
+  const handleExportInputBlur = () => {
+    setTimeout(() => setShowExportSuggestions(false), 150)
+  }
   
   // Security selection dialog state
   const [showSecurityDialog, setShowSecurityDialog] = useState(false)
@@ -374,6 +413,99 @@ export function CylinderManagement() {
     )
   }
 
+  // Export CSV of transactions filtered by customer or supplier company name
+  const exportCylinderCSV = () => {
+    try {
+      const term = (exportSearch || '').trim().toLowerCase()
+      const list = (Array.isArray(transactions) ? transactions : [])
+        .filter((t) => {
+          if (!term) return true
+          const cname = t.customer?.name?.toLowerCase() || ''
+          const sname = t.supplier?.companyName?.toLowerCase() || ''
+          return cname.includes(term) || sname.includes(term)
+        })
+
+      const escape = (val: any) => {
+        const s = (val === undefined || val === null) ? '' : String(val)
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+          return '"' + s.replace(/"/g, '""') + '"'
+        }
+        return s
+      }
+
+      const headers = [
+        'Date',
+        'Type',
+        'Customer/Supplier',
+        'Product/Items',
+        'Cylinder Size',
+        'Quantity',
+        'Amount',
+        'Deposit Amount',
+        'Refill Amount',
+        'Return Amount',
+        'Payment Method',
+        'Cash Amount',
+        'Bank Name',
+        'Check Number',
+        'Status',
+        'Notes',
+        'Source'
+      ]
+
+      const rows = list.map((t) => {
+        const items = (t as any).items as any[] | undefined
+        const hasItems = items && items.length > 0
+        const productOrItems = hasItems
+          ? items!.map((it) => `${it.productName || ''} x${Number(it.quantity)||0} (AED ${(Number(it.amount)||0).toFixed(2)})`).join(' | ')
+          : (t.product?.name || '')
+        const cylSize = hasItems
+          ? items!.map((it) => `${it.cylinderSize || '-'}`).join(' | ')
+          : (t.cylinderSize || '-')
+        const qty = hasItems
+          ? items!.reduce((s, it) => s + (Number(it.quantity)||0), 0)
+          : (t.quantity || 0)
+        const amt = hasItems
+          ? items!.reduce((s, it) => s + (Number(it.amount)||0), 0)
+          : (t.amount || 0)
+        const party = t.customer?.name || t.supplier?.companyName || ''
+        return [
+          new Date(t.createdAt).toLocaleDateString(),
+          t.type,
+          party,
+          productOrItems,
+          cylSize,
+          qty,
+          Number(amt).toFixed(2),
+          t.depositAmount ? Number(t.depositAmount).toFixed(2) : '',
+          t.refillAmount ? Number(t.refillAmount).toFixed(2) : '',
+          t.returnAmount ? Number(t.returnAmount).toFixed(2) : '',
+          t.paymentMethod || '',
+          t.cashAmount ? Number(t.cashAmount).toFixed(2) : '',
+          t.bankName || '',
+          t.checkNumber || '',
+          t.status,
+          t.notes || '',
+          t.isEmployeeTransaction ? 'Employee' : 'Admin',
+        ].map(escape).join(',')
+      })
+
+      const csv = [headers.map((h) => '"' + h + '"').join(','), ...rows].join('\n')
+      const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')
+      const suffix = term ? `-${term.replace(/[^a-z0-9-_]+/g,'_')}` : ''
+      a.href = url
+      a.download = `cylinder-transactions${suffix}-${ts}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('[CylinderManagement] Export failed:', e)
+      alert('Failed to export CSV')
+    }
+  }
+
   // Form state with proper defaults
   const [formData, setFormData] = useState({
     type: "deposit" as "deposit" | "refill" | "return",
@@ -490,6 +622,13 @@ export function CylinderManagement() {
       setFormData(prev => ({ ...prev, depositAmount: 0, status: 'pending' }))
     }
   }, [formData.paymentOption, formData.type])
+
+  // Always clear status for return transactions
+  useEffect(() => {
+    if (formData.type === 'return' && formData.status !== 'cleared') {
+      setFormData(prev => ({ ...prev, status: 'cleared' }))
+    }
+  }, [formData.type, formData.status])
 
   // Fetch previous securities and open dialog when Return + customer selected
   useEffect(() => {
@@ -697,20 +836,20 @@ export function CylinderManagement() {
         product: single ? formData.productId : (firstItem?.productId || ''),
         cylinderSize: single ? formData.cylinderSize : (firstItem?.cylinderSize || ''),
         quantity: totalQuantity,
-        amount: itemsTotal,
-        // Transaction-type specific amounts
+        amount: single ? (Number(formData.amount) || 0) : itemsTotal,
         depositAmount: formData.type === 'deposit' ? (formData.paymentOption === 'delivery_note' ? 0 : Number(formData.depositAmount) || 0) : 0,
-        refillAmount: formData.type === 'refill' ? itemsTotal : 0,
-        returnAmount: formData.type === 'return' ? itemsTotal : 0,
-        // Only include received via details when paymentOption is debit
+        refillAmount: formData.type === 'refill' ? (single ? (Number(formData.amount) || 0) : itemsTotal) : 0,
+        returnAmount: formData.type === 'return' ? (single ? (Number(formData.amount) || 0) : itemsTotal) : 0,
+        paymentOption: formData.paymentOption,
         paymentMethod: formData.paymentOption === 'debit' ? formData.paymentMethod : undefined,
         cashAmount: formData.paymentOption === 'debit' && formData.paymentMethod === 'cash' ? Number(formData.cashAmount) : 0,
         bankName: formData.paymentOption === 'debit' && formData.paymentMethod === 'cheque' ? formData.bankName : undefined,
         checkNumber: formData.paymentOption === 'debit' && formData.paymentMethod === 'cheque' ? formData.checkNumber : undefined,
-        status: formData.status,
+        status: formData.type === 'return' ? 'cleared' : formData.status,
         notes: formData.notes,
       }
 
+      // Include items array for multi-item transactions
       if (!single) {
         baseData.items = formData.items.map(it => ({
           productId: it.productId,
@@ -1852,7 +1991,54 @@ export function CylinderManagement() {
 
       <Card className="border-0 shadow-lg">
         <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">
-          <CardTitle>Cylinder Transactions</CardTitle>
+          <div className="flex items-center justify-between gap-4">
+            <CardTitle>Cylinder Transactions</CardTitle>
+            <div className="flex items-center gap-2">
+              {showExportInput && (
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Input
+                      placeholder="Enter customer or company name"
+                      value={exportSearch}
+                      onChange={(e) => handleExportSearchChange(e.target.value)}
+                      onFocus={handleExportInputFocus}
+                      onBlur={handleExportInputBlur}
+                      className="bg-white text-gray-900 placeholder:text-gray-500 w-64 h-9"
+                    />
+                    {showExportSuggestions && filteredExportSuggestions.length > 0 && (
+                      <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        {filteredExportSuggestions.map((name) => (
+                          <div
+                            key={name}
+                            className="px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm text-gray-800"
+                            onClick={() => handleExportSuggestionClick(name)}
+                          >
+                            {name}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-9"
+                    onClick={() => exportCylinderCSV()}
+                  >
+                    Export
+                  </Button>
+                </div>
+              )}
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-9"
+                onClick={() => setShowExportInput((v) => !v)}
+              >
+                Export Data
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

@@ -241,6 +241,13 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     }
   }, [formData.paymentOption, formData.type])
 
+  // Always clear status for return transactions
+  useEffect(() => {
+    if (formData.type === 'return' && formData.status !== 'cleared') {
+      setFormData(prev => ({ ...prev, status: 'cleared' }))
+    }
+  }, [formData.type, formData.status])
+
   // Fetch previous security records and prompt when returning and customer selected
   useEffect(() => {
     const shouldPrompt = formData.type === 'return' && !!formData.customer && !securityPrompted
@@ -595,7 +602,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             : 0,
         refillAmount: formData.type === 'refill' ? calculatedAmount : 0,
         returnAmount: formData.type === 'return' ? calculatedAmount : 0,
-        status: formData.paymentOption === 'delivery_note' ? 'pending' : formData.status,
+        status: formData.type === 'return' ? 'cleared' : (formData.paymentOption === 'delivery_note' ? 'pending' : formData.status),
         notes: formData.notes,
         paymentOption: formData.paymentOption,
       }
@@ -700,6 +707,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           receivedAmount: Number(savedTx.depositAmount || savedTx.refillAmount || savedTx.returnAmount || savedTx.amount || transactionData.amount) || 0,
           notes: savedTx.notes || transactionData.notes,
           createdAt: savedTx.createdAt || new Date().toISOString(),
+          // Ensure type is present for header selection (return, deposit, refill)
+          type: savedTx.type || transactionData.type,
         } as any
 
         // Open signature dialog first

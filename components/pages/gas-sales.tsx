@@ -101,6 +101,43 @@ export function GasSales() {
   // Per-item product autocomplete state
   const [productSearchTerms, setProductSearchTerms] = useState<string[]>([""])
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([false])
+  // Export UI state
+  const [showExportInput, setShowExportInput] = useState(false)
+  const [exportSearch, setExportSearch] = useState("")
+  const [showExportSuggestions, setShowExportSuggestions] = useState(false)
+  const [filteredExportSuggestions, setFilteredExportSuggestions] = useState<string[]>([])
+  
+  // Export autocomplete handlers (customers only)
+  const handleExportSearchChange = (value: string) => {
+    setExportSearch(value)
+    const v = value.trim().toLowerCase()
+    if (v.length === 0) {
+      setShowExportSuggestions(false)
+      setFilteredExportSuggestions([])
+      return
+    }
+    const names = (customers || []).map((c) => c.name || "").filter(Boolean)
+    const filtered = Array.from(new Set(names))
+      .filter((n) => n.toLowerCase().includes(v))
+      .slice(0, 5)
+    setFilteredExportSuggestions(filtered)
+    setShowExportSuggestions(filtered.length > 0)
+  }
+
+  const handleExportSuggestionClick = (name: string) => {
+    setExportSearch(name)
+    setShowExportSuggestions(false)
+  }
+
+  const handleExportInputFocus = () => {
+    if (exportSearch.trim().length > 0 && filteredExportSuggestions.length > 0) {
+      setShowExportSuggestions(true)
+    }
+  }
+
+  const handleExportInputBlur = () => {
+    setTimeout(() => setShowExportSuggestions(false), 150)
+  }
   
   // Customer autocomplete functionality for form
   const [customerSearchTerm, setCustomerSearchTerm] = useState("")
@@ -122,6 +159,86 @@ export function GasSales() {
     paymentOption: "debit", // debit | credit | delivery_note
     notes: "",
   })
+
+  // CSV export for Sales History
+  const exportSalesCSV = () => {
+    try {
+      const term = (exportSearch || "").trim().toLowerCase()
+      const sourceArray = Array.isArray(sales) ? sales : []
+      const filtered = term
+        ? sourceArray.filter((s) =>
+            (s.customer?.name || "").toLowerCase().includes(term)
+          )
+        : sourceArray
+
+      const escapeCSV = (val: any) => {
+        const str = val === null || val === undefined ? "" : String(val)
+        if (/[",\n]/.test(str)) {
+          return '"' + str.replace(/"/g, '""') + '"'
+        }
+        return str
+      }
+
+      const headers = [
+        "Invoice #",
+        "Customer Name",
+        "Customer Phone",
+        "Items",
+        "Total Amount (AED)",
+        "Received Amount (AED)",
+        "Payment Method",
+        "Payment Status",
+        "Notes",
+        "Added By",
+        "Date",
+      ]
+
+      const rows = filtered.map((s) => {
+        const itemsDesc = (s.items || [])
+          .map((it: any) => {
+            const name = it?.product?.name || "Product"
+            const qty = Number(it?.quantity) || 0
+            const price = Number(it?.price) || 0
+            return `${name} x${qty} @ ${price}`
+          })
+          .join("; ")
+
+        const addedBy = s.employee?.name ? `Employee: ${s.employee.name}` : "Admin"
+        const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleString() : ""
+
+        return [
+          escapeCSV(s.invoiceNumber || ""),
+          escapeCSV(s.customer?.name || ""),
+          escapeCSV(s.customer?.phone || ""),
+          escapeCSV(itemsDesc),
+          escapeCSV(((s as any).totalAmount ?? 0).toFixed ? (s as any).totalAmount.toFixed(2) : String((s as any).totalAmount || 0)),
+          escapeCSV(((s as any).receivedAmount ?? 0).toFixed ? (s as any).receivedAmount.toFixed(2) : String((s as any).receivedAmount || 0)),
+          escapeCSV(s.paymentMethod || ""),
+          escapeCSV(s.paymentStatus || ""),
+          escapeCSV(s.notes || ""),
+          escapeCSV(addedBy),
+          escapeCSV(dateStr),
+        ].join(",")
+      })
+
+      const csv = [headers.join(","), ...rows].join("\n")
+      const bom = "\uFEFF" // UTF-8 BOM for Excel compatibility
+      const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      const ts = new Date().toISOString().replace(/[:.]/g, "-")
+      const namePart = term ? `-${term.replace(/\s+/g, "_")}` : ""
+      a.href = url
+      a.download = `sales-export${namePart}-${ts}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error("Failed to export sales CSV:", err)
+      alert("Failed to export CSV")
+    }
+  }
 
   useEffect(() => {
     fetchData()
@@ -1135,7 +1252,52 @@ export function GasSales() {
 
       <Card className="border-0 shadow-lg">
         <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">
-          <CardTitle>Sales History</CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <CardTitle>Sales History</CardTitle>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {showExportInput && (
+                <div className="relative w-full sm:w-72">
+                  <Input
+                    placeholder="Enter customer/company name"
+                    value={exportSearch}
+                    onChange={(e) => handleExportSearchChange(e.target.value)}
+                    onFocus={handleExportInputFocus}
+                    onBlur={handleExportInputBlur}
+                    className="bg-white text-black placeholder:text-gray-500 w-full"
+                  />
+                  {showExportSuggestions && filteredExportSuggestions.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {filteredExportSuggestions.map((name) => (
+                        <div
+                          key={name}
+                          className="px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm text-gray-800"
+                          onClick={() => handleExportSuggestionClick(name)}
+                        >
+                          {name}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {showExportInput && (
+                <Button
+                  variant="secondary"
+                  className="bg-white text-[#2B3068] hover:bg-gray-100"
+                  onClick={exportSalesCSV}
+                >
+                  Export
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                className="bg-white text-[#2B3068] hover:bg-gray-100"
+                onClick={() => setShowExportInput((v) => !v)}
+              >
+                Export Data
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
