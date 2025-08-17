@@ -1427,10 +1427,16 @@ export function CylinderManagement() {
     const matchesSearch =
       transaction.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       transaction.cylinderSize?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === "all" || transaction.status === statusFilter
-    const matchesTab = activeTab === "all" || transaction.type === activeTab
-    return matchesSearch && matchesStatus && matchesTab
+    const matchesType = activeTab === 'all' || transaction.type === activeTab
+    return matchesSearch && matchesType
   }) : []
+
+  // Pagination (20 per page)
+  const [txPage, setTxPage] = useState(1)
+  const txPageSize = 20
+  const txTotalPages = Math.max(1, Math.ceil(filteredTransactions.length / txPageSize))
+  const paginatedTransactions = filteredTransactions.slice((txPage - 1) * txPageSize, txPage * txPageSize)
+  useEffect(() => { setTxPage(1) }, [searchTerm, activeTab])
 
   const getTransactionIcon = (type: string) => {
     switch (type) {
@@ -2241,7 +2247,7 @@ export function CylinderManagement() {
                   </TableHeader>
                   <TableBody>
                     {filteredTransactions.length > 0 ? (
-                      filteredTransactions.map((transaction) => (
+                      paginatedTransactions.map((transaction) => (
                         <TableRow key={transaction._id} className="hover:bg-gray-50">
                           {renderTableCells(transaction)}
                         </TableRow>
@@ -2255,6 +2261,45 @@ export function CylinderManagement() {
                     )}
                   </TableBody>
                 </Table>
+              </div>
+              {/* Pagination controls */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4">
+                <div className="text-sm text-gray-600">
+                  Showing {filteredTransactions.length === 0 ? 0 : (txPage - 1) * txPageSize + 1}
+                  -{Math.min(txPage * txPageSize, filteredTransactions.length)} of {filteredTransactions.length}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    className="bg-white text-[#2B3068] hover:bg-gray-100"
+                    disabled={txPage <= 1}
+                    onClick={() => setTxPage((p) => Math.max(1, p - 1))}
+                  >
+                    Prev
+                  </Button>
+                  <div className="hidden sm:flex items-center gap-1">
+                    {Array.from({ length: txTotalPages }, (_, i) => i + 1).slice(
+                      Math.max(0, txPage - 3),
+                      Math.max(0, txPage - 3) + 5
+                    ).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setTxPage(p)}
+                        className={`px-3 py-1 rounded text-sm ${p === txPage ? 'bg-[#2B3068] text-white' : 'bg-white text-[#2B3068] hover:bg-gray-100 border'}`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="secondary"
+                    className="bg-white text-[#2B3068] hover:bg-gray-100"
+                    disabled={txPage >= txTotalPages}
+                    onClick={() => setTxPage((p) => Math.min(txTotalPages, p + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
             </TabsContent>
           </Tabs>

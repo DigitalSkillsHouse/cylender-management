@@ -88,6 +88,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 20
 
   // Customer autocomplete functionality for form
   const [customerSearchTerm, setCustomerSearchTerm] = useState("")
@@ -118,6 +120,11 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   useEffect(() => {
     fetchData()
   }, [user.id])
+
+  // Reset pagination on filter/search changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, statusFilter])
 
   const fetchData = async () => {
     try {
@@ -563,6 +570,12 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
+  // Pagination derived data
+  const totalPages = Math.max(1, Math.ceil(filteredSales.length / itemsPerPage))
+  const safePage = Math.min(currentPage, totalPages)
+  const startIndex = (safePage - 1) * itemsPerPage
+  const paginatedSales = filteredSales.slice(startIndex, startIndex + itemsPerPage)
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -622,7 +635,7 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredSales.map((sale) => (
+                paginatedSales.map((sale) => (
                   <TableRow key={sale._id}>
                     <TableCell className="font-medium">{sale.invoiceNumber}</TableCell>
                     <TableCell>{sale.customer?.name || "-"}</TableCell>
@@ -676,6 +689,50 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
           </Table>
         </CardContent>
       </Card>
+
+      {/* Pagination Controls */}
+      {filteredSales.length > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-2">
+          <div className="text-sm text-gray-600">
+            Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredSales.length)} of {filteredSales.length}
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage === 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="min-w-[70px]"
+            >
+              Prev
+            </Button>
+            {Array.from({ length: totalPages }).slice(Math.max(0, safePage - 3), Math.max(0, safePage - 3) + 5).map((_, idx) => {
+              const pageNum = Math.max(1, safePage - 2) + idx
+              if (pageNum > totalPages) return null
+              return (
+                <Button
+                  key={pageNum}
+                  variant={pageNum === safePage ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setCurrentPage(pageNum)}
+                  className={pageNum === safePage ? "bg-[#2B3068] hover:bg-[#1a1f4a] text-white" : ""}
+                >
+                  {pageNum}
+                </Button>
+              )
+            })}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage === totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="min-w-[70px]"
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

@@ -101,6 +101,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [activeTab, setActiveTab] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [searchTerm, setSearchTerm] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 20
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false)
   const [filteredSearchSuggestions, setFilteredSearchSuggestions] = useState<Customer[]>([])
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null)
@@ -228,6 +230,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   useEffect(() => {
     fetchData()
   }, [user.id])
+
+  // Reset pagination when filters/search change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, statusFilter, activeTab])
 
   // Reset security prompt flag if type or customer changes
   useEffect(() => {
@@ -1645,7 +1652,14 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                 </TableHeader>
                 <TableBody>
                   {getFilteredTransactions().length > 0 ? (
-                    getFilteredTransactions().map((transaction) => renderTableCells(transaction))
+                    (() => {
+                      const filtered = getFilteredTransactions()
+                      const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage))
+                      const safePage = Math.min(currentPage, totalPages)
+                      const startIndex = (safePage - 1) * itemsPerPage
+                      const pageItems = filtered.slice(startIndex, startIndex + itemsPerPage)
+                      return pageItems.map((transaction) => renderTableCells(transaction))
+                    })()
                   ) : (
                     <TableRow>
                       <TableCell colSpan={getVisibleColumns().length} className="h-24 text-center text-lg text-gray-500">
@@ -1656,6 +1670,56 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                 </TableBody>
               </Table>
             </div>
+            {/* Pagination Controls */}
+            {(() => {
+              const filtered = getFilteredTransactions()
+              if (filtered.length === 0) return null
+              const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage))
+              const safePage = Math.min(currentPage, totalPages)
+              const startIndex = (safePage - 1) * itemsPerPage
+              return (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4">
+                  <div className="text-sm text-gray-600">
+                    Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filtered.length)} of {filtered.length}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage === 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      className="min-w-[70px]"
+                    >
+                      Prev
+                    </Button>
+                    {Array.from({ length: totalPages }).slice(Math.max(0, safePage - 3), Math.max(0, safePage - 3) + 5).map((_, idx) => {
+                      const pageNum = Math.max(1, safePage - 2) + idx
+                      if (pageNum > totalPages) return null
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={pageNum === safePage ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={pageNum === safePage ? "bg-[#2B3068] hover:bg-[#1a1f4a] text-white" : ""}
+                        >
+                          {pageNum}
+                        </Button>
+                      )
+                    })}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={safePage === totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      className="min-w-[70px]"
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )
+            })()}
           </TabsContent>
         </Tabs>
       </CardContent>

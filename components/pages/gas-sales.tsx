@@ -945,6 +945,13 @@ export function GasSales() {
     return matchesSearch && matchesStatus
   })
 
+  // Pagination (20 per page) — depends on filteredSales
+  const [salesPage, setSalesPage] = useState(1)
+  const salesPageSize = 20
+  const salesTotalPages = Math.max(1, Math.ceil(filteredSales.length / salesPageSize))
+  const paginatedSales = filteredSales.slice((salesPage - 1) * salesPageSize, salesPage * salesPageSize)
+  useEffect(() => { setSalesPage(1) }, [searchTerm, statusFilter])
+
   const totalAmount = formData.items.reduce((sum, item) => {
     const quantity = Number(item.quantity) || 0
     const price = Number(item.price) || 0
@@ -1471,7 +1478,7 @@ export function GasSales() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSales.map((sale) => (
+                {paginatedSales.map((sale) => (
                   <TableRow key={sale._id}>
                     <TableCell className="p-4 font-medium">{sale.invoiceNumber}</TableCell>
                     <TableCell className="p-4">
@@ -1567,6 +1574,45 @@ export function GasSales() {
                 )}
               </TableBody>
             </Table>
+          </div>
+          {/* Pagination controls */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4">
+            <div className="text-sm text-gray-600">
+              Showing {filteredSales.length === 0 ? 0 : (salesPage - 1) * salesPageSize + 1}
+              -{Math.min(salesPage * salesPageSize, filteredSales.length)} of {filteredSales.length}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                className="bg-white text-[#2B3068] hover:bg-gray-100"
+                disabled={salesPage <= 1}
+                onClick={() => setSalesPage((p) => Math.max(1, p - 1))}
+              >
+                Prev
+              </Button>
+              <div className="hidden sm:flex items-center gap-1">
+                {Array.from({ length: salesTotalPages }, (_, i) => i + 1).slice(
+                  Math.max(0, salesPage - 3),
+                  Math.max(0, salesPage - 3) + 5
+                ).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setSalesPage(p)}
+                    className={`px-3 py-1 rounded text-sm ${p === salesPage ? 'bg-[#2B3068] text-white' : 'bg-white text-[#2B3068] hover:bg-gray-100 border'}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <Button
+                variant="secondary"
+                className="bg-white text-[#2B3068] hover:bg-gray-100"
+                disabled={salesPage >= salesTotalPages}
+                onClick={() => setSalesPage((p) => Math.min(salesTotalPages, p + 1))}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
