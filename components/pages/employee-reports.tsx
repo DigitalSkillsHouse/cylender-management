@@ -69,6 +69,61 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const [employeeSales, setEmployeeSales] = useState<any[]>([])
   const [employeeCylinders, setEmployeeCylinders] = useState<any[]>([])
 
+  // Receive Amount dialog state for gas sales and cylinder transactions
+  const [receiveDialog, setReceiveDialog] = useState<{
+    open: boolean
+    targetId: string | null
+    kind: 'sale' | 'cylinder'
+    totalAmount: number
+    currentReceived: number
+    inputAmount: string
+  }>({ open: false, targetId: null, kind: 'sale', totalAmount: 0, currentReceived: 0, inputAmount: '' })
+
+  const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'cylinder' }) => {
+    setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '' })
+  }
+
+  const closeReceiveDialog = () => {
+    setReceiveDialog(prev => ({ ...prev, open: false, inputAmount: '', targetId: null }))
+  }
+
+  const submitReceiveAmount = async () => {
+    if (!receiveDialog.targetId) return
+    const add = Number.parseFloat(receiveDialog.inputAmount || '0')
+    if (!Number.isFinite(add) || add <= 0) {
+      alert('Enter a valid amount > 0')
+      return
+    }
+    const remaining = Math.max(0, Number(receiveDialog.totalAmount || 0) - Number(receiveDialog.currentReceived || 0))
+    if (add > remaining) {
+      alert(`Amount exceeds remaining balance. Remaining: ${remaining.toFixed(2)}`)
+      return
+    }
+    const newReceived = Number(receiveDialog.currentReceived || 0) + add
+    const newStatus = newReceived >= Number(receiveDialog.totalAmount || 0) ? 'cleared' : 'pending'
+    try {
+      // Determine endpoint and payload based on kind
+      const url = receiveDialog.kind === 'cylinder'
+        ? `/api/cylinders/${receiveDialog.targetId}`
+        : `/api/employee-sales/${receiveDialog.targetId}`
+      const body = receiveDialog.kind === 'cylinder'
+        ? { cashAmount: newReceived, status: newStatus }
+        : { receivedAmount: newReceived, paymentStatus: newStatus }
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error('Failed to update invoice')
+      await handleFilter()
+      closeReceiveDialog()
+      alert('Payment updated successfully')
+    } catch (e: any) {
+      console.error('receive submit failed', e)
+      alert(e?.message || 'Failed to update payment')
+    }
+  }
+
   // Daily Stock Report local model (stored in localStorage)
   interface DailyStockEntry {
     id: string
@@ -1959,6 +2014,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                         <TableHead>Total</TableHead>
                                         <TableHead>Paid Amount</TableHead>
                                         <TableHead>Status</TableHead>
+                                        <TableHead>Action</TableHead>
                                         <TableHead>Items</TableHead>
                                       </TableRow>
                                     </TableHeader>
@@ -1972,6 +2028,13 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                             <TableCell>{formatCurrency(sale.totalAmount)}</TableCell>
                                             <TableCell>{formatCurrency(sale.amountPaid || 0)}</TableCell>
                                             <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
+                                            <TableCell>
+                                              {String(sale.paymentStatus).toLowerCase() === 'pending' && (
+                                                <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
+                                                  Receive Amount
+                                                </Button>
+                                              )}
+                                            </TableCell>
                                             <TableCell>
                                               {sale.items?.map((item: any) => (
                                                 <div key={item._id || item.product?._id}>{item.product?.name || 'N/A'} (x{item.quantity})</div>
@@ -2005,6 +2068,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                         <TableHead>Quantity</TableHead>
                                         <TableHead>Amount</TableHead>
                                         <TableHead>Paid Amount</TableHead>
+                                        <TableHead>Action</TableHead>
                                         <TableHead>Status</TableHead>
                                       </TableRow>
                                     </TableHeader>
@@ -2020,7 +2084,14 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                             <TableCell>{transaction.cylinderSize}</TableCell>
                                             <TableCell>{transaction.quantity}</TableCell>
                                             <TableCell>{formatCurrency(transaction.amount)}</TableCell>
-                                            <TableCell>{formatCurrency(transaction.amount || 0)}</TableCell>
+                                            <TableCell>{formatCurrency(transaction.cashAmount || 0)}</TableCell>
+                                            <TableCell>
+                                              {String(transaction.status).toLowerCase() === 'pending' && String(transaction.type).toLowerCase() !== 'refill' && (
+                                                <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: 'cylinder', totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
+                                                  Receive Amount
+                                                </Button>
+                                              )}
+                                            </TableCell>
                                             <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                                           </TableRow>
                                         ))}
@@ -2168,6 +2239,45 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           onClose={() => setReceiptDialogData(null)}
         />
       )}
+
+      {/* Receive Amount Dialog */}
+      <Dialog open={receiveDialog.open} onOpenChange={(v) => (v ? null : closeReceiveDialog())}>
+        <DialogContent className="max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Receive Payment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">Total Amount</span>
+              <span className="font-medium">{formatCurrency(receiveDialog.totalAmount || 0)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">Amount Received</span>
+              <span className="font-medium">{formatCurrency(receiveDialog.currentReceived || 0)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">Remaining</span>
+              <span className="font-medium">{formatCurrency(Math.max(0, Number(receiveDialog.totalAmount || 0) - Number(receiveDialog.currentReceived || 0)))}</span>
+            </div>
+            <div className="space-y-2 pt-1">
+              <Label>Receive Now</Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min={0}
+                placeholder="0.00"
+                value={receiveDialog.inputAmount}
+                onChange={(e) => setReceiveDialog(prev => ({ ...prev, inputAmount: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeReceiveDialog}>Cancel</Button>
+            <Button style={{ backgroundColor: "#2B3068" }} onClick={submitReceiveAmount}>Update</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Removed old DSR Form Dialog (replaced by Excel-like grid dialog) */}
 

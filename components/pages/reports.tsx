@@ -66,6 +66,65 @@ export function Reports() {
   const [customers, setCustomers] = useState<CustomerLedgerData[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set())
+  // Receive Amount dialog state for gas sales and cylinders
+  const [receiveDialog, setReceiveDialog] = useState<{
+    open: boolean
+    targetId: string | null
+    kind: 'sale' | 'cylinder'
+    totalAmount: number
+    currentReceived: number
+    inputAmount: string
+  }>({ open: false, targetId: null, kind: 'sale', totalAmount: 0, currentReceived: 0, inputAmount: '' })
+
+  const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'cylinder' }) => {
+    setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '' })
+  }
+
+  const closeReceiveDialog = () => {
+    setReceiveDialog(prev => ({ ...prev, open: false, inputAmount: '', targetId: null }))
+  }
+
+  const submitReceiveAmount = async () => {
+    if (!receiveDialog.targetId) return
+    const add = Number.parseFloat(receiveDialog.inputAmount || '0')
+    if (!Number.isFinite(add) || add <= 0) {
+      alert('Enter a valid amount > 0')
+      return
+    }
+    const remaining = Math.max(0, Number(receiveDialog.totalAmount || 0) - Number(receiveDialog.currentReceived || 0))
+    if (add > remaining) {
+      alert(`Amount exceeds remaining balance. Remaining: ${remaining.toFixed(2)}`)
+      return
+    }
+    const newReceived = Number(receiveDialog.currentReceived || 0) + add
+    const newStatus = newReceived >= Number(receiveDialog.totalAmount || 0) ? 'cleared' : 'pending'
+    try {
+      const url = receiveDialog.kind === 'cylinder'
+        ? `/api/cylinders/${receiveDialog.targetId}`
+        : `/api/sales/${receiveDialog.targetId}`
+      const body = receiveDialog.kind === 'cylinder'
+        ? { cashAmount: newReceived, status: newStatus }
+        : { receivedAmount: newReceived, paymentStatus: newStatus }
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error('Failed to update invoice')
+      // Refresh ledger
+      if (typeof handleFilter === 'function') {
+        await handleFilter()
+      } else {
+        // Fallback simple reload
+        try { (window as any).location && (window as any).location.reload() } catch {}
+      }
+      closeReceiveDialog()
+      alert('Payment updated successfully')
+    } catch (e: any) {
+      console.error('receive submit failed', e)
+      alert(e?.message || 'Failed to update payment')
+    }
+  }
 
   // Compute a customer's aggregate ledger status for the summary row and filters
   // Priority: overdue > pending > cleared (if no dues) > fallback to existing status
@@ -2099,6 +2158,7 @@ export function Reports() {
                                         <TableHead>Total</TableHead>
                                         <TableHead>Paid Amount</TableHead>
                                         <TableHead>Status</TableHead>
+                                        <TableHead>Action</TableHead>
                                         <TableHead>Items</TableHead>
                                       </TableRow>
                                     </TableHeader>
@@ -2112,6 +2172,13 @@ export function Reports() {
                                             <TableCell>{formatCurrency(sale.totalAmount)}</TableCell>
                                             <TableCell>{formatCurrency(sale.amountPaid || 0)}</TableCell>
                                             <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
+                                            <TableCell>
+                                              {String(sale.paymentStatus).toLowerCase() === 'pending' && (
+                                                <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
+                                                  Receive Amount
+                                                </Button>
+                                              )}
+                                            </TableCell>
                                             <TableCell>
                                               {sale.items?.map((item: any) => (
                                                 <div key={item._id || item.product?._id}>{item.product?.name || 'N/A'} (x{item.quantity})</div>
@@ -2145,6 +2212,7 @@ export function Reports() {
                                         <TableHead>Quantity</TableHead>
                                         <TableHead>Amount</TableHead>
                                         <TableHead>Paid Amount</TableHead>
+                                        <TableHead>Action</TableHead>
                                         <TableHead>Status</TableHead>
                                       </TableRow>
                                     </TableHeader>
@@ -2160,7 +2228,14 @@ export function Reports() {
                                             <TableCell>{transaction.cylinderSize}</TableCell>
                                             <TableCell>{transaction.quantity}</TableCell>
                                             <TableCell>{formatCurrency(transaction.amount)}</TableCell>
-                                            <TableCell>{formatCurrency(transaction.amount || 0)}</TableCell>
+                                            <TableCell>{formatCurrency(transaction.cashAmount || 0)}</TableCell>
+                                            <TableCell>
+                                              {String(transaction.status).toLowerCase() === 'pending' && String(transaction.type).toLowerCase() !== 'refill' && (
+                                                <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: 'cylinder', totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
+                                                  Receive Amount
+                                                </Button>
+                                              )}
+                                            </TableCell>
                                             <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                                           </TableRow>
                                         ))}
@@ -2308,6 +2383,28 @@ export function Reports() {
           onClose={() => setReceiptDialogData(null)}
         />
       )}
+
+      {/* Receive Amount Dialog */}
+      <Dialog open={receiveDialog.open} onOpenChange={(v) => (v ? setReceiveDialog(prev => ({ ...prev, open: true })) : closeReceiveDialog())}>
+        <DialogContent className="max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Receive Payment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between"><span>Total Amount:</span><span className="font-semibold">{formatCurrency(receiveDialog.totalAmount)}</span></div>
+            <div className="flex justify-between"><span>Received So Far:</span><span className="font-semibold text-green-600">{formatCurrency(receiveDialog.currentReceived)}</span></div>
+            <div className="flex justify-between border-t pt-2"><span>Remaining:</span><span className="font-semibold text-red-600">{formatCurrency(Math.max(0, receiveDialog.totalAmount - receiveDialog.currentReceived))}</span></div>
+          </div>
+          <div className="space-y-2 mt-2">
+            <Label>Amount Received Now</Label>
+            <Input type="number" min={0} step="0.01" value={receiveDialog.inputAmount} onChange={(e) => setReceiveDialog(prev => ({ ...prev, inputAmount: e.target.value }))} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeReceiveDialog}>Cancel</Button>
+            <Button style={{ backgroundColor: '#2B3068' }} onClick={submitReceiveAmount}>Update</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Removed old DSR Form Dialog (replaced by Excel-like grid dialog) */}
 
