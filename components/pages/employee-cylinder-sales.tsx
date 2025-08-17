@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, type FormEvent } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -466,7 +466,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
 
     // Enhanced validation
@@ -579,28 +579,91 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       const method = isEditing ? "PUT" : "POST"
 
       const response = await fetch(url, {
-        method: method,
+        method,
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify(transactionData),
       })
 
       if (response.ok) {
-        const actionText = isEditing ? "updated" : "created"
-        toast.success(`${formData.type.charAt(0).toUpperCase() + formData.type.slice(1)} transaction ${actionText} successfully!`)
+        const actionText = isEditing ? 'updated' : 'created'
+        let saved: any = null
+        try {
+          saved = await response.json()
+        } catch {}
+
+        toast.success(`${(formData.type.charAt(0).toUpperCase() + formData.type.slice(1))} transaction ${actionText} successfully!`)
+
+        const savedTx: any = (saved && (saved.data || saved)) || {}
+        const isRefill = (savedTx.type || formData.type) === 'refill'
+
+        // Build items for receipt/signature
+        const itemsArray = Array.isArray(savedTx.items) && savedTx.items.length > 0
+          ? savedTx.items.map((it: any) => {
+              const baseName = it.productName || it.productId?.name || 'Cylinder'
+              const sizeLabel = it.cylinderSize ? ` (${it.cylinderSize})` : ''
+              return {
+                product: { name: `${baseName}${sizeLabel}` },
+                quantity: Number(it.quantity) || 0,
+                price: (Number(it.amount) || 0) / Math.max(Number(it.quantity) || 1, 1),
+                total: Number(it.amount) || 0,
+              }
+            })
+          : [
+              {
+                product: { name: `${(savedTx.product?.name) || 'Cylinder'}${savedTx.cylinderSize ? ` (${savedTx.cylinderSize})` : ''}` },
+                quantity: Number(savedTx.quantity ?? transactionData.quantity) || 0,
+                price: (() => {
+                  const qty = Number(savedTx.quantity ?? transactionData.quantity) || 1
+                  const amt = Number(savedTx.amount ?? transactionData.amount) || 0
+                  return amt / Math.max(qty, 1)
+                })(),
+                total: Number(savedTx.amount ?? transactionData.amount) || 0,
+              },
+            ]
+
+        const party = isRefill
+          ? {
+              name: savedTx.supplier?.companyName || 'Supplier',
+              phone: savedTx.supplier?.phone || '-',
+              address: '-',
+            }
+          : {
+              name: savedTx.customer?.name || 'Customer',
+              phone: savedTx.customer?.phone || '-',
+              address: savedTx.customer?.address || '-',
+            }
+
+        const composed = {
+          _id: savedTx._id || `temp-${Date.now()}`,
+          invoiceNumber: savedTx.invoiceNumber || `CYL-${(savedTx._id || 'TEMP').toString().slice(-6).toUpperCase()}`,
+          customer: party,
+          items: itemsArray,
+          totalAmount: Number(savedTx.amount ?? transactionData.amount) || 0,
+          paymentMethod: savedTx.paymentMethod || transactionData.paymentMethod || 'cash',
+          paymentStatus: savedTx.status || transactionData.status || 'pending',
+          receivedAmount: Number(savedTx.depositAmount || savedTx.refillAmount || savedTx.returnAmount || savedTx.amount || transactionData.amount) || 0,
+          notes: savedTx.notes || transactionData.notes,
+          createdAt: savedTx.createdAt || new Date().toISOString(),
+        } as any
+
+        // Open signature dialog first
+        setTransactionForSignature({ ...composed })
+        setIsSignatureDialogOpen(true)
+
+        // Preserve existing flow
         resetForm()
         setIsDialogOpen(false)
         fetchData()
       } else {
         const errorData = await response.json()
-        const actionText = isEditing ? "update" : "create"
+        const actionText = isEditing ? 'update' : 'create'
         toast.error(errorData.error || `Failed to ${actionText} transaction`)
       }
     } catch (error) {
-      const actionText = editingTransactionId ? "updating" : "creating"
-      console.error(`Error ${actionText} transaction:`, error)
-      toast.error(`Failed to ${actionText.replace('ing', '')} transaction`)
+      console.error('Error creating/updating transaction:', error)
+      toast.error('Error creating/updating transaction')
     }
   }
 
@@ -683,13 +746,17 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       invoiceNumber: `CYL-${transaction._id.slice(-6).toUpperCase()}`,
       category: "cylinder",
       items: isMulti
-        ? (transaction as any).items.map((it: any) => ({
-            product: { name: it.productName || it.productId?.name || (transaction as any).product?.name || 'Cylinder' },
-            quantity: it.quantity,
-            price: it.amount / Math.max(it.quantity, 1)
-          }))
+        ? (transaction as any).items.map((it: any) => {
+            const baseName = it.productName || it.productId?.name || (transaction as any).product?.name || 'Cylinder'
+            const sizeLabel = it.cylinderSize ? ` (${it.cylinderSize})` : ''
+            return {
+              product: { name: `${baseName}${sizeLabel}` },
+              quantity: it.quantity,
+              price: it.amount / Math.max(it.quantity, 1)
+            }
+          })
         : (transaction.product ? [{
-            product: transaction.product,
+            product: { name: `${transaction.product.name}${(transaction as any).cylinderSize ? ` (${(transaction as any).cylinderSize})` : ''}` },
             quantity: transaction.quantity,
             price: transaction.amount / Math.max(transaction.quantity, 1)
           }] : []),

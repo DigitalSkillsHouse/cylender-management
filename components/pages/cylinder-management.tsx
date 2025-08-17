@@ -684,28 +684,61 @@ export function CylinderManagement() {
       const transactionData = baseData
       console.log('[CylinderManagement] Submitting payload:', transactionData)
 
+      let savedResponse: any = null
       if (editingTransaction) {
-        await cylindersAPI.update(editingTransaction._id, transactionData)
+        savedResponse = await cylindersAPI.update(editingTransaction._id, transactionData)
       } else {
         // Use specific endpoints; for refill, use unified POST that supports supplier
         switch (formData.type) {
           case "deposit":
-            await cylindersAPI.deposit(transactionData)
+            savedResponse = await cylindersAPI.deposit(transactionData)
             break
           case "refill":
-            await cylindersAPI.create(transactionData)
+            savedResponse = await cylindersAPI.create(transactionData)
             break
           case "return":
-            await cylindersAPI.return(transactionData)
+            savedResponse = await cylindersAPI.return(transactionData)
             break
           default:
-            await cylindersAPI.create(transactionData)
+            savedResponse = await cylindersAPI.create(transactionData)
         }
       }
 
       await fetchData()
       resetForm()
       setIsDialogOpen(false)
+
+      // Auto-open signature dialog (skip for returns)
+      try {
+        const savedTx = (savedResponse?.data?.data) || (savedResponse?.data) || null
+        const txType = savedTx?.type || formData.type
+        if (txType !== 'return') {
+          const normalized: any = {
+            _id: savedTx?._id || `temp-${Date.now()}`,
+            type: txType,
+            customer: savedTx?.customer || (txType !== 'refill' ? {
+              _id: formData.customerId,
+              name: customers.find(c=>c._id===formData.customerId)?.name || 'Customer',
+              phone: customers.find(c=>c._id===formData.customerId)?.phone || '',
+              address: customers.find(c=>c._id===formData.customerId)?.address || '',
+            } : undefined),
+            supplier: savedTx?.supplier || (txType === 'refill' ? {
+              _id: formData.supplierId,
+              companyName: suppliers.find(s=>s._id===formData.supplierId)?.companyName || 'Supplier',
+            } : undefined),
+            product: savedTx?.product || products.find(p=>p._id===formData.productId) || undefined,
+            cylinderSize: savedTx?.cylinderSize || formData.cylinderSize,
+            quantity: savedTx?.quantity || (formData.items.length>0 ? formData.items.reduce((s,it)=>s+(Number(it.quantity)||0),0) : formData.quantity),
+            amount: savedTx?.amount || (formData.items.length>0 ? formData.items.reduce((s,it)=>s+(Number(it.amount)||0),0) : (Number(formData.amount)||0)),
+            items: savedTx?.items || (formData.items.length>0 ? formData.items : undefined),
+            status: savedTx?.status || formData.status,
+            notes: savedTx?.notes || formData.notes,
+            createdAt: savedTx?.createdAt || new Date().toISOString(),
+          }
+          setPendingTransaction(normalized)
+          setShowSignatureDialog(true)
+        }
+      } catch {}
     } catch (error: any) {
       console.error("Failed to save transaction:", error)
       console.error('Server response data:', error?.response?.data)
@@ -811,6 +844,34 @@ export function CylinderManagement() {
       setShowSignatureDialog(true)
     } else {
       // Signature already exists - show receipt directly with existing signature
+      const itemsSrc = (transaction as any).items as any[] | undefined
+      const hasItems = Array.isArray(itemsSrc) && itemsSrc.length > 0
+
+      const items = hasItems
+        ? itemsSrc.map((it: any) => {
+            const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
+            const sizeLabel = it.cylinderSize ? ` (${it.cylinderSize})` : ''
+            const qty = Number(it.quantity) || 0
+            const rowTotal = Number(it.amount) || 0
+            const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
+            return {
+              product: { name: `${baseName}${sizeLabel}` },
+              quantity: qty,
+              price: unitPrice,
+              total: rowTotal,
+            }
+          })
+        : [{
+            product: {
+              name: `${transaction.product?.name || (transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1))}${transaction.cylinderSize ? ` (${transaction.cylinderSize})` : ''}`,
+            },
+            quantity: Number(transaction.quantity) || 0,
+            price: Number(transaction.amount) || 0,
+            total: (Number(transaction.amount) || 0) * (Number(transaction.quantity) || 0),
+          }]
+
+      const totalAmount = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
+
       const saleData = {
         _id: transaction._id,
         invoiceNumber: `CYL-${transaction._id.slice(-8).toUpperCase()}`,
@@ -819,18 +880,10 @@ export function CylinderManagement() {
           phone: transaction.customer?.phone || "",
           address: transaction.customer?.address || ""
         },
-        items: [{
-          product: {
-            name: `${transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)} - ${transaction.cylinderSize} Cylinder`,
-            price: transaction.amount
-          },
-          quantity: transaction.quantity,
-          price: transaction.amount,
-          total: transaction.amount * transaction.quantity
-        }],
-        totalAmount: transaction.amount * transaction.quantity,
-        paymentMethod: "cash",
-        paymentStatus: "paid",
+        items,
+        totalAmount,
+        paymentMethod: (transaction as any).paymentMethod || "cash",
+        paymentStatus: transaction.status || "pending",
         createdAt: transaction.createdAt,
         customerSignature: customerSignature,
       }
@@ -850,6 +903,34 @@ export function CylinderManagement() {
     // Directly open receipt dialog with the pending transaction and signature embedded
     if (pendingTransaction) {
       console.log('CylinderManagement - Opening receipt dialog with signature embedded')
+      const itemsSrc = (pendingTransaction as any).items as any[] | undefined
+      const hasItems = Array.isArray(itemsSrc) && itemsSrc.length > 0
+
+      const items = hasItems
+        ? itemsSrc.map((it: any) => {
+            const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
+            const sizeLabel = it.cylinderSize ? ` (${it.cylinderSize})` : ''
+            const qty = Number(it.quantity) || 0
+            const rowTotal = Number(it.amount) || 0
+            const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
+            return {
+              product: { name: `${baseName}${sizeLabel}` },
+              quantity: qty,
+              price: unitPrice,
+              total: rowTotal,
+            }
+          })
+        : [{
+            product: {
+              name: `${pendingTransaction.product?.name || (pendingTransaction.type.charAt(0).toUpperCase() + pendingTransaction.type.slice(1))}${pendingTransaction.cylinderSize ? ` (${pendingTransaction.cylinderSize})` : ''}`,
+            },
+            quantity: Number(pendingTransaction.quantity) || 0,
+            price: Number(pendingTransaction.amount) || 0,
+            total: (Number(pendingTransaction.amount) || 0) * (Number(pendingTransaction.quantity) || 0),
+          }]
+
+      const totalAmount = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
+
       const saleData = {
         _id: pendingTransaction._id,
         invoiceNumber: `CYL-${pendingTransaction._id.slice(-8).toUpperCase()}`,
@@ -858,18 +939,10 @@ export function CylinderManagement() {
           phone: pendingTransaction.customer?.phone || "",
           address: pendingTransaction.customer?.address || ""
         },
-        items: [{
-          product: {
-            name: `${pendingTransaction.type.charAt(0).toUpperCase() + pendingTransaction.type.slice(1)} - ${pendingTransaction.cylinderSize} Cylinder`,
-            price: pendingTransaction.amount
-          },
-          quantity: pendingTransaction.quantity,
-          price: pendingTransaction.amount,
-          total: pendingTransaction.amount * pendingTransaction.quantity
-        }],
-        totalAmount: pendingTransaction.amount * pendingTransaction.quantity,
-        paymentMethod: "cash",
-        paymentStatus: "paid",
+        items,
+        totalAmount,
+        paymentMethod: (pendingTransaction as any).paymentMethod || "cash",
+        paymentStatus: pendingTransaction.status || "pending",
         createdAt: pendingTransaction.createdAt,
         customerSignature: signature,
       }
