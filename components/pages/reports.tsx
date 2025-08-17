@@ -1949,19 +1949,19 @@ export function Reports() {
                       </TableCell>
                       <TableCell>
                         <div className={`font-semibold ${customer.balance > 0 ? 'text-red-600' : customer.balance < 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                          {formatCurrency(customer.balance)}
+                          {formatCurrency(Number(customer.balance || 0))}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          <div>{customer.totalSales + customer.totalDeposits + customer.totalRefills + customer.totalReturns} transactions</div>
+                          <div>{(customer.totalSales || 0) + (customer.totalDeposits || 0) + (customer.totalRefills || 0) + (customer.totalReturns || 0)} transactions</div>
                           <div className="text-gray-500">{formatCurrency((customer.totalSalesAmount || 0) + (customer.totalCylinderAmount || 0))}</div>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          <div>{customer.totalDeposits + customer.totalRefills + customer.totalReturns} transactions</div>
-                          <div className="text-gray-500">{formatCurrency(customer.totalCylinderAmount)}</div>
+                          <div>{(customer.totalDeposits || 0) + (customer.totalRefills || 0) + (customer.totalReturns || 0)} transactions</div>
+                          <div className="text-gray-500">{formatCurrency(customer.totalCylinderAmount || 0)}</div>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -2189,16 +2189,16 @@ export function Reports() {
                                       </div>
                                       <div className="flex justify-between">
                                         <span>Sales Amount:</span>
-                                        <span className="font-semibold text-blue-600">{formatCurrency(customer.totalSalesAmount)}</span>
+                                        <span className="font-semibold text-blue-600">{formatCurrency(customer.totalSalesAmount || 0)}</span>
                                       </div>
                                       <div className="flex justify-between">
                                         <span>Amount Paid:</span>
-                                        <span className="font-semibold text-green-600">{formatCurrency(customer.totalPaidAmount)}</span>
+                                        <span className="font-semibold text-green-600">{formatCurrency(customer.totalPaidAmount || 0)}</span>
                                       </div>
                                       <div className="flex justify-between border-t pt-2">
                                         <span>Outstanding:</span>
-                                        <span className={`font-semibold ${(customer.totalSalesAmount - customer.totalPaidAmount) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                          {formatCurrency(customer.totalSalesAmount - customer.totalPaidAmount)}
+                                        <span className={`font-semibold ${((Number(customer.totalSalesAmount || 0) - Number(customer.totalPaidAmount || 0)) > 0) ? 'text-red-600' : 'text-green-600'}`}>
+                                          {formatCurrency(Number(customer.totalSalesAmount || 0) - Number(customer.totalPaidAmount || 0))}
                                         </span>
                                       </div>
                                     </div>
@@ -2245,28 +2245,28 @@ export function Reports() {
                                     <div className="space-y-2 text-sm">
                                       <div className="flex justify-between">
                                         <span>Gas Sales Revenue:</span>
-                                        <span className="font-semibold text-blue-600">{formatCurrency(customer.totalSalesAmount)}</span>
+                                        <span className="font-semibold text-blue-600">{formatCurrency(customer.totalSalesAmount || 0)}</span>
                                       </div>
                                       <div className="flex justify-between">
                                         <span>Cylinder Revenue:</span>
-                                        <span className="font-semibold text-green-600">{formatCurrency(customer.totalCylinderAmount)}</span>
+                                        <span className="font-semibold text-green-600">{formatCurrency(customer.totalCylinderAmount || 0)}</span>
                                       </div>
                                       <div className="flex justify-between border-t pt-1">
                                         <span>Total Revenue:</span>
-                                        <span className="font-semibold">{formatCurrency(customer.totalSalesAmount + customer.totalCylinderAmount)}</span>
+                                        <span className="font-semibold">{formatCurrency((customer.totalSalesAmount || 0) + (customer.totalCylinderAmount || 0))}</span>
                                       </div>
                                       <div className="flex justify-between">
                                         <span>Total Debit:</span>
-                                        <span className="font-semibold text-red-600">{formatCurrency(customer.totalDebit)}</span>
+                                        <span className="font-semibold text-red-600">{formatCurrency(customer.totalDebit || 0)}</span>
                                       </div>
                                       <div className="flex justify-between">
                                         <span>Total Credit:</span>
-                                        <span className="font-semibold text-green-600">{formatCurrency(customer.totalCredit)}</span>
+                                        <span className="font-semibold text-green-600">{formatCurrency(customer.totalCredit || 0)}</span>
                                       </div>
                                       <div className="flex justify-between border-t pt-2">
                                         <span>Current Balance:</span>
                                         <span className={`font-bold ${customer.balance > 0 ? 'text-red-600' : customer.balance < 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                                          {formatCurrency(customer.balance)}
+                                          {formatCurrency(Number(customer.balance || 0))}
                                         </span>
                                       </div>
                                     </div>
