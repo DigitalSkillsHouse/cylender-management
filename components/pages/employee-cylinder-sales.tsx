@@ -15,6 +15,7 @@ import { Plus, Package, DollarSign, FileText, Edit, Trash2, Receipt } from "luci
 import { toast } from "sonner"
 import { ReceiptDialog } from '@/components/receipt-dialog'
 import { SignatureDialog } from '@/components/signature-dialog'
+import SecuritySelectDialog from '@/components/security-select-dialog'
 
 interface EmployeeCylinderSalesProps {
   user: { id: string; email: string; name: string }
@@ -105,6 +106,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [isSignatureDialogOpen, setIsSignatureDialogOpen] = useState(false)
   const [transactionForReceipt, setTransactionForReceipt] = useState<any | null>(null)
   const [transactionForSignature, setTransactionForSignature] = useState<any | null>(null)
+
+  // Previous security dialog state
+  const [showSecurityDialog, setShowSecurityDialog] = useState(false)
+  const [securityRecords, setSecurityRecords] = useState<any[]>([])
+  const [securityPrompted, setSecurityPrompted] = useState(false)
 
   // Modern stock validation dialog
   const [stockAlert, setStockAlert] = useState<{
@@ -219,12 +225,54 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     fetchData()
   }, [user.id])
 
+  // Reset security prompt flag if type or customer changes
+  useEffect(() => {
+    setSecurityPrompted(false)
+  }, [formData.type, formData.customer])
+
   // Enforce delivery note behavior: zero deposit and pending status for non-refill
   useEffect(() => {
     if (formData.paymentOption === 'delivery_note' && formData.type !== 'refill') {
       setFormData(prev => ({ ...prev, depositAmount: 0, status: 'pending' }))
     }
   }, [formData.paymentOption, formData.type])
+
+  // Fetch previous security records and prompt when returning and customer selected
+  useEffect(() => {
+    const shouldPrompt = formData.type === 'return' && !!formData.customer && !securityPrompted
+    if (!shouldPrompt) return
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/employee-cylinders?employeeId=${user.id}&customerId=${formData.customer}&type=deposit`)
+        const data = await res.json().catch(() => ([]))
+        const list = (data?.data || data || []) as any[]
+        const filtered = Array.isArray(list)
+          ? list.filter(r => r && (r.paymentMethod === 'cash' || r.paymentMethod === 'cheque'))
+          : []
+        setSecurityRecords(filtered)
+        setShowSecurityDialog(true)
+      } catch (e) {
+        console.error('[EmployeeCylinderSales] Failed to fetch security records:', e)
+        setSecurityRecords([])
+        setShowSecurityDialog(true)
+      } finally {
+        setSecurityPrompted(true)
+      }
+    })()
+  }, [formData.type, formData.customer, securityPrompted])
+
+  const handleSecuritySelect = (rec: any) => {
+    const isCash = rec?.paymentMethod === 'cash'
+    setFormData(prev => ({
+      ...prev,
+      paymentOption: 'debit',
+      paymentMethod: isCash ? 'cash' : 'cheque',
+      cashAmount: isCash ? Number(rec?.cashAmount || 0) : 0,
+      bankName: !isCash ? (rec?.bankName || '') : '',
+      checkNumber: !isCash ? (rec?.checkNumber || '') : '',
+    }))
+    setShowSecurityDialog(false)
+  }
 
   const fetchData = async () => {
     try {
@@ -418,6 +466,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       return newState;
     });
   };
+
+  
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -1546,6 +1596,14 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         sale={transactionForReceipt}
       />
     )}
+
+    {/* Previous Security Select Dialog */}
+    <SecuritySelectDialog
+      open={showSecurityDialog}
+      onOpenChange={setShowSecurityDialog}
+      records={securityRecords}
+      onSelect={handleSecuritySelect}
+    />
 
     {/* Stock Validation Popup (Admin-style) */}
     {showStockValidationPopup && (

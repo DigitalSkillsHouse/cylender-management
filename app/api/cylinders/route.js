@@ -4,7 +4,7 @@ import Customer from "@/models/Customer";
 import Supplier from "@/models/Supplier";
 import { NextResponse } from "next/server";
 
-export async function GET() {
+export async function GET(request) {
   try {
     await dbConnect();
   } catch (error) {
@@ -16,8 +16,17 @@ export async function GET() {
   }
 
   try {
+    // Optional filters via query params
+    const { searchParams } = new URL(request.url);
+    const customerId = searchParams.get('customerId');
+    const type = searchParams.get('type'); // deposit | refill | return
+
+    const query = {};
+    if (customerId) query.customer = customerId;
+    if (type) query.type = type;
+
     // Primary path: with populations
-    const transactions = await CylinderTransaction.find({})
+    const transactions = await CylinderTransaction.find(query)
       .populate("customer", "name phone address email")
       .populate("supplier", "companyName contactPerson phone email")
       .populate({
@@ -27,7 +36,8 @@ export async function GET() {
       })
       .sort({ createdAt: -1 });
 
-    console.log(`[cylinders][GET] Populated fetch OK. Count=${transactions.length}`);
+    console.log(`[cylinders][GET] Populated fetch OK. Count=${transactions.length} filter:`,
+      { customerId: customerId || null, type: type || null });
     return NextResponse.json({ data: transactions });
   } catch (error) {
     // Fallback: return lean docs without populations so UI continues to work
@@ -35,7 +45,15 @@ export async function GET() {
     console.error("[cylinders][GET] Error:", error?.message);
     console.error(error?.stack);
     try {
-      const raw = await CylinderTransaction.find({}).sort({ createdAt: -1 }).lean();
+      // Attempt same filters on fallback
+      const { searchParams } = new URL(request.url);
+      const customerId = searchParams.get('customerId');
+      const type = searchParams.get('type');
+      const query = {};
+      if (customerId) query.customer = customerId;
+      if (type) query.type = type;
+
+      const raw = await CylinderTransaction.find(query).sort({ createdAt: -1 }).lean();
       console.log(`[cylinders][GET] Fallback lean fetch OK. Count=${raw.length}`);
 
       // Attempt lightweight hydration so UI continues to display names

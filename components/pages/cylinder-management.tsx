@@ -18,6 +18,7 @@ import { cylindersAPI, customersAPI, productsAPI, employeeCylindersAPI, supplier
 import { CustomerDropdown } from "@/components/ui/customer-dropdown"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { SignatureDialog } from "@/components/signature-dialog"
+import SecuritySelectDialog from "@/components/security-select-dialog"
 
 interface CylinderTransaction {
   _id: string
@@ -111,6 +112,11 @@ export function CylinderManagement() {
   const [customerSignature, setCustomerSignature] = useState<string>("") 
   const [statusFilter, setStatusFilter] = useState("all")
   const [activeTab, setActiveTab] = useState("all")
+  
+  // Security selection dialog state
+  const [showSecurityDialog, setShowSecurityDialog] = useState(false)
+  const [securityRecords, setSecurityRecords] = useState<any[]>([])
+  const [securityPrompted, setSecurityPrompted] = useState(false)
   
   // Customer autocomplete functionality for form
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
@@ -405,6 +411,11 @@ export function CylinderManagement() {
     fetchData()
   }, [])
 
+  // When type switches or customer changes, reset security prompt flag
+  useEffect(() => {
+    setSecurityPrompted(false)
+  }, [formData.type, formData.customerId])
+
   // Helpers for items
   const getProductById = (id: string) => products.find(p => p._id === id)
 
@@ -481,6 +492,44 @@ export function CylinderManagement() {
       setFormData(prev => ({ ...prev, depositAmount: 0, status: 'pending' }))
     }
   }, [formData.paymentOption, formData.type])
+
+  // Fetch previous securities and open dialog when Return + customer selected
+  useEffect(() => {
+    const shouldPrompt = formData.type === 'return' && !!formData.customerId && !securityPrompted
+    if (!shouldPrompt) return
+    ;(async () => {
+      try {
+        // Fetch previous deposit/security records for this customer
+        const res = await cylindersAPI.getAll({ customerId: formData.customerId, type: 'deposit' } as any)
+        const list = (res?.data?.data || res?.data || []) as any[]
+        // Keep only records with payment details for clarity
+        const filtered = Array.isArray(list)
+          ? list.filter(r => r && (r.paymentMethod === 'cash' || r.paymentMethod === 'cheque'))
+          : []
+        setSecurityRecords(filtered)
+        setShowSecurityDialog(true)
+      } catch (e) {
+        console.error('[CylinderManagement] Failed to fetch security records:', e)
+        setSecurityRecords([])
+        setShowSecurityDialog(true)
+      } finally {
+        setSecurityPrompted(true)
+      }
+    })()
+  }, [formData.type, formData.customerId, securityPrompted])
+
+  const handleSecuritySelect = (rec: any) => {
+    const isCash = rec?.paymentMethod === 'cash'
+    setFormData(prev => ({
+      ...prev,
+      paymentOption: 'debit',
+      paymentMethod: isCash ? 'cash' : 'cheque',
+      cashAmount: isCash ? Number(rec?.cashAmount || 0) : 0,
+      bankName: !isCash ? (rec?.bankName || '') : '',
+      checkNumber: !isCash ? (rec?.checkNumber || '') : '',
+    }))
+    setShowSecurityDialog(false)
+  }
 
   // Clear irrelevant party based on type
   useEffect(() => {
@@ -1862,6 +1911,14 @@ export function CylinderManagement() {
           onSignatureComplete={handleSignatureComplete}
         />
       )}
+
+      {/* Previous Security Select Dialog */}
+      <SecuritySelectDialog
+        open={showSecurityDialog}
+        onOpenChange={setShowSecurityDialog}
+        records={securityRecords}
+        onSelect={handleSecuritySelect}
+      />
     </div>
   );
 }
