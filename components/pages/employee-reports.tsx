@@ -87,18 +87,28 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const downloadDsrGridPdf = (date: string) => {
     try {
       const byKey = new Map<string, DailyStockEntry>()
-      dsrEntries.filter(e => e.date === date).forEach(e => byKey.set(e.itemName.toLowerCase(), e))
-      const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(dsrEntries.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
+      dsrEntries.filter(e => e.date === date).forEach(e => byKey.set(normalizeName(e.itemName), e))
+      // Build rows from multiple sources similar to DSR Grid View
+      const rowsSource = (() => {
+        // Only use employee's assigned inventory; fallback to dsrProducts built by the form
+        if (assignedProducts.length > 0) return assignedProducts.map(p => ({ ...p, displayName: p.name }))
+        if (dsrProducts.length > 0) return dsrProducts.map(p => ({ ...p, displayName: p.name }))
+        return [] as any[]
+      })()
       const rows = rowsSource.map(p => {
-        const e = byKey.get(String(p.name).toLowerCase())
+        const key = normalizeName(p.name)
+        const e = byKey.get(key)
+        const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
+        const cylSalesVal = dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0)
+        const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
         return `
           <tr>
-            <td>${p.name}</td>
+            <td>${(p as any).displayName || p.name}</td>
             <td>${e ? e.openingFull : 0}</td>
             <td>${e ? e.openingEmpty : 0}</td>
-            <td>${e ? e.refilled : 0}</td>
-            <td>${e ? e.cylinderSales : 0}</td>
-            <td>${e ? e.gasSales : 0}</td>
+            <td>${refilledVal}</td>
+            <td>${cylSalesVal}</td>
+            <td>${gasSalesVal}</td>
             <td>${typeof e?.closingFull === 'number' ? e!.closingFull : 0}</td>
             <td>${typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</td>
           </tr>
@@ -236,27 +246,101 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     closingEmpty: string
   }
   const [dsrGrid, setDsrGrid] = useState<DsrGridRow[]>([])
+  // Consistent name normalizer used across aggregation and rendering
+  const normalizeName = (s: any) => (typeof s === 'string' || typeof s === 'number')
+    ? String(s).replace(/\s+/g, ' ').trim().toLowerCase()
+    : ''
+  // Aggregated daily totals fed into the DSR view grid (by product name, normalized)
+  const [dailyAggRefills, setDailyAggRefills] = useState<Record<string, number>>({})
+  const [dailyAggCylinderSales, setDailyAggCylinderSales] = useState<Record<string, number>>({})
+  const [dailyAggGasSales, setDailyAggGasSales] = useState<Record<string, number>>({})
+  // Assigned products for the employee to ensure baseline rows
+  const [assignedProducts, setAssignedProducts] = useState<ProductLite[]>([])
   
-  // Load products when DSR form opens and build empty grid
+  // Ensure assigned products (employee inventory) are available globally for grid/PDF without opening form
   useEffect(() => {
-    if (!showDSRForm) return
+    if (!user?.id) return
     ;(async () => {
       try {
-        const res = await fetch('/api/products', { cache: 'no-store' })
-        const json = await res.json().catch(() => ({}))
-        const list: any[] = Array.isArray(json?.data?.data)
-          ? json.data.data
-          : Array.isArray(json?.data)
-            ? json.data
-            : Array.isArray(json)
-              ? (json as any[])
-              : []
-        const products: ProductLite[] = list
-          .filter((p: any) => p && (p.name || p.title))
-          .map((p: any) => ({ _id: String(p._id || p.id || p.name), name: String(p.name || p.title) }))
-        setDsrProducts(products)
-        // Initialize grid with empty values, items populated
-        const baseGrid = products.map(p => ({
+        const [rRes, aRes] = await Promise.all([
+          fetch(`/api/stock-assignments?employeeId=${user.id}&status=received`, { cache: 'no-store' }),
+          fetch(`/api/stock-assignments?employeeId=${user.id}&status=assigned`, { cache: 'no-store' }),
+        ])
+        const gather = async (res: Response | undefined) => {
+          if (!res || !res.ok) return [] as any[]
+          const json = await res.json().catch(() => ({}))
+          return Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
+        }
+        const received = await gather(rRes)
+        const assigned = await gather(aRes)
+        const all = [...received, ...assigned]
+        const seen = new Set<string>()
+        const ap: ProductLite[] = []
+        all.forEach((a: any) => {
+          const name = a?.product?.name || a?.productName
+          const id = String(a?.product?._id || a?.product || name || '')
+          const key = normalizeName(name)
+          if (name && !seen.has(key)) {
+            seen.add(key)
+            ap.push({ _id: id, name: String(name) })
+          }
+        })
+        setAssignedProducts(ap)
+        // If dsrProducts not set yet, also seed it so grid has immediate rows
+        if ((dsrProducts || []).length === 0 && ap.length > 0) {
+          setDsrProducts(ap)
+        }
+      } catch (e) {
+        // keep empty
+      }
+    })()
+  }, [user?.id])
+
+  // Load products when DSR form opens and build empty grid (employee inventory ONLY)
+  useEffect(() => {
+    if (!showDSRForm) return
+    if (!user?.id) return
+    ;(async () => {
+      try {
+        // Prefer in-memory assignedProducts, otherwise fetch fresh
+        let chosen: ProductLite[] = assignedProducts
+        if (chosen.length === 0) {
+          // Try 'received' (employee inventory), then 'assigned' as fallback
+          const [rRes, aRes] = await Promise.all([
+            fetch(`/api/stock-assignments?employeeId=${user.id}&status=received`, { cache: 'no-store' }),
+            fetch(`/api/stock-assignments?employeeId=${user.id}&status=assigned`, { cache: 'no-store' }),
+          ])
+          const gather = async (res: Response | undefined) => {
+            if (!res || !res.ok) return [] as any[]
+            const json = await res.json().catch(() => ({}))
+            const arr: any[] = Array.isArray(json)
+              ? json
+              : Array.isArray(json?.data)
+                ? json.data
+                : []
+            return arr
+          }
+          const received = await gather(rRes)
+          const assigned = await gather(aRes)
+          const all = [...received, ...assigned]
+          const seen = new Set<string>()
+          const ap: ProductLite[] = []
+          all.forEach((a: any) => {
+            const name = a?.product?.name || a?.productName
+            const id = String(a?.product?._id || a?.product || name || '')
+            const key = normalizeName(name)
+            if (name && !seen.has(key)) {
+              seen.add(key)
+              ap.push({ _id: id, name: String(name) })
+            }
+          })
+          chosen = ap
+          setAssignedProducts(ap)
+        }
+
+        // Do NOT fallback to admin products. If none assigned, show empty grid.
+        setDsrProducts(chosen)
+        const baseGrid = chosen.map(p => ({
           itemId: p._id,
           itemName: p.name,
           openingFull: '',
@@ -265,14 +349,15 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           closingEmpty: '',
         }))
         setDsrGrid(baseGrid)
-        // Prefill openings from previous day closings per item
-        await prefillDsrGridOpenings(dsrForm.date, baseGrid)
+        if (baseGrid.length > 0) {
+          await prefillDsrGridOpenings(dsrForm.date, baseGrid)
+        }
       } catch (e) {
         setDsrProducts([])
         setDsrGrid([])
       }
     })()
-  }, [showDSRForm])
+  }, [showDSRForm, user?.id])
 
   const updateDsrGridCell = (itemId: string, field: keyof Omit<DsrGridRow, 'itemId' | 'itemName'>, value: string) => {
     setDsrGrid(prev => prev.map(r => r.itemId === itemId ? { ...r, [field]: value } as DsrGridRow : r))
@@ -281,7 +366,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const prefillDsrGridOpenings = async (date: string, rows: DsrGridRow[]) => {
     const updated = await Promise.all(rows.map(async (r) => {
       try {
-        const url = `${API_BASE}/previous?itemName=${encodeURIComponent(r.itemName)}&date=${encodeURIComponent(date)}`
+        const url = `${API_BASE}/previous?itemName=${encodeURIComponent(r.itemName)}&date=${encodeURIComponent(date)}&employeeId=${encodeURIComponent(user.id)}`
         const res = await fetch(url, { cache: 'no-store' })
         if (res.ok) {
           const json = await res.json()
@@ -617,6 +702,56 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Compute daily aggregates for employee datasets based on selected dsrViewDate
+  useEffect(() => {
+    if (!dsrViewDate) return
+    // Helpers
+    const dayStart = new Date(dsrViewDate + 'T00:00:00').getTime()
+    const dayEnd = new Date(dsrViewDate + 'T23:59:59.999').getTime()
+    const isOnDay = (t: any) => {
+      const ts = t ? new Date(t).getTime() : NaN
+      return Number.isFinite(ts) && ts >= dayStart && ts <= dayEnd
+    }
+    const inc = (map: Record<string, number>, key: string, by: number) => {
+      const k = normalizeName(key)
+      if (!k) return
+      map[k] = (map[k] || 0) + (Number(by) || 0)
+    }
+
+    const refills: Record<string, number> = {}
+    const cylSales: Record<string, number> = {}
+    const gasSales: Record<string, number> = {}
+
+    // Cylinder transactions: items with productName or cylinderSize
+    ;(employeeCylinders || []).forEach((tx: any) => {
+      if (!isOnDay(tx.createdAt || tx.date)) return
+      const type = String(tx.type || '').toLowerCase()
+      const items = Array.isArray(tx.items) ? tx.items : []
+      items.forEach((it: any) => {
+        const nameRaw = it?.productName || it?.product?.name || it?.cylinderSize || it?.size || 'cylinder'
+        const qty = Number(it?.quantity || 0)
+        if (type === 'refill') inc(refills, nameRaw, qty)
+        if (type === 'deposit') inc(cylSales, nameRaw, qty)
+        // returns are not counted as sales
+      })
+    })
+
+    // Gas sales: items.product.name -> quantity
+    ;(employeeSales || []).forEach((sale: any) => {
+      if (!isOnDay(sale.createdAt || sale.date)) return
+      const items = Array.isArray(sale.items) ? sale.items : []
+      items.forEach((it: any) => {
+        const nameRaw = it?.product?.name || it?.productName || 'gas'
+        const qty = Number(it?.quantity || 0)
+        inc(gasSales, nameRaw, qty)
+      })
+    })
+
+    setDailyAggRefills(refills)
+    setDailyAggCylinderSales(cylSales)
+    setDailyAggGasSales(gasSales)
+  }, [dsrViewDate, employeeSales, employeeCylinders])
+
   // Prefill opening from previous day closing for same item (API first, fallback local)
   const prefillOpeningFromPrevious = (date: string, itemName: string) => {
     if (!date || !itemName) return
@@ -869,10 +1004,11 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       if (!user?.id) return
       setLoading(true)
 
-      // Fetch employee-scoped gas sales and cylinder transactions
-      const [salesRes, cylRes] = await Promise.all([
+      // Fetch employee-scoped gas sales, cylinder transactions, and stock assignments
+      const [salesRes, cylRes, assignRes] = await Promise.all([
         fetch(`/api/employee-sales?employeeId=${user.id}`, { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => ([])),
         fetch(`/api/employee-cylinders?employeeId=${user.id}`, { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => ([])),
+        fetch(`/api/stock-assignments?employeeId=${user.id}&status=assigned`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => ([])),
       ])
 
       const sales: any[] = Array.isArray(salesRes)
@@ -884,6 +1020,11 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         ? cylRes
         : Array.isArray(cylRes?.data)
           ? cylRes.data
+          : []
+      const assignmentsArr: any[] = Array.isArray(assignRes)
+        ? assignRes
+        : Array.isArray(assignRes?.data)
+          ? assignRes.data
           : []
 
       // Compute lightweight stats for employee
@@ -911,6 +1052,19 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       // Expose arrays to the UI (for tables/exports if present)
       setEmployeeSales(sales)
       setEmployeeCylinders(cylinders)
+      // Build assigned products list (unique by normalized name)
+      const seen = new Set<string>()
+      const assigned: ProductLite[] = []
+      assignmentsArr.forEach((a: any) => {
+        const name = a?.product?.name || a?.productName
+        const id = String(a?.product?._id || a?.product || name || '')
+        const key = normalizeName(name)
+        if (name && !seen.has(key)) {
+          seen.add(key)
+          assigned.push({ _id: id, name: String(name) })
+        }
+      })
+      setAssignedProducts(assigned)
 
       // Derive a minimal customer ledger from employee data
       const byCustomer = new Map<string, CustomerLedgerData>()
@@ -1404,23 +1558,44 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
               </TableHeader>
               <TableBody>
                 {(() => {
-                  // Build rows for all products; merge with entries for selected date
+                  // Build rows from multiple sources to ensure items that only appear in today's aggregates or assignments are shown
                   const byKey = new Map<string, DailyStockEntry>()
                   dsrEntries
                     .filter(e => e.date === dsrViewDate)
-                    .forEach(e => byKey.set(e.itemName.toLowerCase(), e))
-                  const rows = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(dsrEntries.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
+                    .forEach(e => byKey.set(normalizeName(e.itemName), e))
+                  const rows = (() => {
+                    // Prefer employee's assigned items over admin products
+                    if (assignedProducts.length > 0) return assignedProducts.map(p => ({ ...p, displayName: p.name }))
+                    const nameSet = new Set<string>()
+                    // Names from DSR entries for selected date
+                    dsrEntries.filter(e => e.date === dsrViewDate).forEach(e => nameSet.add(normalizeName(String(e.itemName))))
+                    // Names from daily aggregates (gas, cylinder, refills)
+                    Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
+                    Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
+                    Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+                    // Names from assigned products
+                    assignedProducts.forEach(p => nameSet.add(normalizeName(p.name)))
+                    const arr = Array.from(nameSet)
+                    return arr.map((n, i) => ({ _id: String(i), name: n } as any))
+                  })()
                   return rows.length > 0 ? (
                     rows.map(p => {
-                      const e = byKey.get(String(p.name).toLowerCase())
+                      const key = normalizeName(p.name)
+                      const e = byKey.get(key)
+                      const refV = (dailyAggRefills[key]
+                        ?? (e ? e.refilled : 0))
+                      const cylV = (dailyAggCylinderSales[key]
+                        ?? (e ? e.cylinderSales : 0))
+                      const gasV = (dailyAggGasSales[key]
+                        ?? (e ? e.gasSales : 0))
                       return (
                         <TableRow key={p._id || p.name}>
-                          <TableCell className="font-medium">{p.name}</TableCell>
+                          <TableCell className="font-medium">{(p as any).displayName || p.name}</TableCell>
                           <TableCell>{e ? e.openingFull : 0}</TableCell>
                           <TableCell>{e ? e.openingEmpty : 0}</TableCell>
-                          <TableCell>{e ? e.refilled : 0}</TableCell>
-                          <TableCell>{e ? e.cylinderSales : 0}</TableCell>
-                          <TableCell>{e ? e.gasSales : 0}</TableCell>
+                          <TableCell>{refV}</TableCell>
+                          <TableCell>{cylV}</TableCell>
+                          <TableCell>{gasV}</TableCell>
                           <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
                           <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
                         </TableRow>
@@ -2015,25 +2190,33 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
               <TableBody>
                 {(() => {
                   const byKey = new Map<string, DailyStockEntry>()
-                  dsrEntries.filter(e => e.date === dsrViewDate).forEach(e => byKey.set(e.itemName.toLowerCase(), e))
-                  const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(dsrEntries.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
+                  dsrEntries
+                    .filter(e => e.date === dsrViewDate)
+                    .forEach(e => byKey.set(normalizeName(e.itemName), e))
+                  // Only use employee's assigned products. If none, fall back to dsrProducts populated by the DSR form loader.
+                  const rowsSource = (assignedProducts.length > 0
+                    ? assignedProducts
+                    : (dsrProducts.length > 0 ? dsrProducts : []))
                   if (rowsSource.length === 0) {
                     return (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-6 text-gray-500">No data to show</TableCell>
+                        <TableCell colSpan={8} className="text-center py-6 text-gray-500">
+                          No assigned inventory found for this employee. Please contact admin to assign inventory.
+                        </TableCell>
                       </TableRow>
                     )
                   }
                   return rowsSource.map((p: any) => {
-                    const e = byKey.get(String(p.name).toLowerCase())
+                    const key = normalizeName(p.name)
+                    const e = byKey.get(key)
                     return (
                       <TableRow key={p._id || p.name}>
                         <TableCell className="font-medium">{p.name}</TableCell>
                         <TableCell>{e ? e.openingFull : 0}</TableCell>
                         <TableCell>{e ? e.openingEmpty : 0}</TableCell>
-                        <TableCell>{e ? e.refilled : 0}</TableCell>
-                        <TableCell>{e ? e.cylinderSales : 0}</TableCell>
-                        <TableCell>{e ? e.gasSales : 0}</TableCell>
+                        <TableCell>{(dailyAggRefills[key] ?? (e ? e.refilled : 0))}</TableCell>
+                        <TableCell>{(dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0))}</TableCell>
+                        <TableCell>{(dailyAggGasSales[key] ?? (e ? e.gasSales : 0))}</TableCell>
                         <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
                         <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
                       </TableRow>
