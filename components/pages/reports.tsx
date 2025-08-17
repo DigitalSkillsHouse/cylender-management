@@ -171,6 +171,8 @@ export function Reports() {
         Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
         Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
         Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggDeposits || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggReturns || {}).forEach(k => nameSet.add(k))
         const arr = Array.from(nameSet)
         return arr.map((n, i) => ({ _id: String(i), name: n } as any))
       })()
@@ -180,6 +182,8 @@ export function Reports() {
         const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
         const cylSalesVal = dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0)
         const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
+        const depositVal = dailyAggDeposits[key] ?? 0
+        const returnVal = dailyAggReturns[key] ?? 0
         return `
           <tr>
             <td>${p.name}</td>
@@ -188,6 +192,8 @@ export function Reports() {
             <td>${refilledVal || 0}</td>
             <td>${cylSalesVal || 0}</td>
             <td>${gasSalesVal || 0}</td>
+            <td>${depositVal || 0}</td>
+            <td>${returnVal || 0}</td>
             <td>${typeof e?.closingFull === 'number' ? e!.closingFull : 0}</td>
             <td>${typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</td>
           </tr>
@@ -214,7 +220,7 @@ export function Reports() {
               <tr>
                 <th>Items</th>
                 <th colspan=2>Opening</th>
-                <th colspan=3>During the day</th>
+                <th colspan=5>During the day</th>
                 <th colspan=2>Closing</th>
               </tr>
               <tr>
@@ -224,6 +230,8 @@ export function Reports() {
                 <th>Refilled</th>
                 <th>Cylinder Sales</th>
                 <th>Gas Sales</th>
+                <th>Deposit Cylinder</th>
+                <th>Return Cylinder</th>
                 <th>Full</th>
                 <th>Empty</th>
               </tr>
@@ -336,6 +344,11 @@ export function Reports() {
   const [dailyAggGasSalesById, setDailyAggGasSalesById] = useState<Record<string, number>>({})
   const [dailyAggCylinderSalesById, setDailyAggCylinderSalesById] = useState<Record<string, number>>({})
   const [dailyAggRefillsById, setDailyAggRefillsById] = useState<Record<string, number>>({})
+  // New: Deposit and Return cylinder aggregates (by name and by ID)
+  const [dailyAggDeposits, setDailyAggDeposits] = useState<Record<string, number>>({})
+  const [dailyAggReturns, setDailyAggReturns] = useState<Record<string, number>>({})
+  const [dailyAggDepositsById, setDailyAggDepositsById] = useState<Record<string, number>>({})
+  const [dailyAggReturnsById, setDailyAggReturnsById] = useState<Record<string, number>>({})
   // Aggregation readiness flag
   const [aggReady, setAggReady] = useState<boolean>(false)
   
@@ -927,6 +940,10 @@ export function Reports() {
         const cylById: Record<string, number> = {}
         const ref: Record<string, number> = {}
         const refById: Record<string, number> = {}
+        const dep: Record<string, number> = {}
+        const depById: Record<string, number> = {}
+        const ret: Record<string, number> = {}
+        const retById: Record<string, number> = {}
 
         // Admin sales
         const salesList: any[] = Array.isArray(salesJson?.data) ? salesJson.data : (Array.isArray(salesJson) ? salesJson : [])
@@ -952,35 +969,53 @@ export function Reports() {
         const cylTxList: any[] = Array.isArray(cylTxJson?.data) ? cylTxJson.data : (Array.isArray(cylTxJson) ? cylTxJson : [])
         console.log('[DSR] /api/cylinders count:', Array.isArray(cylTxList) ? cylTxList.length : 0)
         for (const t of cylTxList) {
-          if (t?.type !== 'refill') continue
           if (!inSelectedDay(t?.createdAt)) continue
           // Admin cylinder transaction shape: single product per tx
           const name = t?.product?.name || ''
           const pid = t?.product?._id
           const qty = Number(t?.quantity) || 0
-          inc(ref, name, qty)
-          incId(refById, pid, qty)
+          const type = String(t?.type || '').toLowerCase()
+          if (type === 'refill') {
+            inc(ref, name, qty)
+            incId(refById, pid, qty)
+          } else if (type === 'deposit') {
+            inc(dep, name, qty)
+            incId(depById, pid, qty)
+          } else if (type === 'return') {
+            inc(ret, name, qty)
+            incId(retById, pid, qty)
+          }
         }
 
         console.log('[DSR] Totals gas:', gas)
         console.log('[DSR] Totals cylinder:', cyl)
         console.log('[DSR] Totals refilled:', ref)
+        console.log('[DSR] Totals deposit:', dep)
+        console.log('[DSR] Totals return:', ret)
 
         setDailyAggGasSales(gas)
         setDailyAggCylinderSales(cyl)
         setDailyAggRefills(ref)
+        setDailyAggDeposits(dep)
+        setDailyAggReturns(ret)
         setDailyAggGasSalesById(gasById)
         setDailyAggCylinderSalesById(cylById)
         setDailyAggRefillsById(refById)
+        setDailyAggDepositsById(depById)
+        setDailyAggReturnsById(retById)
         setAggReady(true)
       } catch (err) {
         console.error('[DSR] Aggregation failed:', err)
         setDailyAggGasSales({})
         setDailyAggCylinderSales({})
         setDailyAggRefills({})
+        setDailyAggDeposits({})
+        setDailyAggReturns({})
         setDailyAggGasSalesById({})
         setDailyAggCylinderSalesById({})
         setDailyAggRefillsById({})
+        setDailyAggDepositsById({})
+        setDailyAggReturnsById({})
         setAggReady(false)
       }
     })()
@@ -1755,7 +1790,7 @@ export function Reports() {
                 <TableRow>
                   <TableHead>Items</TableHead>
                   <TableHead colSpan={2}>Opening</TableHead>
-                  <TableHead colSpan={3}>During the day</TableHead>
+                  <TableHead colSpan={5}>During the day</TableHead>
                   <TableHead colSpan={2}>Closing</TableHead>
                 </TableRow>
                 <TableRow>
@@ -1765,6 +1800,8 @@ export function Reports() {
                   <TableHead>Refilled</TableHead>
                   <TableHead>Cylinder Sales</TableHead>
                   <TableHead>Gas Sales</TableHead>
+                  <TableHead>Deposit Cylinder</TableHead>
+                  <TableHead>Return Cylinder</TableHead>
                   <TableHead>Full</TableHead>
                   <TableHead>Empty</TableHead>
                 </TableRow>
@@ -1786,6 +1823,8 @@ export function Reports() {
                     Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
                     Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
                     Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+                    Object.keys(dailyAggDeposits || {}).forEach(k => nameSet.add(k))
+                    Object.keys(dailyAggReturns || {}).forEach(k => nameSet.add(k))
                     const arr = Array.from(nameSet)
                     return arr.map((n, i) => ({ _id: String(i), name: n } as any))
                   })()
@@ -1803,8 +1842,14 @@ export function Reports() {
                       const gasV = (dailyAggGasSales[key]
                         ?? (idKey ? dailyAggGasSalesById[idKey] : undefined)
                         ?? (e ? e.gasSales : 0)) ?? 0
+                      const depV = (dailyAggDeposits[key]
+                        ?? (idKey ? dailyAggDepositsById[idKey] : undefined)
+                        ?? 0) ?? 0
+                      const retV = (dailyAggReturns[key]
+                        ?? (idKey ? dailyAggReturnsById[idKey] : undefined)
+                        ?? 0) ?? 0
                       // Temporary debug per row
-                      try { console.debug('[DSR Row]', { name: p.name, key, refV, cylV, gasV }) } catch {}
+                      try { console.debug('[DSR Row]', { name: p.name, key, refV, cylV, gasV, depV, retV }) } catch {}
                       return (
                         <TableRow key={p._id || p.name}>
                           <TableCell className="font-medium">{p.name}</TableCell>
@@ -1813,6 +1858,8 @@ export function Reports() {
                           <TableCell>{refV}</TableCell>
                           <TableCell>{cylV}</TableCell>
                           <TableCell>{gasV}</TableCell>
+                          <TableCell>{depV}</TableCell>
+                          <TableCell>{retV}</TableCell>
                           <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
                           <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
                         </TableRow>
@@ -1820,7 +1867,7 @@ export function Reports() {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-6 text-gray-500">No data for selected date</TableCell>
+                      <TableCell colSpan={10} className="text-center py-6 text-gray-500">No data for selected date</TableCell>
                     </TableRow>
                   )
                 })()}

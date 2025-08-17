@@ -156,6 +156,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
         const cylSalesVal = dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0)
         const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
+        const depositVal = dailyAggDeposits[key] ?? 0
+        const returnVal = dailyAggReturns[key] ?? 0
         return `
           <tr>
             <td>${(p as any).displayName || p.name}</td>
@@ -164,6 +166,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             <td>${refilledVal}</td>
             <td>${cylSalesVal}</td>
             <td>${gasSalesVal}</td>
+            <td>${depositVal}</td>
+            <td>${returnVal}</td>
             <td>${typeof e?.closingFull === 'number' ? e!.closingFull : 0}</td>
             <td>${typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</td>
           </tr>
@@ -190,7 +194,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
               <tr>
                 <th>Items</th>
                 <th colspan=2>Opening</th>
-                <th colspan=3>During the day</th>
+                <th colspan=5>During the day</th>
                 <th colspan=2>Closing</th>
               </tr>
               <tr>
@@ -200,6 +204,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                 <th>Refilled</th>
                 <th>Cylinder Sales</th>
                 <th>Gas Sales</th>
+                <th>Deposit Cylinder</th>
+                <th>Return Cylinder</th>
                 <th>Full</th>
                 <th>Empty</th>
               </tr>
@@ -309,6 +315,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const [dailyAggRefills, setDailyAggRefills] = useState<Record<string, number>>({})
   const [dailyAggCylinderSales, setDailyAggCylinderSales] = useState<Record<string, number>>({})
   const [dailyAggGasSales, setDailyAggGasSales] = useState<Record<string, number>>({})
+  const [dailyAggDeposits, setDailyAggDeposits] = useState<Record<string, number>>({})
+  const [dailyAggReturns, setDailyAggReturns] = useState<Record<string, number>>({})
   // Assigned products for the employee to ensure baseline rows
   const [assignedProducts, setAssignedProducts] = useState<ProductLite[]>([])
   
@@ -776,6 +784,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     const refills: Record<string, number> = {}
     const cylSales: Record<string, number> = {}
     const gasSales: Record<string, number> = {}
+    const deposits: Record<string, number> = {}
+    const returns: Record<string, number> = {}
 
     // Cylinder transactions: items with productName or cylinderSize
     ;(employeeCylinders || []).forEach((tx: any) => {
@@ -786,8 +796,13 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         const nameRaw = it?.productName || it?.product?.name || it?.cylinderSize || it?.size || 'cylinder'
         const qty = Number(it?.quantity || 0)
         if (type === 'refill') inc(refills, nameRaw, qty)
-        if (type === 'deposit') inc(cylSales, nameRaw, qty)
-        // returns are not counted as sales
+        if (type === 'deposit') {
+          inc(cylSales, nameRaw, qty)
+          inc(deposits, nameRaw, qty)
+        }
+        if (type === 'return') {
+          inc(returns, nameRaw, qty)
+        }
       })
     })
 
@@ -805,6 +820,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     setDailyAggRefills(refills)
     setDailyAggCylinderSales(cylSales)
     setDailyAggGasSales(gasSales)
+    setDailyAggDeposits(deposits)
+    setDailyAggReturns(returns)
   }, [dsrViewDate, employeeSales, employeeCylinders])
 
   // Prefill opening from previous day closing for same item (API first, fallback local)
@@ -1614,7 +1631,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                 <TableRow>
                   <TableHead>Items</TableHead>
                   <TableHead colSpan={2}>Opening</TableHead>
-                  <TableHead colSpan={3}>During the day</TableHead>
+                  <TableHead colSpan={5}>During the day</TableHead>
                   <TableHead colSpan={2}>Closing</TableHead>
                 </TableRow>
                 <TableRow>
@@ -1624,6 +1641,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                   <TableHead>Refilled</TableHead>
                   <TableHead>Cylinder Sales</TableHead>
                   <TableHead>Gas Sales</TableHead>
+                  <TableHead>Deposit Cylinder</TableHead>
+                  <TableHead>Return Cylinder</TableHead>
                   <TableHead>Full</TableHead>
                   <TableHead>Empty</TableHead>
                 </TableRow>
@@ -1641,10 +1660,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                     const nameSet = new Set<string>()
                     // Names from DSR entries for selected date
                     dsrEntries.filter(e => e.date === dsrViewDate).forEach(e => nameSet.add(normalizeName(String(e.itemName))))
-                    // Names from daily aggregates (gas, cylinder, refills)
+                    // Names from daily aggregates (gas, cylinder, refills, deposits, returns)
                     Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
                     Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
                     Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+                    Object.keys(dailyAggDeposits || {}).forEach(k => nameSet.add(k))
+                    Object.keys(dailyAggReturns || {}).forEach(k => nameSet.add(k))
                     // Names from assigned products
                     assignedProducts.forEach(p => nameSet.add(normalizeName(p.name)))
                     const arr = Array.from(nameSet)
@@ -1660,6 +1681,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                         ?? (e ? e.cylinderSales : 0))
                       const gasV = (dailyAggGasSales[key]
                         ?? (e ? e.gasSales : 0))
+                      const depV = (dailyAggDeposits[key] || 0)
+                      const retV = (dailyAggReturns[key] || 0)
                       return (
                         <TableRow key={p._id || p.name}>
                           <TableCell className="font-medium">{(p as any).displayName || p.name}</TableCell>
@@ -1668,6 +1691,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                           <TableCell>{refV}</TableCell>
                           <TableCell>{cylV}</TableCell>
                           <TableCell>{gasV}</TableCell>
+                          <TableCell>{depV}</TableCell>
+                          <TableCell>{retV}</TableCell>
                           <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
                           <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
                         </TableRow>
@@ -1675,19 +1700,15 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-6 text-gray-500">No data for selected date</TableCell>
+                      <TableCell colSpan={10} className="text-center py-6 text-gray-500">No data for selected date</TableCell>
                     </TableRow>
                   )
                 })()}
               </TableBody>
             </Table>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDSRView(false)}>Close</Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
-
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {reportCards.map((card, index) => (
@@ -2300,7 +2321,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                 <TableRow>
                   <TableHead>Items</TableHead>
                   <TableHead colSpan={2}>Opening</TableHead>
-                  <TableHead colSpan={3}>During the day</TableHead>
+                  <TableHead colSpan={5}>During the day</TableHead>
                   <TableHead colSpan={2}>Closing</TableHead>
                 </TableRow>
                 <TableRow>
@@ -2310,6 +2331,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                   <TableHead>Refilled</TableHead>
                   <TableHead>Cylinder Sales</TableHead>
                   <TableHead>Gas Sales</TableHead>
+                  <TableHead>Deposit Cylinder</TableHead>
+                  <TableHead>Return Cylinder</TableHead>
                   <TableHead>Full</TableHead>
                   <TableHead>Empty</TableHead>
                 </TableRow>
@@ -2327,7 +2350,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                   if (rowsSource.length === 0) {
                     return (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-6 text-gray-500">
+                        <TableCell colSpan={10} className="text-center py-6 text-gray-500">
                           No assigned inventory found for this employee. Please contact admin to assign inventory.
                         </TableCell>
                       </TableRow>
@@ -2344,6 +2367,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                         <TableCell>{(dailyAggRefills[key] ?? (e ? e.refilled : 0))}</TableCell>
                         <TableCell>{(dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0))}</TableCell>
                         <TableCell>{(dailyAggGasSales[key] ?? (e ? e.gasSales : 0))}</TableCell>
+                        <TableCell>{(dailyAggDeposits[key] || 0)}</TableCell>
+                        <TableCell>{(dailyAggReturns[key] || 0)}</TableCell>
                         <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
                         <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
                       </TableRow>
