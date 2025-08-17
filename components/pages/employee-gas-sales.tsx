@@ -409,15 +409,62 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
       console.log('Sending sale data to API:', saleData)
 
+      let savedResponse: any = null
       if (editingSale) {
-        await employeeSalesAPI.update(editingSale._id, saleData)
+        savedResponse = await employeeSalesAPI.update(editingSale._id, saleData)
       } else {
-        await employeeSalesAPI.create(saleData)
+        savedResponse = await employeeSalesAPI.create(saleData)
       }
 
       fetchData()
       setIsDialogOpen(false)
       resetForm()
+
+      // Prepare a normalized sale object and open signature dialog automatically
+      try {
+        const saved = (savedResponse?.data?.data) || (savedResponse?.data) || null
+        const selectedCustomer = (customers || []).find((c) => c._id === formData.customerId)
+
+        const itemsNormalized = (saved?.items && Array.isArray(saved.items) && saved.items.length > 0)
+          ? saved.items.map((it: any) => {
+              const prodId = it?.product?._id || it?.product
+              const pName = it?.product?.name || (allProducts.find(p=>p._id === prodId)?.name) || 'Product'
+              const qty = Number(it.quantity) || 0
+              const price = Number(it.price) || 0
+              const total = Number(it.total) || (price * qty)
+              return { product: { _id: prodId, name: pName }, quantity: qty, price, total }
+            })
+          : (formData.items || []).map((it: any) => {
+              const p = (allProducts || []).find(p => p._id === it.productId)
+              const qty = Number(it.quantity)||0
+              const price = Number(it.price)||0
+              return { product: { _id: p?._id || it.productId, name: p?.name || 'Product' }, quantity: qty, price, total: price*qty }
+            })
+
+        const totalAmt = itemsNormalized.reduce((s: number, it: any) => s + (Number(it.total) || 0), 0)
+
+        const normalizedSale: any = {
+          _id: saved?._id || `temp-${Date.now()}`,
+          invoiceNumber: saved?.invoiceNumber || `EMP-${(saved?._id||'TEMP').slice(-6).toUpperCase()}`,
+          customer: saved?.customer || {
+            _id: formData.customerId,
+            name: selectedCustomer?.name || 'Customer',
+            phone: selectedCustomer?.phone || 'N/A',
+            address: selectedCustomer?.address || 'N/A',
+          },
+          items: itemsNormalized,
+          totalAmount: saved?.totalAmount || totalAmt,
+          paymentMethod: saved?.paymentMethod || derivedPaymentMethod,
+          paymentStatus: saved?.paymentStatus || derivedPaymentStatus,
+          receivedAmount: saved?.receivedAmount ?? derivedReceivedAmount,
+          notes: saved?.notes || formData.notes,
+          employee: user.id,
+          createdAt: saved?.createdAt || new Date().toISOString(),
+        }
+
+        setSaleForSignature(normalizedSale)
+        setIsSignatureDialogOpen(true)
+      } catch {}
     } catch (error) {
       console.error("Failed to save sale:", error)
       alert("Failed to save sale. Please try again.")

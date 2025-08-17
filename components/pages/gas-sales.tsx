@@ -71,6 +71,14 @@ interface Product {
   currentStock: number
 }
 
+// Helper type used when normalizing items for receipt/signature flow
+type NormalizedItem = {
+  product: { name: string }
+  quantity: number
+  price: number
+  total: number
+}
+
 export function GasSales() {
   const [sales, setSales] = useState<Sale[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -261,6 +269,7 @@ export function GasSales() {
       console.log('GasSales - Sale items:', saleItems)
       console.log('GasSales - Form data items:', formData.items)
 
+      let savedResponse: any = null
       if (editingSale) {
         console.log('GasSales - Updating existing sale:', editingSale._id)
         // Some backends treat PUT as full replace; include required fields like invoiceNumber
@@ -275,7 +284,7 @@ export function GasSales() {
         }
         try {
           console.log('GasSales - PUT full payload:', fullUpdatePayload)
-          await salesAPI.update(editingSale._id, fullUpdatePayload)
+          savedResponse = await salesAPI.update(editingSale._id, fullUpdatePayload)
         } catch (err: any) {
           console.error('GasSales - Full PUT failed, retrying minimal update. Error:', err?.response?.data || err?.message)
           const minimalUpdatePayload = {
@@ -288,16 +297,57 @@ export function GasSales() {
             notes: formData.notes,
           }
           console.log('GasSales - PUT minimal payload:', minimalUpdatePayload)
-          await salesAPI.update(editingSale._id, minimalUpdatePayload)
+          savedResponse = await salesAPI.update(editingSale._id, minimalUpdatePayload)
         }
       } else {
         console.log('GasSales - Creating new sale')
-        await salesAPI.create(saleData)
+        savedResponse = await salesAPI.create(saleData)
       }
 
       await fetchData()
       resetForm()
       setIsDialogOpen(false)
+
+      // Auto-open signature dialog with normalized sale (like cylinder management)
+      try {
+        const saved = (savedResponse?.data?.data) || (savedResponse?.data) || null
+        const selectedCustomer = (customers || []).find((c) => c._id === formData.customerId)
+        // Normalize items for receipt
+        const itemsNormalized: NormalizedItem[] = (saved?.items && Array.isArray(saved.items) && saved.items.length > 0)
+          ? saved.items.map((it: any) => {
+              const pName = it?.product?.name || (allProducts.find(p=>p._id === (it.product?._id || it.product))?.name) || 'Product'
+              const qty = Number(it.quantity) || 0
+              const price = Number(it.price) || (qty > 0 ? (Number(it.total)||0) / qty : Number(it.total)||0)
+              const total = Number(it.total) || (price * qty)
+              return { product: { name: pName }, quantity: qty, price, total }
+            })
+          : saleItems.map((it) => {
+              const pName = (allProducts || []).find(p => p._id === it.product)?.name || 'Product'
+              return { product: { name: pName }, quantity: Number(it.quantity)||0, price: Number(it.price)||0, total: Number(it.total)||((Number(it.price)||0)*(Number(it.quantity)||0)) }
+            })
+
+        const totalAmt = itemsNormalized.reduce((s: number, it: NormalizedItem) => s + (Number(it.total)||0), 0)
+
+        const normalizedSale: any = {
+          _id: saved?._id || `temp-${Date.now()}`,
+          invoiceNumber: saved?.invoiceNumber || `INV-${(saved?._id||'TEMP').slice(-6).toUpperCase()}`,
+          customer: saved?.customer || {
+            _id: formData.customerId,
+            name: selectedCustomer?.name || 'Customer',
+            phone: selectedCustomer?.phone || '',
+            address: selectedCustomer?.address || '',
+          },
+          items: itemsNormalized,
+          totalAmount: saved?.totalAmount || totalAmt,
+          paymentMethod: saved?.paymentMethod || derivedPaymentMethod,
+          paymentStatus: saved?.paymentStatus || derivedPaymentStatus,
+          receivedAmount: saved?.receivedAmount ?? derivedReceivedAmount,
+          notes: saved?.notes || formData.notes,
+          createdAt: saved?.createdAt || new Date().toISOString(),
+        }
+        setPendingSale(normalizedSale)
+        setShowSignatureDialog(true)
+      } catch {}
     } catch (error: any) {
       console.error("Failed to save sale:", error?.response?.data || error?.message, error)
       const errorMessage = error.response?.data?.error || "Failed to save sale"
