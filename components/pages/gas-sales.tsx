@@ -90,6 +90,9 @@ export function GasSales() {
   const [customerSignature, setCustomerSignature] = useState<string>("") 
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
+  // Per-item product autocomplete state
+  const [productSearchTerms, setProductSearchTerms] = useState<string[]>([""])
+  const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([false])
   
   // Customer autocomplete functionality for form
   const [customerSearchTerm, setCustomerSearchTerm] = useState("")
@@ -321,6 +324,8 @@ export function GasSales() {
       paymentOption: "debit",
       notes: "",
     })
+    setProductSearchTerms([""])
+    setShowProductSuggestions([false])
     setCustomerSearchTerm("")
     setShowCustomerSuggestions(false)
     setFilteredCustomerSuggestions([])
@@ -350,6 +355,13 @@ export function GasSales() {
       })(),
       notes: sale.notes || "",
     })
+    // Initialize product search terms based on current products if available
+    const initialTerms = (sale.items || []).map((it: any) => {
+      const p = allProducts.find((ap) => ap._id === (it.product?._id || (it as any).product))
+      return p?.name || ""
+    })
+    setProductSearchTerms(initialTerms.length ? initialTerms : [""])
+    setShowProductSuggestions(new Array(initialTerms.length || 1).fill(false))
     setCustomerSearchTerm(sale.customer?.name || "")
     setShowCustomerSuggestions(false)
     setFilteredCustomerSuggestions([])
@@ -373,6 +385,8 @@ export function GasSales() {
       ...formData,
       items: [...formData.items, { productId: "", quantity: "1", price: "", category: "gas" }],
     })
+    setProductSearchTerms((prev) => [...prev, ""]) 
+    setShowProductSuggestions((prev) => [...prev, false])
   }
 
   const removeItem = (index: number) => {
@@ -380,6 +394,8 @@ export function GasSales() {
       ...formData,
       items: formData.items.filter((_, i) => i !== index),
     })
+    setProductSearchTerms((prev) => prev.filter((_, i) => i !== index))
+    setShowProductSuggestions((prev) => prev.filter((_, i) => i !== index))
   }
 
   const updateItem = (index: number, field: string, value: any) => {
@@ -393,6 +409,17 @@ export function GasSales() {
         productId: '', // Reset product selection
         price: '', // Reset price
       };
+      // Also clear product search term for this row
+      setProductSearchTerms((prev) => {
+        const cp = [...prev];
+        cp[index] = "";
+        return cp;
+      })
+      setShowProductSuggestions((prev) => {
+        const cp = [...prev];
+        cp[index] = false;
+        return cp;
+      })
     }
     // If productId is changed, handle the update atomically
     else if (field === 'productId') {
@@ -406,6 +433,17 @@ export function GasSales() {
         quantity: '1', // Reset quantity to a string '1'
         price: product ? product.leastPrice.toString() : '', // Set price
       };
+      // Update search term to chosen product name and hide suggestions
+      setProductSearchTerms((prev) => {
+        const cp = [...prev];
+        cp[index] = product?.name || cp[index] || "";
+        return cp;
+      })
+      setShowProductSuggestions((prev) => {
+        const cp = [...prev];
+        cp[index] = false;
+        return cp;
+      })
     } else {
       // For other fields, update as usual
       newItems[index] = {
@@ -416,6 +454,53 @@ export function GasSales() {
 
     setFormData({ ...formData, items: newItems });
   };
+
+  // Product autocomplete handlers per item
+  const handleProductSearchChange = (index: number, value: string) => {
+    setProductSearchTerms((prev) => {
+      const cp = [...prev]
+      cp[index] = value
+      return cp
+    })
+    setShowProductSuggestions((prev) => {
+      const cp = [...prev]
+      cp[index] = value.trim().length > 0
+      return cp
+    })
+  }
+
+  const handleProductSuggestionClick = (index: number, product: Product) => {
+    // Atomically set productId and price via updateItem
+    updateItem(index, 'productId', product._id)
+    setProductSearchTerms((prev) => {
+      const cp = [...prev]
+      cp[index] = product.name
+      return cp
+    })
+    setShowProductSuggestions((prev) => {
+      const cp = [...prev]
+      cp[index] = false
+      return cp
+    })
+  }
+
+  const handleProductInputFocus = (index: number) => {
+    setShowProductSuggestions((prev) => {
+      const cp = [...prev]
+      cp[index] = (productSearchTerms[index] || '').trim().length > 0
+      return cp
+    })
+  }
+
+  const handleProductInputBlur = (index: number) => {
+    setTimeout(() => {
+      setShowProductSuggestions((prev) => {
+        const cp = [...prev]
+        cp[index] = false
+        return cp
+      })
+    }, 200)
+  }
 
   // Handle receipt button click - show signature dialog only if no signature exists
   const handleReceiptClick = (sale: Sale) => {
@@ -694,10 +779,6 @@ export function GasSales() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <Label className="text-lg font-semibold">Items</Label>
-                  <Button type="button" onClick={addItem} variant="outline" size="sm">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Item
-                  </Button>
                 </div>
 
                 {/* Scrollable container (horizontal + vertical) for items only */}
@@ -732,48 +813,37 @@ export function GasSales() {
                               </Select>
                             </div>
 
-                            <div className="space-y-2">
+                            <div className="space-y-2 relative">
                               <Label className="md:hidden">Product</Label>
-                              <Select
-                                value={item.productId}
-                                onValueChange={(productId) => {
-                                  console.log('Product selected:', productId)
-                                  const itemCategory = item.category || 'gas'
-                                  const categoryProducts = allProducts.filter((p: Product) => p.category === itemCategory)
-                                  const product = categoryProducts.find((p: Product) => p._id === productId)
-                                  console.log('Found product:', product)
-                                  
-                                  // Update both productId and price in a single atomic operation
-                                  const updatedItems = [...formData.items]
-                                  updatedItems[index] = {
-                                    ...updatedItems[index],
-                                    productId: productId,
-                                    price: product ? product.leastPrice.toString() : updatedItems[index].price
-                                  }
-                                  
-                                  console.log('Atomic update - item before:', formData.items[index])
-                                  console.log('Atomic update - item after:', updatedItems[index])
-                                  
-                                  setFormData({ ...formData, items: updatedItems })
-                                  
-                                  if (product) {
-                                    console.log('Auto-filled price:', product.leastPrice)
-                                  }
-                                }}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder={`Select ${item.category || 'gas'} product`} />
-                                </SelectTrigger>
-                                <SelectContent>
+                              <Input
+                                placeholder={`Search ${(item.category || 'gas')} product`}
+                                value={productSearchTerms[index] || ''}
+                                onChange={(e) => handleProductSearchChange(index, e.target.value)}
+                                onFocus={() => handleProductInputFocus(index)}
+                                onBlur={() => handleProductInputBlur(index)}
+                                className="pr-10"
+                              />
+                              {showProductSuggestions[index] && (
+                                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
                                   {allProducts
                                     .filter((p: Product) => p.category === (item.category || 'gas'))
+                                    .filter((p: Product) => (productSearchTerms[index] || '').trim().length === 0 || p.name.toLowerCase().includes((productSearchTerms[index] || '').toLowerCase()))
+                                    .slice(0, 8)
                                     .map((product) => (
-                                      <SelectItem key={product._id} value={product._id}>
-                                        {product.name}
-                                      </SelectItem>
+                                      <div
+                                        key={product._id}
+                                        className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => handleProductSuggestionClick(index, product)}
+                                      >
+                                        <div className="flex items-center justify-between">
+                                          <span className="font-medium text-gray-900">{product.name}</span>
+                                          <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
+                                        </div>
+                                      </div>
                                     ))}
-                                </SelectContent>
-                              </Select>
+                                </div>
+                              )}
                             </div>
 
                             <div className="space-y-2">
@@ -861,6 +931,13 @@ export function GasSales() {
                       </div>
                     </div>
                   </div>
+                </div>
+
+                <div className="mt-2">
+                  <Button type="button" onClick={addItem} variant="outline" size="sm">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Item
+                  </Button>
                 </div>
 
                 <div className="text-right">

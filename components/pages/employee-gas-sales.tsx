@@ -93,6 +93,9 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [customerSearchTerm, setCustomerSearchTerm] = useState("")
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
   const [filteredCustomerSuggestions, setFilteredCustomerSuggestions] = useState<Customer[]>([])
+  // Per-item product autocomplete state
+  const [productSearchTerms, setProductSearchTerms] = useState<string[]>([""])
+  const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([false])
 
   // Form state
   const [formData, setFormData] = useState({
@@ -194,6 +197,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       notes: "",
     })
     setCustomerSearchTerm("")
+    setProductSearchTerms([""])
+    setShowProductSuggestions([false])
     setEditingSale(null)
   }
 
@@ -269,6 +274,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       ...formData,
       items: [...formData.items, { productId: "", quantity: "1", price: "", category: formData.category || "gas" } as any]
     })
+    setProductSearchTerms((prev) => [...prev, ""]) 
+    setShowProductSuggestions((prev) => [...prev, false])
   }
 
   const removeItem = (index: number) => {
@@ -276,6 +283,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       const newItems = formData.items.filter((_, i) => i !== index)
       setFormData({ ...formData, items: newItems })
     }
+    setProductSearchTerms((prev) => prev.filter((_, i) => i !== index))
+    setShowProductSuggestions((prev) => prev.filter((_, i) => i !== index))
   }
 
   const updateItem = (index: number, field: string, value: any) => {
@@ -288,6 +297,9 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
         productId: '',
         price: '',
       }
+      // Clear product search state for this row
+      setProductSearchTerms((prev) => { const cp = [...prev]; cp[index] = ""; return cp })
+      setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = false; return cp })
     } else if (field === 'productId') {
       const itemCategory = newItems[index].category || formData.category || 'gas'
       const categoryProducts = (allProducts || []).filter((p: Product) => p.category === itemCategory)
@@ -298,11 +310,36 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
         quantity: '1',
         price: product ? product.leastPrice.toString() : '',
       }
+      // Reflect chosen product name and hide suggestions
+      setProductSearchTerms((prev) => { const cp = [...prev]; cp[index] = product?.name || cp[index] || ""; return cp })
+      setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = false; return cp })
     } else {
       newItems[index] = { ...newItems[index], [field]: value }
     }
 
     setFormData({ ...formData, items: newItems as any })
+  }
+
+  // Product autocomplete handlers
+  const handleProductSearchChange = (index: number, value: string) => {
+    setProductSearchTerms((prev) => { const cp = [...prev]; cp[index] = value; return cp })
+    setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = value.trim().length > 0; return cp })
+  }
+
+  const handleProductSuggestionClick = (index: number, product: Product) => {
+    updateItem(index, 'productId', product._id)
+    setProductSearchTerms((prev) => { const cp = [...prev]; cp[index] = product.name; return cp })
+    setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = false; return cp })
+  }
+
+  const handleProductInputFocus = (index: number) => {
+    setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = (productSearchTerms[index] || '').trim().length > 0; return cp })
+  }
+
+  const handleProductInputBlur = (index: number) => {
+    setTimeout(() => {
+      setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = false; return cp })
+    }, 200)
   }
 
 
@@ -656,9 +693,6 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Items</Label>
-                <Button type="button" variant="outline" size="sm" onClick={addItem}>
-                  Add Item
-                </Button>
               </div>
 
               {/* Scrollable container (horizontal + vertical) for items only */}
@@ -693,36 +727,37 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                             </Select>
                           </div>
 
-                          <div className="space-y-2">
+                          <div className="space-y-2 relative">
                             <Label className="md:hidden">Product</Label>
-                            <Select
-                              value={item.productId}
-                              onValueChange={(productId) => {
-                                const itemCategory = (item.category || formData.category || 'gas') as any
-                                const categoryProducts = (allProducts || []).filter((p: Product) => p.category === itemCategory)
-                                const product = categoryProducts.find((p: Product) => p._id === productId)
-                                const updatedItems: any[] = [...(formData.items as any)]
-                                updatedItems[index] = {
-                                  ...updatedItems[index],
-                                  productId,
-                                  price: product ? product.leastPrice.toString() : updatedItems[index].price,
-                                }
-                                setFormData({ ...formData, items: updatedItems as any })
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder={`Select ${(item.category || formData.category || 'gas')}`} />
-                              </SelectTrigger>
-                              <SelectContent>
+                            <Input
+                              placeholder={`Search ${(item.category || formData.category || 'gas')} product`}
+                              value={productSearchTerms[index] || ''}
+                              onChange={(e) => handleProductSearchChange(index, e.target.value)}
+                              onFocus={() => handleProductInputFocus(index)}
+                              onBlur={() => handleProductInputBlur(index)}
+                              className="pr-10"
+                            />
+                            {showProductSuggestions[index] && (
+                              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
                                 {(allProducts || [])
                                   .filter((p: Product) => p.category === (item.category || formData.category || 'gas'))
+                                  .filter((p: Product) => (productSearchTerms[index] || '').trim().length === 0 || p.name.toLowerCase().includes((productSearchTerms[index] || '').toLowerCase()))
+                                  .slice(0, 8)
                                   .map((product) => (
-                                    <SelectItem key={product._id} value={product._id}>
-                                      {product.name}
-                                    </SelectItem>
+                                    <div
+                                      key={product._id}
+                                      className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => handleProductSuggestionClick(index, product)}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-medium text-gray-900">{product.name}</span>
+                                        <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
+                                      </div>
+                                    </div>
                                   ))}
-                              </SelectContent>
-                            </Select>
+                              </div>
+                            )}
                           </div>
 
                           <div className="space-y-2">
@@ -800,6 +835,11 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                 </div>
               </div>
 
+              <div className="mt-2">
+                <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                  Add Item
+                </Button>
+              </div>
             </div>
 
             {/* Payment Option / Received Amount Section */}
