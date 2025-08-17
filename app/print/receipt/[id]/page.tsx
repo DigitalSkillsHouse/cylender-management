@@ -74,10 +74,15 @@ const ReceiptPrintPage = () => {
     return <div className="flex justify-center items-center h-screen font-semibold">Sale data is not available.</div>;
   }
 
-  // Calculations
-  const subtotal = sale.items.reduce((sum, item) => sum + item.total, 0);
-  const vatAmount = subtotal * 0.05;
-  const totalWithVat = subtotal + vatAmount;
+  // Calculations (new logic): unit VAT = 5% of unit price, item total = (price + unit VAT) * quantity
+  const overallTotal = sale.items.reduce((sum, item) => {
+    const priceNum = Number(item?.price || 0)
+    const qtyNum = Number(item?.quantity || 0)
+    const unitVat = priceNum * 0.05
+    const unitWithVat = priceNum + unitVat
+    const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+    return sum + itemTotal
+  }, 0);
 
   return (
     <div className="bg-gray-100 min-h-screen print:bg-white">
@@ -127,18 +132,27 @@ const ReceiptPrintPage = () => {
                 <th className="text-left p-3 font-semibold border">Item</th>
                 <th className="text-center p-3 font-semibold border">Qty</th>
                 <th className="text-right p-3 font-semibold border">Price</th>
+                <th className="text-right p-3 font-semibold border">VAT (5%)</th>
                 <th className="text-right p-3 font-semibold border">Total</th>
               </tr>
             </thead>
             <tbody>
-              {sale.items.map((item, index) => (
-                <tr key={index} className="border-b hover:bg-gray-50">
-                  <td className="p-2 border">{item.product.name}</td>
-                  <td className="text-center p-2 border">{item.quantity}</td>
-                  <td className="text-right p-2 border">AED {item.price.toFixed(2)}</td>
-                  <td className="text-right p-2 border font-medium">AED {item.total.toFixed(2)}</td>
-                </tr>
-              ))}
+              {sale.items.map((item, index) => {
+                const priceNum = Number(item?.price || 0)
+                const qtyNum = Number(item?.quantity || 0)
+                const unitVat = priceNum * 0.05
+                const unitWithVat = priceNum + unitVat
+                const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+                return (
+                  <tr key={index} className="border-b hover:bg-gray-50">
+                    <td className="p-2 border">{item.product.name}</td>
+                    <td className="text-center p-2 border">{qtyNum}</td>
+                    <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
+                    <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                    <td className="text-right p-2 border font-medium">AED {itemTotal.toFixed(2)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </section>
@@ -147,17 +161,9 @@ const ReceiptPrintPage = () => {
           <div className="w-full max-w-sm text-sm">
             <table className="w-full">
               <tbody>
-                <tr>
-                  <td className="text-right pr-4 py-1 text-gray-600">Subtotal</td>
-                  <td className="text-right font-semibold w-36 py-1">AED {subtotal.toFixed(2)}</td>
-                </tr>
-                <tr>
-                  <td className="text-right pr-4 py-1 text-gray-600">VAT (5%)</td>
-                  <td className="text-right font-semibold w-36 py-1">AED {vatAmount.toFixed(2)}</td>
-                </tr>
                 <tr className="border-t-2 border-black mt-2">
                   <td className="text-right pr-4 pt-2 font-bold text-xl">Total</td>
-                  <td className="text-right font-bold text-xl w-36 pt-2">AED {totalWithVat.toFixed(2)}</td>
+                  <td className="text-right font-bold text-xl w-36 pt-2">AED {overallTotal.toFixed(2)}</td>
                 </tr>
               </tbody>
             </table>

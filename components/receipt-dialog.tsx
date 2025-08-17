@@ -47,20 +47,17 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
     }
   }, [])
 
-  // Calculate subtotal from items (with safe fallbacks)
+  // Prepare items safely
   const itemsSafe = Array.isArray(sale?.items) ? sale.items : []
-  const subtotal = itemsSafe.reduce((sum, item) => {
+  // New logic: VAT is 5% of unit price, item total = (price + unitVAT) * quantity
+  const overallTotal = itemsSafe.reduce((sum, item) => {
     const priceNum = Number(item?.price || 0)
     const qtyNum = Number(item?.quantity || 0)
-    const totalNum = Number(
-      item && typeof item.total === 'number'
-        ? item.total
-        : priceNum * qtyNum
-    )
-    return sum + (isFinite(totalNum) ? totalNum : 0)
+    const unitVat = priceNum * 0.05
+    const unitWithVat = priceNum + unitVat
+    const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+    return sum + itemTotal
   }, 0)
-  const vatAmount = subtotal * 0.05;
-  const totalWithVat = subtotal + vatAmount;
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
   
@@ -222,6 +219,7 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
                     <th className="text-left p-3 border">Item</th>
                     <th className="text-center p-3 border">Qty</th>
                     <th className="text-right p-3 border">Price</th>
+                    <th className="text-right p-3 border">VAT (5%)</th>
                     <th className="text-right p-3 border">Total</th>
                   </tr>
                 </thead>
@@ -230,15 +228,16 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
                     const name = item?.product?.name || '-'
                     const priceNum = Number(item?.price || 0)
                     const qtyNum = Number(item?.quantity || 0)
-                    const totalNum = Number(
-                      typeof item?.total === 'number' ? item.total : priceNum * qtyNum
-                    )
+                    const unitVat = priceNum * 0.05
+                    const unitWithVat = priceNum + unitVat
+                    const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
                     return (
                     <tr key={index} className="border-b">
                       <td className="p-3 border">{name}</td>
                       <td className="text-center p-3 border">{qtyNum}</td>
                       <td className="text-right p-3 border">AED {priceNum.toFixed(2)}</td>
-                      <td className="text-right p-3 border">AED {totalNum.toFixed(2)}</td>
+                      <td className="text-right p-3 border">AED {unitVat.toFixed(2)}</td>
+                      <td className="text-right p-3 border">AED {itemTotal.toFixed(2)}</td>
                     </tr>
                     )
                   })}
@@ -254,16 +253,8 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
             <table className="w-full">
               <tbody>
                 <tr>
-                  <td className="text-right pr-4">Subtotal</td>
-                  <td className="text-right font-semibold w-32">AED {subtotal.toFixed(2)}</td>
-                </tr>
-                <tr>
-                  <td className="text-right pr-4">VAT (5%)</td>
-                  <td className="text-right font-semibold w-32">AED {vatAmount.toFixed(2)}</td>
-                </tr>
-                <tr>
                   <td className="text-right pr-4 font-bold text-xl">Total</td>
-                  <td className="text-right font-bold text-xl w-32">AED {totalWithVat.toFixed(2)}</td>
+                  <td className="text-right font-bold text-xl w-32">AED {overallTotal.toFixed(2)}</td>
                 </tr>
               </tbody>
             </table>
