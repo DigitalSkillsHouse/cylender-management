@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Package, DollarSign, FileText, Edit, Trash2, Receipt } from "lucide-react"
+import { Plus, Package, DollarSign, FileText, Edit, Trash2, Receipt, Search, Filter } from "lucide-react"
 import { toast } from "sonner"
 import { ReceiptDialog } from '@/components/receipt-dialog'
 import { SignatureDialog } from '@/components/signature-dialog'
@@ -99,6 +99,10 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("all")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [searchTerm, setSearchTerm] = useState("")
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false)
+  const [filteredSearchSuggestions, setFilteredSearchSuggestions] = useState<Customer[]>([])
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null)
 
   // Receipt and signature dialog states
@@ -868,10 +872,16 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
   // Filter transactions based on active tab
   const getFilteredTransactions = () => {
-    if (activeTab === 'all') {
-      return transactions
-    }
-    return transactions.filter(transaction => transaction.type === activeTab)
+    const list = activeTab === 'all' ? transactions : transactions.filter(t => t.type === activeTab)
+    const term = searchTerm.trim().toLowerCase()
+    return list.filter((transaction) => {
+      const matchesSearch = term === "" ||
+        transaction.customer?.name?.toLowerCase().includes(term) ||
+        (transaction as any).supplier?.companyName?.toLowerCase?.().includes(term) ||
+        transaction.cylinderSize?.toLowerCase().includes(term)
+      const matchesStatus = statusFilter === "all" || transaction.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
   }
 
 
@@ -1184,11 +1194,77 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         </Card>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-4 flex-1">
-          {/* Search can be added here later if needed */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="w-full">
+          <div className="flex items-center gap-3 w-full">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input
+                placeholder="Search by customer, supplier, or size..."
+                value={searchTerm}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setSearchTerm(val)
+                  if (val.trim()) {
+                    const filtered = customers.filter(c =>
+                      c.name.toLowerCase().includes(val.toLowerCase()) ||
+                      c.phone.includes(val) ||
+                      (c.email || '').toLowerCase().includes(val.toLowerCase())
+                    ).slice(0, 5)
+                    setFilteredSearchSuggestions(filtered)
+                    setShowSearchSuggestions(true)
+                  } else {
+                    setShowSearchSuggestions(false)
+                    setFilteredSearchSuggestions([])
+                  }
+                }}
+                onFocus={() => {
+                  if (searchTerm.trim() && filteredSearchSuggestions.length > 0) setShowSearchSuggestions(true)
+                }}
+                onBlur={() => setTimeout(() => setShowSearchSuggestions(false), 150)}
+                className="pl-10"
+              />
+              {showSearchSuggestions && filteredSearchSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-50 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                  {filteredSearchSuggestions.map((customer) => (
+                    <div
+                      key={customer._id}
+                      onMouseDown={() => {
+                        setSearchTerm(customer.name)
+                        setShowSearchSuggestions(false)
+                      }}
+                      className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{customer.name}</p>
+                          <p className="text-sm text-gray-600">{customer.phone}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-gray-500">{customer.email}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-44">
+                <Filter className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="cleared">Cleared</SelectItem>
+                <SelectItem value="overdue">Overdue</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        
+
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => resetForm()} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white w-full sm:w-auto">

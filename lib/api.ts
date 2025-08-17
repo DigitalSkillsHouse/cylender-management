@@ -124,7 +124,7 @@ export const employeeCylindersAPI = {
 
 // Cylinders API
 export const cylindersAPI = {
-  getAll: () => api.get("/cylinders"),
+  getAll: (params?: any) => api.get("/cylinders", { params }),
   getById: (id: string) => api.get(`/cylinders/${id}`),
   create: (data: any) => api.post("/cylinders", data),
   update: (id: string, data: any) => api.put(`/cylinders/${id}`, data),
