@@ -64,16 +64,19 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
 
-  // Select header image based on status/type
+  // Select header image based on payment method/status/type
   const normalizedStatus = (sale?.paymentStatus || '').toString().toLowerCase()
+  const normalizedPaymentMethod = (sale?.paymentMethod || '').toString().toLowerCase()
   const normalizedType = (sale as any)?.type ? ((sale as any).type as string).toLowerCase() : ''
-  const headerSrc = normalizedType === 'return'
-    ? '/images/Header-Tax-invoice.jpg'
-    : (normalizedStatus === 'cleared' || normalizedStatus === 'cleard')
-      ? '/images/Header-deposit-invoice.jpg'
-      : (normalizedStatus === 'pending')
-        ? '/images/Header-Receiving-invoice.jpg'
-        : '/images/header-invoice.jpeg'
+  const headerSrc = normalizedPaymentMethod === 'credit'
+    ? '/images/header-invoice.jpeg'
+    : normalizedType === 'return'
+      ? '/images/Header-Tax-invoice.jpg'
+      : (normalizedStatus === 'cleared' || normalizedStatus === 'cleard')
+        ? '/images/Header-deposit-invoice.jpg'
+        : (normalizedStatus === 'pending')
+          ? '/images/Header-Receiving-invoice.jpg'
+          : '/images/header-invoice.jpeg'
 
   console.log('ReceiptDialog - Sale:', sale?.invoiceNumber)
   console.log('ReceiptDialog - Signature prop:', signature?.length)

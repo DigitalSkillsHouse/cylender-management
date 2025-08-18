@@ -86,16 +86,19 @@ const ReceiptPrintPage = () => {
   const vatAmount = subTotal * 0.05
   const grandTotal = subTotal + vatAmount
 
-  // Header selection based on status/type
+  // Header selection based on payment method/status/type
   const normalizedStatus = (sale?.paymentStatus || '').toString().toLowerCase();
+  const normalizedPaymentMethod = (sale?.paymentMethod || '').toString().toLowerCase();
   const normalizedType = (sale?.type || '').toString().toLowerCase();
-  const headerSrc = normalizedType === 'return'
-    ? '/images/Header-Tax-invoice.jpg'
-    : (normalizedStatus === 'cleared' || normalizedStatus === 'cleard')
-      ? '/images/Header-deposit-invoice.jpg'
-      : (normalizedStatus === 'pending')
-        ? '/images/Header-Receiving-invoice.jpg'
-        : '/images/header-invoice.jpeg';
+  const headerSrc = normalizedPaymentMethod === 'credit'
+    ? '/images/header-invoice.jpeg'
+    : normalizedType === 'return'
+      ? '/images/Header-Tax-invoice.jpg'
+      : (normalizedStatus === 'cleared' || normalizedStatus === 'cleard')
+        ? '/images/Header-deposit-invoice.jpg'
+        : (normalizedStatus === 'pending')
+          ? '/images/Header-Receiving-invoice.jpg'
+          : '/images/header-invoice.jpeg';
 
   return (
     <div className="bg-gray-100 min-h-screen print:bg-white">
