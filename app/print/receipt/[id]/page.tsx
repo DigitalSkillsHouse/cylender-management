@@ -76,15 +76,15 @@ const ReceiptPrintPage = () => {
     return <div className="flex justify-center items-center h-screen font-semibold">Sale data is not available.</div>;
   }
 
-  // Calculations (new logic): unit VAT = 5% of unit price, item total = (price + unit VAT) * quantity
-  const overallTotal = sale.items.reduce((sum, item) => {
+  // Totals breakdown: Subtotal (price*qty), VAT (5% of subtotal), Grand Total (subtotal + VAT)
+  const subTotal = sale.items.reduce((sum, item) => {
     const priceNum = Number(item?.price || 0)
     const qtyNum = Number(item?.quantity || 0)
-    const unitVat = priceNum * 0.05
-    const unitWithVat = priceNum + unitVat
-    const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
-    return sum + itemTotal
-  }, 0);
+    const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+    return sum + line
+  }, 0)
+  const vatAmount = subTotal * 0.05
+  const grandTotal = subTotal + vatAmount
 
   // Header selection based on status/type
   const normalizedStatus = (sale?.paymentStatus || '').toString().toLowerCase();
@@ -110,7 +110,7 @@ const ReceiptPrintPage = () => {
 
       {/* This is the printable receipt area */}
       <main className="printable-area max-w-3xl mx-auto p-8 bg-white">
-        <div className="text-center pb-4 border-b-2 border-gray-300">
+        <div className="text-center">
           <img 
             src={headerSrc}
             alt="Company Header"
@@ -174,9 +174,17 @@ const ReceiptPrintPage = () => {
           <div className="w-full max-w-sm text-sm">
             <table className="w-full">
               <tbody>
+                <tr>
+                  <td className="text-right pr-4 text-base">Subtotal</td>
+                  <td className="text-right w-36 text-base">AED {subTotal.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td className="text-right pr-4 text-base">VAT (5%)</td>
+                  <td className="text-right w-36 text-base">AED {vatAmount.toFixed(2)}</td>
+                </tr>
                 <tr className="border-t-2 border-black mt-2">
                   <td className="text-right pr-4 pt-2 font-bold text-xl">Total</td>
-                  <td className="text-right font-bold text-xl w-36 pt-2">AED {overallTotal.toFixed(2)}</td>
+                  <td className="text-right font-bold text-xl w-36 pt-2">AED {grandTotal.toFixed(2)}</td>
                 </tr>
               </tbody>
             </table>
@@ -185,7 +193,7 @@ const ReceiptPrintPage = () => {
 
         {/* Removed Payment Method and Status section as requested */}
 
-        <footer className="text-center pt-8 mt-8 border-t-2 border-gray-300 relative">
+        <footer className="text-center pt-8 mt-8 relative">
           {/* The footer image acts as a container */}
           <img 
             src="/images/footer.png" 

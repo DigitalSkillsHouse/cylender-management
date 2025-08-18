@@ -51,15 +51,16 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
 
   // Prepare items safely
   const itemsSafe = Array.isArray(sale?.items) ? sale.items : []
-  // New logic: VAT is 5% of unit price, item total = (price + unitVAT) * quantity
-  const overallTotal = itemsSafe.reduce((sum, item) => {
+  // VAT is 5% of unit price. We show per-item VAT column and a totals breakdown.
+  // Subtotal: sum(price * qty). VAT: 5% of subtotal. Grand Total: subtotal + VAT.
+  const subTotal = itemsSafe.reduce((sum, item) => {
     const priceNum = Number(item?.price || 0)
     const qtyNum = Number(item?.quantity || 0)
-    const unitVat = priceNum * 0.05
-    const unitWithVat = priceNum + unitVat
-    const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
-    return sum + itemTotal
+    const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+    return sum + line
   }, 0)
+  const vatAmount = subTotal * 0.05
+  const grandTotal = subTotal + vatAmount
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
 
@@ -266,8 +267,16 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
             <table className="w-full">
               <tbody>
                 <tr>
+                  <td className="text-right pr-4 text-base">Subtotal</td>
+                  <td className="text-right w-32 text-base">AED {subTotal.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td className="text-right pr-4 text-base">VAT (5%)</td>
+                  <td className="text-right w-32 text-base">AED {vatAmount.toFixed(2)}</td>
+                </tr>
+                <tr>
                   <td className="text-right pr-4 font-bold text-xl">Total</td>
-                  <td className="text-right font-bold text-xl w-32">AED {overallTotal.toFixed(2)}</td>
+                  <td className="text-right font-bold text-xl w-32">AED {grandTotal.toFixed(2)}</td>
                 </tr>
               </tbody>
             </table>
