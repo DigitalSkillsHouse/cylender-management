@@ -244,19 +244,97 @@ export function Reports() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error('Failed to update invoice')
-      // Refresh ledger
-      if (typeof handleFilter === 'function') {
-        await handleFilter()
-      } else {
-        // Fallback simple reload
-        try { (window as any).location && (window as any).location.reload() } catch {}
+      if (!res.ok) throw new Error(await res.text())
+
+      // Try to refresh data without full reload (global helpers only; do not reload to preserve receipt flow)
+      let usedRefreshHelpers = false
+      try {
+        const gd = (globalThis as any)?.fetchDashboard
+        if (typeof gd === 'function') { await gd(); usedRefreshHelpers = true }
+        const gc = (globalThis as any)?.fetchCustomers
+        if (typeof gc === 'function') { await gc(); usedRefreshHelpers = true }
+      } catch (e) {
+        console.warn('soft refresh failed, skipping reload to avoid interrupting receipt preview', e)
       }
+
+      // Close receive dialog first to avoid overlay conflicts
       closeReceiveDialog()
-      alert('Payment updated successfully')
+
+      // Prepare and open receipt preview. If fetching updated record fails,
+      // fall back to a minimal receipt so the dialog still opens.
+      const buildReceiptFromSource = (src: any) => {
+        const isCylinder = receiveDialog.kind === 'cylinder'
+        const customerName = src?.customer?.name || src?.customerName || (typeof src?.customer === 'string' ? src.customer : '-')
+        const customerPhone = src?.customer?.phone || src?.customerPhone || '-'
+        const customerAddress = src?.customer?.address || src?.customerAddress || '-'
+        const createdAt = src?.createdAt || new Date().toISOString()
+        const invoiceNumber = src?.invoiceNumber || src?._id || String(receiveDialog.targetId)
+        const totalAmount = Number(src?.totalAmount ?? src?.amount ?? receiveDialog.totalAmount ?? 0)
+        const paymentMethod = (src?.paymentMethod || src?.method || '-').toString()
+        const paymentStatus = (src?.paymentStatus || src?.status || newStatus).toString()
+        const type = (src?.type || '').toString()
+
+        let items: any[] = []
+        if (Array.isArray(src?.items) && src.items.length > 0) {
+          items = src.items.map((it: any) => ({
+            product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: Number(it?.price || it?.unitPrice || it?.costPrice || 0) },
+            quantity: Number(it?.quantity || 1),
+            price: Number(it?.price || it?.unitPrice || it?.costPrice || 0),
+            total: Number(it?.total || ((Number(it?.price || it?.unitPrice || it?.costPrice || 0)) * Number(it?.quantity || 1)))
+          }))
+        } else {
+          const label = isCylinder ? `${type || 'Cylinder'} Transaction` : 'Gas Sale'
+          items = [{
+            product: { name: label, price: Number(totalAmount) },
+            quantity: 1,
+            price: Number(totalAmount),
+            total: Number(totalAmount)
+          }]
+        }
+
+        return {
+          _id: String(src?._id || receiveDialog.targetId),
+          invoiceNumber,
+          customer: { name: customerName, phone: customerPhone, address: customerAddress },
+          items,
+          totalAmount,
+          paymentMethod,
+          paymentStatus,
+          type,
+          createdAt,
+          customerSignature: ''
+        }
+      }
+
+      try {
+        const getUrl = receiveDialog.kind === 'cylinder'
+          ? `/api/cylinders/${receiveDialog.targetId}`
+          : `/api/sales/${receiveDialog.targetId}`
+        const getRes = await fetch(getUrl)
+        if (getRes.ok) {
+          const updated = await getRes.json()
+          setReceiptDialogData(buildReceiptFromSource(updated))
+        } else {
+          // Non-OK response, open minimal receipt
+          setReceiptDialogData(buildReceiptFromSource({}))
+        }
+      } catch (e) {
+        console.warn('Failed to fetch updated record for receipt preview, using fallback', e)
+        setReceiptDialogData(buildReceiptFromSource({}))
+      }
+
+      // Delayed reload fallback: if no refresh helpers executed, reload after receipt opens
+      if (!usedRefreshHelpers) {
+        try {
+          setTimeout(() => {
+            try { (window as any).location && (window as any).location.reload() } catch {}
+          }, 1500)
+        } catch {}
+      }
+      // Removed success alert to avoid interrupting receipt preview flow
     } catch (e: any) {
       console.error('receive submit failed', e)
-      alert(e?.message || 'Failed to update payment')
+      alert(`Failed to update payment: ${e?.message || 'Unknown error'}`)
     }
   }
 
