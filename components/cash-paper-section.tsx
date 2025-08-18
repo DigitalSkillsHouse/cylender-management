@@ -67,11 +67,15 @@ export default function CashPaperSection({
   const downloadPdf = () => {
     if (!data) return
     try {
+      const vat = (n: number) => (Number(n || 0) * 0.05)
+      const creditVatTotal = (data.creditSales || []).reduce((s, r) => s + vat(r.totalAmount), 0)
+      const debitVatTotal = (data.debitSales || []).reduce((s, r) => s + vat(r.totalAmount), 0)
+
       const creditRows = (data.creditSales || [])
-        .map(r => `<tr><td>${r.invoiceNumber}</td><td>${r.customerName || "-"}</td><td style='text-align:right'>${currency(r.totalAmount)}</td></tr>`) 
+        .map(r => `<tr><td>${r.invoiceNumber}</td><td>${r.customerName || "-"}</td><td class='right'>${currency(vat(r.totalAmount))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
       const debitRows = (data.debitSales || [])
-        .map(r => `<tr><td>${r.invoiceNumber}</td><td>${r.customerName || "-"}</td><td style='text-align:right'>${currency(r.totalAmount)}</td></tr>`) 
+        .map(r => `<tr><td>${r.invoiceNumber}</td><td>${r.customerName || "-"}</td><td class='right'>${currency(vat(r.totalAmount))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
       const otherRows = Object.entries(data.otherByMethod || {})
         .map(([method, amt]) => `<tr><td>${method}</td><td style='text-align:right'>${currency(amt as number)}</td></tr>`) 
@@ -99,26 +103,30 @@ export default function CashPaperSection({
   <h2>Credit Sales</h2>
   <table>
     <thead>
-      <tr><th>Inv Id</th><th>Customer</th><th class='right'>Amount</th></tr>
+      <tr><th>Inv Id</th><th>Customer</th><th class='right'>VAT 5%</th><th class='right'>Amount</th></tr>
     </thead>
     <tbody>
-      ${creditRows || `<tr><td colspan='3' style='text-align:center'>No credit sales</td></tr>`}
+      ${creditRows || `<tr><td colspan='4' style='text-align:center'>No credit sales</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='2'>Total Credit</td><td class='right'>${currency(data.totals.totalCredit)}</td></tr>
+      <tr><td colspan='2'>Total Credit VAT (5%)</td><td class='right'>${currency(creditVatTotal)}</td><td></td></tr>
+      <tr><td colspan='3'>Total Credit</td><td class='right'>${currency(data.totals.totalCredit)}</td></tr>
+      <tr><td colspan='3'><b>Total Credit + VAT</b></td><td class='right'><b>${currency(data.totals.totalCredit + creditVatTotal)}</b></td></tr>
     </tfoot>
   </table>
 
   <h2>Debit Sales</h2>
   <table>
     <thead>
-      <tr><th>Inv Id</th><th>Customer</th><th class='right'>Amount</th></tr>
+      <tr><th>Inv Id</th><th>Customer</th><th class='right'>VAT 5%</th><th class='right'>Amount</th></tr>
     </thead>
     <tbody>
-      ${debitRows || `<tr><td colspan='3' style='text-align:center'>No debit sales</td></tr>`}
+      ${debitRows || `<tr><td colspan='4' style='text-align:center'>No debit sales</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='2'>Total Debit</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
+      <tr><td colspan='2'>Total Debit VAT (5%)</td><td class='right'>${currency(debitVatTotal)}</td><td></td></tr>
+      <tr><td colspan='3'>Total Debit</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
+      <tr><td colspan='3'><b>Total Debit + VAT</b></td><td class='right'><b>${currency(data.totals.totalDebit + debitVatTotal)}</b></td></tr>
     </tfoot>
   </table>
 
@@ -141,7 +149,8 @@ export default function CashPaperSection({
       <tr><td>Total Credit</td><td class='right'>${currency(data.totals.totalCredit)}</td></tr>
       <tr><td>Total Debit</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
       <tr><td>Other</td><td class='right'>${currency(data.totals.totalOther)}</td></tr>
-      <tr><td><b>Grand Total</b></td><td class='right'><b>${currency(data.totals.grandTotal)}</b></td></tr>
+      <tr><td>Total VAT (Credit + Debit)</td><td class='right'>${currency(creditVatTotal + debitVatTotal)}</td></tr>
+      <tr><td><b>Grand Total (Incl. VAT)</b></td><td class='right'><b>${currency(data.totals.grandTotal + creditVatTotal + debitVatTotal)}</b></td></tr>
     </tbody>
   </table>
 </body>
