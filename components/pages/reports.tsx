@@ -15,6 +15,7 @@ import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { DialogDescription } from "@radix-ui/react-dialog"
+import CashPaperSection from "@/components/cash-paper-section"
 
 interface CustomerLedgerData {
   _id: string
@@ -2012,6 +2013,9 @@ export function Reports() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Cash Paper (Admin) */}
+      <CashPaperSection title="Cash Paper (Admin)" />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">

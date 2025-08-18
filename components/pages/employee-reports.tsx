@@ -15,6 +15,7 @@ import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import CashPaperSection from "@/components/cash-paper-section"
 
 interface CustomerLedgerData {
   _id: string
@@ -1868,6 +1869,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           </div>
         </DialogContent>
       </Dialog>
+      {/* Cash Paper (Employee) */}
+      <CashPaperSection title="Cash Paper (Employee)" employeeId={user.id} />
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {reportCards.map((card, index) => (
