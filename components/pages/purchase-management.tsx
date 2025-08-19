@@ -59,6 +59,7 @@ export function PurchaseManagement() {
   const [formData, setFormData] = useState(() => ({
     supplierId: "",
     purchaseDate: new Date().toISOString().split("T")[0],
+    invoiceNumber: "",
     items: [{ purchaseType: "gas" as "gas" | "cylinder", productId: "", quantity: "", unitPrice: "" }],
     notes: "",
   }))
@@ -151,15 +152,21 @@ export function PurchaseManagement() {
         return
       }
 
-      // Validate all items
+      // Validate required fields
+      if (!formData.invoiceNumber?.trim()) {
+        setError("Please enter an invoice number")
+        return
+      }
+
+      // Validate all items (unit price optional)
       for (const item of formData.items) {
         const selectedProduct = products.find((p) => p._id === item.productId)
         if (!selectedProduct) {
           setError("Please select valid products for all items")
           return
         }
-        if (!item.quantity || !item.unitPrice) {
-          setError("Please fill in quantity and unit price for all items")
+        if (!item.quantity) {
+          setError("Please enter quantity for all items")
           return
         }
       }
@@ -173,9 +180,10 @@ export function PurchaseManagement() {
           purchaseDate: formData.purchaseDate,
           purchaseType: item.purchaseType,
           quantity: Number.parseInt(item.quantity),
-          unitPrice: Number.parseFloat(item.unitPrice),
-          totalAmount: Number.parseInt(item.quantity) * Number.parseFloat(item.unitPrice),
+          ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
+          // totalAmount computed server-side when not provided
           notes: formData.notes,
+          invoiceNumber: formData.invoiceNumber.trim(),
         }
         await purchaseOrdersAPI.update(editingOrder._id, purchaseData)
       } else {
@@ -187,9 +195,10 @@ export function PurchaseManagement() {
             purchaseDate: formData.purchaseDate,
             purchaseType: item.purchaseType,
             quantity: Number.parseInt(item.quantity),
-            unitPrice: Number.parseFloat(item.unitPrice),
-            totalAmount: Number.parseInt(item.quantity) * Number.parseFloat(item.unitPrice),
+            ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
+            // totalAmount computed server-side when not provided
             notes: formData.notes,
+            invoiceNumber: formData.invoiceNumber.trim(),
           }
           await purchaseOrdersAPI.create(purchaseData)
         }
@@ -210,6 +219,7 @@ export function PurchaseManagement() {
     setFormData({
       supplierId: "",
       purchaseDate: new Date().toISOString().split("T")[0],
+      invoiceNumber: "",
       items: [],
       notes: "",
     })
@@ -226,6 +236,7 @@ export function PurchaseManagement() {
     setFormData({
       supplierId: order.supplier._id,
       purchaseDate: order.purchaseDate.split("T")[0],
+      invoiceNumber: order.poNumber || "",
       items: [{
         purchaseType: order.purchaseType,
         productId: order.product._id,
@@ -263,8 +274,8 @@ export function PurchaseManagement() {
   const addItem = () => {
     // Validate currentItem
     const selectedProduct = products.find(p => p._id === currentItem.productId)
-    if (!selectedProduct || !currentItem.quantity || !currentItem.unitPrice) {
-      setError("Please select a product and enter quantity and unit price")
+    if (!selectedProduct || !currentItem.quantity) {
+      setError("Please select a product and enter quantity")
       return
     }
     const nextItems = [...formData.items, {
@@ -427,6 +438,22 @@ export function PurchaseManagement() {
                   </div>
 
                   <div className="space-y-2 sm:space-y-3">
+                    <Label htmlFor="invoiceNumber" className="text-sm font-semibold text-gray-700">
+                      Invoice Number *
+                    </Label>
+                    <Input
+                      id="invoiceNumber"
+                      type="text"
+                      value={formData.invoiceNumber}
+                      onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                      className="h-10 sm:h-12 border-2 border-gray-200 rounded-lg sm:rounded-xl focus:border-[#2B3068] transition-colors"
+                      required
+                      disabled={!!editingOrder}
+                      placeholder="Enter supplier invoice number"
+                    />
+                  </div>
+
+                  <div className="space-y-2 sm:space-y-3">
                     <Label htmlFor="purchaseDate" className="text-sm font-semibold text-gray-700">
                       Purchase Date *
                     </Label>
@@ -516,11 +543,11 @@ export function PurchaseManagement() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Unit Price (AED) *</Label>
+                      <Label>Unit Price (AED)</Label>
                       <Input
                         type="number"
                         step="0.01"
-                        min="0.01"
+                        min="0"
                         value={currentItem.unitPrice}
                         onChange={(e) => setCurrentItem((ci) => ({ ...ci, unitPrice: e.target.value }))}
                         placeholder="Enter unit price"
@@ -536,8 +563,8 @@ export function PurchaseManagement() {
                       onClick={() => {
                         if (editingItemIndex !== null) {
                           // Update the item at editing index
-                          if (!currentItem.productId || !currentItem.quantity || !currentItem.unitPrice) {
-                            setError("Please complete all item fields before updating")
+                          if (!currentItem.productId || !currentItem.quantity) {
+                            setError("Please select product and enter quantity before updating")
                             return
                           }
                           const newItems = [...formData.items]
@@ -690,7 +717,7 @@ export function PurchaseManagement() {
             </CardTitle>
             <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
               <Input
-                placeholder="Search PO, supplier, product, status, date..."
+                placeholder="Search INV, supplier, product, status, date..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="h-10 text-gray-800"
@@ -704,7 +731,7 @@ export function PurchaseManagement() {
               <TableHeader>
                 <TableRow className="bg-gray-50 border-b-2 border-gray-200">
                   <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    PO Number
+                    INV Number
                   </TableHead>
                   <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
                     Supplier

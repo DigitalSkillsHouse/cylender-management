@@ -27,8 +27,9 @@ const purchaseOrderSchema = new mongoose.Schema({
   },
   unitPrice: {
     type: Number,
-    required: true,
-    min: 0
+    required: false,
+    min: 0,
+    default: 0
   },
   totalAmount: {
     type: Number,

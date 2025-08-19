@@ -59,35 +59,35 @@ export async function POST(request) {
       unitPrice,
       totalAmount,
       notes,
-      status = "pending"
+      status = "pending",
+      invoiceNumber,
     } = body
 
-    // Validate required fields
-    if (!supplier || !product || !purchaseDate || !purchaseType || !quantity || !unitPrice) {
+    // Validate required fields (unitPrice is optional)
+    if (!supplier || !product || !purchaseDate || !purchaseType || !quantity || !invoiceNumber) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       )
     }
 
-    // Generate PO Number
-    const date = new Date()
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, "0")
-    const day = String(date.getDate()).padStart(2, "0")
-    const random = Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, "0")
-    const poNumber = `PO-${year}${month}${day}-${random}`
+    // Use provided Invoice Number as the PO reference
+    const poNumber = String(invoiceNumber).trim()
+
+    const qtyNum = Number(quantity)
+    const unitPriceNum = (unitPrice !== undefined && unitPrice !== null && unitPrice !== "") ? Number(unitPrice) : 0
+    const computedTotal = (totalAmount !== undefined && totalAmount !== null && totalAmount !== "")
+      ? Number(totalAmount)
+      : (qtyNum * unitPriceNum)
 
     const purchaseOrder = new PurchaseOrder({
       supplier,
       product,
       purchaseDate,
       purchaseType,
-      quantity: Number(quantity),
-      unitPrice: Number(unitPrice),
-      totalAmount: Number(totalAmount),
+      quantity: qtyNum,
+      unitPrice: unitPriceNum,
+      totalAmount: computedTotal,
       notes: notes || "",
       status,
       poNumber,

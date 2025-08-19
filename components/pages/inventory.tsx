@@ -340,7 +340,7 @@ export function Inventory() {
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
-                    placeholder="Search PO, product, supplier, type..."
+                    placeholder="Search INV, product, supplier, type..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-10 text-gray-800"
@@ -355,7 +355,7 @@ export function Inventory() {
                   <Table>
                   <TableHeader>
                     <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-                      <TableHead className="font-bold text-gray-700 p-4">PO Number</TableHead>
+                      <TableHead className="font-bold text-gray-700 p-4">INV Number</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
@@ -442,7 +442,7 @@ export function Inventory() {
                   <Table>
                   <TableHeader>
                     <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-                      <TableHead className="font-bold text-gray-700 p-4">PO Number</TableHead>
+                      <TableHead className="font-bold text-gray-700 p-4">INV Number</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
@@ -523,7 +523,7 @@ export function Inventory() {
           {editingItem && (
             <div className="space-y-4">
               <div className="bg-gray-50 p-3 rounded-lg">
-                <p className="text-sm text-gray-600">PO Number: <span className="font-medium">{editingItem.poNumber}</span></p>
+                <p className="text-sm text-gray-600">INV Number: <span className="font-medium">{editingItem.poNumber}</span></p>
                 <p className="text-sm text-gray-600">Product: <span className="font-medium">{editingItem.productName}</span></p>
                 <p className="text-sm text-gray-600">Supplier: <span className="font-medium">{editingItem.supplierName}</span></p>
               </div>
@@ -599,7 +599,7 @@ export function Inventory() {
             </p>
             {deleteTarget && (
               <div className="bg-gray-50 p-3 rounded">
-                <p className="text-sm text-gray-700">PO Number: <span className="font-medium">{deleteTarget.poNumber}</span></p>
+                <p className="text-sm text-gray-700">INV Number: <span className="font-medium">{deleteTarget.poNumber}</span></p>
                 <p className="text-sm text-gray-700">Product: <span className="font-medium">{deleteTarget.productName}</span></p>
                 <p className="text-sm text-gray-700">Supplier: <span className="font-medium">{deleteTarget.supplierName}</span></p>
               </div>
