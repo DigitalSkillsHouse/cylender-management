@@ -46,9 +46,16 @@ export function PurchaseManagement() {
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
-  // Per-item product autocomplete state
-  const [productSearchTerms, setProductSearchTerms] = useState<string[]>([""])
-  const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([false])
+  // Single entry item state (2x2 form)
+  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"|"cylinder"; productId: string; quantity: string; unitPrice: string}>({
+    purchaseType: "gas",
+    productId: "",
+    quantity: "",
+    unitPrice: "",
+  })
+  const [productSearchTerm, setProductSearchTerm] = useState("")
+  const [showProductSuggestions, setShowProductSuggestions] = useState(false)
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
   const [formData, setFormData] = useState(() => ({
     supplierId: "",
     purchaseDate: new Date().toISOString().split("T")[0],
@@ -203,13 +210,15 @@ export function PurchaseManagement() {
     setFormData({
       supplierId: "",
       purchaseDate: new Date().toISOString().split("T")[0],
-      items: [{ purchaseType: "gas" as "gas" | "cylinder", productId: "", quantity: "", unitPrice: "" }],
+      items: [],
       notes: "",
     })
     setEditingOrder(null)
     setError("")
-    setProductSearchTerms([""])
-    setShowProductSuggestions([false])
+    setCurrentItem({ purchaseType: "gas", productId: "", quantity: "", unitPrice: "" })
+    setProductSearchTerm("")
+    setShowProductSuggestions(false)
+    setEditingItemIndex(null)
   }
 
   const handleEdit = (order: PurchaseOrder) => {
@@ -225,10 +234,17 @@ export function PurchaseManagement() {
       }],
       notes: order.notes || "",
     })
-    // Initialize product search term to selected product name
+    // Initialize current item inputs for edit mode of single existing order
     const pName = products.find(p => p._id === order.product._id)?.name || ""
-    setProductSearchTerms([pName])
-    setShowProductSuggestions([false])
+    setCurrentItem({
+      purchaseType: order.purchaseType,
+      productId: order.product._id,
+      quantity: order.quantity.toString(),
+      unitPrice: order.unitPrice.toString(),
+    })
+    setProductSearchTerm(pName)
+    setShowProductSuggestions(false)
+    setEditingItemIndex(0)
     setIsDialogOpen(true)
   }
 
@@ -245,15 +261,24 @@ export function PurchaseManagement() {
   }
 
   const addItem = () => {
-    setFormData({
-      ...formData,
-      items: [
-        ...formData.items,
-        { purchaseType: (formData.items[formData.items.length - 1]?.purchaseType || "gas") as "gas" | "cylinder", productId: "", quantity: "", unitPrice: "" }
-      ],
-    })
-    setProductSearchTerms((prev) => [...prev, ""]) 
-    setShowProductSuggestions((prev) => [...prev, false])
+    // Validate currentItem
+    const selectedProduct = products.find(p => p._id === currentItem.productId)
+    if (!selectedProduct || !currentItem.quantity || !currentItem.unitPrice) {
+      setError("Please select a product and enter quantity and unit price")
+      return
+    }
+    const nextItems = [...formData.items, {
+      purchaseType: currentItem.purchaseType,
+      productId: currentItem.productId,
+      quantity: currentItem.quantity,
+      unitPrice: currentItem.unitPrice,
+    }]
+    setFormData({ ...formData, items: nextItems })
+    // Clear inputs for next entry
+    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "" })
+    setProductSearchTerm("")
+    setShowProductSuggestions(false)
+    setEditingItemIndex(null)
   }
 
   const removeItem = (index: number) => {
@@ -261,37 +286,12 @@ export function PurchaseManagement() {
       ...formData,
       items: formData.items.filter((_, i) => i !== index),
     })
-    setProductSearchTerms((prev) => prev.filter((_, i) => i !== index))
-    setShowProductSuggestions((prev) => prev.filter((_, i) => i !== index))
   }
 
   const updateItem = (index: number, field: string, value: any) => {
     setFormData((prev) => {
       const newItems = [...prev.items]
-      // If purchaseType changes, reset product and clear search term
-      if (field === 'purchaseType') {
-        newItems[index] = {
-          ...newItems[index],
-          purchaseType: value,
-          productId: "",
-          // Keep quantity/unitPrice as-is
-        }
-        setProductSearchTerms((ps) => { const cp = [...ps]; cp[index] = ""; return cp })
-        setShowProductSuggestions((ss) => { const cp = [...ss]; cp[index] = false; return cp })
-      } else if (field === 'productId') {
-        // When product selected, optionally prefill unit price from product
-        const product = products.find(p => p._id === value)
-        newItems[index] = {
-          ...newItems[index],
-          productId: value,
-          unitPrice: product ? String(product.costPrice ?? '') : newItems[index].unitPrice,
-        }
-      } else {
-        newItems[index] = {
-          ...newItems[index],
-          [field]: value,
-        }
-      }
+      newItems[index] = { ...newItems[index], [field]: value }
       return { ...prev, items: newItems }
     })
   }
@@ -441,148 +441,197 @@ export function PurchaseManagement() {
                   </div>
                 </div>
 
-                {/* Items Section */}
+                {/* Items Section: Single entry form (2x2) and items table below */}
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <Label className="text-sm font-semibold text-gray-700">Items *</Label>
+                  <Label className="text-sm font-semibold text-gray-700">Items *</Label>
+                  {/* 2x2 grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Purchase Type *</Label>
+                      <Select
+                        value={currentItem.purchaseType}
+                        onValueChange={(value: "gas" | "cylinder") => {
+                          setCurrentItem((ci) => ({ ...ci, purchaseType: value, productId: "" }))
+                          setProductSearchTerm("")
+                          setShowProductSuggestions(false)
+                        }}
+                      >
+                        <SelectTrigger className="h-10">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gas">Gas</SelectItem>
+                          <SelectItem value="cylinder">Cylinder</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2 relative">
+                      <Label>Product *</Label>
+                      <Input
+                        value={productSearchTerm}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setProductSearchTerm(v)
+                          setShowProductSuggestions(v.trim().length > 0)
+                        }}
+                        onFocus={() => setShowProductSuggestions((productSearchTerm || '').trim().length > 0)}
+                        onBlur={() => setTimeout(() => setShowProductSuggestions(false), 150)}
+                        placeholder="Type to search product"
+                        className="h-10"
+                      />
+                      {showProductSuggestions && (
+                        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+                          {(products.filter(p => p.category === currentItem.purchaseType)
+                            .filter(p => productSearchTerm.trim().length === 0 ? true : p.name.toLowerCase().includes(productSearchTerm.toLowerCase()))
+                          ).slice(0, 8).map((p) => (
+                            <button
+                              type="button"
+                              key={p._id}
+                              onClick={() => {
+                                setCurrentItem((ci) => ({ ...ci, productId: p._id, unitPrice: (p.costPrice ?? '').toString() }))
+                                setProductSearchTerm(p.name)
+                                setShowProductSuggestions(false)
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                            >
+                              <div className="font-medium text-gray-800">{p.name}</div>
+                              <div className="text-xs text-gray-500">AED {p.costPrice?.toFixed ? p.costPrice.toFixed(2) : p.costPrice}</div>
+                            </button>
+                          ))}
+                          {(products.filter(p => p.category === currentItem.purchaseType && p.name.toLowerCase().includes(productSearchTerm.toLowerCase()))).length === 0 && (
+                            <div className="px-3 py-2 text-sm text-gray-500">No products found</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Quantity *</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={currentItem.quantity}
+                        onChange={(e) => setCurrentItem((ci) => ({ ...ci, quantity: e.target.value }))}
+                        placeholder="Enter quantity"
+                        className="h-10"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Unit Price (AED) *</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={currentItem.unitPrice}
+                        onChange={(e) => setCurrentItem((ci) => ({ ...ci, unitPrice: e.target.value }))}
+                        placeholder="Enter unit price"
+                        className="h-10"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Add/Update button below fields */}
+                  <div className="flex justify-end">
                     <Button
                       type="button"
-                      onClick={addItem}
+                      onClick={() => {
+                        if (editingItemIndex !== null) {
+                          // Update the item at editing index
+                          if (!currentItem.productId || !currentItem.quantity || !currentItem.unitPrice) {
+                            setError("Please complete all item fields before updating")
+                            return
+                          }
+                          const newItems = [...formData.items]
+                          newItems.splice(editingItemIndex, 0, {
+                            purchaseType: currentItem.purchaseType,
+                            productId: currentItem.productId,
+                            quantity: currentItem.quantity,
+                            unitPrice: currentItem.unitPrice,
+                          })
+                          setFormData({ ...formData, items: newItems })
+                          setEditingItemIndex(null)
+                          setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "" })
+                          setProductSearchTerm("")
+                        } else {
+                          addItem()
+                        }
+                      }}
                       variant="outline"
-                      size="sm"
                       className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white"
                     >
                       <Plus className="w-4 h-4 mr-1" />
-                      Add Item
+                      {editingItemIndex !== null ? 'Update Item' : 'Add Item'}
                     </Button>
                   </div>
 
+                  {/* Items table */}
                   <div className="overflow-x-auto">
-                    <div className="max-h-[55vh] overflow-y-auto pr-2 sm:max-h-none">
-                      <div className="min-w-[760px] space-y-3">
-                      {formData.items.map((item, index) => (
-                        <div key={index} className="border-b md:border md:rounded-lg p-3 md:p-4">
-                          <div className="grid grid-cols-5 gap-4 items-end">
-                            <div className="space-y-2">
-                              <Label>Purchase Type *</Label>
-                              <Select
-                                value={item.purchaseType}
-                                onValueChange={(value: "gas" | "cylinder") => {
-                                  updateItem(index, 'purchaseType', value)
-                                }}
-                              >
-                                <SelectTrigger className="h-10">
-                                  <SelectValue placeholder="Select type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="gas">Gas</SelectItem>
-                                  <SelectItem value="cylinder">Cylinder</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div className="space-y-2 relative">
-                              <Label>Product *</Label>
-                              <Input
-                                value={productSearchTerms[index] || ''}
-                                onChange={(e) => {
-                                  const v = e.target.value
-                                  setProductSearchTerms((prev) => { const cp = [...prev]; cp[index] = v; return cp })
-                                  setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = v.trim().length > 0; return cp })
-                                }}
-                                onFocus={() => {
-                                  setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = (productSearchTerms[index] || '').trim().length > 0; return cp })
-                                }}
-                                onBlur={() => {
-                                  setTimeout(() => {
-                                    setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = false; return cp })
-                                  }, 150)
-                                }}
-                                placeholder="Type to search product"
-                                className="h-10"
-                              />
-                              {showProductSuggestions[index] && (
-                                <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
-                                  {(products.filter(p => p.category === item.purchaseType)
-                                    .filter(p => (productSearchTerms[index] || '').trim().length === 0 ? true : p.name.toLowerCase().includes((productSearchTerms[index] || '').toLowerCase()))
-                                  ).slice(0, 8).map((p) => (
-                                    <button
-                                      type="button"
-                                      key={p._id}
-                                      onClick={() => {
-                                        updateItem(index, 'productId', p._id)
-                                        setProductSearchTerms((prev) => { const cp = [...prev]; cp[index] = p.name; return cp })
-                                        setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = false; return cp })
-                                      }}
-                                      className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                                    >
-                                      <div className="font-medium text-gray-800">{p.name}</div>
-                                      <div className="text-xs text-gray-500">AED {p.costPrice?.toFixed ? p.costPrice.toFixed(2) : p.costPrice}</div>
-                                    </button>
-                                  ))}
-                                  {/* No results */}
-                                  {(products.filter(p => p.category === item.purchaseType && p.name.toLowerCase().includes((productSearchTerms[index] || '').toLowerCase()))).length === 0 && (
-                                    <div className="px-3 py-2 text-sm text-gray-500">No products found</div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label>Quantity *</Label>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => updateItem(index, "quantity", e.target.value)}
-                                placeholder="Enter quantity"
-                                className="h-10"
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label>Unit Price (AED) *</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                value={item.unitPrice}
-                                onChange={(e) => updateItem(index, "unitPrice", e.target.value)}
-                                placeholder="Enter unit price"
-                                className="h-10"
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label>Total (AED)</Label>
-                              <div className="flex items-center gap-2">
-                                <Input 
-                                  value={(() => {
-                                    const quantity = Number(item.quantity) || 0
-                                    const unitPrice = Number(item.unitPrice) || 0
-                                    return `AED ${(quantity * unitPrice).toFixed(2)}`
-                                  })()} 
-                                  disabled 
-                                  className="h-10"
-                                />
-                                {formData.items.length > 1 && (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Product</TableHead>
+                          <TableHead>Qty</TableHead>
+                          <TableHead>Unit Price (AED)</TableHead>
+                          <TableHead>Total (AED)</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {formData.items.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center text-gray-500">No items added yet</TableCell>
+                          </TableRow>
+                        )}
+                        {formData.items.map((it, idx) => {
+                          const p = products.find(p => p._id === it.productId)
+                          const qty = Number(it.quantity) || 0
+                          const up = Number(it.unitPrice) || 0
+                          return (
+                            <TableRow key={idx}>
+                              <TableCell className="whitespace-nowrap">{it.purchaseType}</TableCell>
+                              <TableCell className="max-w-[220px] truncate">{p?.name || 'Product'}</TableCell>
+                              <TableCell>{qty}</TableCell>
+                              <TableCell>AED {up.toFixed(2)}</TableCell>
+                              <TableCell className="font-semibold">AED {(qty * up).toFixed(2)}</TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
                                   <Button
                                     type="button"
-                                    onClick={() => removeItem(index)}
                                     variant="outline"
                                     size="sm"
-                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    onClick={() => {
+                                      // Load into current inputs and remove from list for editing
+                                      setCurrentItem({
+                                        purchaseType: it.purchaseType as any,
+                                        productId: it.productId,
+                                        quantity: it.quantity,
+                                        unitPrice: it.unitPrice,
+                                      })
+                                      setProductSearchTerm(p?.name || '')
+                                      const remaining = formData.items.filter((_, i) => i !== idx)
+                                      setFormData({ ...formData, items: remaining })
+                                      setEditingItemIndex(idx)
+                                    }}
+                                    className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white"
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => removeItem(idx)}
+                                    className="text-red-600 border-red-200 hover:bg-red-50"
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </Button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      </div>
-                    </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
                   </div>
                 </div>
 
