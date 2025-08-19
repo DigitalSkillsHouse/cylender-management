@@ -101,8 +101,8 @@ export function GasSales() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   // Per-item product autocomplete state
-  const [productSearchTerms, setProductSearchTerms] = useState<string[]>([""])
-  const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([false])
+  const [productSearchTerms, setProductSearchTerms] = useState<string[]>([])
+  const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
   // Single-entry item input state (2x2 grid pattern)
   const [currentItem, setCurrentItem] = useState<{ category: "gas" | "cylinder"; productId: string; quantity: string; price: string }>({
     category: "gas",
@@ -161,10 +161,19 @@ export function GasSales() {
   const [filteredSearchSuggestions, setFilteredSearchSuggestions] = useState<Customer[]>([])
 
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    customerId: string
+    category: "gas" | "cylinder"
+    items: { productId: string; quantity: string; price: string; category: "gas" | "cylinder" }[]
+    paymentMethod: string
+    paymentStatus: string
+    receivedAmount: string
+    paymentOption: "debit" | "credit" | "delivery_note"
+    notes: string
+  }>({
     customerId: "",
     category: "gas", 
-    items: [{ productId: "", quantity: "1", price: "", category: "gas" }], 
+    items: [], 
     paymentMethod: "cash",
     paymentStatus: "cleared",
     receivedAmount: "",
@@ -488,7 +497,6 @@ export function GasSales() {
           return item.productId && quantity > 0
         })
         .map((item) => {
-          const product = (products || []).find((p) => p._id === item.productId)
           const quantity = Number(item.quantity) || 1
           // Use the user-entered price from the form
           const price = Number(item.price) || 0
@@ -638,15 +646,15 @@ export function GasSales() {
     setFormData({
       customerId: "",
       category: "gas",
-      items: [{ productId: "", quantity: "1", price: "", category: "gas" }],
+      items: [],
       paymentMethod: "cash",
       paymentStatus: "cleared",
       receivedAmount: "",
       paymentOption: "debit",
       notes: "",
     })
-    setProductSearchTerms([""])
-    setShowProductSuggestions([false])
+    setProductSearchTerms([])
+    setShowProductSuggestions([])
     setCustomerSearchTerm("")
     setShowCustomerSuggestions(false)
     setFilteredCustomerSuggestions([])
@@ -681,8 +689,8 @@ export function GasSales() {
       const p = allProducts.find((ap) => ap._id === (it.product?._id || (it as any).product))
       return p?.name || ""
     })
-    setProductSearchTerms(initialTerms.length ? initialTerms : [""])
-    setShowProductSuggestions(new Array(initialTerms.length || 1).fill(false))
+    setProductSearchTerms(initialTerms.length ? initialTerms : [])
+    setShowProductSuggestions(new Array(initialTerms.length).fill(false))
     setCustomerSearchTerm(sale.customer?.name || "")
     setShowCustomerSuggestions(false)
     setFilteredCustomerSuggestions([])
