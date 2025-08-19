@@ -103,6 +103,16 @@ export function GasSales() {
   // Per-item product autocomplete state
   const [productSearchTerms, setProductSearchTerms] = useState<string[]>([""])
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([false])
+  // Single-entry item input state (2x2 grid pattern)
+  const [currentItem, setCurrentItem] = useState<{ category: "gas" | "cylinder"; productId: string; quantity: string; price: string }>({
+    category: "gas",
+    productId: "",
+    quantity: "1",
+    price: "",
+  })
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
+  const [entryProductSearch, setEntryProductSearch] = useState("")
+  const [showEntrySuggestions, setShowEntrySuggestions] = useState(false)
   // Export UI state
   const [showExportInput, setShowExportInput] = useState(false)
   const [exportSearch, setExportSearch] = useState("")
@@ -813,6 +823,86 @@ export function GasSales() {
     }, 200)
   }
 
+  // Single-entry item handlers
+  const resetCurrentItem = () => {
+    setCurrentItem({ category: "gas", productId: "", quantity: "1", price: "" })
+    setEntryProductSearch("")
+    setShowEntrySuggestions(false)
+    setEditingItemIndex(null)
+  }
+
+  const handleEntryCategoryChange = (value: "gas" | "cylinder") => {
+    setCurrentItem({ category: value, productId: "", quantity: "1", price: "" })
+    setEntryProductSearch("")
+  }
+
+  const handleEntryProductSearchChange = (value: string) => {
+    setEntryProductSearch(value)
+    setShowEntrySuggestions(value.trim().length > 0)
+  }
+
+  const handleEntryProductSelect = (product: Product) => {
+    setCurrentItem({
+      category: product.category,
+      productId: product._id,
+      quantity: "1",
+      price: product.leastPrice.toString(),
+    })
+    setEntryProductSearch(product.name)
+    setShowEntrySuggestions(false)
+  }
+
+  const handleEntryQuantityChange = (value: string) => {
+    const enteredQuantity = parseInt(value) || 0
+    const product = allProducts.find((p: Product) => p._id === currentItem.productId)
+    if (product && enteredQuantity > product.currentStock) {
+      setStockErrorMessage(`Insufficient stock for ${product.name}. Available: ${product.currentStock}, Required: ${enteredQuantity}`)
+      setShowStockInsufficientPopup(true)
+      setTimeout(() => setShowStockInsufficientPopup(false), 2000)
+      return
+    }
+    setCurrentItem((prev) => ({ ...prev, quantity: value }))
+  }
+
+  const handleEntryPriceChange = (value: string) => {
+    const product = allProducts.find((p: Product) => p._id === currentItem.productId)
+    const enteredPrice = parseFloat(value)
+    if (product && !isNaN(enteredPrice) && enteredPrice < product.leastPrice) {
+      setPriceAlert({ message: `Price must be at least ${product.leastPrice.toFixed(2)}`, index: -1 })
+      setTimeout(() => setPriceAlert({ message: '', index: null }), 2000)
+    }
+    setCurrentItem((prev) => ({ ...prev, price: value }))
+  }
+
+  const addOrUpdateItem = () => {
+    const qty = Number(currentItem.quantity) || 0
+    const pr = Number(currentItem.price) || 0
+    if (!currentItem.productId || qty <= 0 || pr <= 0) return
+    const items = [...formData.items]
+    if (editingItemIndex !== null && editingItemIndex >= 0 && editingItemIndex <= items.length) {
+      items.splice(editingItemIndex, 0, { ...currentItem })
+    } else {
+      items.push({ ...currentItem })
+    }
+    setFormData({ ...formData, items })
+    resetCurrentItem()
+  }
+
+  const handleEditRow = (index: number) => {
+    const items = [...formData.items]
+    const [row] = items.splice(index, 1)
+    setFormData({ ...formData, items })
+    setCurrentItem({
+      category: (row as any).category || 'gas',
+      productId: (row as any).productId || '',
+      quantity: (row as any).quantity || '1',
+      price: (row as any).price || '',
+    })
+    const pName = allProducts.find(p => p._id === (row as any).productId)?.name || ''
+    setEntryProductSearch(pName)
+    setEditingItemIndex(index)
+  }
+
   // Handle receipt button click - show signature dialog only if no signature exists
   const handleReceiptClick = (sale: Sale) => {
     if (!customerSignature) {
@@ -1099,163 +1189,123 @@ export function GasSales() {
                   <Label className="text-lg font-semibold">Items</Label>
                 </div>
 
-                {/* Scrollable container (horizontal + vertical) for items only */}
-                <div className="w-full overflow-x-auto">
-                  <div className="inline-block min-w-[900px] align-top">
-                    <div className="max-h-[55vh] overflow-y-auto pr-2">
-                      {/* Header row always visible to reinforce row layout */}
-                      <div className="grid grid-cols-[1fr_2fr_1fr_1.2fr_1.2fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
-                        <div>Category</div>
-                        <div>Product</div>
-                        <div>Quantity</div>
-                        <div>Price (AED)</div>
-                        <div>Total</div>
-                      </div>
-
-                      <div className="space-y-2">
-                        {formData.items.map((item, index) => (
-                          <div key={index} className="grid grid-cols-[1fr_2fr_1fr_1.2fr_1.2fr] gap-3 px-2 py-3 border-b last:border-b-0">
-                            <div className="space-y-2">
-                              <Label className="md:hidden">Category</Label>
-                              <Select
-                                value={item.category || 'gas'}
-                                onValueChange={(value) => updateItem(index, 'category', value)}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select category" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="gas">Gas</SelectItem>
-                                  <SelectItem value="cylinder">Cylinder</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div className="space-y-2 relative">
-                              <Label className="md:hidden">Product</Label>
-                              <Input
-                                placeholder={`Search ${(item.category || 'gas')} product`}
-                                value={productSearchTerms[index] || ''}
-                                onChange={(e) => handleProductSearchChange(index, e.target.value)}
-                                onFocus={() => handleProductInputFocus(index)}
-                                onBlur={() => handleProductInputBlur(index)}
-                                className="pr-10"
-                              />
-                              {showProductSuggestions[index] && (
-                                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                                  {allProducts
-                                    .filter((p: Product) => p.category === (item.category || 'gas'))
-                                    .filter((p: Product) => (productSearchTerms[index] || '').trim().length === 0 || p.name.toLowerCase().includes((productSearchTerms[index] || '').toLowerCase()))
-                                    .slice(0, 8)
-                                    .map((product) => (
-                                      <div
-                                        key={product._id}
-                                        className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                                        onMouseDown={(e) => e.preventDefault()}
-                                        onClick={() => handleProductSuggestionClick(index, product)}
-                                      >
-                                        <div className="flex items-center justify-between">
-                                          <span className="font-medium text-gray-900">{product.name}</span>
-                                          <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
-                                        </div>
-                                      </div>
-                                    ))}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label className="md:hidden">Quantity</Label>
-                              <Input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => {
-                                  const enteredQuantity = parseInt(e.target.value) || 0
-                                  const product = products.find((p: Product) => p._id === item.productId)
-                                  
-                                  // Check stock availability in real-time
-                                  if (product && enteredQuantity > product.currentStock) {
-                                    setStockErrorMessage(`Insufficient stock for ${product.name}. Available: ${product.currentStock}, Required: ${enteredQuantity}`)
-                                    setShowStockInsufficientPopup(true)
-                                    
-                                    // Auto-hide popup after 2 seconds
-                                    setTimeout(() => {
-                                      setShowStockInsufficientPopup(false)
-                                    }, 2000)
-                                    
-                                    return // Don't update the quantity if stock is insufficient
-                                  }
-                                  
-                                  updateItem(index, "quantity", e.target.value)
-                                }}
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label className="md:hidden">Price (AED)</Label>
-                              <div className="relative">
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={item.price}
-                                  onChange={(e) => {
-                                    const product = allProducts.find((p: Product) => p._id === item.productId);
-                                    const enteredPrice = parseFloat(e.target.value);
-                                    if (product && enteredPrice < product.leastPrice) {
-                                      setPriceAlert({ message: `Price must be at least ${product.leastPrice.toFixed(2)}`, index });
-                                      setTimeout(() => setPriceAlert({ message: '', index: null }), 2000);
-                                    }
-                                    updateItem(index, 'price', e.target.value);
-                                  }}
-                                  placeholder={(() => {
-                                    const product = allProducts.find((p: Product) => p._id === item.productId);
-                                    return product?.leastPrice ? `Min: AED ${product.leastPrice.toFixed(2)}` : 'Select product first';
-                                  })()}
-                                  className="w-full h-10 sm:h-11 bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 rounded-md shadow-sm"
-                                />
-                                {priceAlert.index === index && priceAlert.message && (
-                                  <div className="absolute top-full mt-1 text-xs text-red-500 bg-white dark:bg-gray-800 p-1 rounded shadow-lg z-10">
-                                    {priceAlert.message}
-                                  </div>
-                                )}
+                {/* 2x2 single-entry grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select value={currentItem.category} onValueChange={(v: any) => handleEntryCategoryChange(v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="gas">Gas</SelectItem>
+                        <SelectItem value="cylinder">Cylinder</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2 relative">
+                    <Label>Product</Label>
+                    <Input
+                      placeholder={`Search ${currentItem.category} product`}
+                      value={entryProductSearch}
+                      onChange={(e) => handleEntryProductSearchChange(e.target.value)}
+                      onFocus={() => setShowEntrySuggestions(entryProductSearch.trim().length > 0)}
+                      onBlur={() => setTimeout(() => setShowEntrySuggestions(false), 200)}
+                      className="pr-10"
+                    />
+                    {showEntrySuggestions && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        {allProducts
+                          .filter((p: Product) => p.category === currentItem.category)
+                          .filter((p: Product) => entryProductSearch.trim().length === 0 || p.name.toLowerCase().includes(entryProductSearch.toLowerCase()))
+                          .slice(0, 8)
+                          .map((product) => (
+                            <div
+                              key={product._id}
+                              className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => handleEntryProductSelect(product)}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-gray-900">{product.name}</span>
+                                <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
                               </div>
                             </div>
-
-                            <div className="space-y-2">
-                              <Label className="md:hidden">Total (AED)</Label>
-                              <div className="flex items-center gap-2">
-                                <Input value={(() => {
-                                  const price = parseFloat(item.price) || 0
-                                  const quantity = Number(item.quantity) || 0
-                                  return `AED ${(price * quantity).toFixed(2)}`
-                                })()} disabled />
-                                {formData.items.length > 1 && (
-                                  <Button
-                                    type="button"
-                                    onClick={() => removeItem(index)}
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-red-600 hover:text-red-700"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                          ))}
                       </div>
-                    </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Quantity</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={currentItem.quantity}
+                      onChange={(e) => handleEntryQuantityChange(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Price (AED)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={currentItem.price}
+                      onChange={(e) => handleEntryPriceChange(e.target.value)}
+                      placeholder={(() => {
+                        const p = allProducts.find((ap) => ap._id === currentItem.productId)
+                        return p?.leastPrice ? `Min: AED ${p.leastPrice.toFixed(2)}` : 'Select product first'
+                      })()}
+                    />
                   </div>
                 </div>
 
-                <div className="mt-2">
-                  <Button type="button" onClick={addItem} variant="outline" size="sm">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Item
-                  </Button>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-gray-600">
+                    {(() => {
+                      const q = Number(currentItem.quantity) || 0
+                      const pr = Number(currentItem.price) || 0
+                      return q > 0 && pr > 0 ? `Line Total: AED ${(q * pr).toFixed(2)}` : ''
+                    })()}
+                  </div>
+                  <div>
+                    <Button type="button" onClick={addOrUpdateItem} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white">
+                      {editingItemIndex !== null ? 'Update Item' : 'Add Item'}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Items table */}
+                <div className="w-full overflow-x-auto">
+                  <div className="inline-block min-w-[700px] align-top">
+                    <div className="max-h-[40vh] overflow-y-auto pr-2">
+                      <div className="grid grid-cols-[1fr_2fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
+                        <div>Category</div>
+                        <div>Product</div>
+                        <div>Qty</div>
+                        <div>Price (AED)</div>
+                        <div>Actions</div>
+                      </div>
+                      <div className="space-y-1">
+                        {formData.items.map((it, idx) => {
+                          const p = allProducts.find((ap) => ap._id === it.productId)
+                          return (
+                            <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
+                              <div className="truncate">{(it as any).category || 'gas'}</div>
+                              <div className="truncate">{p?.name || '-'}</div>
+                              <div>{Number((it as any).quantity || 0)}</div>
+                              <div>{Number((it as any).price || 0).toFixed(2)}</div>
+                              <div className="flex gap-2">
+                                <Button type="button" size="sm" variant="outline" onClick={() => handleEditRow(idx)}>Edit</Button>
+                                <Button type="button" size="sm" variant="outline" className="text-red-600" onClick={() => removeItem(idx)}>Remove</Button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="text-right">
