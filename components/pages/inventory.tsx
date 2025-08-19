@@ -54,6 +54,10 @@ export function Inventory() {
   })
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<InventoryItem | null>(null)
+  // Group dialog for aggregated received items
+  const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false)
+  const [groupDialogMode, setGroupDialogMode] = useState<"edit" | "delete">("edit")
+  const [groupItems, setGroupItems] = useState<InventoryItem[]>([])
   const [searchTerm, setSearchTerm] = useState("")
 
   useEffect(() => {
@@ -109,6 +113,7 @@ export function Inventory() {
             } else {
               resolvedProductName = order.productName || resolvedProductName
             }
+            
             if (resolvedProductName === 'Unknown Product' && typeof productRef === 'string') {
               resolvedProductName = productRef
             }
@@ -222,6 +227,28 @@ export function Inventory() {
     }
   }
 
+  // Open group dialog for aggregated received row
+  const openGroupDialog = (aggItem: InventoryItem, mode: "edit" | "delete") => {
+    const items = inventory.filter(
+      (i) => i.status === "received" && i.productName === aggItem.productName && i.supplierName === aggItem.supplierName
+    )
+    setGroupItems(items)
+    setGroupDialogMode(mode)
+    setIsGroupDialogOpen(true)
+  }
+
+  // Delete all items in current group
+  const handleDeleteAllInGroup = async () => {
+    try {
+      for (const it of groupItems) {
+        await handleDeleteReceived(it.id)
+      }
+      setIsGroupDialogOpen(false)
+    } catch (e) {
+      console.error("Failed deleting all in group", e)
+    }
+  }
+
   const openDeleteDialog = (item: InventoryItem) => {
     setDeleteTarget(item)
     setIsDeleteDialogOpen(true)
@@ -277,7 +304,47 @@ export function Inventory() {
   }
 
   const pendingItems = inventory.filter((item) => item.status === "pending")
-  const receivedItems = inventory.filter((item) => item.status === "received")
+  const receivedItemsRaw = inventory.filter((item) => item.status === "received")
+
+  // Aggregate received items by Product + Supplier
+  const aggregateReceived = (items: InventoryItem[]) => {
+    const map = new Map<string, any>()
+    items.forEach((it) => {
+      const key = `${it.productName}||${it.supplierName}`
+      const curr = map.get(key) || {
+        idList: [] as string[],
+        poNumbers: [] as string[],
+        productName: it.productName,
+        supplierName: it.supplierName,
+        quantity: 0,
+        totalAmount: 0,
+        purchaseType: it.purchaseType,
+      }
+      curr.idList.push(it.id)
+      if (it.poNumber) curr.poNumbers.push(it.poNumber)
+      curr.quantity += Number(it.quantity) || 0
+      curr.totalAmount += Number(it.totalAmount) || 0
+      // keep latest type if differs
+      curr.purchaseType = it.purchaseType || curr.purchaseType
+      map.set(key, curr)
+    })
+    return Array.from(map.values()).map((grp) => {
+      const unitPrice = grp.quantity ? grp.totalAmount / grp.quantity : 0
+      return {
+        id: grp.idList.join(","),
+        poNumber: grp.poNumbers.join(", "),
+        productName: grp.productName,
+        supplierName: grp.supplierName,
+        purchaseDate: "",
+        quantity: grp.quantity,
+        unitPrice,
+        totalAmount: grp.totalAmount,
+        status: "received" as const,
+        purchaseType: grp.purchaseType,
+      } as InventoryItem
+    })
+  }
+  const receivedItems = aggregateReceived(receivedItemsRaw)
 
   const norm = (v?: string | number) => (v === undefined || v === null ? "" : String(v)).toLowerCase()
   const matchesQuery = (it: InventoryItem, q: string) =>
@@ -428,7 +495,7 @@ export function Inventory() {
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
-                    placeholder="Search PO, product, supplier, type..."
+                    placeholder="Search INV, product, supplier, type..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-10 text-gray-800"
@@ -475,7 +542,7 @@ export function Inventory() {
                               variant="outline"
                               style={{ borderColor: "#2B3068", color: "#2B3068" }}
                               className="hover:bg-slate-50 min-h-[36px]"
-                              onClick={() => handleEditInventory(item)}
+                              onClick={() => openGroupDialog(item, "edit")}
                             >
                               Edit
                             </Button>
@@ -484,7 +551,7 @@ export function Inventory() {
                               variant="outline"
                               style={{ borderColor: "#dc2626", color: "#dc2626" }}
                               className="hover:bg-red-50 min-h-[36px]"
-                              onClick={() => openDeleteDialog(item)}
+                              onClick={() => openGroupDialog(item, "delete")}
                             >
                               Delete
                             </Button>
@@ -587,6 +654,86 @@ export function Inventory() {
         </DialogContent>
       </Dialog>
       
+      {/* Group Management Dialog for Aggregated Received Items */}
+      <Dialog open={isGroupDialogOpen} onOpenChange={setIsGroupDialogOpen}>
+        <DialogContent className="w-[95vw] max-w-[720px] max-h-[90vh] overflow-y-auto mx-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl" style={{ color: "#2B3068" }}>
+              {groupDialogMode === "edit" ? "Manage Received Entries" : "Delete Received Entries"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {groupItems.length === 0 ? (
+              <p className="text-sm text-gray-600">No entries found for this group.</p>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead className="p-3">INV Number</TableHead>
+                      <TableHead className="p-3">Product</TableHead>
+                      <TableHead className="p-3">Supplier</TableHead>
+                      <TableHead className="p-3">Qty</TableHead>
+                      <TableHead className="p-3">Unit Price</TableHead>
+                      <TableHead className="p-3">Total</TableHead>
+                      <TableHead className="p-3 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {groupItems.map((gi) => (
+                      <TableRow key={gi.id}>
+                        <TableCell className="p-3 font-medium">{gi.poNumber}</TableCell>
+                        <TableCell className="p-3">{gi.productName}</TableCell>
+                        <TableCell className="p-3">{gi.supplierName}</TableCell>
+                        <TableCell className="p-3">{gi.quantity}</TableCell>
+                        <TableCell className="p-3">AED {gi.unitPrice.toFixed(2)}</TableCell>
+                        <TableCell className="p-3 font-semibold">AED {gi.totalAmount.toFixed(2)}</TableCell>
+                        <TableCell className="p-3">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              style={{ borderColor: "#2B3068", color: "#2B3068" }}
+                              className="hover:bg-slate-50"
+                              onClick={() => {
+                                setIsGroupDialogOpen(false)
+                                handleEditInventory(gi)
+                              }}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              style={{ borderColor: "#dc2626", color: "#dc2626" }}
+                              className="hover:bg-red-50"
+                              onClick={() => {
+                                setIsGroupDialogOpen(false)
+                                setDeleteTarget(gi)
+                                setIsDeleteDialogOpen(true)
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {groupDialogMode === "delete" && groupItems.length > 1 && (
+              <div className="flex justify-end">
+                <Button className="bg-red-600 hover:bg-red-700" onClick={handleDeleteAllInGroup}>
+                  Delete All
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent className="w-[95vw] max-w-[450px]">
