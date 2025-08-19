@@ -273,12 +273,12 @@ export function GasSales() {
       doc.setFillColor(43, 48, 104)
       doc.rect(marginX - 4, headerY - 14, pageWidth - marginX * 2 + 8, headerHeight, 'F')
 
-      // Expanded headers to show all customer data in a row
+      // Headers (Phone and Address removed as requested)
       const headers = [
-        'Invoice #','Customer','Phone','Address','Items','Total (AED)','Received (AED)','Payment Method','Payment Status','Notes','Added By','Date'
+        'Invoice #','Customer','Items','Total (AED)','Received (AED)','Payment Method','Payment Status','Notes','Added By','Date'
       ]
       const colWidths = [
-        70, 90, 80, 140, 220, 70, 80, 90, 90, 130, 70, 90
+        70, 120, 260, 70, 80, 90, 90, 130, 70, 90
       ]
 
       // Draw headers
@@ -363,8 +363,6 @@ export function GasSales() {
         const row = [
           s.invoiceNumber || '',
           s.customer?.name || '',
-          s.customer?.phone || '',
-          s.customer?.address || '',
           itemsDesc,
           totalStr,
           receivedStr,

@@ -46,6 +46,9 @@ export function PurchaseManagement() {
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
+  // Per-item product autocomplete state
+  const [productSearchTerms, setProductSearchTerms] = useState<string[]>([""])
+  const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([false])
   const [formData, setFormData] = useState(() => ({
     supplierId: "",
     purchaseDate: new Date().toISOString().split("T")[0],
@@ -205,6 +208,8 @@ export function PurchaseManagement() {
     })
     setEditingOrder(null)
     setError("")
+    setProductSearchTerms([""])
+    setShowProductSuggestions([false])
   }
 
   const handleEdit = (order: PurchaseOrder) => {
@@ -220,6 +225,10 @@ export function PurchaseManagement() {
       }],
       notes: order.notes || "",
     })
+    // Initialize product search term to selected product name
+    const pName = products.find(p => p._id === order.product._id)?.name || ""
+    setProductSearchTerms([pName])
+    setShowProductSuggestions([false])
     setIsDialogOpen(true)
   }
 
@@ -243,6 +252,8 @@ export function PurchaseManagement() {
         { purchaseType: (formData.items[formData.items.length - 1]?.purchaseType || "gas") as "gas" | "cylinder", productId: "", quantity: "", unitPrice: "" }
       ],
     })
+    setProductSearchTerms((prev) => [...prev, ""]) 
+    setShowProductSuggestions((prev) => [...prev, false])
   }
 
   const removeItem = (index: number) => {
@@ -250,14 +261,36 @@ export function PurchaseManagement() {
       ...formData,
       items: formData.items.filter((_, i) => i !== index),
     })
+    setProductSearchTerms((prev) => prev.filter((_, i) => i !== index))
+    setShowProductSuggestions((prev) => prev.filter((_, i) => i !== index))
   }
 
   const updateItem = (index: number, field: string, value: any) => {
     setFormData((prev) => {
       const newItems = [...prev.items]
-      newItems[index] = {
-        ...newItems[index],
-        [field]: value,
+      // If purchaseType changes, reset product and clear search term
+      if (field === 'purchaseType') {
+        newItems[index] = {
+          ...newItems[index],
+          purchaseType: value,
+          productId: "",
+          // Keep quantity/unitPrice as-is
+        }
+        setProductSearchTerms((ps) => { const cp = [...ps]; cp[index] = ""; return cp })
+        setShowProductSuggestions((ss) => { const cp = [...ss]; cp[index] = false; return cp })
+      } else if (field === 'productId') {
+        // When product selected, optionally prefill unit price from product
+        const product = products.find(p => p._id === value)
+        newItems[index] = {
+          ...newItems[index],
+          productId: value,
+          unitPrice: product ? String(product.costPrice ?? '') : newItems[index].unitPrice,
+        }
+      } else {
+        newItems[index] = {
+          ...newItems[index],
+          [field]: value,
+        }
       }
       return { ...prev, items: newItems }
     })
@@ -435,7 +468,7 @@ export function PurchaseManagement() {
                               <Select
                                 value={item.purchaseType}
                                 onValueChange={(value: "gas" | "cylinder") => {
-                                  updateItemMulti(index, { purchaseType: value, productId: "" })
+                                  updateItem(index, 'purchaseType', value)
                                 }}
                               >
                                 <SelectTrigger className="h-10">
@@ -448,25 +481,51 @@ export function PurchaseManagement() {
                               </Select>
                             </div>
 
-                            <div className="space-y-2">
+                            <div className="space-y-2 relative">
                               <Label>Product *</Label>
-                              <Select
-                                value={item.productId}
-                                onValueChange={(value) => updateItem(index, "productId", value)}
-                              >
-                                <SelectTrigger className="h-10">
-                                  <SelectValue placeholder="Select product" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {products
-                                    .filter((product) => product.category === item.purchaseType)
-                                    .map((product) => (
-                                    <SelectItem key={product._id} value={product._id}>
-                                      {product.name} - AED {product.costPrice}
-                                    </SelectItem>
+                              <Input
+                                value={productSearchTerms[index] || ''}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  setProductSearchTerms((prev) => { const cp = [...prev]; cp[index] = v; return cp })
+                                  setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = v.trim().length > 0; return cp })
+                                }}
+                                onFocus={() => {
+                                  setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = (productSearchTerms[index] || '').trim().length > 0; return cp })
+                                }}
+                                onBlur={() => {
+                                  setTimeout(() => {
+                                    setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = false; return cp })
+                                  }, 150)
+                                }}
+                                placeholder="Type to search product"
+                                className="h-10"
+                              />
+                              {showProductSuggestions[index] && (
+                                <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+                                  {(products.filter(p => p.category === item.purchaseType)
+                                    .filter(p => (productSearchTerms[index] || '').trim().length === 0 ? true : p.name.toLowerCase().includes((productSearchTerms[index] || '').toLowerCase()))
+                                  ).slice(0, 8).map((p) => (
+                                    <button
+                                      type="button"
+                                      key={p._id}
+                                      onClick={() => {
+                                        updateItem(index, 'productId', p._id)
+                                        setProductSearchTerms((prev) => { const cp = [...prev]; cp[index] = p.name; return cp })
+                                        setShowProductSuggestions((prev) => { const cp = [...prev]; cp[index] = false; return cp })
+                                      }}
+                                      className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                                    >
+                                      <div className="font-medium text-gray-800">{p.name}</div>
+                                      <div className="text-xs text-gray-500">AED {p.costPrice?.toFixed ? p.costPrice.toFixed(2) : p.costPrice}</div>
+                                    </button>
                                   ))}
-                                </SelectContent>
-                              </Select>
+                                  {/* No results */}
+                                  {(products.filter(p => p.category === item.purchaseType && p.name.toLowerCase().includes((productSearchTerms[index] || '').toLowerCase()))).length === 0 && (
+                                    <div className="px-3 py-2 text-sm text-gray-500">No products found</div>
+                                  )}
+                                </div>
+                              )}
                             </div>
 
                             <div className="space-y-2">
