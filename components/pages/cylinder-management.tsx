@@ -172,6 +172,18 @@ export function CylinderManagement() {
   const [productSearchTerms, setProductSearchTerms] = useState<string[]>([])
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
 
+  // Single-entry draft item state for 2x2 form
+  const [draftItem, setDraftItem] = useState<{ productId: string; productName: string; cylinderSize: string; quantity: number; amount: number }>({
+    productId: "",
+    productName: "",
+    cylinderSize: "",
+    quantity: 1,
+    amount: 0,
+  })
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [draftProductSearchTerm, setDraftProductSearchTerm] = useState("")
+  const [showDraftProductSuggestions, setShowDraftProductSuggestions] = useState(false)
+
   // Stock validation popup state
   const [showStockValidationPopup, setShowStockValidationPopup] = useState(false)
   const [stockValidationMessage, setStockValidationMessage] = useState("")
@@ -722,25 +734,30 @@ export function CylinderManagement() {
   const getProductById = (id: string) => products.find(p => p._id === id)
 
   const addItem = () => {
-    // Start with empty fields so user explicitly selects
-    const defaultProductId = ""
-    const defaultName = ""
-    const defaultPrice = 0
-    setFormData(prev => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        {
-          productId: defaultProductId,
-          productName: defaultName,
-          cylinderSize: "",
-          quantity: 1,
-          amount: Number(defaultPrice.toFixed(2))
-        }
-      ]
-    }))
-    setProductSearchTerms(prev => [...prev, defaultName])
-    setShowProductSuggestions(prev => [...prev, false])
+    // Add current draft item to items list (or save edit), then reset draft
+    if (!draftItem.productId || !draftItem.cylinderSize || (Number(draftItem.quantity) || 0) <= 0) {
+      alert('Please select product, size and quantity')
+      return
+    }
+    // stock validation (skip for refill)
+    if (formData.type !== 'refill') {
+      const ok = validateItemStock(draftItem.productId, Number(draftItem.quantity) || 0)
+      if (!ok) return
+    }
+    setFormData(prev => {
+      const items = [...prev.items]
+      if (editingIndex !== null) {
+        items[editingIndex] = { ...draftItem, amount: Number(draftItem.amount) || 0 }
+      } else {
+        items.push({ ...draftItem, amount: Number(draftItem.amount) || 0 })
+      }
+      return { ...prev, items }
+    })
+    // reset draft
+    setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+    setDraftProductSearchTerm("")
+    setShowDraftProductSuggestions(false)
+    setEditingIndex(null)
   }
 
   const updateItem = (index: number, field: keyof (typeof formData.items)[number], value: any) => {
@@ -765,6 +782,12 @@ export function CylinderManagement() {
     setFormData(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }))
     setProductSearchTerms(prev => prev.filter((_, i) => i !== index))
     setShowProductSuggestions(prev => prev.filter((_, i) => i !== index))
+    if (editingIndex === index) {
+      setEditingIndex(null)
+      setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+      setDraftProductSearchTerm("")
+      setShowDraftProductSuggestions(false)
+    }
   }
 
   const totalItemsAmount = () => formData.items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0)
@@ -1690,263 +1713,158 @@ export function CylinderManagement() {
                 )}
               </div>
 
-              {/* Items section (after Customer/Supplier) */}
+              {/* Items section: single-entry draft form and items table */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label className="text-lg font-semibold">Items</Label>
-                  {formData.items.length === 0 && (
-                    <Button type="button" variant="outline" size="sm" onClick={addItem}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Item
-                    </Button>
+                <Label className="text-lg font-semibold">Items</Label>
+
+                {/* 2x2 grid draft form */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Product with autocomplete */}
+                  <div className="space-y-2 relative">
+                    <Label>Product *</Label>
+                    <Input
+                      value={draftProductSearchTerm}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setDraftProductSearchTerm(val)
+                        setShowDraftProductSuggestions(val.trim().length > 0)
+                      }}
+                      onBlur={() => setTimeout(() => setShowDraftProductSuggestions(false), 150)}
+                      placeholder="Search product"
+                      autoComplete="off"
+                    />
+                    {showDraftProductSuggestions && draftProductSearchTerm.trim().length > 0 && (
+                      <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
+                        {products
+                          .filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes(draftProductSearchTerm.toLowerCase()))
+                          .slice(0, 5)
+                          .map(p => (
+                            <li
+                              key={p._id}
+                              className="p-2 hover:bg-gray-100 cursor-pointer"
+                              onMouseDown={() => {
+                                setDraftItem(prev => ({ ...prev, productId: p._id, productName: p.name, amount: Number((p.leastPrice).toFixed(2)) }))
+                                setDraftProductSearchTerm(p.name)
+                                setShowDraftProductSuggestions(false)
+                              }}
+                            >
+                              {p.name} - AED {p.leastPrice.toFixed(2)}
+                            </li>
+                          ))}
+                        {products.filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes(draftProductSearchTerm.toLowerCase())).length === 0 && (
+                          <li className="p-2 text-gray-500">No matches</li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Cylinder Size */}
+                  <div className="space-y-2">
+                    <Label>Cylinder Size *</Label>
+                    <Select
+                      value={draftItem.cylinderSize}
+                      onValueChange={(value) => setDraftItem(prev => ({ ...prev, cylinderSize: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select size" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="small">Small</SelectItem>
+                        <SelectItem value="large">Large</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Quantity */}
+                  <div className="space-y-2">
+                    <Label>Quantity *</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draftItem.quantity}
+                      onChange={(e) => {
+                        const q = Number.parseInt(e.target.value) || 1
+                        setDraftItem(prev => ({ ...prev, quantity: q }))
+                      }}
+                    />
+                  </div>
+
+                  {/* Amount */}
+                  <div className="space-y-2">
+                    <Label>Amount *</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={draftItem.amount}
+                      onChange={(e) => setDraftItem(prev => ({ ...prev, amount: Number.parseFloat(e.target.value) || 0 }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" onClick={addItem}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    {editingIndex === null ? 'Add Item' : 'Save Item'}
+                  </Button>
+                  {editingIndex !== null && (
+                    <Button type="button" variant="ghost" onClick={() => {
+                      setEditingIndex(null)
+                      setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+                      setDraftProductSearchTerm("")
+                      setShowDraftProductSuggestions(false)
+                    }}>Cancel Edit</Button>
                   )}
                 </div>
 
+                {/* Items table */}
                 {formData.items.length > 0 && (
-                  <div className="w-full">
-                    <div>
-                      <div className="grid grid-cols-[2fr_1fr_1fr_1fr_0.6fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2">
-                        <div>Product *</div>
-                        <div>Cylinder Size *</div>
-                        <div>Quantity *</div>
-                        <div>Amount *</div>
-                        <div>Actions</div>
-                      </div>
-
-                      <div className="space-y-2">
-                        {formData.items.map((item, index) => (
-                          <div key={index} className="grid grid-cols-[2fr_1fr_1fr_1fr_0.6fr] gap-3 px-2 py-3 border-b last:border-b-0">
-                            {/* Product */}
-                            <div className="space-y-2 relative">
-                              <Label className="md:hidden">Product</Label>
-                              <Input
-                                value={productSearchTerms[index] ?? item.productName ?? ''}
-                                onChange={(e) => {
-                                  const val = e.target.value
-                                  setProductSearchTerms(prev => {
-                                    const cp = [...prev]
-                                    cp[index] = val
-                                    return cp
-                                  })
-                                  setShowProductSuggestions(prev => {
-                                    const cp = [...prev]
-                                    cp[index] = val.trim().length > 0
-                                    return cp
-                                  })
-                                }}
-                                onBlur={() => {
-                                  setTimeout(() => {
-                                    setShowProductSuggestions(prev => {
-                                      const cp = [...prev]
-                                      cp[index] = false
-                                      return cp
-                                    })
-                                  }, 150)
-                                }}
-                                placeholder="Select product"
-                                autoComplete="off"
-                              />
-                              {showProductSuggestions[index] && (productSearchTerms[index]?.trim()?.length ?? 0) > 0 && (
-                                <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
-                                  {products
-                                    .filter(p => p.category === 'cylinder' && (
-                                      (productSearchTerms[index] ?? '').trim() === '' || p.name.toLowerCase().includes((productSearchTerms[index] ?? '').toLowerCase())
-                                    ))
-                                    .slice(0, 5)
-                                    .map(p => (
-                                      <li
-                                        key={p._id}
-                                        className="p-2 hover:bg-gray-100 cursor-pointer"
-                                        onMouseDown={() => {
-                                          updateItem(index, 'productId', p._id as any)
-                                          setProductSearchTerms(prev => {
-                                            const cp = [...prev]
-                                            cp[index] = p.name
-                                            return cp
-                                          })
-                                          setShowProductSuggestions(prev => {
-                                            const cp = [...prev]
-                                            cp[index] = false
-                                            return cp
-                                          })
-                                        }}
-                                      >
-                                        {p.name} - AED {p.leastPrice.toFixed(2)}
-                                      </li>
-                                    ))}
-                                  {(productSearchTerms[index]?.trim()?.length ?? 0) > 0 && products.filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes((productSearchTerms[index] ?? '').toLowerCase())).length === 0 && (
-                                    <li className="p-2 text-gray-500">No matches</li>
-                                  )}
-                                </ul>
-                              )}
-                            </div>
-
-                            {/* Size */}
-                            <div className="space-y-2">
-                              <Label className="md:hidden">Cylinder Size</Label>
-                              <Select
-                                value={item.cylinderSize}
-                                onValueChange={(value) => updateItem(index, 'cylinderSize', value)}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select size" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="small">Small</SelectItem>
-                                  <SelectItem value="large">Large</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            {/* Quantity */}
-                            <div className="space-y-2">
-                              <Label className="md:hidden">Quantity</Label>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={item.quantity}
-                                onChange={(e) => {
-                                  const q = Number.parseInt(e.target.value) || 1
-                                  if (validateItemStock(item.productId, q)) updateItem(index, 'quantity', q)
-                                }}
-                              />
-                            </div>
-
-                            {/* Amount */}
-                            <div className="space-y-2">
-                              <Label className="md:hidden">Amount</Label>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min={0}
-                                value={item.amount}
-                                onChange={(e) => updateItem(index, 'amount', Number.parseFloat(e.target.value) || 0)}
-                              />
-                            </div>
-
-                            {/* Actions */}
-                            <div className="flex items-center">
-                              <Button type="button" variant="ghost" className="text-red-600" onClick={() => removeItem(index)}>
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
+                  <div className="space-y-2">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Product</TableHead>
+                          <TableHead>Size</TableHead>
+                          <TableHead>Qty</TableHead>
+                          <TableHead>Amount (AED)</TableHead>
+                          <TableHead className="w-32">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {formData.items.map((it, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>{it.productName || products.find(p => p._id === it.productId)?.name || '-'}</TableCell>
+                            <TableCell className="capitalize">{it.cylinderSize || '-'}</TableCell>
+                            <TableCell>{it.quantity}</TableCell>
+                            <TableCell>AED {(Number(it.amount)||0).toFixed(2)}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Button type="button" size="sm" variant="outline" onClick={() => {
+                                  setEditingIndex(idx)
+                                  setDraftItem({ ...it })
+                                  setDraftProductSearchTerm(it.productName || products.find(p => p._id === it.productId)?.name || '')
+                                }}>
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button type="button" size="sm" variant="outline" className="text-red-600 border-red-600" onClick={() => removeItem(idx)}>
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                        {/* Total items amount */}
-                        <div className="flex justify-between items-center px-2 py-3">
-                          <div className="text-sm font-semibold text-gray-800">
-                            Total Items Amount: AED {formData.items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0).toFixed(2)}
-                          </div>
-                          <Button type="button" variant="outline" size="sm" onClick={addItem}>
-                            <Plus className="w-4 h-4 mr-2" />
-                            Add Item
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
+                        <TableRow>
+                          <TableCell colSpan={3} className="text-right font-semibold">Total</TableCell>
+                          <TableCell className="font-semibold">AED {formData.items.reduce((s, it) => s + (Number(it.amount)||0), 0).toFixed(2)}</TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </div>
 
-              {/* Single-item fields (rendered only when no items) */}
-              {formData.items.length === 0 && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="product">Product *</Label>
-                    <Select
-                      value={formData.productId}
-                      onValueChange={(value) => {
-                        const selectedProduct = products.find(p => p._id === value)
-                        setFormData({
-                          ...formData,
-                          productId: value,
-                          productName: selectedProduct ? selectedProduct.name : "",
-                          amount: selectedProduct ? selectedProduct.leastPrice : 0,
-                        })
-                      }}
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select cylinder product" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((product) => (
-                          <SelectItem key={product._id} value={product._id}>
-                            {product.name} ({product.cylinderSize}) - AED {product.leastPrice.toFixed(2)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {formData.productId && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        Price: AED {products.find(p => p._id === formData.productId)?.leastPrice.toFixed(2)} per unit
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="cylinderSize">Cylinder Size *</Label>
-                      <Select
-                        value={formData.cylinderSize}
-                        onValueChange={(value) => setFormData({ ...formData, cylinderSize: value })}
-                        required
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select size" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="small">Small</SelectItem>
-                          <SelectItem value="large">Large</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="quantity">Quantity *</Label>
-                      <Input
-                        id="quantity"
-                        type="number"
-                        min="1"
-                        value={formData.quantity}
-                        onChange={(e) => {
-                          const newQuantity = Number.parseInt(e.target.value) || 1
-                          if (formData.type === 'refill') {
-                            setFormData({ ...formData, quantity: newQuantity })
-                            return
-                          }
-                          if (formData.productId && newQuantity > 0) {
-                            if (validateItemStock(formData.productId, newQuantity)) {
-                              setFormData({ ...formData, quantity: newQuantity })
-                            }
-                          } else {
-                            setFormData({ ...formData, quantity: newQuantity })
-                          }
-                        }}
-                        required
-                      />
-                    </div>
-
-                    {formData.type === 'deposit' && (
-                      <div className="space-y-2">
-                        <Label htmlFor="amount">Amount *</Label>
-                        <Input
-                          id="amount"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={formData.amount}
-                          onChange={(e) => {
-                            const newAmount = Number.parseFloat(e.target.value) || 0
-                            setFormData({ ...formData, amount: newAmount })
-                          }}
-                          required
-                        />
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
+              {/* Removed legacy single-item-only fields; use draft + items table instead */}
 
               {/* Payment Option, Received Via, Deposit Amount, Status, and Notes Section */}
               {formData.type === 'deposit' && (
