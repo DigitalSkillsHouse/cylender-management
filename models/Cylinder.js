@@ -2,6 +2,10 @@ import mongoose from "mongoose";
 
 const CylinderTransactionSchema = new mongoose.Schema(
   {
+    invoiceNumber: {
+      type: String,
+      default: undefined, // will be set by API routes; keep undefined for existing docs
+    },
     type: {
       type: String,
       enum: ["deposit", "refill", "return"],
@@ -106,6 +110,16 @@ const CylinderTransactionSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Ensure invoiceNumber is unique only when present to avoid migration issues on existing docs
+try {
+  CylinderTransactionSchema.index(
+    { invoiceNumber: 1 },
+    { unique: true, partialFilterExpression: { invoiceNumber: { $exists: true } } }
+  );
+} catch (e) {
+  // no-op: index creation errors will be logged by Mongo
+}
 
 export default mongoose.models.CylinderTransaction || 
   mongoose.model("CylinderTransaction", CylinderTransactionSchema);

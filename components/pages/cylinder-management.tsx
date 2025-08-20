@@ -25,6 +25,7 @@ import jsPDF from "jspdf"
 interface CylinderTransaction {
   _id: string  
   type: "deposit" | "refill" | "return"
+  invoiceNumber?: string
   customer?: {
     _id: string
     name: string
@@ -191,20 +192,21 @@ export function CylinderManagement() {
   // Dynamic column visibility based on active tab
   const getVisibleColumns = () => {
     const baseColumns = ['type', 'customer', 'product', 'cylinderSize', 'quantity', 'amount']
+    // Removed invoiceNumber from commonColumns; we'll prefix it explicitly to be first
     const commonColumns = ['paymentMethod', 'cashAmount', 'bankName', 'checkNumber', 'notes', 'status', 'date', 'actions']
-    
+
     switch (activeTab) {
       case 'deposit':
-        return [...baseColumns, 'depositAmount', ...commonColumns]
+        return ['invoiceNumber', ...baseColumns, 'depositAmount', ...commonColumns]
       case 'refill': {
-        const columnsToHide = ['amount', 'depositAmount', 'refillAmount', 'returnAmount', 'paymentMethod', 'cashAmount', 'bankName', 'checkNumber', 'status'];
-        return [...baseColumns, ...commonColumns].filter(col => !columnsToHide.includes(col));
+        const columnsToHide = ['amount', 'depositAmount', 'refillAmount', 'returnAmount', 'paymentMethod', 'cashAmount', 'bankName', 'checkNumber', 'status']
+        return ['invoiceNumber', ...baseColumns, ...commonColumns].filter(col => !columnsToHide.includes(col))
       }
       case 'return':
-        return [...baseColumns, 'returnAmount', ...commonColumns]
+        return ['invoiceNumber', ...baseColumns, 'returnAmount', ...commonColumns]
       case 'all':
       default:
-        return [...baseColumns, 'depositAmount', 'refillAmount', 'returnAmount', ...commonColumns]
+        return ['invoiceNumber', ...baseColumns, 'depositAmount', 'refillAmount', 'returnAmount', ...commonColumns]
     }
   }
 
@@ -227,6 +229,7 @@ export function CylinderManagement() {
       checkNumber: 'Check Number',
       notes: 'Notes',
       status: 'Status',
+      invoiceNumber: 'Invoice No.',
       date: 'Date',
       actions: 'Actions'
     }
@@ -382,6 +385,11 @@ export function CylinderManagement() {
       status: () => (
         <TableCell className="p-4">{getStatusBadge(transaction.status)}</TableCell>
       ),
+      invoiceNumber: () => (
+        <TableCell className="p-4">
+          {transaction.invoiceNumber || '-'}
+        </TableCell>
+      ),
       date: () => (
         <TableCell className="p-4">{new Date(transaction.createdAt).toLocaleDateString()}</TableCell>
       ),
@@ -449,6 +457,7 @@ export function CylinderManagement() {
 
       const headers = [
         'Date',
+        'Invoice No.',
         'Type',
         'Customer/Supplier',
         'Product/Items',
@@ -485,6 +494,7 @@ export function CylinderManagement() {
         const party = t.customer?.name || t.supplier?.companyName || ''
         return [
           new Date(t.createdAt).toLocaleDateString(),
+          (t as any).invoiceNumber || '',
           t.type,
           party,
           productOrItems,
@@ -504,8 +514,8 @@ export function CylinderManagement() {
         ].map(escape).join(',')
       })
 
-      const csv = [headers.map((h) => '"' + h + '"').join(','), ...rows].join('\n')
-      const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' })
+      const csv = [headers.join(','), ...rows].join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')
@@ -558,11 +568,11 @@ export function CylinderManagement() {
       // Define columns (expanded set)
       const headers = [
         'Type','Customer','Product Items / Cylinder Size','Quantity','Amount',
-        'Deposit Amount','Refill Amount','Return Amount','Payment Method','Security Cash','Bank Name','Check Number','Notes','Status','Date'
+        'Deposit Amount','Refill Amount','Return Amount','Payment Method','Security Cash','Bank Name','Check Number','Notes','Status','Invoice No.','Date'
       ]
       const colWidths = [
         30, 70, 160, 35, 50,
-        60, 60, 60, 65, 60, 65, 70, 100, 50, 60
+        60, 60, 60, 65, 60, 65, 70, 100, 50, 75, 60
       ]
 
       // Draw header text in white
@@ -676,6 +686,7 @@ export function CylinderManagement() {
           t.checkNumber || '',
           t.notes || '',
           t.status,
+          (t as any).invoiceNumber || '',
           new Date(t.createdAt).toLocaleDateString(),
         ]
         drawRow(row)

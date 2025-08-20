@@ -3,6 +3,20 @@ import CylinderTransaction from "@/models/Cylinder";
 import Customer from "@/models/Customer";
 import Supplier from "@/models/Supplier";
 import { NextResponse } from "next/server";
+import Counter from "@/models/Counter";
+
+// Helper: get next sequential invoice number: INV-<year>-CM-<seq>
+async function getNextCylinderInvoice() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const key = 'cylinder_invoice'
+  const updated = await Counter.findOneAndUpdate(
+    { key, year },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  )
+  return `INV-${year}-CM-${updated.seq}`
+}
 
 export async function GET(request) {
   try {
@@ -159,6 +173,11 @@ export async function POST(request) {
       }
     }
 
+    // Assign invoice number if not provided (sequential per year)
+    if (!data.invoiceNumber) {
+      data.invoiceNumber = await getNextCylinderInvoice()
+    }
+
     let transaction;
     try {
       transaction = await CylinderTransaction.create(data);
@@ -170,7 +189,13 @@ export async function POST(request) {
           { status: 400 }
         );
       }
-      throw e;
+      // handle unique conflict: fetch a new sequence and retry once
+      if (e?.code === 11000 && String(e?.keyPattern || {}).includes('invoiceNumber')) {
+        data.invoiceNumber = await getNextCylinderInvoice()
+        transaction = await CylinderTransaction.create(data)
+      } else {
+        throw e;
+      }
     }
     const populatedTransaction = await CylinderTransaction.findById(transaction._id)
       .populate("customer", "name phone address email")
