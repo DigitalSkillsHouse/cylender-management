@@ -55,6 +55,7 @@ export async function POST(request) {
       product,
       purchaseDate,
       purchaseType,
+      cylinderSize,
       quantity,
       unitPrice,
       totalAmount,
@@ -69,6 +70,24 @@ export async function POST(request) {
         { error: "Missing required fields" },
         { status: 400 }
       )
+    }
+    let effectiveCylinderSize = cylinderSize
+    if (purchaseType === 'cylinder' && !effectiveCylinderSize) {
+      // Fallback: infer from Product.cylinderSize (large/small -> 45kg/5kg)
+      const prod = await Product.findById(product)
+      if (prod && prod.cylinderSize) {
+        effectiveCylinderSize = prod.cylinderSize === 'large' ? '45kg' : '5kg'
+      } else {
+        return NextResponse.json(
+          { error: "cylinderSize is required for cylinder purchases" },
+          { status: 400 }
+        )
+      }
+    }
+    // Normalize legacy values if client provided them directly
+    if (purchaseType === 'cylinder' && effectiveCylinderSize) {
+      if (effectiveCylinderSize === 'large') effectiveCylinderSize = '45kg'
+      if (effectiveCylinderSize === 'small') effectiveCylinderSize = '5kg'
     }
 
     // Use provided Invoice Number as the PO reference
@@ -85,6 +104,7 @@ export async function POST(request) {
       product,
       purchaseDate,
       purchaseType,
+      ...(purchaseType === 'cylinder' ? { cylinderSize: effectiveCylinderSize } : {}),
       quantity: qtyNum,
       unitPrice: unitPriceNum,
       totalAmount: computedTotal,

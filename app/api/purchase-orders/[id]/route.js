@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import PurchaseOrder from "@/models/PurchaseOrder"
+import Product from "@/models/Product"
 import { verifyToken } from "@/lib/auth"
 
 // GET - Fetch single purchase order
@@ -46,6 +47,7 @@ export async function PUT(request, { params }) {
       product,
       purchaseDate,
       purchaseType,
+      cylinderSize,
       quantity,
       unitPrice,
       totalAmount,
@@ -53,27 +55,67 @@ export async function PUT(request, { params }) {
       status
     } = body
 
-    // Validate required fields
-    if (!supplier || !product || !purchaseDate || !purchaseType || !quantity || !unitPrice) {
+    // Validate required fields (unitPrice/total optional)
+    if (!supplier || !product || !purchaseDate || !purchaseType || !quantity) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       )
     }
+    if (purchaseType === 'cylinder' && !cylinderSize) {
+      return NextResponse.json(
+        { error: "cylinderSize is required for cylinder purchases" },
+        { status: 400 }
+      )
+    }
 
-    const purchaseOrder = await PurchaseOrder.findByIdAndUpdate(
-      params.id,
-      {
+    const qtyNum = Number(quantity)
+    const unitPriceNum = (unitPrice !== undefined && unitPrice !== null && unitPrice !== "") ? Number(unitPrice) : 0
+    const computedTotal = (totalAmount !== undefined && totalAmount !== null && totalAmount !== "")
+      ? Number(totalAmount)
+      : (qtyNum * unitPriceNum)
+
+    // Determine effective cylinder size (normalize legacy values and infer from product if missing)
+    let effectiveCylinderSize = cylinderSize
+    if (purchaseType === 'cylinder') {
+      if (!effectiveCylinderSize) {
+        const prod = await Product.findById(product)
+        if (prod && prod.cylinderSize) {
+          effectiveCylinderSize = prod.cylinderSize === 'large' ? '45kg' : '5kg'
+        }
+      }
+      if (effectiveCylinderSize === 'large') effectiveCylinderSize = '45kg'
+      if (effectiveCylinderSize === 'small') effectiveCylinderSize = '5kg'
+      if (!effectiveCylinderSize) {
+        return NextResponse.json(
+          { error: "cylinderSize is required for cylinder purchases" },
+          { status: 400 }
+        )
+      }
+    }
+
+    const updateDoc = {
+      $set: {
         supplier,
         product,
         purchaseDate,
         purchaseType,
-        quantity: Number(quantity),
-        unitPrice: Number(unitPrice),
-        totalAmount: Number(totalAmount),
+        quantity: qtyNum,
+        unitPrice: unitPriceNum,
+        totalAmount: computedTotal,
         notes: notes || "",
-        status: status || "pending"
+        status: status || "pending",
       },
+    }
+    if (purchaseType === 'cylinder') {
+      updateDoc.$set.cylinderSize = effectiveCylinderSize
+    } else {
+      updateDoc.$unset = { cylinderSize: 1 }
+    }
+
+    const purchaseOrder = await PurchaseOrder.findByIdAndUpdate(
+      params.id,
+      updateDoc,
       { new: true }
     ).populate('supplier', 'companyName')
      .populate('product', 'name')

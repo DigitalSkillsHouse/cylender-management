@@ -20,6 +20,13 @@ const purchaseOrderSchema = new mongoose.Schema({
     enum: ['gas', 'cylinder'],
     required: true
   },
+  cylinderSize: {
+    type: String,
+    enum: ['5kg', '10kg', '15kg', '20kg', '25kg', '45kg'],
+    required: function () {
+      return this.purchaseType === 'cylinder'
+    },
+  },
   quantity: {
     type: Number,
     required: true,

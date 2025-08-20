@@ -20,6 +20,7 @@ interface PurchaseOrder {
   product: { _id: string; name: string }
   purchaseDate: string
   purchaseType: "gas" | "cylinder"
+  cylinderSize?: string
   quantity: number
   unitPrice: number
   totalAmount: number
@@ -34,6 +35,15 @@ interface Product {
   costPrice: number
   currentStock: number
   category: "gas" | "cylinder"
+  cylinderSize?: string
+}
+
+interface PurchaseItem {
+  purchaseType: "gas" | "cylinder"
+  productId: string
+  quantity: string
+  unitPrice: string
+  cylinderSize?: string
 }
 
 export function PurchaseManagement() {
@@ -49,20 +59,21 @@ export function PurchaseManagement() {
   // Expanded state for grouped invoice rows
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   // Single entry item state (2x2 form)
-  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"|"cylinder"; productId: string; quantity: string; unitPrice: string}>({
+  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"|"cylinder"; productId: string; quantity: string; unitPrice: string; cylinderSize?: string}>({
     purchaseType: "gas",
     productId: "",
     quantity: "",
     unitPrice: "",
+    cylinderSize: "",
   })
   const [productSearchTerm, setProductSearchTerm] = useState("")
   const [showProductSuggestions, setShowProductSuggestions] = useState(false)
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
-  const [formData, setFormData] = useState(() => ({
+  const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string }>(() => ({
     supplierId: "",
     purchaseDate: new Date().toISOString().split("T")[0],
     invoiceNumber: "",
-    items: [{ purchaseType: "gas" as "gas" | "cylinder", productId: "", quantity: "", unitPrice: "" }],
+    items: [],
     notes: "",
   }))
 
@@ -154,6 +165,10 @@ export function PurchaseManagement() {
           setError("Please enter quantity for all items")
           return
         }
+        if (item.purchaseType === 'cylinder' && !item.cylinderSize) {
+          setError("Please select cylinder size for all cylinder items")
+          return
+        }
       }
 
       // For editing existing orders (single item), handle as before
@@ -164,6 +179,7 @@ export function PurchaseManagement() {
           product: item.productId,
           purchaseDate: formData.purchaseDate,
           purchaseType: item.purchaseType,
+          ...(item.purchaseType === 'cylinder' ? { cylinderSize: item.cylinderSize || '' } : {}),
           quantity: Number.parseInt(item.quantity),
           ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
           // totalAmount computed server-side when not provided
@@ -179,6 +195,7 @@ export function PurchaseManagement() {
             product: item.productId,
             purchaseDate: formData.purchaseDate,
             purchaseType: item.purchaseType,
+            ...(item.purchaseType === 'cylinder' ? { cylinderSize: item.cylinderSize || '' } : {}),
             quantity: Number.parseInt(item.quantity),
             ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
             // totalAmount computed server-side when not provided
@@ -209,7 +226,7 @@ export function PurchaseManagement() {
     })
     setEditingOrder(null)
     setError("")
-    setCurrentItem({ purchaseType: "gas", productId: "", quantity: "", unitPrice: "" })
+    setCurrentItem({ purchaseType: "gas", productId: "", quantity: "", unitPrice: "", cylinderSize: "" })
     setProductSearchTerm("")
     setShowProductSuggestions(false)
     setEditingItemIndex(null)
@@ -225,7 +242,8 @@ export function PurchaseManagement() {
         purchaseType: order.purchaseType,
         productId: order.product._id,
         quantity: order.quantity.toString(),
-        unitPrice: order.unitPrice.toString()
+        unitPrice: order.unitPrice.toString(),
+        cylinderSize: order.purchaseType === 'cylinder' ? (order.cylinderSize || '') : '',
       }],
       notes: order.notes || "",
     })
@@ -236,6 +254,7 @@ export function PurchaseManagement() {
       productId: order.product._id,
       quantity: order.quantity.toString(),
       unitPrice: order.unitPrice.toString(),
+      cylinderSize: order.cylinderSize || "",
     })
     setProductSearchTerm(pName)
     setShowProductSuggestions(false)
@@ -261,15 +280,20 @@ export function PurchaseManagement() {
       setError("Please select a product and enter quantity")
       return
     }
+    if (currentItem.purchaseType === 'cylinder' && !currentItem.cylinderSize) {
+      setError("Please select cylinder size for cylinder purchase")
+      return
+    }
     const nextItems = [...formData.items, {
       purchaseType: currentItem.purchaseType,
       productId: currentItem.productId,
       quantity: currentItem.quantity,
       unitPrice: currentItem.unitPrice,
+      cylinderSize: currentItem.purchaseType === 'cylinder' ? (currentItem.cylinderSize || '') : undefined,
     }]
     setFormData({ ...formData, items: nextItems })
     // Clear inputs for next entry
-    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "" })
+    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderSize: "" })
     setProductSearchTerm("")
     setShowProductSuggestions(false)
     setEditingItemIndex(null)
@@ -323,6 +347,14 @@ export function PurchaseManagement() {
   }
 
   const norm = (v?: string) => (v || "").toLowerCase()
+  const displayCylinderSize = (s?: string) => {
+    if (!s) return "-"
+    if (s === "45kg") return "Large"
+    if (s === "5kg") return "Small"
+    if (s.toLowerCase() === "large") return "Large"
+    if (s.toLowerCase() === "small") return "Small"
+    return s
+  }
   const filteredOrders = purchaseOrders.filter((o) => {
     const q = searchTerm.trim().toLowerCase()
     if (!q) return true
@@ -503,7 +535,7 @@ export function PurchaseManagement() {
                       <Select
                         value={currentItem.purchaseType}
                         onValueChange={(value: "gas" | "cylinder") => {
-                          setCurrentItem((ci) => ({ ...ci, purchaseType: value, productId: "" }))
+                          setCurrentItem((ci) => ({ ...ci, purchaseType: value, productId: "", cylinderSize: "" }))
                           setProductSearchTerm("")
                           setShowProductSuggestions(false)
                         }}
@@ -540,7 +572,19 @@ export function PurchaseManagement() {
                               type="button"
                               key={p._id}
                               onClick={() => {
-                                setCurrentItem((ci) => ({ ...ci, productId: p._id, unitPrice: (p.costPrice ?? '').toString() }))
+                                const normalizeSize = (s?: string) => {
+                                  if (!s) return ""
+                                  const v = s.toLowerCase()
+                                  if (v === 'large') return '45kg'
+                                  if (v === 'small') return '5kg'
+                                  return s
+                                }
+                                setCurrentItem((ci) => ({
+                                  ...ci,
+                                  productId: p._id,
+                                  unitPrice: (p.costPrice ?? '').toString(),
+                                  cylinderSize: ci.purchaseType === 'cylinder' ? normalizeSize(p.cylinderSize) : "",
+                                }))
                                 setProductSearchTerm(p.name)
                                 setShowProductSuggestions(false)
                               }}
@@ -556,6 +600,23 @@ export function PurchaseManagement() {
                         </div>
                       )}
                     </div>
+                    {currentItem.purchaseType === "cylinder" && (
+                      <div className="space-y-2">
+                        <Label>Cylinder Size *</Label>
+                        <Select
+                          value={currentItem.cylinderSize || ""}
+                          onValueChange={(v) => setCurrentItem((ci) => ({ ...ci, cylinderSize: v }))}
+                        >
+                          <SelectTrigger className="h-10">
+                            <SelectValue placeholder="Select size" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="45kg">Large</SelectItem>
+                            <SelectItem value="5kg">Small</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <Label>Quantity *</Label>
                       <Input
@@ -598,10 +659,11 @@ export function PurchaseManagement() {
                             productId: currentItem.productId,
                             quantity: currentItem.quantity,
                             unitPrice: currentItem.unitPrice,
+                            cylinderSize: currentItem.purchaseType === 'cylinder' ? (currentItem.cylinderSize || '') : undefined,
                           })
                           setFormData({ ...formData, items: newItems })
                           setEditingItemIndex(null)
-                          setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "" })
+                          setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderSize: "" })
                           setProductSearchTerm("")
                         } else {
                           addItem()
@@ -641,7 +703,7 @@ export function PurchaseManagement() {
                           return (
                             <TableRow key={idx}>
                               <TableCell className="whitespace-nowrap">{it.purchaseType}</TableCell>
-                              <TableCell className="max-w-[220px] truncate">{p?.name || 'Product'}</TableCell>
+                              <TableCell className="max-w-[220px] truncate">{p?.name || 'Product'}{it.purchaseType === 'cylinder' && it.cylinderSize ? ` (${displayCylinderSize(it.cylinderSize)})` : ''}</TableCell>
                               <TableCell>{qty}</TableCell>
                               <TableCell>AED {up.toFixed(2)}</TableCell>
                               <TableCell className="font-semibold">AED {(qty * up).toFixed(2)}</TableCell>
@@ -658,6 +720,7 @@ export function PurchaseManagement() {
                                         productId: it.productId,
                                         quantity: it.quantity,
                                         unitPrice: it.unitPrice,
+                                        cylinderSize: (it as any).cylinderSize || "",
                                       })
                                       setProductSearchTerm(p?.name || '')
                                       const remaining = formData.items.filter((_, i) => i !== idx)
@@ -822,6 +885,7 @@ export function PurchaseManagement() {
                                   <TableRow className="bg-white">
                                     <TableHead className="text-xs sm:text-sm">Product</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Type</TableHead>
+                                    <TableHead className="text-xs sm:text-sm">Cylinder Size</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Qty</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Unit Price (AED)</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Total (AED)</TableHead>
@@ -834,6 +898,7 @@ export function PurchaseManagement() {
                                     <TableRow key={order._id} className="border-b">
                                       <TableCell className="text-xs sm:text-sm max-w-[220px] truncate">{order.product?.name || "Unknown Product"}</TableCell>
                                       <TableCell className="text-xs sm:text-sm whitespace-nowrap">{order.purchaseType}</TableCell>
+                                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{order.purchaseType === 'cylinder' && order.cylinderSize ? displayCylinderSize(order.cylinderSize) : '-'}</TableCell>
                                       <TableCell className="text-xs sm:text-sm">{order.quantity || 0}</TableCell>
                                       <TableCell className="font-semibold text-xs sm:text-sm">AED {order.unitPrice?.toFixed(2) || "0.00"}</TableCell>
                                       <TableCell className="font-semibold text-xs sm:text-sm">AED {order.totalAmount?.toFixed(2) || ((order.quantity || 0) * (order.unitPrice || 0)).toFixed(2)}</TableCell>
