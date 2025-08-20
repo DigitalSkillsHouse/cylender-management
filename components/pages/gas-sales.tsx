@@ -100,6 +100,16 @@ export function GasSales() {
   const [customerSignature, setCustomerSignature] = useState<string>("") 
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
+  
+  // Auto-dismiss stock popup after 1s while still allowing manual close
+  useEffect(() => {
+    if (showStockInsufficientPopup) {
+      const timer = setTimeout(() => {
+        setShowStockInsufficientPopup(false)
+      }, 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [showStockInsufficientPopup])
   // Per-item product autocomplete state
   const [productSearchTerms, setProductSearchTerms] = useState<string[]>([])
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
@@ -866,7 +876,6 @@ export function GasSales() {
     if (product && enteredQuantity > product.currentStock) {
       setStockErrorMessage(`Insufficient stock for ${product.name}. Available: ${product.currentStock}, Required: ${enteredQuantity}`)
       setShowStockInsufficientPopup(true)
-      setTimeout(() => setShowStockInsufficientPopup(false), 2000)
       return
     }
     setCurrentItem((prev) => ({ ...prev, quantity: value }))
