@@ -23,6 +23,18 @@ const EmployeeSaleSchema = new mongoose.Schema(
         ref: "Product",
         required: true,
       },
+      category: {
+        type: String,
+        enum: ["gas", "cylinder"],
+        required: true,
+      },
+      cylinderSize: {
+        type: String,
+        enum: ["large", "small"],
+        required: function () {
+          return this.category === "cylinder"
+        },
+      },
       quantity: {
         type: Number,
         required: true,

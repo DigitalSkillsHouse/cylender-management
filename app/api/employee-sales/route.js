@@ -21,7 +21,7 @@ export async function GET(request) {
 
     const sales = await EmployeeSale.find(query)
       .populate("customer", "name email phone")
-      .populate("items.product", "name category")
+      .populate("items.product", "name category cylinderSize")
       .populate("employee", "name email")
       .sort({ createdAt: -1 })
 
@@ -85,11 +85,17 @@ export async function POST(request) {
       const itemTotal = leastPrice * item.quantity
       calculatedTotal += itemTotal
 
+      // Derive category and cylinder size from product (trust server data)
+      const category = product.category || (item.category || 'gas')
+      const cylinderSize = category === 'cylinder' ? product.cylinderSize : undefined
+
       validatedItems.push({
         product: item.product,
         quantity: item.quantity,
         price: leastPrice,
-        total: itemTotal
+        total: itemTotal,
+        category,
+        cylinderSize,
       })
     }
 
@@ -149,7 +155,7 @@ export async function POST(request) {
     // Populate the response
     const populatedSale = await EmployeeSale.findById(savedSale._id)
       .populate("customer", "name email phone")
-      .populate("items.product", "name category")
+      .populate("items.product", "name category cylinderSize")
       .populate("employee", "name email")
 
     console.log("Employee sale created successfully:", populatedSale.invoiceNumber)

@@ -66,10 +66,30 @@ interface Product {
   _id: string
   name: string
   category: "gas" | "cylinder"
-  cylinderType?: "large" | "small"
+  cylinderSize?: "large" | "small"
   costPrice: number
   leastPrice: number
   currentStock: number
+}
+
+// Types for form state to avoid inference issues when initializing with empty arrays
+type FormItem = {
+  productId: string
+  quantity: string
+  price: string
+  category?: "gas" | "cylinder"
+  cylinderSize?: string
+}
+
+type FormState = {
+  customerId: string
+  category: "gas" | "cylinder"
+  items: FormItem[]
+  receivedAmount: string
+  paymentMethod: string
+  paymentStatus: "cleared" | "pending" | "overdue"
+  paymentOption: "debit" | "credit" | "delivery_note"
+  notes: string
 }
 
 export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
@@ -99,7 +119,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [productSearchTerms, setProductSearchTerms] = useState<string[]>([""])
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([false])
   // Single-entry item input state (2x2 grid)
-  const [currentItem, setCurrentItem] = useState<{ category: "gas" | "cylinder"; productId: string; quantity: string; price: string }>({
+  const [currentItem, setCurrentItem] = useState<{ category: "gas" | "cylinder"; productId: string; quantity: string; price: string; cylinderSize?: string }>({
     category: "gas",
     productId: "",
     quantity: "1",
@@ -110,10 +130,10 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [showEntrySuggestions, setShowEntrySuggestions] = useState(false)
 
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormState>({
     customerId: "",
     category: "gas",
-    items: [{ productId: "", quantity: "", price: "" }],
+    items: [],
     receivedAmount: "",
     paymentMethod: "cash",
     paymentStatus: "cleared",
@@ -202,11 +222,46 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     }
   }
 
+  // Edit an existing sale: populate form and open dialog
+  const handleEdit = (sale: Sale) => {
+    setEditingSale(sale)
+
+    // Map sale items to form items
+    const formItems: FormItem[] = (Array.isArray(sale.items) ? sale.items : []).map((it: any) => {
+      const productId = typeof it.product === 'object' ? (it.product?._id || '') : (it.product || '')
+      const category = (it.category as 'gas' | 'cylinder') || (typeof it.product === 'object' ? it.product?.category : undefined)
+      return {
+        productId,
+        quantity: String(it.quantity ?? ''),
+        price: String(it.price ?? ''),
+        category,
+        cylinderSize: (it.cylinderSize as any) || undefined,
+      }
+    })
+
+    setFormData({
+      customerId: (sale.customer as any)?._id || (sale.customer as any) || '',
+      category: (sale as any).category || 'gas',
+      items: formItems,
+      receivedAmount: typeof sale.receivedAmount === 'number' ? String(sale.receivedAmount) : (sale as any).receivedAmount || '',
+      paymentMethod: (sale as any).paymentMethod || 'cash',
+      paymentStatus: (sale as any).paymentStatus || 'cleared',
+      paymentOption: formData.paymentOption, // keep current selection
+      notes: (sale as any).notes || '',
+    })
+
+    setCustomerSearchTerm((sale.customer as any)?.name || '')
+    setIsDialogOpen(true)
+    setEditingItemIndex(null)
+    setEntryProductSearch('')
+    setShowEntrySuggestions(false)
+  }
+
   const resetForm = () => {
     setFormData({
       customerId: "",
       category: "gas",
-      items: [{ productId: "", quantity: "", price: "" }],
+      items: [],
       receivedAmount: "",
       paymentMethod: "cash",
       paymentStatus: "cleared",
@@ -256,7 +311,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
   // Calculate total amount from items
   const calculateTotalAmount = () => {
-    return formData.items.reduce((sum, item) => {
+    return formData.items.reduce((sum: number, item: FormItem) => {
       const quantity = Number(item.quantity) || 0
       const price = Number(item.price) || 0
       return sum + price * quantity
@@ -288,14 +343,14 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
   // Single-entry item handlers
   const resetCurrentItem = () => {
-    setCurrentItem({ category: "gas", productId: "", quantity: "1", price: "" })
+    setCurrentItem({ category: "gas", productId: "", quantity: "1", price: "", cylinderSize: undefined })
     setEntryProductSearch("")
     setShowEntrySuggestions(false)
     setEditingItemIndex(null)
   }
 
   const handleEntryCategoryChange = (value: "gas" | "cylinder") => {
-    setCurrentItem({ category: value, productId: "", quantity: "1", price: "" })
+    setCurrentItem({ category: value, productId: "", quantity: "1", price: "", cylinderSize: undefined })
     setEntryProductSearch("")
   }
 
@@ -305,7 +360,13 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   }
 
   const handleEntryProductSelect = (product: Product) => {
-    setCurrentItem({ category: product.category, productId: product._id, quantity: "1", price: product.leastPrice.toString() })
+    const sizeLabel = (() => {
+      if (!product || product.category !== 'cylinder') return ""
+      if (product.cylinderSize === 'large') return 'Large'
+      if (product.cylinderSize === 'small') return 'Small'
+      return ""
+    })()
+    setCurrentItem({ category: product.category, productId: product._id, quantity: "1", price: product.leastPrice.toString(), cylinderSize: sizeLabel })
     setEntryProductSearch(product.name)
     setShowEntrySuggestions(false)
   }
@@ -336,11 +397,11 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     const qty = Number(currentItem.quantity) || 0
     const pr = Number(currentItem.price) || 0
     if (!currentItem.productId || qty <= 0 || pr <= 0) return
-    const items = [...formData.items]
+    const items: FormItem[] = [...formData.items]
     if (editingItemIndex !== null && editingItemIndex >= 0 && editingItemIndex <= items.length) {
-      items.splice(editingItemIndex, 0, { ...currentItem } as any)
+      items.splice(editingItemIndex, 0, { ...currentItem } as FormItem)
     } else {
-      items.push({ ...currentItem } as any)
+      items.push({ ...currentItem } as FormItem)
     }
     setFormData({ ...formData, items })
     resetCurrentItem()
@@ -350,11 +411,19 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     const items = [...formData.items]
     const [row] = items.splice(index, 1)
     setFormData({ ...formData, items })
+    const prod = allProducts.find(p => p._id === (row as any).productId)
+    const sizeLabel = (() => {
+      if (!prod || prod.category !== 'cylinder') return ""
+      if ((prod as any)?.cylinderSize === 'large') return 'Large'
+      if ((prod as any)?.cylinderSize === 'small') return 'Small'
+      return ""
+    })()
     setCurrentItem({
       category: (row as any).category || 'gas',
       productId: (row as any).productId || '',
       quantity: (row as any).quantity || '1',
       price: (row as any).price || '',
+      cylinderSize: sizeLabel,
     })
     const pName = allProducts.find(p => p._id === (row as any).productId)?.name || ''
     setEntryProductSearch(pName)
@@ -405,11 +474,18 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       // Transform items to match API expectations
       const transformedItems = formData.items
         .filter(item => item.productId && item.quantity && parseFloat(item.quantity) > 0)
-        .map(item => ({
-          product: item.productId,  // API expects 'product', not 'productId'
-          quantity: parseInt(item.quantity),
-          price: parseFloat(item.price)
-        }))
+        .map(item => {
+          const prod = allProducts.find((p: Product) => p._id === item.productId)
+          const category = (prod?.category || (item as any).category || 'gas') as 'gas' | 'cylinder'
+          const cylinderSize = category === 'cylinder' ? (prod as any)?.cylinderSize : undefined
+          return {
+            product: item.productId,  // API expects 'product', not 'productId'
+            quantity: parseInt(item.quantity),
+            price: parseFloat(item.price),
+            category,
+            cylinderSize,
+          }
+        })
 
       // Derive final payment fields from paymentOption
       let derivedPaymentMethod = formData.paymentMethod || "cash"
@@ -505,37 +581,6 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     }
   }
 
-  const handleEdit = (sale: Sale) => {
-    setEditingSale(sale)
-    
-    // Convert sale items to form format
-    const formItems = sale.items && sale.items.length > 0 
-      ? sale.items.map(item => ({
-          productId: item.product._id,
-          quantity: item.quantity.toString(),
-          price: item.price.toString()
-        }))
-      : [{ productId: "", quantity: "", price: "" }]
-    
-    setFormData({
-      customerId: sale.customer._id,
-      category: sale.category || 'gas',
-      items: formItems,
-      receivedAmount: sale.receivedAmount?.toString() || "",
-      paymentMethod: sale.paymentMethod || "cash",
-      paymentStatus: sale.paymentStatus,
-      paymentOption: (() => {
-        const pm = sale.paymentMethod || "cash"
-        if (pm === 'credit') return 'credit'
-        if (pm === 'delivery_note') return 'delivery_note'
-        if (pm === 'debit') return 'debit'
-        return 'debit'
-      })(),
-      notes: sale.notes || "",
-    })
-    setCustomerSearchTerm(sale.customer.name)
-    setIsDialogOpen(true)
-  }
 
   const handleDeleteClick = (sale: Sale) => {
     setSaleToDelete(sale)
@@ -862,7 +907,14 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                             onClick={() => handleEntryProductSelect(product)}
                           >
                             <div className="flex items-center justify-between">
-                              <span className="font-medium text-gray-900">{product.name}</span>
+                              <span className="font-medium text-gray-900">
+                                {product.name}
+                                {product.category === 'cylinder' && (
+                                  <span className="ml-2 text-xs text-gray-600">(
+                                    {(product as any)?.cylinderSize === 'large' ? 'Large' : (product as any)?.cylinderSize === 'small' ? 'Small' : ''}
+                                  )</span>
+                                )}
+                              </span>
                               <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
                             </div>
                           </div>
@@ -870,6 +922,20 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                     </div>
                   )}
                 </div>
+                {currentItem.category === 'cylinder' && (
+                  <div className="space-y-2">
+                    <Label>Cylinder Size</Label>
+                    <Select value={(currentItem.cylinderSize || '') as any} disabled>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Auto from product" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Large">Large</SelectItem>
+                        <SelectItem value="Small">Small</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Quantity</Label>
                   <Input type="number" min="1" value={currentItem.quantity} onChange={(e) => handleEntryQuantityChange(e.target.value)} />
@@ -902,9 +968,10 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
               <div className="w-full overflow-x-auto">
                 <div className="inline-block min-w-[700px] align-top">
                   <div className="max-h-[40vh] overflow-y-auto pr-2">
-                    <div className="grid grid-cols-[1fr_2fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
+                    <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
                       <div>Category</div>
                       <div>Product</div>
+                      <div>Cylinder Size</div>
                       <div>Qty</div>
                       <div>Price (AED)</div>
                       <div>Actions</div>
@@ -913,9 +980,10 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                       {(formData.items as any[]).map((it: any, idx: number) => {
                         const p = allProducts.find((ap) => ap._id === it.productId)
                         return (
-                          <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
+                          <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
                             <div className="truncate">{(it as any).category || 'gas'}</div>
                             <div className="truncate">{p?.name || '-'}</div>
+                            <div className="truncate">{p?.category === 'cylinder' ? ((p as any)?.cylinderSize === 'large' ? 'Large' : (p as any)?.cylinderSize === 'small' ? 'Small' : '-') : '-'}</div>
                             <div>{Number((it as any).quantity || 0)}</div>
                             <div>{Number((it as any).price || 0).toFixed(2)}</div>
                             <div className="flex gap-2">
