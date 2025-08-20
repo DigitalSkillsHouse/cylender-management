@@ -3,6 +3,7 @@ import dbConnect from "@/lib/mongodb"
 import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction"
 import Customer from "@/models/Customer"
 import User from "@/models/User"
+import Counter from "@/models/Counter"
 import mongoose from "mongoose"
 
 export async function GET(request) {
@@ -180,8 +181,39 @@ export async function POST(request) {
     console.log("[POST /api/employee-cylinders] creating with itemsLen=", Array.isArray(transactionData.items) ? transactionData.items.length : 0,
       'totalQty=', transactionData.quantity, 'totalAmt=', transactionData.amount)
 
-    const newTransaction = new EmployeeCylinderTransaction(transactionData)
-    const savedTransaction = await newTransaction.save()
+    // Generate short sequential invoice number (shared with admin cylinder counter)
+    async function getNextCylinderInvoice() {
+      const now = new Date()
+      const year = now.getFullYear()
+      const key = 'cylinder_invoice'
+      const updated = await Counter.findOneAndUpdate(
+        { key, year },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      )
+      return `INV-${year}-CM-${updated.seq}`
+    }
+
+    // Assign invoice number if not provided
+    if (!transactionData.invoiceNumber) {
+      transactionData.invoiceNumber = await getNextCylinderInvoice()
+    }
+
+    let savedTransaction
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const newTransaction = new EmployeeCylinderTransaction(transactionData)
+        savedTransaction = await newTransaction.save()
+        break
+      } catch (err) {
+        // If duplicate key arises in future when index added unique, retry
+        if (err && err.code === 11000 && /invoiceNumber/.test(err.message)) {
+          transactionData.invoiceNumber = await getNextCylinderInvoice()
+          continue
+        }
+        throw err
+      }
+    }
     console.log('[POST /api/employee-cylinders] saved _id=', savedTransaction._id, 'itemsLen=', Array.isArray(savedTransaction.items) ? savedTransaction.items.length : 0)
 
     // Populate the response

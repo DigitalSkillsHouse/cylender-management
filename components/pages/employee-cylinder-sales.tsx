@@ -50,6 +50,7 @@ interface Product {
 interface CylinderTransaction {
   _id: string
   type: string
+  invoiceNumber?: string
   customer: Customer
   supplier?: Supplier
   product?: Product
@@ -922,6 +923,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     const term = searchTerm.trim().toLowerCase()
     return list.filter((transaction) => {
       const matchesSearch = term === "" ||
+        (transaction as any).invoiceNumber?.toLowerCase?.().includes(term) ||
         transaction.customer?.name?.toLowerCase().includes(term) ||
         (transaction as any).supplier?.companyName?.toLowerCase?.().includes(term) ||
         transaction.cylinderSize?.toLowerCase().includes(term)
@@ -949,13 +951,14 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       amountColumns = ['returnAmount']
     }
     
-    return [...baseColumns, ...amountColumns, ...paymentColumns, ...commonColumns]
+    return ['invoiceNumber', ...baseColumns, ...amountColumns, ...paymentColumns, ...commonColumns]
   }
 
   // Render table headers based on visible columns
   const renderTableHeaders = () => {
     const visibleColumns = getVisibleColumns()
     const columnHeaders: { [key: string]: string } = {
+      invoiceNumber: 'Invoice No.',
       type: 'Type',
       customer: 'Customer / Supplier',
       product: 'Product',
@@ -991,6 +994,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     const visibleColumns = getVisibleColumns()
 
     const cellRenderers: { [key: string]: () => JSX.Element } = {
+      invoiceNumber: () => (
+        <TableCell className="p-4">
+          {(transaction as any).invoiceNumber || `CYL-${(transaction._id || '').toString().slice(-6).toUpperCase()}`}
+        </TableCell>
+      ),
       type: () => (
         <TableCell className="p-4">
           <span className={`px-2 py-1 rounded-full text-xs font-medium ${

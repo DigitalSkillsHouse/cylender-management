@@ -2,6 +2,13 @@ import mongoose from "mongoose";
 
 const EmployeeCylinderTransactionSchema = new mongoose.Schema(
   {
+    invoiceNumber: {
+      type: String,
+      required: false,
+      index: true,
+      unique: false,
+      sparse: true,
+    },
     type: {
       type: String,
       enum: ["deposit", "refill", "return"],
@@ -98,6 +105,8 @@ const EmployeeCylinderTransactionSchema = new mongoose.Schema(
 );
 
 // Index for faster queries
+// Ensure invoiceNumber can be searched quickly; not enforcing uniqueness to avoid migration issues
+EmployeeCylinderTransactionSchema.index({ invoiceNumber: 1 }, { unique: false, sparse: true })
 EmployeeCylinderTransactionSchema.index({ employee: 1, createdAt: -1 })
 EmployeeCylinderTransactionSchema.index({ customer: 1, createdAt: -1 })
 EmployeeCylinderTransactionSchema.index({ supplier: 1, createdAt: -1 })
