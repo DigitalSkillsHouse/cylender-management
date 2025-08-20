@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Fragment } from "react"
+
 import type { SVGProps } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -146,6 +147,9 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [stockErrorMessage, setStockErrorMessage] = useState("")
   const [showPriceValidationPopup, setShowPriceValidationPopup] = useState(false)
   const [validationMessage, setValidationMessage] = useState("")
+
+  // Track expanded invoice groups in Sales History table
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     fetchData()
@@ -642,11 +646,73 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
-  // Pagination derived data
-  const totalPages = Math.max(1, Math.ceil(filteredSales.length / itemsPerPage))
+  // Group by invoice number with aggregates
+  type InvoiceGroup = {
+    key: string
+    invoice: string
+    customerName: string
+    date: string
+    status: string
+    totalAmount: number
+    receivedAmount: number
+    items: Array<{
+      productName: string
+      category?: string
+      cylinderSize?: string
+      quantity: number
+      price: number
+    }>
+    referenceSale: Sale
+  }
+
+  const groupedByInvoice: InvoiceGroup[] = (() => {
+    const map: Record<string, InvoiceGroup> = {}
+    for (const s of filteredSales) {
+      const key = s.invoiceNumber || `N/A-${s._id}`
+      if (!map[key]) {
+        map[key] = {
+          key,
+          invoice: s.invoiceNumber || "N/A",
+          customerName: s.customer?.name || "-",
+          date: s.createdAt,
+          status: s.paymentStatus,
+          totalAmount: 0,
+          receivedAmount: 0,
+          items: [],
+          referenceSale: s,
+        }
+      }
+      // Aggregate amounts
+      const itemTotal = typeof s.totalAmount === 'number' && !Number.isNaN(s.totalAmount)
+        ? s.totalAmount
+        : (Array.isArray(s.items) ? s.items.reduce((sum, it:any) => sum + (Number(it.price)||0)*(Number(it.quantity)||0), 0) : 0)
+      map[key].totalAmount += itemTotal
+      map[key].receivedAmount += Number(s.receivedAmount || 0)
+
+      // Collect items
+      const items = Array.isArray(s.items) ? s.items : []
+      for (const it of items) {
+        map[key].items.push({
+          productName: (it as any)?.product?.name || '-',
+          category: (it as any)?.product?.category || (it as any)?.category,
+          cylinderSize: (it as any)?.cylinderSize,
+          quantity: Number(it?.quantity || 0),
+          price: Number(it?.price || 0),
+        })
+      }
+    }
+    return Object.values(map).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  })()
+
+  // Pagination derived data (group-level)
+  const totalPages = Math.max(1, Math.ceil(groupedByInvoice.length / itemsPerPage))
   const safePage = Math.min(currentPage, totalPages)
   const startIndex = (safePage - 1) * itemsPerPage
-  const paginatedSales = filteredSales.slice(startIndex, startIndex + itemsPerPage)
+  const paginatedGroups = groupedByInvoice.slice(startIndex, startIndex + itemsPerPage)
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
 
   return (
     <div className="space-y-4">
@@ -700,62 +766,129 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredSales.length === 0 ? (
+              {groupedByInvoice.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-6 text-muted-foreground">
                     {loading ? "Loading..." : "No sales found"}
                   </TableCell>
                 </TableRow>
               ) : (
-                paginatedSales.map((sale) => (
-                  <TableRow key={sale._id}>
-                    <TableCell className="font-medium">{sale.invoiceNumber}</TableCell>
-                    <TableCell>{sale.customer?.name || "-"}</TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        {(Array.isArray(sale.items) ? sale.items : []).map((it: any, idx: number) => (
-                          <div key={idx} className="text-xs">
-                            {it?.product?.category || '-'}
+                paginatedGroups.map((group) => {
+                  const isExpanded = !!expandedGroups[group.key]
+                  const showItems = group.items.slice(0, 2)
+                  const remaining = group.items.length - showItems.length
+                  const refSale = group.referenceSale
+                  return (
+                    <Fragment key={group.key}>
+                      <TableRow>
+                        <TableCell className="font-medium">{group.invoice}</TableCell>
+                        <TableCell>{group.customerName}</TableCell>
+                        <TableCell colSpan={3}>
+                          <div className="space-y-1">
+                            {showItems.map((it, idx) => (
+                              <div key={idx} className="text-xs flex items-center gap-2 flex-wrap">
+                                <span className="font-medium">{it.productName}</span>
+                                <span className="text-muted-foreground">x{it.quantity}</span>
+                                {it.category && (
+                                  <Badge className={it.category === 'gas' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}>
+                                    {it.category}
+                                  </Badge>
+                                )}
+                                {it.cylinderSize && (
+                                  <Badge variant="outline">{it.cylinderSize}</Badge>
+                                )}
+                                <span className="text-muted-foreground">AED {it.price.toFixed(2)}</span>
+                              </div>
+                            ))}
+                            {remaining > 0 && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="px-0 h-auto text-xs">
+                                    View all items ({group.items.length})
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" className="w-[22rem] max-h-80 overflow-auto p-2">
+                                  <div className="space-y-2">
+                                    {group.items.map((it, idx) => (
+                                      <div key={idx} className="text-xs rounded border p-2 bg-white">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <div className="font-medium truncate">{it.productName}</div>
+                                            <div className="flex items-center gap-2 flex-wrap mt-1">
+                                              {it.category && (
+                                                <Badge className={it.category === 'gas' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}>
+                                                  {it.category}
+                                                </Badge>
+                                              )}
+                                              {it.cylinderSize && (
+                                                <Badge variant="outline">{it.cylinderSize}</Badge>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div className="text-right shrink-0">
+                                            <div>qty {it.quantity}</div>
+                                            <div className="text-muted-foreground">AED {it.price.toFixed(2)}</div>
+                                            <div className="font-semibold">AED {(it.price * it.quantity).toFixed(2)}</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        {(Array.isArray(sale.items) ? sale.items : []).map((it: any, idx: number) => (
-                          <div key={idx} className="text-xs">
-                            {it?.product?.name || '-'}
+                        </TableCell>
+                        <TableCell className="text-right">{(group.totalAmount || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">{(group.receivedAmount || 0).toFixed(2)}</TableCell>
+                        <TableCell>{getPaymentStatusBadge(group.status)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => handleEdit(refSale)}>
+                              Edit
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleViewReceipt(refSale)}>
+                              Receipt
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleDeleteClick(refSale)}>
+                              Delete
+                            </Button>
                           </div>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="space-y-1">
-                        {(Array.isArray(sale.items) ? sale.items : []).map((it: any, idx: number) => (
-                          <div key={idx} className="text-xs">
-                            {Number(it?.quantity || 0)}
-                          </div>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">{(sale.totalAmount || 0).toFixed(2)}</TableCell>
-                    <TableCell className="text-right">{(sale.receivedAmount || 0).toFixed(2)}</TableCell>
-                    <TableCell>{getPaymentStatusBadge(sale.paymentStatus)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="outline" onClick={() => handleEdit(sale)}>
-                          Edit
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => handleViewReceipt(sale)}>
-                          Receipt
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDeleteClick(sale)}>
-                          Delete
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow>
+                          <TableCell></TableCell>
+                          <TableCell></TableCell>
+                          <TableCell colSpan={7}>
+                            <div className="p-3 bg-gray-50 rounded-md">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {group.items.map((it, idx) => (
+                                  <div key={idx} className="text-xs border rounded p-2 bg-white">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-medium">{it.productName}</span>
+                                      {it.category && (
+                                        <Badge className={it.category === 'gas' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}>
+                                          {it.category}
+                                        </Badge>
+                                      )}
+                                      {it.cylinderSize && (
+                                        <Badge variant="outline">{it.cylinderSize}</Badge>
+                                      )}
+                                    </div>
+                                    <div className="mt-1 text-muted-foreground">
+                                      Qty: {it.quantity} • Price: AED {it.price.toFixed(2)}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  )
+                })
               )}
             </TableBody>
           </Table>
@@ -763,10 +896,10 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
       </Card>
 
       {/* Pagination Controls */}
-      {filteredSales.length > 0 && (
+      {groupedByInvoice.length > 0 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-2">
           <div className="text-sm text-gray-600">
-            Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredSales.length)} of {filteredSales.length}
+            Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, groupedByInvoice.length)} of {groupedByInvoice.length}
           </div>
           <div className="flex flex-wrap items-center gap-1">
             <Button

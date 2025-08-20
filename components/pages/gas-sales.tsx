@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Fragment } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -1084,11 +1084,52 @@ export function GasSales() {
     return matchesSearch && matchesStatus
   })
 
-  // Pagination (20 per page) — depends on filteredSales
+  // Group filtered sales by invoice number for expandable rows
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+  const groupedByInvoice = (() => {
+    const map: Record<string, any> = {}
+    for (const s of filteredSales) {
+      const key = s.invoiceNumber || `N/A-${s._id}`
+      if (!map[key]) {
+        map[key] = {
+          key,
+          invoice: s.invoiceNumber || 'N/A',
+          customer: s.customer,
+          date: s.createdAt || s.updatedAt || '',
+          paymentStatus: s.paymentStatus,
+          paymentMethod: s.paymentMethod,
+          employee: s.employee,
+          totalAmount: 0,
+          receivedAmount: 0,
+          items: [] as any[],
+          firstSale: s,
+        }
+      }
+      map[key].totalAmount += Number(s.totalAmount || 0)
+      map[key].receivedAmount += Number(s.receivedAmount || 0)
+      // Flatten items for display
+      const items = Array.isArray(s.items) ? s.items : []
+      for (const it of items) {
+        map[key].items.push({
+          name: it.product?.name || 'Unknown Product',
+          category: (it as any).category || (it.product as any)?.category || 'gas',
+          cylinderSize: (it as any).cylinderSize || (it.product as any)?.cylinderSize || '',
+          quantity: Number((it as any).quantity || 0),
+          price: Number((it as any).price || 0),
+        })
+      }
+    }
+    return Object.values(map).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  })()
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  // Pagination (20 per page) — now depends on grouped invoices
   const [salesPage, setSalesPage] = useState(1)
   const salesPageSize = 20
-  const salesTotalPages = Math.max(1, Math.ceil(filteredSales.length / salesPageSize))
-  const paginatedSales = filteredSales.slice((salesPage - 1) * salesPageSize, salesPage * salesPageSize)
+  const salesTotalPages = Math.max(1, Math.ceil(groupedByInvoice.length / salesPageSize))
+  const paginatedGroups = groupedByInvoice.slice((salesPage - 1) * salesPageSize, salesPage * salesPageSize)
   useEffect(() => { setSalesPage(1) }, [searchTerm, statusFilter])
 
   const totalAmount = formData.items.reduce((sum, item) => {
@@ -1603,117 +1644,153 @@ export function GasSales() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedSales.map((sale) => (
-                  <TableRow key={sale._id}>
-                    <TableCell className="p-4 font-medium">{sale.invoiceNumber}</TableCell>
-                    <TableCell className="p-4">
-                      <div>
-                        <div className="font-medium">{sale.customer?.name || "Unknown Customer"}</div>
-                        <div className="text-sm text-gray-500">{sale.customer?.phone}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="p-4">
-                      <div className="space-y-1">
-                        {sale.items.map((item, index) => (
-                          <div key={index} className="text-sm">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span>{item.product?.name || "Unknown Product"} x{item.quantity}</span>
-                              {(item as any).category === 'cylinder' || (item.product as any)?.category === 'cylinder' ? (
-                                <Badge variant="outline" className="text-xs font-medium bg-amber-50 text-amber-700 border-amber-200">
-                                  {((item as any)?.cylinderSize) === 'large' || ((item.product as any)?.cylinderSize) === 'large'
-                                    ? 'Large'
-                                    : ((item as any)?.cylinderSize) === 'small' || ((item.product as any)?.cylinderSize) === 'small'
-                                      ? 'Small'
-                                      : 'Cylinder'}
-                                </Badge>
-                              ) : null}
-                              <Badge 
-                                variant="outline" 
-                                className={`text-xs font-medium ${
-                                  ((item as any).category || (item.product as any)?.category) === 'gas' 
-                                    ? 'bg-blue-50 text-blue-700 border-blue-200' 
-                                    : 'bg-green-50 text-green-700 border-green-200'
-                                }`}
-                              >
-                                {(item as any).category || (item.product as any)?.category || 'gas'}
-                              </Badge>
-                            </div>
-                            <div className="text-xs text-gray-500">AED {((item as any).price || 0).toFixed(2)} each</div>
+                {paginatedGroups.map((group: any) => {
+                  const visibleItems = group.items.slice(0, 2)
+                  const remaining = Math.max(0, group.items.length - visibleItems.length)
+                  return (
+                    <Fragment key={group.key}>
+                      <TableRow>
+                        <TableCell className="p-4 font-medium">{group.invoice}</TableCell>
+                        <TableCell className="p-4">
+                          <div>
+                            <div className="font-medium">{group.customer?.name || "Unknown Customer"}</div>
+                            <div className="text-sm text-gray-500">{group.customer?.phone}</div>
                           </div>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="p-4 font-semibold">AED {sale.totalAmount.toFixed(2)}</TableCell>
-                    <TableCell className="p-4 font-semibold">AED {(sale.receivedAmount || 0).toFixed(2)}</TableCell>
-                    <TableCell className="p-4 capitalize">{sale.paymentMethod}</TableCell>
-                    <TableCell className="p-4">
-                      <Badge
-                        variant={
-                          sale.paymentStatus === "cleared"
-                            ? "default"
-                            : sale.paymentStatus === "pending"
-                              ? "secondary"
-                              : "destructive"
-                        }
-                        className={
-                          sale.paymentStatus === "cleared"
-                            ? "bg-green-100 text-green-800"
-                            : sale.paymentStatus === "pending"
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-red-100 text-red-800"
-                        }
-                      >
-                        {sale.paymentStatus}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="p-4">
-                      {sale.employee ? (
-                        <Badge variant="default">{sale.employee.name}</Badge>
-                      ) : (
-                        <Badge variant="secondary">Admin</Badge>
+                        </TableCell>
+                        <TableCell className="p-4">
+                          <div className="space-y-1">
+                            {visibleItems.map((item: any, index: number) => (
+                              <div key={index} className="text-sm">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span>{item.name} x{item.quantity}</span>
+                                  {item.category === 'cylinder' ? (
+                                    <Badge variant="outline" className="text-xs font-medium bg-amber-50 text-amber-700 border-amber-200">
+                                      {item.cylinderSize?.toString().toLowerCase() === 'large' || item.cylinderSize === '45kg' ? 'Large' : item.cylinderSize?.toString().toLowerCase() === 'small' || item.cylinderSize === '5kg' ? 'Small' : 'Cylinder'}
+                                    </Badge>
+                                  ) : null}
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-xs font-medium ${item.category === 'gas' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'}`}
+                                  >
+                                    {item.category}
+                                  </Badge>
+                                </div>
+                                <div className="text-xs text-gray-500">AED {Number(item.price || 0).toFixed(2)} each</div>
+                              </div>
+                            ))}
+                            {remaining > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => toggleGroup(group.key)}
+                                className="text-xs text-[#2B3068] font-medium hover:underline"
+                              >
+                                {expandedGroups[group.key] ? 'Hide details' : `See ${remaining} more item${remaining > 1 ? 's' : ''}`}
+                              </button>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="p-4 font-semibold">AED {Number(group.totalAmount || 0).toFixed(2)}</TableCell>
+                        <TableCell className="p-4 font-semibold">AED {Number(group.receivedAmount || 0).toFixed(2)}</TableCell>
+                        <TableCell className="p-4 capitalize">{group.paymentMethod}</TableCell>
+                        <TableCell className="p-4">
+                          <Badge
+                            variant={
+                              group.paymentStatus === "cleared"
+                                ? "default"
+                                : group.paymentStatus === "pending"
+                                  ? "secondary"
+                                  : "destructive"
+                            }
+                            className={
+                              group.paymentStatus === "cleared"
+                                ? "bg-green-100 text-green-800"
+                                : group.paymentStatus === "pending"
+                                  ? "bg-yellow-100 text-yellow-800"
+                                  : "bg-red-100 text-red-800"
+                            }
+                          >
+                            {group.paymentStatus}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="p-4">
+                          {group.employee ? (
+                            <Badge variant="default">{group.employee.name}</Badge>
+                          ) : (
+                            <Badge variant="secondary">Admin</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="p-4">{group.date ? new Date(group.date).toLocaleDateString() : ''}</TableCell>
+                        <TableCell className="p-4">
+                          <div className="flex space-x-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleReceiptClick(group.firstSale)}
+                              className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white"
+                            >
+                              <Receipt className="w-4 h-4" />
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleEdit(group.firstSale)}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDelete(group.firstSale?._id)}
+                              className="text-red-600 border-red-600 hover:bg-red-600 hover:text-white"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {expandedGroups[group.key] && (
+                        <TableRow>
+                          <TableCell colSpan={10} className="bg-gray-50">
+                            <div className="p-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {group.items.map((item: any, idx: number) => (
+                                  <div key={idx} className="text-sm border rounded-md p-2 bg-white">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-medium">{item.name}</span>
+                                      {item.category === 'cylinder' ? (
+                                        <Badge variant="outline" className="text-xs font-medium bg-amber-50 text-amber-700 border-amber-200">
+                                          {item.cylinderSize?.toString().toLowerCase() === 'large' || item.cylinderSize === '45kg' ? 'Large' : item.cylinderSize?.toString().toLowerCase() === 'small' || item.cylinderSize === '5kg' ? 'Small' : 'Cylinder'}
+                                        </Badge>
+                                      ) : null}
+                                      <Badge
+                                        variant="outline"
+                                        className={`text-xs font-medium ${item.category === 'gas' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'}`}
+                                      >
+                                        {item.category}
+                                      </Badge>
+                                    </div>
+                                    <div className="text-xs text-gray-600">Qty: {item.quantity} • AED {Number(item.price || 0).toFixed(2)} each</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
                       )}
-                    </TableCell>
-                    <TableCell className="p-4">{new Date(sale.createdAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="p-4">
-                      <div className="flex space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleReceiptClick(sale)}
-                          className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white"
-                        >
-                          <Receipt className="w-4 h-4" />
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => handleEdit(sale)}>
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDelete(sale._id)}
-                          className="text-red-600 border-red-600 hover:bg-red-600 hover:text-white"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredSales.length === 0 && (
+                    </Fragment>
+                  )
+                })}
+                {groupedByInvoice.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={10} className="text-center py-8 text-gray-500">
                       No sales found.
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
-            </Table>
+              </Table>
           </div>
           {/* Pagination controls */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4">
             <div className="text-sm text-gray-600">
-              Showing {filteredSales.length === 0 ? 0 : (salesPage - 1) * salesPageSize + 1}
-              -{Math.min(salesPage * salesPageSize, filteredSales.length)} of {filteredSales.length}
+              Showing {groupedByInvoice.length === 0 ? 0 : (salesPage - 1) * salesPageSize + 1}
+              -{Math.min(salesPage * salesPageSize, groupedByInvoice.length)} of {groupedByInvoice.length}
             </div>
             <div className="flex items-center gap-2">
               <Button
