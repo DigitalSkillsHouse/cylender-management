@@ -230,14 +230,14 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
           <div>
             <h3 className="font-semibold text-[#2B3068] mb-3">Items</h3>
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
                 <thead>
                   <tr className="bg-[#2B3068] text-white">
-                    <th className="text-left p-3 border">Item</th>
-                    <th className="text-center p-3 border">Qty</th>
-                    <th className="text-right p-3 border">Price</th>
-                    <th className="text-right p-3 border">VAT (5%)</th>
-                    <th className="text-right p-3 border">Total</th>
+                    <th className="text-left p-2 border">Item</th>
+                    <th className="text-center p-2 border">Qty</th>
+                    <th className="text-right p-2 border">Price</th>
+                    <th className="text-right p-2 border">VAT (5%)</th>
+                    <th className="text-right p-2 border">Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -249,15 +249,16 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
                     const unitWithVat = priceNum + unitVat
                     const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
                     return (
-                    <tr key={index} className="border-b">
-                      <td className="p-3 border">{name}</td>
-                      <td className="text-center p-3 border">{qtyNum}</td>
-                      <td className="text-right p-3 border">AED {priceNum.toFixed(2)}</td>
-                      <td className="text-right p-3 border">AED {unitVat.toFixed(2)}</td>
-                      <td className="text-right p-3 border">AED {itemTotal.toFixed(2)}</td>
+                    <tr key={index} className="border-b h-5">
+                      <td className="p-2 border">{name}</td>
+                      <td className="text-center p-2 border">{qtyNum}</td>
+                      <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
+                      <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                      <td className="text-right p-2 border">AED {itemTotal.toFixed(2)}</td>
                     </tr>
                     )
                   })}
+                  {/* No padding rows - show only actual items */}
                 </tbody>
               </table>
             </div>
@@ -267,7 +268,7 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
 
           {/* Total */}
           <div className="mt-4">
-            <table className="w-full">
+            <table className="w-full text-[12px] leading-tight">
               <tbody>
                 <tr>
                   <td className="text-right pr-4 text-base">Subtotal</td>

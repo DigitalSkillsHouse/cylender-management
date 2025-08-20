@@ -142,14 +142,14 @@ const ReceiptPrintPage = () => {
 
         <section>
           <h2 className="font-bold text-lg text-[#2B3068] mb-3">Purchased Items</h2>
-          <table className="w-full border-collapse text-sm">
+          <table className="w-full border-collapse text-[11px] leading-tight">
             <thead>
               <tr className="bg-[#2B3068] text-white">
-                <th className="text-left p-3 font-semibold border">Item</th>
-                <th className="text-center p-3 font-semibold border">Qty</th>
-                <th className="text-right p-3 font-semibold border">Price</th>
-                <th className="text-right p-3 font-semibold border">VAT (5%)</th>
-                <th className="text-right p-3 font-semibold border">Total</th>
+                <th className="text-left p-2 font-semibold border">Item</th>
+                <th className="text-center p-2 font-semibold border">Qty</th>
+                <th className="text-right p-2 font-semibold border">Price</th>
+                <th className="text-right p-2 font-semibold border">VAT (5%)</th>
+                <th className="text-right p-2 font-semibold border">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -160,7 +160,7 @@ const ReceiptPrintPage = () => {
                 const unitWithVat = priceNum + unitVat
                 const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
                 return (
-                  <tr key={index} className="border-b hover:bg-gray-50">
+                  <tr key={index} className="border-b h-5">
                     <td className="p-2 border">{item.product.name}</td>
                     <td className="text-center p-2 border">{qtyNum}</td>
                     <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
@@ -169,6 +169,7 @@ const ReceiptPrintPage = () => {
                   </tr>
                 )
               })}
+              {/* No padding rows - show only actual items */}
             </tbody>
           </table>
         </section>
@@ -244,6 +245,9 @@ const ReceiptPrintPage = () => {
             width: 100%;
             max-width: 100%;
           }
+          /* Ensure the page content fits a single page height when <= 15 rows */
+          table tr { break-inside: avoid; }
+          footer { break-inside: avoid; }
         }
       `}</style>
     </div>
