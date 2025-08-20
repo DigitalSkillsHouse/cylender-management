@@ -35,10 +35,14 @@ interface Sale {
       _id: string
       name: string
       price: number
+      category?: "gas" | "cylinder"
+      cylinderSize?: "large" | "small"
     }
     quantity: number
     price: number
     total: number
+    category?: "gas" | "cylinder"
+    cylinderSize?: "large" | "small"
   }>
   totalAmount: number
   paymentMethod: string
@@ -67,7 +71,7 @@ interface Product {
   _id: string
   name: string
   category: "gas" | "cylinder"
-  cylinderType?: "large" | "small"
+  cylinderSize?: "large" | "small"
   costPrice: number
   leastPrice: number
   currentStock: number
@@ -114,11 +118,12 @@ export function GasSales() {
   const [productSearchTerms, setProductSearchTerms] = useState<string[]>([])
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
   // Single-entry item input state (2x2 grid pattern)
-  const [currentItem, setCurrentItem] = useState<{ category: "gas" | "cylinder"; productId: string; quantity: string; price: string }>({
+  const [currentItem, setCurrentItem] = useState<{ category: "gas" | "cylinder"; productId: string; quantity: string; price: string; cylinderSize?: string }>({
     category: "gas",
     productId: "",
     quantity: "1",
     price: "",
+    cylinderSize: "",
   })
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
   const [entryProductSearch, setEntryProductSearch] = useState("")
@@ -510,12 +515,16 @@ export function GasSales() {
           const quantity = Number(item.quantity) || 1
           // Use the user-entered price from the form
           const price = Number(item.price) || 0
+          const prod = allProducts.find((p: Product) => p._id === item.productId)
+          const category = (item as any).category || prod?.category || 'gas'
+          const cylinderSize = category === 'cylinder' ? (prod as any)?.cylinderSize : undefined
           return {
             product: item.productId,
             quantity: quantity,
             price: price,
             total: price * quantity,
-            category: item.category,
+            category: category,
+            cylinderSize: cylinderSize,
           }
         })
 
@@ -843,14 +852,14 @@ export function GasSales() {
 
   // Single-entry item handlers
   const resetCurrentItem = () => {
-    setCurrentItem({ category: "gas", productId: "", quantity: "1", price: "" })
+    setCurrentItem({ category: "gas", productId: "", quantity: "1", price: "", cylinderSize: "" })
     setEntryProductSearch("")
     setShowEntrySuggestions(false)
     setEditingItemIndex(null)
   }
 
   const handleEntryCategoryChange = (value: "gas" | "cylinder") => {
-    setCurrentItem({ category: value, productId: "", quantity: "1", price: "" })
+    setCurrentItem({ category: value, productId: "", quantity: "1", price: "", cylinderSize: "" })
     setEntryProductSearch("")
   }
 
@@ -860,11 +869,18 @@ export function GasSales() {
   }
 
   const handleEntryProductSelect = (product: Product) => {
+    const sizeLabel = (() => {
+      if (!product || product.category !== 'cylinder') return ""
+      if (product.cylinderSize === 'large') return 'Large'
+      if (product.cylinderSize === 'small') return 'Small'
+      return ""
+    })()
     setCurrentItem({
       category: product.category,
       productId: product._id,
       quantity: "1",
       price: product.leastPrice.toString(),
+      cylinderSize: sizeLabel,
     })
     setEntryProductSearch(product.name)
     setShowEntrySuggestions(false)
@@ -897,9 +913,19 @@ export function GasSales() {
     if (!currentItem.productId || qty <= 0 || pr <= 0) return
     const items = [...formData.items]
     if (editingItemIndex !== null && editingItemIndex >= 0 && editingItemIndex <= items.length) {
-      items.splice(editingItemIndex, 0, { ...currentItem })
+      items.splice(editingItemIndex, 0, {
+        productId: currentItem.productId,
+        quantity: currentItem.quantity,
+        price: currentItem.price,
+        category: currentItem.category,
+      })
     } else {
-      items.push({ ...currentItem })
+      items.push({
+        productId: currentItem.productId,
+        quantity: currentItem.quantity,
+        price: currentItem.price,
+        category: currentItem.category,
+      })
     }
     setFormData({ ...formData, items })
     resetCurrentItem()
@@ -909,11 +935,19 @@ export function GasSales() {
     const items = [...formData.items]
     const [row] = items.splice(index, 1)
     setFormData({ ...formData, items })
+    const prod = allProducts.find(p => p._id === (row as any).productId)
+    const sizeLabel = (() => {
+      if (!prod || prod.category !== 'cylinder') return ""
+      if ((prod as any).cylinderSize === 'large') return 'Large'
+      if ((prod as any).cylinderSize === 'small') return 'Small'
+      return ""
+    })()
     setCurrentItem({
       category: (row as any).category || 'gas',
       productId: (row as any).productId || '',
       quantity: (row as any).quantity || '1',
       price: (row as any).price || '',
+      cylinderSize: sizeLabel,
     })
     const pName = allProducts.find(p => p._id === (row as any).productId)?.name || ''
     setEntryProductSearch(pName)
@@ -1244,7 +1278,14 @@ export function GasSales() {
                               onClick={() => handleEntryProductSelect(product)}
                             >
                               <div className="flex items-center justify-between">
-                                <span className="font-medium text-gray-900">{product.name}</span>
+                                <span className="font-medium text-gray-900">
+                                  {product.name}
+                                  {product.category === 'cylinder' && (
+                                    <span className="ml-2 text-xs text-gray-600">(
+                                      {product.cylinderSize === 'large' ? 'Large' : product.cylinderSize === 'small' ? 'Small' : ''}
+                                    )</span>
+                                  )}
+                                </span>
                                 <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
                               </div>
                             </div>
@@ -1252,6 +1293,21 @@ export function GasSales() {
                       </div>
                     )}
                   </div>
+
+                  {currentItem.category === 'cylinder' && (
+                    <div className="space-y-2">
+                      <Label>Cylinder Size</Label>
+                      <Select value={(currentItem.cylinderSize || '') as any} disabled>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Auto from product" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Large">Large</SelectItem>
+                          <SelectItem value="Small">Small</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label>Quantity</Label>
@@ -1297,9 +1353,10 @@ export function GasSales() {
                 <div className="w-full overflow-x-auto">
                   <div className="inline-block min-w-[700px] align-top">
                     <div className="max-h-[40vh] overflow-y-auto pr-2">
-                      <div className="grid grid-cols-[1fr_2fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
+                      <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
                         <div>Category</div>
                         <div>Product</div>
+                        <div>Cylinder Size</div>
                         <div>Qty</div>
                         <div>Price (AED)</div>
                         <div>Actions</div>
@@ -1308,9 +1365,12 @@ export function GasSales() {
                         {formData.items.map((it, idx) => {
                           const p = allProducts.find((ap) => ap._id === it.productId)
                           return (
-                            <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
+                            <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
                               <div className="truncate">{(it as any).category || 'gas'}</div>
                               <div className="truncate">{p?.name || '-'}</div>
+                              <div className="truncate">
+                                {p?.category === 'cylinder' ? (p as any)?.cylinderSize === 'large' ? 'Large' : (p as any)?.cylinderSize === 'small' ? 'Small' : '-' : '-'}
+                              </div>
                               <div>{Number((it as any).quantity || 0)}</div>
                               <div>{Number((it as any).price || 0).toFixed(2)}</div>
                               <div className="flex gap-2">
@@ -1558,6 +1618,15 @@ export function GasSales() {
                           <div key={index} className="text-sm">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span>{item.product?.name || "Unknown Product"} x{item.quantity}</span>
+                              {(item as any).category === 'cylinder' || (item.product as any)?.category === 'cylinder' ? (
+                                <Badge variant="outline" className="text-xs font-medium bg-amber-50 text-amber-700 border-amber-200">
+                                  {((item as any)?.cylinderSize) === 'large' || ((item.product as any)?.cylinderSize) === 'large'
+                                    ? 'Large'
+                                    : ((item as any)?.cylinderSize) === 'small' || ((item.product as any)?.cylinderSize) === 'small'
+                                      ? 'Small'
+                                      : 'Cylinder'}
+                                </Badge>
+                              ) : null}
                               <Badge 
                                 variant="outline" 
                                 className={`text-xs font-medium ${

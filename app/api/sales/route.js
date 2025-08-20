@@ -10,7 +10,7 @@ export async function GET() {
 
     const sales = await Sale.find()
       .populate("customer", "name phone address email")
-      .populate("items.product", "name price category")
+      .populate("items.product", "name price category cylinderSize")
       .sort({ createdAt: -1 })
 
     return NextResponse.json({ data: sales })
@@ -73,11 +73,26 @@ export async function POST(request) {
     
     const invoiceNumber = `${yearPrefix}${nextNumber.toString().padStart(2, '0')}`
 
+    // Enrich items with category and cylinderSize from Product model
+    const enrichedItems = (items || []).map((item) => {
+      const prod = products.find(p => p._id.toString() === String(item.product))
+      const category = prod?.category || item.category || 'gas'
+      const cylinderSize = category === 'cylinder' ? (prod?.cylinderSize || item.cylinderSize) : undefined
+      return {
+        product: item.product,
+        category,
+        cylinderSize,
+        quantity: Number(item.quantity) || 0,
+        price: Number(item.price) || 0,
+        total: Number(item.total) || ((Number(item.price)||0) * (Number(item.quantity)||0)),
+      }
+    })
+
     // Create the sale
     const sale = new Sale({
       invoiceNumber,
       customer,
-      items,
+      items: enrichedItems,
       totalAmount,
       paymentMethod: paymentMethod || "cash",
       paymentStatus: paymentStatus || "cleared",
@@ -138,7 +153,7 @@ export async function POST(request) {
     // Populate the created sale for response
     const populatedSale = await Sale.findById(savedSale._id)
       .populate("customer", "name phone address email")
-      .populate("items.product", "name price category")
+      .populate("items.product", "name price category cylinderSize")
 
     return NextResponse.json({
       data: populatedSale,
