@@ -387,7 +387,7 @@ export function CylinderManagement() {
       ),
       invoiceNumber: () => (
         <TableCell className="p-4">
-          {transaction.invoiceNumber || '-'}
+          {transaction.invoiceNumber || (transaction._id ? `CYL-${transaction._id.slice(-6).toUpperCase()}` : '-')}
         </TableCell>
       ),
       date: () => (
@@ -492,9 +492,10 @@ export function CylinderManagement() {
           ? items!.reduce((s, it) => s + (Number(it.amount)||0), 0)
           : (t.amount || 0)
         const party = t.customer?.name || t.supplier?.companyName || ''
+        const inv = (t as any).invoiceNumber || (t?._id ? `CYL-${String(t._id).slice(-6).toUpperCase()}` : '')
         return [
           new Date(t.createdAt).toLocaleDateString(),
-          (t as any).invoiceNumber || '',
+          inv,
           t.type,
           party,
           productOrItems,
@@ -671,6 +672,7 @@ export function CylinderManagement() {
           ? items!.reduce((s, it) => s + (Number(it.amount)||0), 0)
           : (t.amount || 0)
         const party = t.customer?.name || t.supplier?.companyName || ''
+        const inv = (t as any).invoiceNumber || (t?._id ? `CYL-${String(t._id).slice(-6).toUpperCase()}` : '')
         const row = [
           t.type,
           party,
@@ -686,7 +688,7 @@ export function CylinderManagement() {
           t.checkNumber || '',
           t.notes || '',
           t.status,
-          (t as any).invoiceNumber || '',
+          inv,
           new Date(t.createdAt).toLocaleDateString(),
         ]
         drawRow(row)
@@ -1458,9 +1460,13 @@ export function CylinderManagement() {
   }
 
   const filteredTransactions = Array.isArray(transactions) ? transactions.filter((transaction) => {
+    const term = searchTerm.toLowerCase()
+    const fallbackInv = transaction._id ? `CYL-${transaction._id.slice(-6).toUpperCase()}` : ''
+    const inv = (transaction as any).invoiceNumber || fallbackInv
     const matchesSearch =
-      transaction.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.cylinderSize?.toLowerCase().includes(searchTerm.toLowerCase())
+      transaction.customer?.name?.toLowerCase().includes(term) ||
+      transaction.cylinderSize?.toLowerCase().includes(term) ||
+      (inv || '').toLowerCase().includes(term)
     const matchesType = activeTab === 'all' || transaction.type === activeTab
     return matchesSearch && matchesType
   }) : []
@@ -1469,8 +1475,10 @@ export function CylinderManagement() {
   const [txPage, setTxPage] = useState(1)
   const txPageSize = 20
   const txTotalPages = Math.max(1, Math.ceil(filteredTransactions.length / txPageSize))
-  const paginatedTransactions = filteredTransactions.slice((txPage - 1) * txPageSize, txPage * txPageSize)
-  useEffect(() => { setTxPage(1) }, [searchTerm, activeTab])
+  const paginatedTransactions = filteredTransactions.slice(
+    (txPage - 1) * txPageSize,
+    txPage * txPageSize
+  )
 
   const getTransactionIcon = (type: string) => {
     switch (type) {
@@ -1589,7 +1597,7 @@ export function CylinderManagement() {
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
               <Input
-                placeholder="Search by customer or cylinder size..."
+                placeholder="Search by invoice no., customer or cylinder size..."
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={handleSearchInputFocus}
