@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import React, { Fragment } from "react"
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon } from "lucide-react"
+import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown } from "lucide-react"
 import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 
 interface PurchaseOrder {
@@ -46,6 +46,8 @@ export function PurchaseManagement() {
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
+  // Expanded state for grouped invoice rows
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   // Single entry item state (2x2 form)
   const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"|"cylinder"; productId: string; quantity: string; unitPrice: string}>({
     purchaseType: "gas",
@@ -335,6 +337,48 @@ export function PurchaseManagement() {
       norm(dateStr).includes(q)
     )
   })
+
+  // Group filtered orders by invoice number (poNumber)
+  type InvoiceGroup = {
+    key: string
+    invoice: string
+    supplierName: string
+    date: string
+    status: PurchaseOrder["status"]
+    totalAmount: number
+    items: PurchaseOrder[]
+  }
+
+  const groupedByInvoice: InvoiceGroup[] = (() => {
+    const map: Record<string, InvoiceGroup> = {}
+    for (const o of filteredOrders) {
+      const key = o.poNumber || `N/A-${o._id}`
+      if (!map[key]) {
+        map[key] = {
+          key,
+          invoice: o.poNumber || "N/A",
+          supplierName: o.supplier?.companyName || "Unknown Supplier",
+          date: o.purchaseDate || "",
+          status: o.status,
+          totalAmount: 0,
+          items: [],
+        }
+      }
+      map[key].items.push(o)
+      const itemTotal = typeof o.totalAmount === "number" && !Number.isNaN(o.totalAmount)
+        ? o.totalAmount
+        : (o.quantity || 0) * (o.unitPrice || 0)
+      map[key].totalAmount += itemTotal
+    }
+    // Keep order roughly by latest date desc
+    return Object.values(map).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  })()
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  // Read-only status display in child rows (no inline updates)
 
   return (
     <div className="pt-16 lg:pt-0 space-y-6 sm:space-y-8">
@@ -711,102 +755,142 @@ export function PurchaseManagement() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    INV Number
-                  </TableHead>
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    Supplier
-                  </TableHead>
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    Date
-                  </TableHead>
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    Product
-                  </TableHead>
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    Qty
-                  </TableHead>
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    Unit Price (AED)
-                  </TableHead>
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    Total Amount (AED)
-                  </TableHead>
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    Status
-                  </TableHead>
-                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                    Actions
-                  </TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap"> </TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">INV Number</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Supplier</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Date</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Items</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Total Amount (AED)</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Status</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredOrders.map((order) => (
-                  <TableRow key={order._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                    <TableCell className="font-semibold text-[#2B3068] p-2 sm:p-4 text-xs sm:text-sm">
-                      {order.poNumber || 'N/A'}
-                    </TableCell>
-                    <TableCell className="p-2 sm:p-4 text-xs sm:text-sm max-w-[120px] truncate">
-                      {order.supplier?.companyName || 'Unknown Supplier'}
-                    </TableCell>
-                    <TableCell className="p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">
-                      {order.purchaseDate ? new Date(order.purchaseDate).toLocaleDateString() : 'N/A'}
-                    </TableCell>
-                    <TableCell className="p-2 sm:p-4 text-xs sm:text-sm max-w-[120px] truncate">
-                      {order.product?.name || 'Unknown Product'}
-                    </TableCell>
-                    <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">{order.quantity || 0}</TableCell>
-                    <TableCell className="p-2 sm:p-4 font-semibold text-xs sm:text-sm">
-                      AED {order.unitPrice?.toFixed(2) || "0.00"}
-                    </TableCell>
-                    <TableCell className="p-2 sm:p-4 font-semibold text-xs sm:text-sm">
-                      AED {order.totalAmount?.toFixed(2) || "0.00"}
-                    </TableCell>
-                    <TableCell className="p-2 sm:p-4">
-                      <Badge
-                        variant={
-                          order.status === "completed"
-                            ? "default"
-                            : order.status === "pending"
-                              ? "secondary"
-                              : "destructive"
-                        }
-                        className={`${
-                          order.status === "completed"
-                            ? "bg-green-100 text-green-800"
-                            : order.status === "pending"
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-red-100 text-red-800"
-                        } font-medium px-2 py-1 rounded-full text-xs`}
-                      >
-                        {order.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="p-2 sm:p-4">
-                      <div className="flex space-x-1 sm:space-x-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleEdit(order)}
-                          className="border-[#2B3068] text-[#2B3068] hover:bg-[#2B3068] hover:text-white transition-colors p-1 sm:p-2"
+                {groupedByInvoice.map((group) => (
+                  <Fragment key={group.key}>
+                    <TableRow key={`parent-${group.key}`} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                      <TableCell className="p-2 sm:p-4 w-8">
+                        <button
+                          type="button"
+                          aria-label={expandedGroups[group.key] ? "Collapse" : "Expand"}
+                          onClick={() => toggleGroup(group.key)}
+                          className="p-1 rounded hover:bg-gray-100"
                         >
-                          <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDelete(order._id)}
-                          className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors p-1 sm:p-2"
+                          {expandedGroups[group.key] ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4" />
+                          )}
+                        </button>
+                      </TableCell>
+                      <TableCell className="font-semibold text-[#2B3068] p-2 sm:p-4 text-xs sm:text-sm">{group.invoice}</TableCell>
+                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm max-w-[160px] truncate">{group.supplierName}</TableCell>
+                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">{group.date ? new Date(group.date).toLocaleDateString() : "N/A"}</TableCell>
+                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">{group.items.length}</TableCell>
+                      <TableCell className="p-2 sm:p-4 font-semibold text-xs sm:text-sm">AED {group.totalAmount.toFixed(2)}</TableCell>
+                      <TableCell className="p-2 sm:p-4">
+                        <Badge
+                          variant={
+                            group.status === "completed"
+                              ? "default"
+                              : group.status === "pending"
+                                ? "secondary"
+                                : "destructive"
+                          }
+                          className={`${
+                            group.status === "completed"
+                              ? "bg-green-600"
+                              : group.status === "pending"
+                                ? "bg-yellow-100"
+                                : "bg-red-100"
+                          } text-white font-medium px-2 py-1 rounded-full text-xs`}
                         >
-                          <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                          {group.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="p-2 sm:p-4">
+                        {/* Intentionally left actions at item level within expanded rows */}
+                      </TableCell>
+                    </TableRow>
+                    {expandedGroups[group.key] && (
+                      <TableRow key={`children-${group.key}`} className="bg-gray-50/50">
+                        <TableCell colSpan={8} className="p-0">
+                          <div className="px-4 py-3">
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="bg-white">
+                                    <TableHead className="text-xs sm:text-sm">Product</TableHead>
+                                    <TableHead className="text-xs sm:text-sm">Type</TableHead>
+                                    <TableHead className="text-xs sm:text-sm">Qty</TableHead>
+                                    <TableHead className="text-xs sm:text-sm">Unit Price (AED)</TableHead>
+                                    <TableHead className="text-xs sm:text-sm">Total (AED)</TableHead>
+                                    <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                                    <TableHead className="text-xs sm:text-sm">Actions</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {group.items.map((order) => (
+                                    <TableRow key={order._id} className="border-b">
+                                      <TableCell className="text-xs sm:text-sm max-w-[220px] truncate">{order.product?.name || "Unknown Product"}</TableCell>
+                                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{order.purchaseType}</TableCell>
+                                      <TableCell className="text-xs sm:text-sm">{order.quantity || 0}</TableCell>
+                                      <TableCell className="font-semibold text-xs sm:text-sm">AED {order.unitPrice?.toFixed(2) || "0.00"}</TableCell>
+                                      <TableCell className="font-semibold text-xs sm:text-sm">AED {order.totalAmount?.toFixed(2) || ((order.quantity || 0) * (order.unitPrice || 0)).toFixed(2)}</TableCell>
+                                      <TableCell className="text-xs sm:text-sm">
+                                        <Badge
+                                          variant={
+                                            order.status === "completed"
+                                              ? "default"
+                                              : order.status === "pending"
+                                                ? "secondary"
+                                                : "destructive"
+                                          }
+                                          className={`${
+                                            order.status === "completed"
+                                              ? "bg-green-600"
+                                              : order.status === "pending"
+                                                ? "bg-yellow-100"
+                                                : "bg-red-100"
+                                          } text-white font-medium px-2 py-1 rounded-full text-xs`}
+                                        >
+                                          {order.status}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell>
+                                        <div className="flex space-x-1 sm:space-x-2">
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleEdit(order)}
+                                            className="border-[#2B3068] text-[#2B3068] hover:bg-[#2B3068] hover:text-white transition-colors p-1 sm:p-2"
+                                          >
+                                            <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleDelete(order._id)}
+                                            className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors p-1 sm:p-2"
+                                          >
+                                            <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                                          </Button>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 ))}
-                {filteredOrders.length === 0 && (
+                {groupedByInvoice.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 sm:py-12">
+                    <TableCell colSpan={8} className="text-center py-8 sm:py-12">
                       <div className="text-gray-500">
                         <PackageIcon className="w-16 h-16 mx-auto mb-4 opacity-50" />
                         <p className="text-base sm:text-lg font-medium">No purchase orders found</p>
