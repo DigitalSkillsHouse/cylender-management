@@ -209,7 +209,6 @@ export function Reports() {
       saveDsrLocal(merged)
       alert('Auto-calculated and saved closing stock for the selected date. Next day openings updated.')
     } catch (e) {
-      console.error('autoCalcAndSaveDsrForDate failed', e)
       alert('Failed to auto-calc. Please try again.')
     }
   }
@@ -254,7 +253,6 @@ export function Reports() {
         const gc = (globalThis as any)?.fetchCustomers
         if (typeof gc === 'function') { await gc(); usedRefreshHelpers = true }
       } catch (e) {
-        console.warn('soft refresh failed, skipping reload to avoid interrupting receipt preview', e)
       }
 
       // Close receive dialog first to avoid overlay conflicts
@@ -319,7 +317,6 @@ export function Reports() {
           setReceiptDialogData(buildReceiptFromSource({}))
         }
       } catch (e) {
-        console.warn('Failed to fetch updated record for receipt preview, using fallback', e)
         setReceiptDialogData(buildReceiptFromSource({}))
       }
 
@@ -333,7 +330,6 @@ export function Reports() {
       }
       // Removed success alert to avoid interrupting receipt preview flow
     } catch (e: any) {
-      console.error('receive submit failed', e)
       alert(`Failed to update payment: ${e?.message || 'Unknown error'}`)
     }
   }
@@ -465,7 +461,6 @@ export function Reports() {
       w.focus()
       w.print()
     } catch (err) {
-      console.error(err)
       alert('Failed to prepare PDF')
     }
   }
@@ -591,7 +586,6 @@ export function Reports() {
         const mapped: EmployeeLite[] = list.map((e: any) => ({ _id: String(e._id || e.id), name: e.name, email: e.email }))
         setEmployees(mapped)
       } catch (e) {
-        console.error('Failed to load employees', e)
         setEmployees([])
       } finally {
         setEmpLoading(false)
@@ -609,7 +603,7 @@ export function Reports() {
       url.searchParams.set('employeeId', selectedEmployeeId)
       url.searchParams.set('date', employeeDsrDate)
       const res = await fetch(url.toString(), { cache: 'no-store' })
-      const json = await res.json().catch(() => ({}))
+      const json = await res.json()
       const list: any[] = Array.isArray(json)
         ? json
         : Array.isArray(json?.data?.data)
@@ -650,7 +644,6 @@ export function Reports() {
       })
       setEmpGridRows(rows)
     } catch (e) {
-      console.error('Failed to load employee DSR', e)
       setEmployeeDsrEntries([])
       setEmpGridRows([])
     } finally {
@@ -728,7 +721,6 @@ export function Reports() {
         win.print()
       }
     } catch (e) {
-      console.error('Failed to print employee DSR', e)
     }
   }
   // Load products when DSR form opens and build empty grid
@@ -737,7 +729,7 @@ export function Reports() {
     ;(async () => {
       try {
         const res = await fetch('/api/products', { cache: 'no-store' })
-        const json = await res.json().catch(() => ({}))
+        const json = await res.json()
         const list: any[] = Array.isArray(json?.data?.data)
           ? json.data.data
           : Array.isArray(json?.data)
@@ -776,7 +768,7 @@ export function Reports() {
     const updated = await Promise.all(rows.map(async (r) => {
       try {
         const url = `${API_BASE}/previous?itemName=${encodeURIComponent(r.itemName)}&date=${encodeURIComponent(date)}`
-        const res = await fetch(url, { cache: 'no-store' })
+        const res = await fetch(url, { cache: "no-store" })
         if (res.ok) {
           const json = await res.json()
           if (json?.data) {
@@ -813,8 +805,8 @@ export function Reports() {
           openingFull: toNumber(r.openingFull),
           openingEmpty: toNumber(r.openingEmpty),
         }
-        if (r.closingFull !== '') payload.closingFull = toNumber(r.closingFull)
-        if (r.closingEmpty !== '') payload.closingEmpty = toNumber(r.closingEmpty)
+        if (r.closingFull !== "") payload.closingFull = toNumber(r.closingFull)
+        if (r.closingEmpty !== "") payload.closingEmpty = toNumber(r.closingEmpty)
         try {
           const res = await fetch(API_BASE, {
             method: 'POST',
@@ -920,7 +912,6 @@ export function Reports() {
       w.print()
       // Do not auto-close to allow user to re-print if needed
     } catch (err) {
-      console.error(err)
       alert('Failed to prepare PDF')
     }
   }
@@ -1142,9 +1133,8 @@ export function Reports() {
           fetch('/api/sales', { cache: 'no-store' }),
           fetch('/api/cylinders', { cache: 'no-store' }),
         ])
-        const salesJson = await salesRes.json().catch(() => ({}))
-        const cylTxJson = await cylTxRes.json().catch(() => ({}))
-        console.log('[DSR] Aggregation start for date:', dsrViewDate)
+        const salesJson = await salesRes.json()
+        const cylTxJson = await cylTxRes.json()
 
         const gas: Record<string, number> = {}
         const gasById: Record<string, number> = {}
@@ -1159,12 +1149,10 @@ export function Reports() {
 
         // Admin sales
         const salesList: any[] = Array.isArray(salesJson?.data) ? salesJson.data : (Array.isArray(salesJson) ? salesJson : [])
-        console.log('[DSR] /api/sales count:', Array.isArray(salesList) ? salesList.length : 0)
         for (const s of salesList) {
           if (!inSelectedDay(s?.createdAt)) continue
           const items: any[] = Array.isArray(s?.items) ? s.items : []
           if (!items.length) {
-            console.debug('[DSR] Sale has no items, invoice:', s?.invoiceNumber)
           }
           for (const it of items) {
             const product = it?.product
@@ -1179,7 +1167,6 @@ export function Reports() {
 
         // Refills from admin cylinder transactions (type=refill)
         const cylTxList: any[] = Array.isArray(cylTxJson?.data) ? cylTxJson.data : (Array.isArray(cylTxJson) ? cylTxJson : [])
-        console.log('[DSR] /api/cylinders count:', Array.isArray(cylTxList) ? cylTxList.length : 0)
         for (const t of cylTxList) {
           if (!inSelectedDay(t?.createdAt)) continue
           // Admin cylinder transaction shape: single product per tx
@@ -1199,12 +1186,6 @@ export function Reports() {
           }
         }
 
-        console.log('[DSR] Totals gas:', gas)
-        console.log('[DSR] Totals cylinder:', cyl)
-        console.log('[DSR] Totals refilled:', ref)
-        console.log('[DSR] Totals deposit:', dep)
-        console.log('[DSR] Totals return:', ret)
-
         setDailyAggGasSales(gas)
         setDailyAggCylinderSales(cyl)
         setDailyAggRefills(ref)
@@ -1217,7 +1198,6 @@ export function Reports() {
         setDailyAggReturnsById(retById)
         setAggReady(true)
       } catch (err) {
-        console.error('[DSR] Aggregation failed:', err)
         setDailyAggGasSales({})
         setDailyAggCylinderSales({})
         setDailyAggRefills({})
@@ -1380,9 +1360,6 @@ export function Reports() {
   }
 
   const handleSignatureComplete = (signature: string) => {
-    console.log('Reports - Signature received:', signature)
-    console.log('Reports - Signature length:', signature?.length)
-    console.log('Reports - Pending customer:', pendingCustomer?.name)
     
     // Set signature state for future use
     setCustomerSignature(signature)
@@ -1390,7 +1367,6 @@ export function Reports() {
     
     // Directly open receipt dialog with the pending customer and signature embedded
     if (pendingCustomer) {
-      console.log('Reports - Opening receipt dialog with signature embedded')
       
       // Use the same data structure as "All Transactions" tab for receipt generation
       const allTransactions = [
@@ -1514,12 +1490,10 @@ export function Reports() {
       if (ledgerResponse.data?.success && Array.isArray(ledgerResponse.data.data)) {
         setCustomers(ledgerResponse.data.data);
       } else {
-        console.error("Failed to fetch ledger data:", ledgerResponse.data?.error || "Unexpected response format");
         setCustomers([]);
       }
 
     } catch (error) {
-      console.error("Failed to fetch report data:", error);
       setStats({
         totalRevenue: 0, totalEmployees: 0, gasSales: 0, cylinderRefills: 0,
         totalCustomers: 0, totalCombinedRevenue: 0, pendingCustomers: 0, 
@@ -2061,7 +2035,6 @@ export function Reports() {
                         ?? (idKey ? dailyAggReturnsById[idKey] : undefined)
                         ?? 0) ?? 0
                       // Temporary debug per row
-                      try { console.debug('[DSR Row]', { name: p.name, key, refV, cylV, gasV, depV, retV }) } catch {}
                       return (
                         <TableRow key={p._id || p.name}>
                           <TableCell className="font-medium">{p.name}</TableCell>
@@ -2426,7 +2399,6 @@ export function Reports() {
                                     </TableHeader>
                                     <TableBody>
                                       {filteredSales.map((sale) => {
-                                        console.log(`[Ledger Render] Sale: ${sale.invoiceNumber}, Status: ${sale.paymentStatus}`);
                                         return (
                                           <TableRow key={sale._id}>
                                             <TableCell className="font-mono">{sale.invoiceNumber}</TableCell>

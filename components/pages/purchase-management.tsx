@@ -77,41 +77,25 @@ export function PurchaseManagement() {
         suppliersAPI.getAll(), 
         productsAPI.getAll()
       ])
-
-      console.log("Suppliers response:", suppliersRes)
-      console.log("Products response:", productsRes)
       
       const suppliersData = suppliersRes.data || []
       const productsData = productsRes.data || []
       
-      console.log("Suppliers data:", suppliersData)
-      console.log("Products data:", productsData)
-
       setSuppliers(suppliersData)
       setProducts(productsData)
       
       // Try to fetch purchase orders separately (requires auth)
       try {
-        console.log("Attempting to fetch purchase orders...")
         const purchaseOrdersRes = await purchaseOrdersAPI.getAll()
-        console.log("Purchase orders response:", purchaseOrdersRes)
         
         // The API response structure is: response.data.data (nested)
         const ordersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
-        console.log("Purchase orders data:", ordersData)
         
         // Ensure it's always an array
         const finalData = Array.isArray(ordersData) ? ordersData : []
-        console.log("Final purchase orders data:", finalData)
         
         setPurchaseOrders(finalData)
       } catch (purchaseError: any) {
-        console.error("Failed to fetch purchase orders:", purchaseError)
-        console.error("Error details:", {
-          status: purchaseError.response?.status,
-          data: purchaseError.response?.data,
-          message: purchaseError.message
-        })
         
         if (purchaseError.response?.status === 401) {
           setError("Authentication required. Please log in to view purchase orders.")
@@ -121,7 +105,6 @@ export function PurchaseManagement() {
         setPurchaseOrders([])
       }
     } catch (error: any) {
-      console.error("Failed to fetch basic data:", error)
       setError("Failed to load suppliers and products. Please refresh the page.")
     } finally {
       setLoading(false)
@@ -208,7 +191,6 @@ export function PurchaseManagement() {
       resetForm()
       setIsDialogOpen(false)
     } catch (error: any) {
-      console.error("Failed to save purchase order:", error)
       setError(error.response?.data?.error || "Failed to save purchase order")
     } finally {
       setSubmitting(false)
@@ -265,7 +247,6 @@ export function PurchaseManagement() {
         await purchaseOrdersAPI.delete(id)
         await fetchData()
       } catch (error) {
-        console.error("Failed to delete purchase order:", error)
         alert("Failed to delete purchase order")
       }
     }

@@ -105,16 +105,14 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       setProducts(products)
       
       // Debug logging
-      console.log('Total products fetched:', products.length)
+      
       if (products.length > 0) {
-        console.log('Sample product:', products[0])
         const cylinderProducts = products.filter((p: Product) => p.category === 'cylinder')
         const gasProducts = products.filter((p: Product) => p.category === 'gas')
-        console.log('Cylinder products count:', cylinderProducts.length)
-        console.log('Gas products count:', gasProducts.length)
+        
+        
       }
     } catch (error) {
-      console.error("Failed to fetch data:", error)
       setEmployees([])
       setProducts([])
     } finally {
@@ -128,7 +126,6 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       const stockData = Array.isArray(response.data) ? response.data : (response.data?.data || []);
 setStockAssignments(stockData)
     } catch (error) {
-      console.error('Failed to fetch stock assignments:', error)
       setStockAssignments([])
     }
   }
@@ -141,21 +138,17 @@ setStockAssignments(stockData)
         setAdminNotifications(data || [])
       }
     } catch (error) {
-      console.error('Failed to fetch admin notifications:', error)
       setAdminNotifications([])
     }
   }
 
   const checkForNewNotifications = async () => {
     try {
-      console.log('Checking for notifications for admin user:', user.id)
       const response = await fetch('/api/notifications?userId=' + user.id + '&type=stock_returned&unread=true')
       if (response.ok) {
         const data = await response.json()
-        console.log('Received notifications:', data)
         if (data.length > 0) {
           const latestNotification = data[0]
-          console.log('Showing notification for:', latestNotification)
           showNotification(`Stock returned by ${latestNotification.sender?.name || 'Employee'}: ${latestNotification.message}`)
           // Mark notification as read
           await fetch(`/api/notifications/${latestNotification._id}/read`, { method: 'PUT' })
@@ -163,10 +156,10 @@ setStockAssignments(stockData)
           await fetchStockAssignments()
         }
       } else {
-        console.error('Failed to fetch notifications, status:', response.status)
+        
       }
     } catch (error) {
-      console.error('Failed to check notifications:', error)
+      
     }
   }
 
@@ -194,7 +187,6 @@ setStockAssignments(stockData)
       resetForm()
       setIsDialogOpen(false)
     } catch (error: any) {
-      console.error("Failed to save employee:", error)
       alert(error.response?.data?.error || "Failed to save employee")
     }
   }
@@ -342,7 +334,6 @@ setStockAssignments(stockData)
       await fetchData()
       await fetchStockAssignments()
     } catch (error: any) {
-      console.error("Failed to assign stock:", error)
       setUpdateNotification({
         message: error.response?.data?.error || "Failed to assign stock",
         visible: true,
@@ -387,7 +378,6 @@ setStockAssignments(stockData)
         await employeesAPI.delete(id)
         await fetchData()
       } catch (error) {
-        console.error("Failed to delete employee:", error)
         alert("Failed to delete employee")
       }
     }
@@ -698,7 +688,6 @@ setStockAssignments(stockData)
               <Select
                 value={stockFormData.category}
                 onValueChange={(value: "gas" | "cylinder") => {
-                  console.log('Category selected:', value)
                   setStockFormData({ ...stockFormData, category: value, productId: "" })
                 }}
                 required

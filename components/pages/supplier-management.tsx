@@ -52,7 +52,7 @@ export function SupplierManagement() {
       const response = await suppliersAPI.getAll()
       setSuppliers(response.data)
     } catch (error) {
-      console.error("Failed to fetch suppliers:", error)
+      
     } finally {
       setLoading(false)
     }

@@ -25,7 +25,6 @@ export function Dashboard() {
   const fetchStats = async () => {
     try {
       const response = await dashboardAPI.getStats()
-      console.log('Dashboard stats response:', response.data)
       
       // Handle nested data structure if needed
       const statsData = response.data?.data || response.data || {}
@@ -41,7 +40,6 @@ export function Dashboard() {
         cylinderRevenue: Number(statsData.cylinderRefills || 0),
       })
     } catch (error) {
-      console.error("Failed to fetch stats:", error)
       // console.error("Error details:", error.response?.data || error.message)
       // Set default values on error - ensure they are displayed as 0
       setStats({

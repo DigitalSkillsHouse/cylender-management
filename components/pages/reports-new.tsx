@@ -91,7 +91,6 @@ export function Reports() {
       // Fetch initial ledger data
       await fetchLedgerData()
     } catch (error) {
-      console.error("Failed to fetch report data:", error)
       setLoading(false)
     }
   }
@@ -110,10 +109,10 @@ export function Reports() {
       if (data.success) {
         setCustomers(data.data)
       } else {
-        console.error('Ledger API error:', data.error)
+        
       }
     } catch (error) {
-      console.error("Failed to fetch ledger data:", error)
+      
     } finally {
       setLoading(false)
     }

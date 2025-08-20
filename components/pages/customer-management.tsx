@@ -50,9 +50,6 @@ export function CustomerManagement() {
       setError("")
       const response = await customersAPI.getAll()
       
-      console.log('Customers API Response:', response)
-      console.log('Customers Response Data:', response?.data)
-      
       // Handle nested data structure: response.data.data (same as other APIs)
       const customersData = Array.isArray(response?.data?.data) 
         ? response.data.data 
@@ -62,10 +59,8 @@ export function CustomerManagement() {
             ? response 
             : []
       
-      console.log('Processed customers data:', customersData)
       setCustomers(customersData)
     } catch (error: any) {
-      console.error("Failed to fetch customers:", error)
       setError("Failed to load customers. Please refresh the page.")
       setCustomers([])
     } finally {
@@ -94,7 +89,6 @@ export function CustomerManagement() {
       resetForm()
       setIsDialogOpen(false)
     } catch (error: any) {
-      console.error("Customer operation error:", error)
       setError(error.response?.data?.error || error.message || "Failed to save customer")
     } finally {
       setSubmitting(false)
