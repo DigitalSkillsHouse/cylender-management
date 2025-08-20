@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, Loader2, Edit } from "lucide-react"
+import { Package, Loader2, Edit, ChevronDown } from "lucide-react"
 import { purchaseOrdersAPI, inventoryAPI, productsAPI, suppliersAPI } from "@/lib/api"
 
 interface InventoryItem {
@@ -22,7 +22,7 @@ interface InventoryItem {
   unitPrice: number
   totalAmount: number
   status: "pending" | "received"
-  purchaseType: "gas" | "cylinder"
+  purchaseType: "gas" | "cylinder" | "multiple"
 }
 
 interface Product {
@@ -227,10 +227,10 @@ export function Inventory() {
     }
   }
 
-  // Open group dialog for aggregated received row
+  // Open group dialog for aggregated received row (by INV Number)
   const openGroupDialog = (aggItem: InventoryItem, mode: "edit" | "delete") => {
     const items = inventory.filter(
-      (i) => i.status === "received" && i.productName === aggItem.productName && i.supplierName === aggItem.supplierName
+      (i) => i.status === "received" && i.poNumber === aggItem.poNumber
     )
     setGroupItems(items)
     setGroupDialogMode(mode)
@@ -306,41 +306,44 @@ export function Inventory() {
   const pendingItems = inventory.filter((item) => item.status === "pending")
   const receivedItemsRaw = inventory.filter((item) => item.status === "received")
 
-  // Aggregate received items by Product + Supplier
+  // Aggregate received items by INV Number
   const aggregateReceived = (items: InventoryItem[]) => {
     const map = new Map<string, any>()
     items.forEach((it) => {
-      const key = `${it.productName}||${it.supplierName}`
+      const key = it.poNumber
       const curr = map.get(key) || {
         idList: [] as string[],
-        poNumbers: [] as string[],
-        productName: it.productName,
-        supplierName: it.supplierName,
+        poNumber: key,
+        productSet: new Set<string>(),
+        supplierSet: new Set<string>(),
+        typeSet: new Set<string>(),
         quantity: 0,
         totalAmount: 0,
-        purchaseType: it.purchaseType,
       }
       curr.idList.push(it.id)
-      if (it.poNumber) curr.poNumbers.push(it.poNumber)
+      curr.productSet.add(it.productName)
+      curr.supplierSet.add(it.supplierName)
+      curr.typeSet.add(it.purchaseType)
       curr.quantity += Number(it.quantity) || 0
       curr.totalAmount += Number(it.totalAmount) || 0
-      // keep latest type if differs
-      curr.purchaseType = it.purchaseType || curr.purchaseType
       map.set(key, curr)
     })
     return Array.from(map.values()).map((grp) => {
       const unitPrice = grp.quantity ? grp.totalAmount / grp.quantity : 0
+      const productNames = Array.from(grp.productSet)
+      const supplierNames = Array.from(grp.supplierSet)
+      const typeNames = Array.from(grp.typeSet)
       return {
         id: grp.idList.join(","),
-        poNumber: grp.poNumbers.join(", "),
-        productName: grp.productName,
-        supplierName: grp.supplierName,
+        poNumber: grp.poNumber,
+        productName: productNames.length === 1 ? productNames[0] : "Multiple",
+        supplierName: supplierNames.length === 1 ? supplierNames[0] : "Multiple",
         purchaseDate: "",
         quantity: grp.quantity,
         unitPrice,
         totalAmount: grp.totalAmount,
         status: "received" as const,
-        purchaseType: grp.purchaseType,
+        purchaseType: (typeNames.length === 1 ? typeNames[0] : "multiple") as any,
       } as InventoryItem
     })
   }
@@ -527,12 +530,24 @@ export function Inventory() {
                         <TableCell className="p-4">{item.productName}</TableCell>
                         <TableCell className="p-4">{item.supplierName}</TableCell>
                         <TableCell className="p-4">
-                          <Badge variant={item.purchaseType === "gas" ? "default" : "secondary"}>
-                            {item.purchaseType}
-                          </Badge>
+                          {item.purchaseType === "multiple" ? (
+                            <Badge variant="secondary">multiple</Badge>
+                          ) : (
+                            <Badge variant={item.purchaseType === "gas" ? "default" : "secondary"}>
+                              {item.purchaseType}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="p-4">{item.quantity}</TableCell>
-                        <TableCell className={`p-4 font-semibold ${getAvailableStock(item.productName).color}`}>{getAvailableStock(item.productName).stock}</TableCell>
+                        <TableCell className="p-4 font-semibold">
+                          {item.productName === "Multiple" ? (
+                            <span className="text-gray-500">-</span>
+                          ) : (
+                            <span className={getAvailableStock(item.productName).color}>
+                              {getAvailableStock(item.productName).stock}
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell className="p-4">AED {item.unitPrice.toFixed(2)}</TableCell>
                         <TableCell className="p-4 font-semibold">AED {item.totalAmount.toFixed(2)}</TableCell>
                         <TableCell className="p-4">
@@ -543,8 +558,10 @@ export function Inventory() {
                               style={{ borderColor: "#2B3068", color: "#2B3068" }}
                               className="hover:bg-slate-50 min-h-[36px]"
                               onClick={() => openGroupDialog(item, "edit")}
+                              aria-label="Expand"
+                              title="Expand"
                             >
-                              Edit
+                              <ChevronDown className="w-4 h-4" />
                             </Button>
                             <Button
                               size="sm"
@@ -674,6 +691,7 @@ export function Inventory() {
                       <TableHead className="p-3">Product</TableHead>
                       <TableHead className="p-3">Supplier</TableHead>
                       <TableHead className="p-3">Qty</TableHead>
+                      <TableHead className="p-3">Available Stock</TableHead>
                       <TableHead className="p-3">Unit Price</TableHead>
                       <TableHead className="p-3">Total</TableHead>
                       <TableHead className="p-3 text-right">Actions</TableHead>
@@ -686,6 +704,9 @@ export function Inventory() {
                         <TableCell className="p-3">{gi.productName}</TableCell>
                         <TableCell className="p-3">{gi.supplierName}</TableCell>
                         <TableCell className="p-3">{gi.quantity}</TableCell>
+                        <TableCell className={`p-3 font-semibold ${getAvailableStock(gi.productName).color}`}>
+                          {getAvailableStock(gi.productName).stock}
+                        </TableCell>
                         <TableCell className="p-3">AED {gi.unitPrice.toFixed(2)}</TableCell>
                         <TableCell className="p-3 font-semibold">AED {gi.totalAmount.toFixed(2)}</TableCell>
                         <TableCell className="p-3">
