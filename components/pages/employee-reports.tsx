@@ -2379,6 +2379,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       {receiptDialogData && (
         <ReceiptDialog
           sale={receiptDialogData}
+          useReceivingHeader
           onClose={() => setReceiptDialogData(null)}
         />
       )}

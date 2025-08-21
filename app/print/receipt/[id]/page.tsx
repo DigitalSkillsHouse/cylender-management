@@ -85,8 +85,9 @@ const ReceiptPrintPage = () => {
   const vatAmount = subTotal * 0.05
   const grandTotal = subTotal + vatAmount
 
-  // Always use Tax Invoice header for gas sales receipts (admin + employee)
-  const headerSrc = '/images/Header-Tax-invoice.jpg';
+  // Choose header based on preference passed from dialog (default to Tax header)
+  const useReceivingHeader = (typeof window !== 'undefined' && sessionStorage.getItem('useReceivingHeader') === 'true')
+  const headerSrc = useReceivingHeader ? '/images/Header-Receiving-invoice.jpg' : '/images/Header-Tax-invoice.jpg';
 
   return (
     <div className="bg-gray-100 min-h-screen print:bg-white">

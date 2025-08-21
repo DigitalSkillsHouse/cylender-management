@@ -2582,6 +2582,7 @@ export function Reports() {
       {receiptDialogData && (
         <ReceiptDialog
           sale={receiptDialogData}
+          useReceivingHeader
           onClose={() => setReceiptDialogData(null)}
         />
       )}

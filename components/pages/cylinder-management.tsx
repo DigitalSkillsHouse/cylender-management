@@ -2247,6 +2247,7 @@ export function CylinderManagement() {
       {receiptDialogData && (
         <ReceiptDialog
           sale={receiptDialogData}
+          useReceivingHeader
           onClose={() => setReceiptDialogData(null)}
         />
       )}

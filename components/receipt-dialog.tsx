@@ -34,9 +34,11 @@ interface ReceiptDialogProps {
   }
   signature?: string
   onClose: () => void
+  // If true, force the Receiving header (used by cylinder-management page only)
+  useReceivingHeader?: boolean
 }
 
-export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) {
+export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: ReceiptDialogProps) {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
@@ -64,8 +66,8 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
 
-  // Always use Tax Invoice header for gas sales receipts (admin + employee)
-  const headerSrc = '/images/Header-Tax-invoice.jpg'
+  // Default to Tax header; allow forcing Receiving header from specific pages
+  const headerSrc = useReceivingHeader ? '/images/Header-Receiving-invoice.jpg' : '/images/Header-Tax-invoice.jpg'
 
   // Convert signature to PNG with transparent background
   const convertToPNG = (signatureData: string): Promise<string> => {
@@ -99,6 +101,8 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
     if (adminSignature) {
       sessionStorage.setItem('adminSignature', adminSignature)
     }
+    // Persist header preference for print page
+    sessionStorage.setItem('useReceivingHeader', useReceivingHeader ? 'true' : 'false')
     window.open(`/print/receipt/${sale._id}`, '_blank');
   }
 
