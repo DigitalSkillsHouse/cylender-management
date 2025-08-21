@@ -312,6 +312,20 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
   const handleSecuritySelect = (rec: any) => {
     const isCash = rec?.paymentMethod === 'cash'
+    // Map items from selected record (if any) into form's items array
+    const mappedItems = Array.isArray(rec?.items)
+      ? rec.items.map((it: any) => {
+          const prod = it.productId ? getProductById(it.productId) : undefined
+          return {
+            productId: String(it.productId || ''),
+            productName: String(it.productName || prod?.name || ''),
+            cylinderSize: String(it.cylinderSize || prod?.cylinderType || ''),
+            quantity: Number(it.quantity || 0),
+            amount: Number(it.amount || 0),
+          }
+        })
+      : []
+
     setFormData(prev => ({
       ...prev,
       paymentOption: 'debit',
@@ -319,7 +333,13 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       cashAmount: isCash ? Number(rec?.cashAmount || 0) : 0,
       bankName: !isCash ? (rec?.bankName || '') : '',
       checkNumber: !isCash ? (rec?.checkNumber || '') : '',
+      items: mappedItems.length > 0 ? mappedItems : prev.items,
     }))
+    // Reset draft UI state
+    setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+    setDraftProductSearchTerm("")
+    setShowDraftProductSuggestions(false)
+    setEditingIndex(null)
     setShowSecurityDialog(false)
   }
 
