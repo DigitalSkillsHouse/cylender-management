@@ -291,6 +291,38 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: 
             </table>
           </div>
 
+          <Separator />
+
+          {/* Terms & Conditions for Deposit (shown above footer) */}
+          {String(sale?.type || '').toLowerCase() === 'deposit' && (
+            <div className="mt-4 text-[10px] leading-snug text-gray-700">
+              <h4 className="font-semibold mb-2">TERMS & CONDITIONS FOR CYLINDER(S) (ON DEPOSIT) FOR GAS SUPPLY</h4>
+              <ol className="list-decimal pl-4 space-y-1">
+                <li>
+                  Syed Tayyab Industrial Gas L.L.C. (herein after referred to as STIG) cylinder(s) (on deposit/loan) for
+                  gas supply held by the customer is/are the property of STIG and will remain so while in use by customer unless sold.
+                  The customer has no right to the cylinder(s) and undertakes & agrees to restrict the usage and refilling of cylinder(s)
+                  regularly Loan/Exchange/Damage from STIG only.
+                </li>
+                <li>
+                  If any cylinder(s) is/are kept in customer's custody for a period of more than 30 days without refilling at STIG,
+                  the same will be considered as cylinder(s) purchased by customer from STIG. The cylinders will not be accepted if
+                  returned after the above period. In such case the deposit paid or security cheque is not given will not be refunded/returned.
+                  If the deposit paid or the security cheque is not given, the customer is able to pay the value of cylinder(s) immediately.
+                  The customer is also liable to pay a rental charge of AED. 10/- per day per cylinder for any delay in paying the value of cylinder (s).
+                </li>
+                <li>
+                  STIG will refund the cash deposit paid/return security cheque given (Except for the cases mentioned in point no. 2)
+                  when the customer return the cylinder in good condition along with original deposit invoice).
+                </li>
+                <li>
+                  In the event of either partial or total damage to the cylinder(s) while in the custody of the customer, is liable to
+                  compensate DEF for the value of partial damage as determined by STIG.
+                </li>
+              </ol>
+            </div>
+          )}
+
           {/* Footer with Signature */}
           <div className="mt-8 print-area relative">
             {/* Footer Image */}
@@ -332,7 +364,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: 
               </div>
             )}
           </div>
-          </div>
+        </div>
 
           {/* Action Buttons - Moved to bottom */}
           <div className="flex gap-3 justify-center mt-8 no-print">
