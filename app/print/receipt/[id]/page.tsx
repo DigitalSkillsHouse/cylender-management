@@ -85,9 +85,16 @@ const ReceiptPrintPage = () => {
   const vatAmount = subTotal * 0.05
   const grandTotal = subTotal + vatAmount
 
-  // Choose header based on preference passed from dialog (default to Tax header)
+  // Choose header by transaction type first (Deposit/Return),
+  // then allow forcing Receiving header via sessionStorage, else default to Tax header
   const useReceivingHeader = (typeof window !== 'undefined' && sessionStorage.getItem('useReceivingHeader') === 'true')
-  const headerSrc = useReceivingHeader ? '/images/Header-Receiving-invoice.jpg' : '/images/Header-Tax-invoice.jpg';
+  const headerSrc = (() => {
+    const t = (sale?.type || '').toString().toLowerCase()
+    if (t === 'deposit') return '/images/Header-deposit-invoice.jpg'
+    if (t === 'return') return '/images/Header-Return-invoice.jpg'
+    if (useReceivingHeader) return '/images/Header-Receiving-invoice.jpg'
+    return '/images/Header-Tax-invoice.jpg'
+  })()
 
   return (
     <div className="bg-gray-100 min-h-screen print:bg-white">
