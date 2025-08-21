@@ -68,13 +68,27 @@ export async function POST(request) {
       .populate("customer", "name phone address email")
       .populate("product", "name category cylinderType");
 
-        // Update product stock
-    if (data.product && data.quantity) {
-      const product = await Product.findById(data.product);
-      if (product) {
-        product.currentStock += Number(data.quantity); // Add stock back on return
-        await product.save();
+    // Update product stock (supports single-item or multi-item payloads)
+    try {
+      if (Array.isArray(data.items) && data.items.length > 0) {
+        for (const it of data.items) {
+          if (!it?.productId || !it?.quantity) continue
+          const product = await Product.findById(it.productId)
+          if (product) {
+            product.currentStock += Number(it.quantity) || 0
+            await product.save()
+          }
+        }
+      } else if (data.product && data.quantity) {
+        const product = await Product.findById(data.product)
+        if (product) {
+          product.currentStock += Number(data.quantity) || 0 // Add stock back on return
+          await product.save()
+        }
       }
+    } catch (stockErr) {
+      console.error("[cylinders/return] Failed to update product stock:", stockErr)
+      // Do not fail the whole request if stock update trips; transaction is still recorded
     }
 
     return NextResponse.json(populatedTransaction, { status: 201 });

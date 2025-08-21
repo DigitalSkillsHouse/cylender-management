@@ -752,8 +752,8 @@ export function CylinderManagement() {
       alert('Please select product, size and quantity')
       return
     }
-    // stock validation (skip for refill)
-    if (formData.type !== 'refill') {
+    // stock validation (skip only for return)
+    if (formData.type !== 'return') {
       const ok = validateItemStock(draftItem.productId, Number(draftItem.quantity) || 0)
       if (!ok) return
     }
@@ -809,7 +809,7 @@ export function CylinderManagement() {
     const p = getProductById(productId)
     if (!p) return true
     // Refill skips stock validation
-    if (formData.type === 'refill') return true
+    if (formData.type === 'return') return true
     if (qty <= p.currentStock) return true
     alert(`Insufficient stock! Available: ${p.currentStock}, Requested: ${qty}`)
     return false
@@ -1031,6 +1031,19 @@ export function CylinderManagement() {
       }
 
       console.log("Form validation passed, creating transaction data:", formData);
+
+      // Submit-time stock validation for all types except return
+      if (formData.type !== 'return') {
+        if (formData.items.length === 0) {
+          const ok = validateStock(formData.productId, Number(formData.quantity) || 0)
+          if (!ok) return
+        } else {
+          for (const it of formData.items) {
+            const ok = validateStock(it.productId, Number(it.quantity) || 0)
+            if (!ok) return
+          }
+        }
+      }
 
       // Build payload: if items exist, aggregate totals and include items array
       const itemsTotal = formData.items.length > 0 ? totalItemsAmount() : Number(formData.amount) || 0
@@ -1397,6 +1410,10 @@ export function CylinderManagement() {
       setStockValidationMessage("Product not found")
       setShowStockValidationPopup(true)
       return false
+    }
+    // Skip stock validation only for return transactions
+    if (formData.type === 'return') {
+      return true
     }
 
     if (requestedQuantity > selectedProduct.currentStock) {
