@@ -1132,78 +1132,54 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   }
 
   const handleSignatureComplete = (signature: string) => {
-    console.log('Reports - Signature received:', signature)
-    console.log('Reports - Signature length:', signature?.length)
-    console.log('Reports - Pending customer:', pendingCustomer?.name)
-    
     // Set signature state for future use
     setCustomerSignature(signature)
     setShowSignatureDialog(false)
     
     // Directly open receipt dialog with the pending customer and signature embedded
     if (pendingCustomer) {
-      console.log('Reports - Opening receipt dialog with signature embedded')
-      
-      // Use the same data structure as "All Transactions" tab for receipt generation
-      const allTransactions = [
-        // Add gas sales transactions (filter by status if needed)
-        ...(pendingCustomer.recentSales || [])
-          .filter(entry => {
-            if (filters.status === 'all') return true;
-            return entry.paymentStatus === filters.status;
-          })
-          .map(entry => ({
-            ...entry,
-            _id: `ledger-${entry._id}`,
-            createdAt: entry.createdAt,
-            type: 'gas_sale',
-            displayType: 'Gas Sale',
-            description: entry.items.map((item: any) => `${item.product?.name || 'Unknown Product'} (${item.quantity}x)`).join(', '),
-            amount: entry.totalAmount,
-            paidAmount: entry.amountPaid || 0,
-            status: entry.paymentStatus,
-          })),
-        // Add cylinder transactions (filter by status if needed, EXCLUDE refills from amount calculations)
-        ...(pendingCustomer.recentCylinderTransactions || [])
-          .filter(transaction => {
-            if (filters.status === 'all') return true;
-            return transaction.status === filters.status;
-          })
-          .map(transaction => ({
-            ...transaction,
-            _id: `cylinder-${transaction._id}`,
-            createdAt: transaction.createdAt,
-            type: transaction.type,
-            displayType: `Cylinder ${transaction.type}`,
-            description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
-            // EXCLUDE refills from amount totals
-            amount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
-            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
-            status: transaction.status,
-          }))
-      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      // Build receipt items as separate rows per product for gas sales, plus cylinder transactions
+      const filteredSales = (pendingCustomer.recentSales || []).filter((entry: any) => {
+        if (filters.status === 'all') return true
+        return entry.paymentStatus === filters.status
+      })
 
-      // Create receipt items from All Transactions data
-      // IMPORTANT: Use transaction total amounts, not paid amounts (pending sales would otherwise show 0)
-      const items = allTransactions.map((transaction, index) => {
-        const qty = transaction.type === 'gas_sale'
-          ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1)
-          : (transaction.quantity || 1)
-        const lineTotal = Number(transaction.amount || 0)
-        const unitPrice = qty > 0 ? lineTotal / qty : lineTotal
-        return ({
+      const gasItems = filteredSales.flatMap((entry: any) =>
+        (entry.items || []).map((it: any) => ({
           product: {
-            name: `${transaction.displayType} - ${transaction.description}`,
-            price: unitPrice,
+            name: it?.product?.name || 'Unknown Product',
+            price: Number(it?.price || 0),
+          },
+          quantity: Number(it?.quantity || 1),
+          price: Number(it?.price || 0),
+          total: Number(it?.total ?? ((Number(it?.price || 0)) * Number(it?.quantity || 1)))
+        }))
+      )
+
+      // Cylinder transactions (deposit/return have amount; refills treated as 0 amount in receipt)
+      const filteredCyl = (pendingCustomer.recentCylinderTransactions || []).filter((t: any) => {
+        if (filters.status === 'all') return true
+        return t.status === filters.status
+      })
+      const cylItems = filteredCyl.map((t: any) => {
+        const qty = Number(t?.quantity || 1)
+        const total = t?.type === 'refill' ? 0 : Number(t?.amount || 0)
+        const unit = qty > 0 ? (total / qty) : total
+        return {
+          product: {
+            name: `Cylinder ${t?.type} - ${t?.cylinderSize}`,
+            price: unit,
           },
           quantity: qty,
-          price: unitPrice,
-          total: lineTotal,
-        })
-      });
+          price: unit,
+          total: total,
+        }
+      })
 
-      // Calculate total amount using transaction.amount (refills already excluded in allTransactions mapping)
-      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
+      const items = [...gasItems, ...cylItems]
+
+      // Calculate total amount as sum of item totals
+      const totalAmount = items.reduce((sum, it) => sum + (Number(it.total) || 0), 0)
       
       // If no items, add a placeholder
       if (items.length === 0) {
@@ -1498,65 +1474,48 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       setPendingCustomer(customer)
       setShowSignatureDialog(true)
     } else {
-      // Use the same data structure as "All Transactions" tab for receipt generation
-      const allTransactions = [
-        // Add gas sales transactions (filter by status if needed)
-        ...(customer.recentSales || [])
-          .filter(entry => {
-            if (filters.status === 'all') return true;
-            return entry.paymentStatus === filters.status;
-          })
-          .map(entry => ({
-            ...entry,
-            _id: `ledger-${entry._id}`,
-            createdAt: entry.createdAt,
-            type: 'gas_sale',
-            displayType: 'Gas Sale',
-            description: entry.items.map((item: any) => `${item.product?.name || 'Unknown Product'} (${item.quantity}x)`).join(', '),
-            amount: entry.totalAmount,
-            paidAmount: entry.amountPaid || 0,
-            status: entry.paymentStatus,
-          })),
-        // Add cylinder transactions (filter by status if needed, EXCLUDE refills from amount calculations)
-        ...(customer.recentCylinderTransactions || [])
-          .filter(transaction => {
-            if (filters.status === 'all') return true;
-            return transaction.status === filters.status;
-          })
-          .map(transaction => ({
-            ...transaction,
-            _id: `cylinder-${transaction._id}`,
-            createdAt: transaction.createdAt,
-            type: transaction.type,
-            displayType: `Cylinder ${transaction.type}`,
-            description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
-            // EXCLUDE refills from amount totals
-            amount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
-            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
-            status: transaction.status,
-          }))
-      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      // Build receipt items as separate rows per product for gas sales, plus cylinder transactions
+      const filteredSales = (customer.recentSales || []).filter((entry: any) => {
+        if (filters.status === 'all') return true
+        return entry.paymentStatus === filters.status
+      })
 
-      // Create receipt items from All Transactions data (use amount-based totals)
-      const items = allTransactions.map((transaction, index) => {
-        const qty = transaction.type === 'gas_sale'
-          ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1)
-          : (transaction.quantity || 1)
-        const lineTotal = Number(transaction.amount || 0)
-        const unitPrice = qty > 0 ? lineTotal / qty : lineTotal
-        return ({
+      const gasItems = filteredSales.flatMap((entry: any) =>
+        (entry.items || []).map((it: any) => ({
           product: {
-            name: `${transaction.displayType} - ${transaction.description}`,
-            price: unitPrice,
+            name: it?.product?.name || 'Unknown Product',
+            price: Number(it?.price || 0),
+          },
+          quantity: Number(it?.quantity || 1),
+          price: Number(it?.price || 0),
+          total: Number(it?.total ?? ((Number(it?.price || 0)) * Number(it?.quantity || 1)))
+        }))
+      )
+
+      // Cylinder transactions (deposit/return have amount; refills treated as 0 amount in receipt)
+      const filteredCyl = (customer.recentCylinderTransactions || []).filter((t: any) => {
+        if (filters.status === 'all') return true
+        return t.status === filters.status
+      })
+      const cylItems = filteredCyl.map((t: any) => {
+        const qty = Number(t?.quantity || 1)
+        const total = t?.type === 'refill' ? 0 : Number(t?.amount || 0)
+        const unit = qty > 0 ? (total / qty) : total
+        return {
+          product: {
+            name: `Cylinder ${t?.type} - ${t?.cylinderSize}`,
+            price: unit,
           },
           quantity: qty,
-          price: unitPrice,
-          total: lineTotal,
-        })
-      });
+          price: unit,
+          total: total,
+        }
+      })
 
-      // Calculate total amount using transaction.amount
-      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
+      const items = [...gasItems, ...cylItems]
+
+      // Calculate total amount as sum of item totals
+      const totalAmount = items.reduce((sum, it) => sum + (Number(it.total) || 0), 0)
       
       // If no items, add a placeholder
       if (items.length === 0) {

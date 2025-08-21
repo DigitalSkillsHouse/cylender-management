@@ -1367,67 +1367,49 @@ export function Reports() {
     
     // Directly open receipt dialog with the pending customer and signature embedded
     if (pendingCustomer) {
-      
-      // Use the same data structure as "All Transactions" tab for receipt generation
-      const allTransactions = [
-        // Add gas sales transactions (filter by status if needed)
-        ...(pendingCustomer.recentSales || [])
-          .filter(entry => {
-            if (filters.status === 'all') return true;
-            return entry.paymentStatus === filters.status;
-          })
-          .map(entry => ({
-            ...entry,
-            _id: `ledger-${entry._id}`,
-            createdAt: entry.createdAt,
-            type: 'gas_sale',
-            displayType: 'Gas Sale',
-            description: entry.items.map((item: any) => `${item.product?.name || 'Unknown Product'} (${item.quantity}x)`).join(', '),
-            amount: entry.totalAmount,
-            paidAmount: entry.amountPaid || 0,
-            status: entry.paymentStatus,
-          })),
-        // Add cylinder transactions (filter by status if needed, EXCLUDE refills from amount calculations)
-        ...(pendingCustomer.recentCylinderTransactions || [])
-          .filter(transaction => {
-            if (filters.status === 'all') return true;
-            return transaction.status === filters.status;
-          })
-          .map(transaction => ({
-            ...transaction,
-            _id: `cylinder-${transaction._id}`,
-            createdAt: transaction.createdAt,
-            type: transaction.type,
-            displayType: `Cylinder ${transaction.type}`,
-            description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
-            // EXCLUDE refills from amount totals
-            amount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
-            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
-            status: transaction.status,
-          }))
-      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-      // Create receipt items from All Transactions data
-      // IMPORTANT: Use transaction total amounts, not paid amounts (pending sales would otherwise show 0)
-      const items = allTransactions.map((transaction, index) => {
-        const qty = transaction.type === 'gas_sale'
-          ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1)
-          : (transaction.quantity || 1)
-        const lineTotal = Number(transaction.amount || 0)
-        const unitPrice = qty > 0 ? lineTotal / qty : lineTotal
-        return ({
+      // Build receipt items as separate rows per product for gas sales, plus cylinder transactions
+      const filteredSales = (pendingCustomer.recentSales || []).filter((entry: any) => {
+        if (filters.status === 'all') return true
+        return entry.paymentStatus === filters.status
+      })
+
+      const gasItems = filteredSales.flatMap((entry: any) =>
+        (entry.items || []).map((it: any) => ({
           product: {
-            name: `${transaction.displayType} - ${transaction.description}`,
-            price: unitPrice,
+            name: it?.product?.name || 'Unknown Product',
+            price: Number(it?.price || 0),
+          },
+          quantity: Number(it?.quantity || 1),
+          price: Number(it?.price || 0),
+          total: Number(it?.total ?? ((Number(it?.price || 0)) * Number(it?.quantity || 1)))
+        }))
+      )
+
+      // Cylinder transactions (deposit/return have amount; refills treated as 0 amount in receipt)
+      const filteredCyl = (pendingCustomer.recentCylinderTransactions || []).filter((t: any) => {
+        if (filters.status === 'all') return true
+        return t.status === filters.status
+      })
+      const cylItems = filteredCyl.map((t: any) => {
+        const qty = Number(t?.quantity || 1)
+        const total = t?.type === 'refill' ? 0 : Number(t?.amount || 0)
+        const unit = qty > 0 ? (total / qty) : total
+        return {
+          product: {
+            name: `Cylinder ${t?.type} - ${t?.cylinderSize}`,
+            price: unit,
           },
           quantity: qty,
-          price: unitPrice,
-          total: lineTotal,
-        })
-      });
+          price: unit,
+          total: total,
+        }
+      })
 
-      // Calculate total amount using transaction.amount (refills already excluded via amount=0)
-      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
+      const items = [...gasItems, ...cylItems]
+
+      // Calculate total amount as sum of item totals
+      const totalAmount = items.reduce((sum, it) => sum + (Number(it.total) || 0), 0)
       
       // If no items, add a placeholder
       if (items.length === 0) {
@@ -1608,65 +1590,48 @@ export function Reports() {
       setPendingCustomer(customer)
       setShowSignatureDialog(true)
     } else {
-      // Use the same data structure as "All Transactions" tab for receipt generation
-      const allTransactions = [
-        // Add gas sales transactions (filter by status if needed)
-        ...(customer.recentSales || [])
-          .filter(entry => {
-            if (filters.status === 'all') return true;
-            return entry.paymentStatus === filters.status;
-          })
-          .map(entry => ({
-            ...entry,
-            _id: `ledger-${entry._id}`,
-            createdAt: entry.createdAt,
-            type: 'gas_sale',
-            displayType: 'Gas Sale',
-            description: entry.items.map((item: any) => `${item.product?.name || 'Unknown Product'} (${item.quantity}x)`).join(', '),
-            amount: entry.totalAmount,
-            paidAmount: entry.amountPaid || 0,
-            status: entry.paymentStatus,
-          })),
-        // Add cylinder transactions (filter by status if needed, EXCLUDE refills from amount calculations)
-        ...(customer.recentCylinderTransactions || [])
-          .filter(transaction => {
-            if (filters.status === 'all') return true;
-            return transaction.status === filters.status;
-          })
-          .map(transaction => ({
-            ...transaction,
-            _id: `cylinder-${transaction._id}`,
-            createdAt: transaction.createdAt,
-            type: transaction.type,
-            displayType: `Cylinder ${transaction.type}`,
-            description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
-            // EXCLUDE refills from amount totals
-            amount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
-            paidAmount: transaction.type === 'refill' ? 0 : (transaction.amount || 0),
-            status: transaction.status,
-          }))
-      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      // Build receipt items as separate rows per product for gas sales, plus cylinder transactions
+      const filteredSales = (customer.recentSales || []).filter((entry: any) => {
+        if (filters.status === 'all') return true
+        return entry.paymentStatus === filters.status
+      })
 
-      // Create receipt items from All Transactions data (use amount-based totals)
-      const items = allTransactions.map((transaction, index) => {
-        const qty = transaction.type === 'gas_sale'
-          ? (transaction.items?.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0) || 1)
-          : (transaction.quantity || 1)
-        const lineTotal = Number(transaction.amount || 0)
-        const unitPrice = qty > 0 ? lineTotal / qty : lineTotal
-        return ({
+      const gasItems = filteredSales.flatMap((entry: any) =>
+        (entry.items || []).map((it: any) => ({
           product: {
-            name: `${transaction.displayType} - ${transaction.description}`,
-            price: unitPrice,
+            name: it?.product?.name || 'Unknown Product',
+            price: Number(it?.price || 0),
+          },
+          quantity: Number(it?.quantity || 1),
+          price: Number(it?.price || 0),
+          total: Number(it?.total ?? ((Number(it?.price || 0)) * Number(it?.quantity || 1)))
+        }))
+      )
+
+      // Cylinder transactions (deposit/return have amount; refills treated as 0 amount in receipt)
+      const filteredCyl = (customer.recentCylinderTransactions || []).filter((t: any) => {
+        if (filters.status === 'all') return true
+        return t.status === filters.status
+      })
+      const cylItems = filteredCyl.map((t: any) => {
+        const qty = Number(t?.quantity || 1)
+        const total = t?.type === 'refill' ? 0 : Number(t?.amount || 0)
+        const unit = qty > 0 ? (total / qty) : total
+        return {
+          product: {
+            name: `Cylinder ${t?.type} - ${t?.cylinderSize}`,
+            price: unit,
           },
           quantity: qty,
-          price: unitPrice,
-          total: lineTotal,
-        })
-      });
+          price: unit,
+          total: total,
+        }
+      })
 
-      // Calculate total amount using transaction.amount
-      const totalAmount = allTransactions.reduce((sum, transaction) => sum + (Number(transaction.amount) || 0), 0);
+      const items = [...gasItems, ...cylItems]
+
+      // Calculate total amount as sum of item totals
+      const totalAmount = items.reduce((sum, it) => sum + (Number(it.total) || 0), 0)
       
       // If no items, add a placeholder
       if (items.length === 0) {
@@ -2303,23 +2268,25 @@ export function Reports() {
                             <TabsContent value="all" className="mt-4">
                               {(() => {
                                 const allTransactions = [
-                                  // Add gas sales transactions (filter by status if needed)
+                                  // Gas sales flattened to one row per item
                                   ...(customer.recentSales || [])
                                     .filter(entry => {
                                       if (filters.status === 'all') return true;
                                       return entry.paymentStatus === filters.status;
                                     })
-                                    .map(entry => ({
-                                      ...entry,
-                                      _id: `ledger-${entry._id}`,
-                                      createdAt: entry.createdAt,
-                                      type: 'gas_sale',
-                                      displayType: 'Gas Sale',
-                                      description: entry.items.map((item: any) => `${item.product?.name || 'Unknown Product'} (${item.quantity}x)`).join(', '),
-                                      amount: entry.totalAmount,
-                                      paidAmount: entry.amountPaid || 0,
-                                      status: entry.paymentStatus,
-                                    })),
+                                    .flatMap(entry =>
+                                      (entry.items || []).map((item: any, idx: number) => ({
+                                        ...entry,
+                                        _id: `ledger-${entry._id}-${item?._id || item?.product?._id || idx}`,
+                                        createdAt: entry.createdAt,
+                                        type: 'gas_sale',
+                                        displayType: 'Gas Sale',
+                                        description: `${item.product?.name || 'Unknown Product'} (${item.quantity}x)`,
+                                        amount: Number(item?.total ?? ((Number(item?.price || 0)) * Number(item?.quantity || 1))) || 0,
+                                        paidAmount: entry.amountPaid || 0,
+                                        status: entry.paymentStatus,
+                                      }))
+                                    ),
                                   // Add cylinder transactions (filter by status if needed)
                                   ...(customer.recentCylinderTransactions || [])
                                     .filter(transaction => {
@@ -2384,7 +2351,12 @@ export function Reports() {
                                   return sale.paymentStatus === filters.status;
                                 }) || [];
                                 
-                                return filteredSales.length > 0 ? (
+                                // Flatten to one row per item (invoice items as separate rows)
+                                const itemRows = filteredSales.flatMap((sale: any) =>
+                                  (sale.items || []).map((item: any, idx: number) => ({ sale, item, idx }))
+                                )
+
+                                return itemRows.length > 0 ? (
                                   <Table>
                                     <TableHeader>
                                       <TableRow>
@@ -2394,33 +2366,29 @@ export function Reports() {
                                         <TableHead>Paid Amount</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead>Action</TableHead>
-                                        <TableHead>Items</TableHead>
+                                        <TableHead>Item</TableHead>
                                       </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                      {filteredSales.map((sale) => {
-                                        return (
-                                          <TableRow key={sale._id}>
-                                            <TableCell className="font-mono">{sale.invoiceNumber}</TableCell>
-                                            <TableCell>{formatDate(sale.createdAt)}</TableCell>
-                                            <TableCell>{formatCurrency(sale.totalAmount)}</TableCell>
-                                            <TableCell>{formatCurrency(sale.amountPaid || 0)}</TableCell>
-                                            <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
-                                            <TableCell>
-                                              {String(sale.paymentStatus).toLowerCase() === 'pending' && (
-                                                <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
-                                                  Receive Amount
-                                                </Button>
-                                              )}
-                                            </TableCell>
-                                            <TableCell>
-                                              {sale.items?.map((item: any) => (
-                                                <div key={item._id || item.product?._id}>{item.product?.name || 'N/A'} (x{item.quantity})</div>
-                                              ))}
-                                            </TableCell>
-                                          </TableRow>
-                                        );
-                                      })}
+                                      {itemRows.map(({ sale, item, idx }) => (
+                                        <TableRow key={`${sale._id}-${item?._id || item?.product?._id || idx}`}>
+                                          <TableCell className="font-mono">{sale.invoiceNumber}</TableCell>
+                                          <TableCell>{formatDate(sale.createdAt)}</TableCell>
+                                          <TableCell>{formatCurrency(sale.totalAmount)}</TableCell>
+                                          <TableCell>{formatCurrency(sale.amountPaid || 0)}</TableCell>
+                                          <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
+                                          <TableCell>
+                                            {String(sale.paymentStatus).toLowerCase() === 'pending' && (
+                                              <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
+                                                Receive Amount
+                                              </Button>
+                                            )}
+                                          </TableCell>
+                                          <TableCell>
+                                            <div>{item?.product?.name || 'N/A'} (x{item?.quantity})</div>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
                                     </TableBody>
                                   </Table>
                                 ) : (
