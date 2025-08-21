@@ -98,6 +98,12 @@ const EmployeeCylinderTransactionSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    // Optional link for return transactions to reference the deposit they clear
+    linkedDeposit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EmployeeCylinderTransaction",
+      required: false,
+    },
   },
   {
     timestamps: true,
@@ -112,6 +118,8 @@ EmployeeCylinderTransactionSchema.index({ customer: 1, createdAt: -1 })
 EmployeeCylinderTransactionSchema.index({ supplier: 1, createdAt: -1 })
 EmployeeCylinderTransactionSchema.index({ type: 1 })
 EmployeeCylinderTransactionSchema.index({ status: 1 })
+// Index to quickly find returns linked to a deposit
+EmployeeCylinderTransactionSchema.index({ linkedDeposit: 1 })
 
 export default mongoose.models.EmployeeCylinderTransaction || 
   mongoose.model("EmployeeCylinderTransaction", EmployeeCylinderTransactionSchema);

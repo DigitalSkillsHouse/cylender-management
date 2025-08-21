@@ -13,6 +13,8 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url)
     const employeeId = searchParams.get('employeeId')
     const fetchAll = searchParams.get('all') === 'true'
+    const customerId = searchParams.get('customerId')
+    const type = searchParams.get('type')
 
     let query = {}
 
@@ -25,6 +27,14 @@ export async function GET(request) {
         { error: "Employee ID is required, or specify 'all=true' for admin access." },
         { status: 400 }
       )
+    }
+
+    // Optional filters to narrow down results (used by security selection prompt)
+    if (customerId) {
+      query.customer = customerId
+    }
+    if (type) {
+      query.type = type
     }
 
     let transactions
@@ -84,7 +94,8 @@ export async function POST(request) {
       checkNumber,
       status,
       notes,
-      items // optional multi-item array
+      items, // optional multi-item array
+      linkedDeposit,
     } = body
 
     // Validate required fields: either items[] exists with at least 1 entry, or single product fields provided
@@ -199,6 +210,18 @@ export async function POST(request) {
       transactionData.invoiceNumber = await getNextCylinderInvoice()
     }
 
+    // Enforce: deposit transactions are always pending (they clear only via linked returns)
+    if (type === 'deposit') {
+      transactionData.status = 'pending'
+    }
+
+    // Attach linkedDeposit only for return transactions if provided and valid
+    if (type === 'return' && linkedDeposit && mongoose.isValidObjectId(linkedDeposit)) {
+      transactionData.linkedDeposit = new mongoose.Types.ObjectId(linkedDeposit)
+      // For return transactions, default status should be 'cleared' as per UI logic
+      if (!transactionData.status) transactionData.status = 'cleared'
+    }
+
     let savedTransaction
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -224,6 +247,26 @@ export async function POST(request) {
       .populate("product", "name")
       .populate({ path: 'items.productId', model: 'Product', select: 'name', strictPopulate: false })
     console.log('[POST /api/employee-cylinders] populated itemsLen=', Array.isArray(populatedTransaction?.items) ? populatedTransaction.items.length : 0)
+
+    // If this is a return linked to a deposit, update the deposit's status based on total returned quantity
+    if (type === 'return' && transactionData.linkedDeposit) {
+      try {
+        const depositId = transactionData.linkedDeposit
+        const depositTx = await EmployeeCylinderTransaction.findById(depositId)
+        if (depositTx && depositTx.type === 'deposit') {
+          const agg = await EmployeeCylinderTransaction.aggregate([
+            { $match: { linkedDeposit: depositId, type: 'return' } },
+            { $group: { _id: '$linkedDeposit', totalReturned: { $sum: '$quantity' } } },
+          ])
+          const returnedQty = (agg && agg[0] && agg[0].totalReturned) ? agg[0].totalReturned : 0
+          const newStatus = returnedQty >= (depositTx.quantity || 0) ? 'cleared' : 'pending'
+          await EmployeeCylinderTransaction.findByIdAndUpdate(depositId, { status: newStatus })
+          console.log('[employee-cylinders] Updated deposit', String(depositId), 'status ->', newStatus, 'returned/required=', returnedQty, '/', depositTx.quantity)
+        }
+      } catch (e) {
+        console.error('[employee-cylinders] Failed to update linked deposit status:', e?.message)
+      }
+    }
 
     console.log("Employee cylinder transaction created successfully:", populatedTransaction._id)
     return NextResponse.json(populatedTransaction, { status: 201 })

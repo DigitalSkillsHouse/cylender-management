@@ -178,6 +178,17 @@ export async function POST(request) {
       data.invoiceNumber = await getNextCylinderInvoice()
     }
 
+    // Enforce status rules similar to employee cylinders API
+    const type = data.type;
+    if (type === 'deposit') {
+      // Deposits must start as pending regardless of client input
+      data.status = 'pending'
+    }
+    if (type === 'return') {
+      // Returns are immediately cleared
+      data.status = 'cleared'
+    }
+
     let transaction;
     try {
       transaction = await CylinderTransaction.create(data);
@@ -197,6 +208,35 @@ export async function POST(request) {
         throw e;
       }
     }
+
+    // If this is a return linked to a deposit, update the deposit's status
+    try {
+      if (type === 'return' && data.linkedDeposit) {
+        const depositId = String(data.linkedDeposit)
+        const depositTx = await CylinderTransaction.findOne({ _id: depositId, type: 'deposit' }).lean()
+        if (depositTx) {
+          // Compute total deposited quantity (items-aware)
+          const depositQty = Array.isArray(depositTx.items) && depositTx.items.length > 0
+            ? depositTx.items.reduce((s, it) => s + (Number(it?.quantity) || 0), 0)
+            : (Number(depositTx.quantity) || 0)
+
+          // Sum all returned quantities linked to this deposit (including this one we just created)
+          const linkedReturns = await CylinderTransaction.find({ linkedDeposit: depositId, type: 'return' }).lean()
+          const totalReturnedQty = linkedReturns.reduce((sum, r) => {
+            const q = Array.isArray(r.items) && r.items.length > 0
+              ? r.items.reduce((s, it) => s + (Number(it?.quantity) || 0), 0)
+              : (Number(r.quantity) || 0)
+            return sum + q
+          }, 0)
+
+          const newStatus = totalReturnedQty >= depositQty ? 'cleared' : 'pending'
+          await CylinderTransaction.updateOne({ _id: depositId }, { $set: { status: newStatus } })
+        }
+      }
+    } catch (linkErr) {
+      console.warn('[cylinders][POST] Linked deposit status update failed:', linkErr?.message);
+    }
+
     const populatedTransaction = await CylinderTransaction.findById(transaction._id)
       .populate("customer", "name phone address email")
       .populate("supplier", "companyName contactPerson phone email")

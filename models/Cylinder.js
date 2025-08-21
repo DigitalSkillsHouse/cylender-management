@@ -66,6 +66,11 @@ const CylinderTransactionSchema = new mongoose.Schema(
         },
       },
     ],
+    // Optional link: for return transactions, reference the deposit being cleared
+    linkedDeposit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CylinderTransaction",
+    },
     depositAmount: {
       type: Number,
       default: 0,

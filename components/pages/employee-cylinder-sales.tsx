@@ -70,6 +70,7 @@ interface CylinderTransaction {
   notes: string
   createdAt: string
   securityAmount?: number // Added for optional use
+  linkedDeposit?: string
   // Multi-items
   items?: Array<{
     productId: string
@@ -174,6 +175,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     status: "pending",
     notes: "",
     securityAmount: 0, // Added for security deposit
+    linkedDeposit: "",
     // Multi-items
     items: [] as Array<{
       productId: string
@@ -286,6 +288,20 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     }
   }, [formData.type, formData.status])
 
+  // Always keep deposit transactions as pending (clears only by linked returns)
+  useEffect(() => {
+    if (formData.type === 'deposit' && formData.status !== 'pending') {
+      setFormData(prev => ({ ...prev, status: 'pending' }))
+    }
+  }, [formData.type, formData.status])
+
+  // If editing a deposit and user changes type to return, auto-link to the edited deposit id
+  useEffect(() => {
+    if (formData.type === 'return' && !formData.linkedDeposit && editingTransactionId) {
+      setFormData(prev => ({ ...prev, linkedDeposit: editingTransactionId }))
+    }
+  }, [formData.type, formData.linkedDeposit, editingTransactionId])
+
   // Fetch previous security records and prompt when returning and customer selected
   useEffect(() => {
     const shouldPrompt = formData.type === 'return' && !!formData.customer && !securityPrompted
@@ -334,6 +350,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       bankName: !isCash ? (rec?.bankName || '') : '',
       checkNumber: !isCash ? (rec?.checkNumber || '') : '',
       items: mappedItems.length > 0 ? mappedItems : prev.items,
+      linkedDeposit: String(rec?._id || ''),
     }))
     // Reset draft UI state
     setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
@@ -452,6 +469,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       status: "pending",
       notes: "",
       securityAmount: 0, // Added for security deposit
+      linkedDeposit: "",
       items: []
     })
     setCustomerSearch("")
@@ -660,7 +678,10 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             : 0,
         refillAmount: formData.type === 'refill' ? calculatedAmount : 0,
         returnAmount: formData.type === 'return' ? calculatedAmount : 0,
-        status: formData.type === 'return' ? 'cleared' : (formData.paymentOption === 'delivery_note' ? 'pending' : formData.status),
+        // Enforce status rules: return => cleared, deposit => pending, otherwise keep selected
+        status: formData.type === 'return'
+          ? 'cleared'
+          : (formData.type === 'deposit' ? 'pending' : (formData.paymentOption === 'delivery_note' ? 'pending' : formData.status)),
         notes: formData.notes,
         paymentOption: formData.paymentOption,
       }
@@ -673,6 +694,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           quantity: Number(it.quantity) || 0,
           amount: Number(it.amount) || 0,
         }))
+      }
+
+      // Attach linkedDeposit only for return transactions
+      if (formData.type === 'return' && formData.linkedDeposit) {
+        transactionData.linkedDeposit = formData.linkedDeposit
       }
 
       if (formData.type === 'refill') {
@@ -809,6 +835,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       status: transaction.status,
       notes: transaction.notes || '',
       securityAmount: transaction.securityAmount || 0,
+      linkedDeposit: (transaction as any)?.linkedDeposit?._id || (transaction as any)?.linkedDeposit || '',
       items: (transaction.items && transaction.items.length > 0) ? transaction.items.map(it => ({
         productId: (it as any).productId || '',
         productName: it.productName || '',

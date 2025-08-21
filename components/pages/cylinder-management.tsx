@@ -72,6 +72,8 @@ interface CylinderTransaction {
     quantity: number
     amount: number
   }>
+  // Optional link to a previous security deposit (used for return transactions)
+  linkedDeposit?: any
 }
 
 interface Customer {
@@ -732,6 +734,8 @@ export function CylinderManagement() {
       quantity: number
       amount: number // Row amount in AED
     }>,
+    // Link to selected security deposit (applies to return transactions)
+    linkedDeposit: "",
   })
 
   useEffect(() => {
@@ -838,9 +842,9 @@ export function CylinderManagement() {
     }
   }, [formData.type, formData.status])
 
-  // Fetch previous securities and open dialog when Return + customer selected
+  // Fetch previous securities and open dialog when Return + customer selected (skip if already linked)
   useEffect(() => {
-    const shouldPrompt = formData.type === 'return' && !!formData.customerId && !securityPrompted
+    const shouldPrompt = formData.type === 'return' && !!formData.customerId && !securityPrompted && !formData.linkedDeposit
     if (!shouldPrompt) return
     ;(async () => {
       try {
@@ -861,7 +865,7 @@ export function CylinderManagement() {
         setSecurityPrompted(true)
       }
     })()
-  }, [formData.type, formData.customerId, securityPrompted])
+  }, [formData.type, formData.customerId, formData.linkedDeposit, securityPrompted])
 
   const handleSecuritySelect = (rec: any) => {
     const isCash = rec?.paymentMethod === 'cash'
@@ -886,6 +890,7 @@ export function CylinderManagement() {
       cashAmount: isCash ? Number(rec?.cashAmount || 0) : 0,
       bankName: !isCash ? (rec?.bankName || '') : '',
       checkNumber: !isCash ? (rec?.checkNumber || '') : '',
+      linkedDeposit: String(rec?._id || ''),
       // If the selected record has items, use them to populate the items section
       items: mappedItems.length > 0 ? mappedItems : prev.items,
     }))
@@ -1110,6 +1115,10 @@ export function CylinderManagement() {
       }
 
       const transactionData = baseData
+      // Attach linkedDeposit only for return transactions
+      if (formData.type === 'return' && formData.linkedDeposit) {
+        ;(transactionData as any).linkedDeposit = formData.linkedDeposit
+      }
       console.log('[CylinderManagement] Submitting payload:', transactionData)
 
       let savedResponse: any = null
@@ -1200,6 +1209,7 @@ export function CylinderManagement() {
       status: "pending" as any, // Default to pending
       notes: "",
       items: [],
+      linkedDeposit: "",
     })
     setCustomerSearchTerm("")
     setShowCustomerSuggestions(false)
@@ -1237,6 +1247,7 @@ export function CylinderManagement() {
         quantity: it.quantity,
         amount: it.amount,
       })) : [],
+      linkedDeposit: (transaction as any)?.linkedDeposit?._id || (transaction as any)?.linkedDeposit || "",
     })
     setCustomerSearchTerm(transaction.customer?.name || "")
     setShowCustomerSuggestions(false)
