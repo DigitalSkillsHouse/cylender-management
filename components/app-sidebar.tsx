@@ -178,7 +178,7 @@ export function AppSidebar({ currentPage, onPageChange, user, onLogout, unreadCo
             <Fuel className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="font-bold text-sm sm:text-lg text-white truncate">BARAKAH ALJAZEERA</h2>
+            <h2 className="font-bold text-sm sm:text-lg text-white truncate">SYED TAYYAB INDUSTRIAL</h2>
             <p className="text-xs text-white/70">{user?.role === "admin" ? "Admin Panel" : "Employee Panel"}</p>
           </div>
         </div>
@@ -249,7 +249,7 @@ export function AppSidebar({ currentPage, onPageChange, user, onLogout, unreadCo
           >
             <Fuel className="w-4 h-4 text-white" />
           </div>
-          <h2 className="font-bold text-white text-sm">BARAKAH ALJAZEERA</h2>
+          <h2 className="font-bold text-white text-sm">SYED TAYYAB INDUSTRIAL</h2>
         </div>
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
@@ -260,7 +260,7 @@ export function AppSidebar({ currentPage, onPageChange, user, onLogout, unreadCo
           <SheetContent side="left" className="p-0 w-80" style={{ backgroundColor: "#2B3068" }}>
             <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
             <SheetDescription className="sr-only">
-              Navigation menu for BARAKAH ALJAZEERA management system
+              Navigation menu for SYED TAYYAB INDUSTRIAL management system
             </SheetDescription>
             <div className="flex flex-col h-full">
               <SidebarContentComponent />

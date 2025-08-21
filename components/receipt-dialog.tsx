@@ -181,7 +181,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: 
           <div className="text-center pb-4">
             <img 
               src={headerSrc}
-              alt="BARAKAH ALJAZEERA Header" 
+              alt="SYED TAYYAB INDUSTRIAL Header" 
               className="mx-auto max-w-full h-auto"
             />
           </div>
@@ -329,7 +329,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: 
             <div className="text-center">
               <img 
                 src="/images/footer.png" 
-                alt="BARAKAH ALJAZEERA Footer" 
+                alt="SYED TAYYAB INDUSTRIAL Footer" 
                 className="mx-auto max-w-full h-auto"
               />
             </div>

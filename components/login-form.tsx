@@ -90,7 +90,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
               <Fuel className="w-8 h-8 text-white" />
             </div>
           </div>
-          <CardTitle className="text-3xl font-bold text-[#2B3068] mb-2">BARAKAH ALJAZEERA</CardTitle>
+          <CardTitle className="text-3xl font-bold text-[#2B3068] mb-2">SYED TAYYAB INDUSTRIAL</CardTitle>
           <CardDescription className="text-lg text-gray-600">Gas Management System</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
