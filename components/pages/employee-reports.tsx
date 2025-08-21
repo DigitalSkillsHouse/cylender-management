@@ -1956,7 +1956,6 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                   <TableHead>Total Paid Amount</TableHead>
                   <TableHead>Total Sales</TableHead>
                   <TableHead>Cylinder Transactions</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead>Last Activity</TableHead>
                   <TableHead>Action</TableHead>
                 </TableRow>
@@ -2023,12 +2022,6 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                         </div>
                       </TableCell>
                       <TableCell>
-                        {(() => {
-                          const dynamicStatus = customer.balance <= 0 ? 'cleared' : customer.status;
-                          return getStatusBadge(dynamicStatus);
-                        })()}
-                      </TableCell>
-                      <TableCell>
                         <div className="text-sm">
                           {formatDate(customer.lastTransactionDate)}
                           {customer.hasRecentActivity && (
@@ -2055,7 +2048,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                     {/* Expanded Details */}
                     {expandedCustomers.has(customer._id) && (
                       <TableRow>
-                        <TableCell colSpan={10} className="bg-gray-50 p-6">
+                        <TableCell colSpan={9} className="bg-gray-50 p-6">
                           <Tabs defaultValue="all" className="w-full">
                             <TabsList className="grid w-full grid-cols-4">
                               <TabsTrigger value="all">All Transactions</TabsTrigger>
@@ -2356,7 +2349,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                 ))}
                 {customers.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={9} className="text-center py-8 text-gray-500">
                       No customers found matching the current filters.
                     </TableCell>
                   </TableRow>
