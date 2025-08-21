@@ -1,0 +1,256 @@
+"use client"
+
+import { useMemo, useRef, useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
+import { Download, Trash2, X, Plus } from "lucide-react"
+
+export interface ProductQuoteItem {
+  _id: string
+  name: string
+  category: "gas" | "cylinder"
+  cylinderSize?: "large" | "small"
+  price: number
+}
+
+interface ProductQuoteDialogProps {
+  products: Array<{
+    _id: string
+    name: string
+    category: "gas" | "cylinder"
+    cylinderSize?: "large" | "small"
+    costPrice: number
+    leastPrice: number
+  }>
+  totalCount: number
+  onClose: () => void
+}
+
+export default function ProductQuoteDialog({ products, totalCount, onClose }: ProductQuoteDialogProps) {
+  // Reference to PRINT-ONLY content (read-only view)
+  const printRef = useRef<HTMLDivElement | null>(null)
+  const initialItems = useMemo<ProductQuoteItem[]>(
+    () =>
+      (products || []).map((p) => ({
+        _id: p._id,
+        name: p.name,
+        category: p.category,
+        cylinderSize: p.cylinderSize,
+        // Default quote price: use leastPrice if set, otherwise costPrice
+        price: Number.isFinite(p.leastPrice) ? p.leastPrice : p.costPrice,
+      })),
+    [products]
+  )
+
+  const [items, setItems] = useState<ProductQuoteItem[]>(initialItems)
+
+  const handleNameChange = (id: string, value: string) => {
+    setItems((prev) => prev.map((it) => (it._id === id ? { ...it, name: value } : it)))
+  }
+  const handlePriceChange = (id: string, value: string) => {
+    const num = Number(value)
+    setItems((prev) => prev.map((it) => (it._id === id ? { ...it, price: isFinite(num) ? num : it.price } : it)))
+  }
+  const handleRemove = (id: string) => {
+    setItems((prev) => prev.filter((it) => it._id !== id))
+  }
+  const handleAddRow = () => {
+    setItems((prev) => [
+      ...prev,
+      {
+        _id: Math.random().toString(36).slice(2),
+        name: "",
+        category: "gas",
+        price: 0,
+      },
+    ])
+  }
+
+  const visibleCount = items.length
+
+  const handleDownload = async () => {
+    const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf"),
+    ])
+
+    // Capture the PRINT-ONLY node to avoid inputs in the PDF
+    const node = printRef.current
+    if (!node) return
+
+    const canvas = await html2canvas(node, {
+      scale: 4,
+      backgroundColor: "#ffffff",
+      useCORS: true,
+    })
+    const imgData = canvas.toDataURL("image/png")
+
+    const pdf = new (jsPDFModule as any).jsPDF("p", "mm", "a4")
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+
+    const margin = 10
+    const imgWidth = pageWidth - margin * 2
+    const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+    let heightLeft = imgHeight
+    let position = 0
+
+    pdf.addImage(imgData, "PNG", margin, margin + position, imgWidth, imgHeight, undefined, "SLOW")
+    heightLeft -= pageHeight
+
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight
+      pdf.addPage()
+      pdf.addImage(imgData, "PNG", margin, margin + position, imgWidth, imgHeight, undefined, "SLOW")
+      heightLeft -= pageHeight
+    }
+
+    const dt = new Date()
+    const stamp = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
+    pdf.save(`product-quote-${stamp}.pdf`)
+  }
+
+  // Removed print button per request; only Download PDF remains
+
+  return (
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" aria-describedby="product-quote-description">
+        <DialogHeader>
+          <div className="flex items-center justify-between">
+            <DialogTitle>Generate Quote — Product List ({visibleCount}/{totalCount})</DialogTitle>
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        </DialogHeader>
+
+        <div id="product-quote-description" className="sr-only">
+          Editable product quote list with item names and prices. Remove rows or modify values, then download as PDF.
+        </div>
+
+        <div className="space-y-6">
+          {/* Screen-only editable view (compact like receipt) */}
+          <div className="print:hidden">
+            <div className="text-center">
+              <h2 className="text-lg font-bold text-[#2B3068]">Product Quote</h2>
+              <p className="text-[11px] text-gray-500">Product List ({visibleCount}/{totalCount})</p>
+            </div>
+
+            <Separator className="my-4" />
+
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
+                <thead>
+                  <tr className="bg-[#2B3068] text-white">
+                    <th className="text-left p-2 border">Item</th>
+                    <th className="text-center p-2 border">Category</th>
+                    <th className="text-center p-2 border">Type</th>
+                    <th className="text-right p-2 border">Price (AED)</th>
+                    <th className="text-center p-2 border">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((it) => (
+                    <tr key={it._id} className="border-b h-5">
+                      <td className="p-2 align-middle min-w-[200px]">
+                        <Input
+                          value={it.name}
+                          onChange={(e) => handleNameChange(it._id, e.target.value)}
+                          placeholder="Product name"
+                          className="h-8 text-[11px]"
+                        />
+                      </td>
+                      <td className="p-2 align-middle text-center capitalize">{it.category}</td>
+                      <td className="p-2 align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>
+                      <td className="p-2 align-middle min-w-[120px]">
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-gray-500 text-[10px]">AED</span>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={Number(it.price).toString()}
+                            onChange={(e) => handlePriceChange(it._id, e.target.value)}
+                            className="h-8 w-24 text-right text-[11px]"
+                          />
+                        </div>
+                      </td>
+                      <td className="p-2 text-center">
+                        <Button variant="outline" size="sm" onClick={() => handleRemove(it._id)} className="text-red-600 hover:text-red-700 min-h-[36px]">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {items.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="text-center text-gray-500 py-8">
+                        No items. Use "Add Row" to add products.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Print/PDF read-only view (off-screen on screen, visible in print) */}
+          <div
+            ref={printRef}
+            className="absolute -left-[9999px] top-0 print:static print:left-auto print:top-auto"
+          >
+            {/* Moderate capture width for balanced density on A4 */}
+            <div className="w-[1200px] mx-auto">
+              <div className="text-center">
+                <h2 className="text-sm font-bold text-[#2B3068]">Product Quote</h2>
+                <p className="text-[10px] text-gray-600">Product List ({visibleCount}/{totalCount}) — {new Date().toLocaleDateString()}</p>
+              </div>
+
+              <Separator className="my-3" />
+
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
+                  <thead>
+                  <tr className="bg-[#2B3068] text-white">
+                    <th className="text-left p-2 border">Item</th>
+                    <th className="text-center p-2 border">Category</th>
+                    <th className="text-center p-2 border">Type</th>
+                    <th className="text-right p-2 border">Price (AED)</th>
+                  </tr>
+                  </thead>
+                  <tbody>
+                  {items.map((it) => (
+                    <tr key={it._id} className="border-b h-5">
+                      <td className="p-2 border align-middle">{it.name || "-"}</td>
+                      <td className="p-2 border align-middle text-center capitalize">{it.category}</td>
+                      <td className="p-2 border align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>
+                      <td className="p-2 border align-middle text-right">AED {Number(it.price || 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons - do not show in print */}
+          <div className="flex flex-wrap justify-between items-center gap-3 no-print print:hidden">
+            <Button variant="outline" onClick={handleAddRow} className="min-h-[36px]">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Row
+            </Button>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={handleDownload}>
+                <Download className="w-4 h-4 mr-2" />
+                Download PDF
+              </Button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}

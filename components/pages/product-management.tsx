@@ -9,8 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, Edit, Trash2, Loader2 } from "lucide-react"
+import { Plus, Edit, Trash2, Loader2, FileDown } from "lucide-react"
 import { productsAPI } from "@/lib/api"
+import ProductQuoteDialog from "@/components/product-quote-dialog"
 
 interface Product {
   _id: string
@@ -32,6 +33,7 @@ export function ProductManagement() {
   const [productToDelete, setProductToDelete] = useState<Product | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
+  const [showQuoteDialog, setShowQuoteDialog] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     category: "gas" as "gas" | "cylinder",
@@ -288,13 +290,19 @@ export function ProductManagement() {
         <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
           <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
             <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">Product List ({filteredProducts.length}/{products.length})</CardTitle>
-            <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
-              <Input
-                placeholder="Search product name, category, type, stock..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-10 text-gray-800"
-              />
+            <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+              <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
+                <Input
+                  placeholder="Search product name, category, type, stock..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-10 text-gray-800"
+                />
+              </div>
+              <Button onClick={() => setShowQuoteDialog(true)} className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold min-h-[44px]">
+                <FileDown className="w-4 h-4 mr-2" />
+                Generate Quote Paper
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -431,6 +439,21 @@ export function ProductManagement() {
           </div>
         </CardContent>
       </Card>
+
+      {showQuoteDialog && (
+        <ProductQuoteDialog
+          products={filteredProducts.map((p) => ({
+            _id: p._id,
+            name: p.name,
+            category: p.category,
+            cylinderSize: p.cylinderSize,
+            costPrice: p.costPrice,
+            leastPrice: p.leastPrice,
+          }))}
+          totalCount={products.length}
+          onClose={() => setShowQuoteDialog(false)}
+        />
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
