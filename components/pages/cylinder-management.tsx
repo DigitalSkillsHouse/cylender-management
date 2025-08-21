@@ -865,6 +865,20 @@ export function CylinderManagement() {
 
   const handleSecuritySelect = (rec: any) => {
     const isCash = rec?.paymentMethod === 'cash'
+    // Map items from the selected record (if any) into our form's items array
+    const mappedItems = Array.isArray(rec?.items)
+      ? rec.items.map((it: any) => {
+          const prod = it.productId ? getProductById(it.productId) : undefined
+          return {
+            productId: String(it.productId || ''),
+            productName: String(it.productName || prod?.name || ''),
+            cylinderSize: String(it.cylinderSize || prod?.cylinderSize || ''),
+            quantity: Number(it.quantity || 0),
+            amount: Number(it.amount || 0),
+          }
+        })
+      : []
+
     setFormData(prev => ({
       ...prev,
       paymentOption: 'debit',
@@ -872,7 +886,14 @@ export function CylinderManagement() {
       cashAmount: isCash ? Number(rec?.cashAmount || 0) : 0,
       bankName: !isCash ? (rec?.bankName || '') : '',
       checkNumber: !isCash ? (rec?.checkNumber || '') : '',
+      // If the selected record has items, use them to populate the items section
+      items: mappedItems.length > 0 ? mappedItems : prev.items,
     }))
+    // Reset any ongoing draft edit state to reflect the selected items cleanly
+    setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+    setDraftProductSearchTerm("")
+    setShowDraftProductSuggestions(false)
+    setEditingIndex(null)
     setShowSecurityDialog(false)
   }
 
