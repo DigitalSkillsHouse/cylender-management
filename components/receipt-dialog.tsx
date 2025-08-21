@@ -64,24 +64,8 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
 
-  // Select header image based on payment method/status/type
-  const normalizedStatus = (sale?.paymentStatus || '').toString().toLowerCase()
-  const normalizedPaymentMethod = (sale?.paymentMethod || '').toString().toLowerCase()
-  const normalizedType = (sale as any)?.type ? ((sale as any).type as string).toLowerCase() : ''
-  const headerSrc = normalizedPaymentMethod === 'credit'
-    ? '/images/header-invoice.jpeg'
-    : normalizedType === 'return'
-      ? '/images/Header-Tax-invoice.jpg'
-      : (normalizedStatus === 'cleared' || normalizedStatus === 'cleard')
-        ? '/images/Header-deposit-invoice.jpg'
-        : (normalizedStatus === 'pending')
-          ? '/images/Header-Receiving-invoice.jpg'
-          : '/images/header-invoice.jpeg'
-
-  console.log('ReceiptDialog - Sale:', sale?.invoiceNumber)
-  console.log('ReceiptDialog - Signature prop:', signature?.length)
-  console.log('ReceiptDialog - Sale signature:', sale.customerSignature?.length)
-  console.log('ReceiptDialog - Using signature:', signatureToUse?.length)
+  // Always use Tax Invoice header for gas sales receipts (admin + employee)
+  const headerSrc = '/images/Header-Tax-invoice.jpg'
 
   // Convert signature to PNG with transparent background
   const convertToPNG = (signatureData: string): Promise<string> => {
@@ -191,8 +175,23 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
             />
           </div>
 
-          {/* Invoice Info */}
+          {/* Customer (left) and Invoice (right) Info */}
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h3 className="font-semibold text-[#2B3068] mb-2">Customer Information</h3>
+              <div className="space-y-1 text-sm">
+                <div>
+                  <strong>Name:</strong> {sale?.customer?.name || '-'}
+                </div>
+                <div>
+                  <strong>Phone:</strong> {sale?.customer?.phone || '-'}
+                </div>
+                <div>
+                  <strong>Address:</strong> {sale?.customer?.address || '-'}
+                </div>
+              </div>
+            </div>
+
             <div>
               <h3 className="font-semibold text-[#2B3068] mb-2">Invoice Information</h3>
               <div className="space-y-1 text-sm">
@@ -205,20 +204,15 @@ export function ReceiptDialog({ sale, signature, onClose }: ReceiptDialogProps) 
                 <div>
                   <strong>Time:</strong> {sale?.createdAt ? new Date(sale.createdAt).toLocaleTimeString() : '-'}
                 </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-[#2B3068] mb-2">Customer Information</h3>
-              <div className="space-y-1 text-sm">
                 <div>
-                  <strong>Name:</strong> {sale?.customer?.name || '-'}
-                </div>
-                <div>
-                  <strong>Phone:</strong> {sale?.customer?.phone || '-'}
-                </div>
-                <div>
-                  <strong>Address:</strong> {sale?.customer?.address || '-'}
+                  <strong>Payment Method:</strong> {(
+                    sale?.paymentMethod
+                      ? sale.paymentMethod
+                          .toString()
+                          .replace(/[\-_]/g, ' ')
+                          .replace(/\b\w/g, (c) => c.toUpperCase())
+                      : '-'
+                  )}
                 </div>
               </div>
             </div>

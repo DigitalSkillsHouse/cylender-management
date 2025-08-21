@@ -54,7 +54,6 @@ const ReceiptPrintPage = () => {
       }
     } catch (err) {
       setError('Failed to load receipt data. The data format may be incorrect.');
-      console.error('Error parsing receipt data from sessionStorage:', err);
     } finally {
       setLoading(false);
     }
@@ -86,19 +85,8 @@ const ReceiptPrintPage = () => {
   const vatAmount = subTotal * 0.05
   const grandTotal = subTotal + vatAmount
 
-  // Header selection based on payment method/status/type
-  const normalizedStatus = (sale?.paymentStatus || '').toString().toLowerCase();
-  const normalizedPaymentMethod = (sale?.paymentMethod || '').toString().toLowerCase();
-  const normalizedType = (sale?.type || '').toString().toLowerCase();
-  const headerSrc = normalizedPaymentMethod === 'credit'
-    ? '/images/header-invoice.jpeg'
-    : normalizedType === 'return'
-      ? '/images/Header-Tax-invoice.jpg'
-      : (normalizedStatus === 'cleared' || normalizedStatus === 'cleard')
-        ? '/images/Header-deposit-invoice.jpg'
-        : (normalizedStatus === 'pending')
-          ? '/images/Header-Receiving-invoice.jpg'
-          : '/images/header-invoice.jpeg';
+  // Always use Tax Invoice header for gas sales receipts (admin + employee)
+  const headerSrc = '/images/Header-Tax-invoice.jpg';
 
   return (
     <div className="bg-gray-100 min-h-screen print:bg-white">
@@ -123,19 +111,29 @@ const ReceiptPrintPage = () => {
 
         <section className="grid grid-cols-2 gap-8 my-8">
           <div>
-            <h2 className="font-bold text-lg text-[#2B3068] mb-2">Invoice Information</h2>
-            <div className="space-y-1 text-sm text-gray-700">
-              <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
-              <div><strong>Date:</strong> {new Date(sale.createdAt).toLocaleDateString()}</div>
-              <div><strong>Time:</strong> {new Date(sale.createdAt).toLocaleTimeString()}</div>
-            </div>
-          </div>
-          <div>
             <h2 className="font-bold text-lg text-[#2B3068] mb-2">Customer Information</h2>
             <div className="space-y-1 text-sm text-gray-700">
               <div><strong>Name:</strong> {sale.customer.name}</div>
               <div><strong>Phone:</strong> {sale.customer.phone}</div>
               <div><strong>Address:</strong> {sale.customer.address}</div>
+            </div>
+          </div>
+          <div>
+            <h2 className="font-bold text-lg text-[#2B3068] mb-2">Invoice Information</h2>
+            <div className="space-y-1 text-sm text-gray-700">
+              <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
+              <div><strong>Date:</strong> {new Date(sale.createdAt).toLocaleDateString()}</div>
+              <div><strong>Time:</strong> {new Date(sale.createdAt).toLocaleTimeString()}</div>
+              <div>
+                <strong>Payment Method:</strong> {(
+                  sale?.paymentMethod
+                    ? sale.paymentMethod
+                        .toString()
+                        .replace(/[\-_]/g, ' ')
+                        .replace(/\b\w/g, (c) => c.toUpperCase())
+                    : '-'
+                )}
+              </div>
             </div>
           </div>
         </section>
