@@ -133,6 +133,9 @@ export function GasSales() {
   const [exportSearch, setExportSearch] = useState("")
   const [showExportSuggestions, setShowExportSuggestions] = useState(false)
   const [filteredExportSuggestions, setFilteredExportSuggestions] = useState<string[]>([])
+  // Export date range state
+  const [exportStartDate, setExportStartDate] = useState<string>("")
+  const [exportEndDate, setExportEndDate] = useState<string>("")
   
   // Export autocomplete handlers (customers only)
   const handleExportSearchChange = (value: string) => {
@@ -201,11 +204,16 @@ export function GasSales() {
     try {
       const term = (exportSearch || "").trim().toLowerCase()
       const sourceArray = Array.isArray(sales) ? sales : []
-      const filtered = term
-        ? sourceArray.filter((s) =>
-            (s.customer?.name || "").toLowerCase().includes(term)
-          )
+      const start = exportStartDate ? new Date(`${exportStartDate}T00:00:00.000`) : null
+      const end = exportEndDate ? new Date(`${exportEndDate}T23:59:59.999`) : null
+      const filteredByTerm = term
+        ? sourceArray.filter((s) => (s.customer?.name || "").toLowerCase().includes(term))
         : sourceArray
+      const filtered = filteredByTerm.filter((s) => {
+        const d = s.createdAt ? new Date(s.createdAt) : null
+        if (!d) return false
+        return (!start || d >= start) && (!end || d <= end)
+      })
 
       const escapeCSV = (val: any) => {
         const str = val === null || val === undefined ? "" : String(val)
@@ -263,9 +271,12 @@ export function GasSales() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       const ts = new Date().toISOString().replace(/[:.]/g, "-")
-      const namePart = term ? `-${term.replace(/\s+/g, "_")}` : ""
+      const namePart = term ? `-cust-${term.replace(/\s+/g, "_")}` : ""
+      const datePart = (exportStartDate || exportEndDate)
+        ? `-date-${(exportStartDate||'start').replace(/[^0-9-]/g,'')}_to_${(exportEndDate||'end').replace(/[^0-9-]/g,'')}`
+        : ""
       a.href = url
-      a.download = `sales-export${namePart}-${ts}.csv`
+      a.download = `sales-export${namePart}${datePart}-${ts}.csv`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -281,9 +292,16 @@ export function GasSales() {
     try {
       const term = (exportSearch || "").trim().toLowerCase()
       const sourceArray = Array.isArray(sales) ? sales : []
-      const filtered = term
+      const start = exportStartDate ? new Date(`${exportStartDate}T00:00:00.000`) : null
+      const end = exportEndDate ? new Date(`${exportEndDate}T23:59:59.999`) : null
+      const filteredByTerm = term
         ? sourceArray.filter((s: Sale) => (s.customer?.name || "").toLowerCase().includes(term))
         : sourceArray
+      const filtered = filteredByTerm.filter((s: Sale) => {
+        const d = s.createdAt ? new Date(s.createdAt) : null
+        if (!d) return false
+        return (!start || d >= start) && (!end || d <= end)
+      })
 
       const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
       const marginX = 32
@@ -298,7 +316,8 @@ export function GasSales() {
       y += 10
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(7.5)
-      if (term) { doc.text(`Filter: ${term}`, marginX, y); y += 9 }
+      if (term) { doc.text(`Customer: ${term}`, marginX, y); y += 9 }
+      if (exportStartDate || exportEndDate) { doc.text(`Date: ${(exportStartDate||'...')} to ${(exportEndDate||'...')}`, marginX, y); y += 9 }
       doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, y); y += 10
 
       // Header bar
@@ -410,8 +429,11 @@ export function GasSales() {
       })
 
       const ts = new Date().toISOString().replace(/[:.]/g, '-')
-      const namePart = term ? `-${term.replace(/\s+/g, '_')}` : ''
-      doc.save(`sales-export${namePart}-${ts}.pdf`)
+      const namePart = term ? `-cust-${term.replace(/\s+/g, '_')}` : ''
+      const datePart = (exportStartDate || exportEndDate)
+        ? `-date-${(exportStartDate||'start').replace(/[^0-9-]/g,'')}_to_${(exportEndDate||'end').replace(/[^0-9-]/g,'')}`
+        : ''
+      doc.save(`sales-export${namePart}${datePart}-${ts}.pdf`)
     } catch (err) {
       console.error('Failed to export sales PDF:', err)
       alert('Failed to export PDF')
@@ -1597,6 +1619,28 @@ export function GasSales() {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+              {showExportInput && (
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-gray-600">From</Label>
+                    <Input
+                      type="date"
+                      value={exportStartDate}
+                      onChange={(e) => setExportStartDate(e.target.value)}
+                      className="bg-white text-black w-36"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-gray-600">To</Label>
+                    <Input
+                      type="date"
+                      value={exportEndDate}
+                      onChange={(e) => setExportEndDate(e.target.value)}
+                      className="bg-white text-black w-36"
+                    />
+                  </div>
                 </div>
               )}
               {showExportInput && (

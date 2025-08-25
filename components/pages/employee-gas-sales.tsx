@@ -21,6 +21,7 @@ import { ReceiptDialog } from '@/components/receipt-dialog';
 import { SignatureDialog } from '@/components/signature-dialog';
 import { ProductDropdown } from '@/components/ui/product-dropdown';
 import { Trash2, MoveHorizontalIcon, SearchIcon } from 'lucide-react';
+import jsPDF from 'jspdf'
 
 interface EmployeeGasSalesProps {
   user: {
@@ -112,6 +113,13 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 20
 
+  // Export filters
+  const [exportStart, setExportStart] = useState<string>("")
+  const [exportEnd, setExportEnd] = useState<string>("")
+  const [exportCustomerId, setExportCustomerId] = useState<string>("")
+  const [exportCustomerSearch, setExportCustomerSearch] = useState<string>("")
+  const [exportSuggestions, setExportSuggestions] = useState<Customer[]>([])
+
   // Customer autocomplete functionality for form
   const [customerSearchTerm, setCustomerSearchTerm] = useState("")
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
@@ -159,6 +167,21 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm, statusFilter])
+
+  // Export customer autocomplete
+  useEffect(() => {
+    const term = exportCustomerSearch.trim().toLowerCase()
+    if (!term) {
+      setExportSuggestions([])
+      return
+    }
+    const list = customers.filter(c =>
+      (c.name || '').toLowerCase().includes(term) ||
+      (c.phone || '').toLowerCase().includes(term) ||
+      (c.email || '').toLowerCase().includes(term)
+    ).slice(0, 8)
+    setExportSuggestions(list)
+  }, [exportCustomerSearch, customers])
 
   const fetchData = async () => {
     try {
@@ -714,6 +737,153 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
+  // Helpers for export filtering
+  const isWithinDateRange = (iso: string) => {
+    const d = new Date(iso)
+    if (exportStart) {
+      const s = new Date(exportStart)
+      if (d < new Date(s.getFullYear(), s.getMonth(), s.getDate())) return false
+    }
+    if (exportEnd) {
+      const e = new Date(exportEnd)
+      // inclusive end date
+      const eEnd = new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59, 999)
+      if (d > eEnd) return false
+    }
+    return true
+  }
+
+  const getExportFilteredSales = () => {
+    return (sales || []).filter(s => {
+      const dateOk = isWithinDateRange(s.createdAt)
+      const custOk = exportCustomerId ? ((s.customer as any)?._id === exportCustomerId) : true
+      return dateOk && custOk
+    })
+  }
+
+  const escapeCsv = (v: any) => {
+    const s = String(v ?? '')
+    if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+    return s
+  }
+
+  const exportSalesCSV = () => {
+    const list = getExportFilteredSales()
+    const headers = [
+      'Invoice', 'Customer', 'Items', 'Total (AED)', 'Payment Method', 'Status', 'Notes', 'Added By', 'Date'
+    ]
+    const rows = list.map(s => {
+      const itemsStr = (Array.isArray(s.items) ? s.items : []).map((it: any) => {
+        const name = it?.product?.name || 'Product'
+        const qty = Number(it?.quantity||0)
+        const price = Number(it?.price||0).toFixed(2)
+        return `${name} x${qty} @${price}`
+      }).join(' | ')
+      return [
+        s.invoiceNumber || '-',
+        s.customer?.name || '-',
+        itemsStr,
+        Number(s.totalAmount||0).toFixed(2),
+        s.paymentMethod || '-',
+        s.paymentStatus || '-',
+        s.notes || '',
+        s.employee || '-',
+        new Date(s.createdAt).toLocaleString(),
+      ]
+    })
+    const csv = [headers, ...rows].map(r => r.map(escapeCsv).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const name = `employee-gas-sales-${exportStart || 'all'}-to-${exportEnd || 'all'}.csv`
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportSalesPDF = () => {
+    const list = getExportFilteredSales()
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' })
+    const margin = 32
+    let y = margin
+    doc.setFontSize(14)
+    doc.text('Employee Gas Sales', margin, y)
+    y += 18
+    doc.setFontSize(10)
+    const subtitle = `Date: ${exportStart || 'All'} to ${exportEnd || 'All'}${exportCustomerId ? ` | Customer: ${(customers.find(c=>c._id===exportCustomerId)?.name)||''}` : ''}`
+    doc.text(subtitle, margin, y)
+    y += 24
+
+    const headers = ['Invoice #','Customer','Items','Total (AED)','Received (AED)','Payment Method','Payment Status','Notes']
+    const colWidths = [80, 120, 320, 80, 100, 110, 110, 130]
+    const startX = margin
+    let x = startX
+    doc.setFontSize(9)
+    headers.forEach((h, i) => {
+      doc.text(h, x, y)
+      x += colWidths[i]
+    })
+    y += 14
+    doc.setLineWidth(0.5)
+    doc.line(margin, y, 842 - margin, y)
+    y += 10
+
+    const ensureSpace = (rowHeight: number) => {
+      const pageHeight = doc.internal.pageSize.getHeight()
+      if (y + rowHeight > pageHeight - margin) {
+        doc.addPage()
+        y = margin
+        doc.setFontSize(9)
+        // redraw header
+        let xh = startX
+        headers.forEach((h, i) => { doc.text(h, xh, y); xh += colWidths[i] })
+        y += 14
+        doc.line(margin, y, 842 - margin, y)
+        y += 10
+      }
+    }
+
+    list.forEach((s, idx) => {
+      const itemsStr = (Array.isArray(s.items) ? s.items : []).map((it: any) => {
+        const name = it?.product?.name || 'Product'
+        const qty = Number(it?.quantity||0)
+        const price = Number(it?.price||0).toFixed(2)
+        return `${name} x${qty} @${price}`
+      }).join(' | ')
+      const row = [
+        s.invoiceNumber || '-',
+        s.customer?.name || '-',
+        itemsStr,
+        `AED ${Number(s.totalAmount||0).toFixed(2)}`,
+        `AED ${Number((s as any).receivedAmount||0).toFixed(2)}`,
+        s.paymentMethod || '-',
+        s.paymentStatus || '-',
+        s.notes || '',
+      ]
+      const heights = [12,12, Math.ceil(itemsStr.length / 60) * 12,12,12,12,12,12]
+      const rowHeight = Math.max(...heights)
+      ensureSpace(rowHeight + 6)
+      let xr = startX
+      row.forEach((cell, i) => {
+        const text = String(cell)
+        const maxWidth = colWidths[i] - 4
+        const split = doc.splitTextToSize(text, maxWidth)
+        doc.text(split as any, xr, y)
+        xr += colWidths[i]
+      })
+      y += rowHeight + 6
+      if (idx % 2 === 1) {
+        doc.setDrawColor(230, 230, 230)
+        doc.setFillColor(245, 245, 245)
+        doc.rect(margin - 4, y - rowHeight - 6, 842 - margin*2 + 8, rowHeight + 6, 'F')
+        doc.setDrawColor(0)
+      }
+    })
+
+    doc.save(`employee-gas-sales-${exportStart || 'all'}-to-${exportEnd || 'all'}.pdf`)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -747,6 +917,43 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
             <SelectItem value="overdue">Overdue</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Export Filters */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 items-center">
+        <div>
+          <Label className="text-xs">From</Label>
+          <Input type="date" value={exportStart} onChange={e=>setExportStart(e.target.value)} />
+        </div>
+        <div>
+          <Label className="text-xs">To</Label>
+          <Input type="date" value={exportEnd} onChange={e=>setExportEnd(e.target.value)} />
+        </div>
+        <div className="relative">
+          <Label className="text-xs">Customer</Label>
+          <Input
+            placeholder="Type to search customer"
+            value={exportCustomerSearch}
+            onChange={(e)=>{ setExportCustomerSearch(e.target.value); setExportCustomerId("") }}
+          />
+          {exportSuggestions.length > 0 && (
+            <div className="absolute z-10 bg-white border rounded mt-1 w-full max-h-40 overflow-auto text-sm">
+              {exportSuggestions.map(c => (
+                <div
+                  key={c._id}
+                  className="px-2 py-1 hover:bg-gray-100 cursor-pointer"
+                  onMouseDown={() => { setExportCustomerId(c._id); setExportCustomerSearch(c.name); setExportSuggestions([]) }}
+                >
+                  {c.name} {c.phone ? `- ${c.phone}`: ''}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 mt-6">
+          <Button variant="outline" onClick={exportSalesCSV}>Export CSV</Button>
+          <Button variant="outline" onClick={exportSalesPDF}>Export PDF</Button>
+        </div>
       </div>
 
       <Card>

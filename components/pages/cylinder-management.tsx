@@ -122,6 +122,9 @@ export function CylinderManagement() {
   const [exportSearch, setExportSearch] = useState("")
   const [showExportSuggestions, setShowExportSuggestions] = useState(false)
   const [filteredExportSuggestions, setFilteredExportSuggestions] = useState<string[]>([])
+  // Export date range state
+  const [exportStartDate, setExportStartDate] = useState<string>("")
+  const [exportEndDate, setExportEndDate] = useState<string>("")
   
   // Export autocomplete - build suggestions from customers and suppliers
   const handleExportSearchChange = (value: string) => {
@@ -441,13 +444,20 @@ export function CylinderManagement() {
   const exportCylinderCSV = () => {
     try {
       const term = (exportSearch || '').trim().toLowerCase()
-      const list = (Array.isArray(transactions) ? transactions : [])
+      const start = exportStartDate ? new Date(`${exportStartDate}T00:00:00.000`) : null
+      const end = exportEndDate ? new Date(`${exportEndDate}T23:59:59.999`) : null
+      const base = (Array.isArray(transactions) ? transactions : [])
         .filter((t) => {
           if (!term) return true
           const cname = t.customer?.name?.toLowerCase() || ''
           const sname = t.supplier?.companyName?.toLowerCase() || ''
           return cname.includes(term) || sname.includes(term)
         })
+      const list = base.filter((t) => {
+        const d = t.createdAt ? new Date(t.createdAt) : null
+        if (!d) return false
+        return (!start || d >= start) && (!end || d <= end)
+      })
 
       const escape = (val: any) => {
         const s = (val === undefined || val === null) ? '' : String(val)
@@ -522,9 +532,12 @@ export function CylinderManagement() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')
-      const suffix = term ? `-${term.replace(/[^a-z0-9-_]+/g,'_')}` : ''
+      const suffix = term ? `-party-${term.replace(/[^a-z0-9-_]+/g,'_')}` : ''
+      const datePart = (exportStartDate || exportEndDate)
+        ? `-date-${(exportStartDate||'start').replace(/[^0-9-]/g,'')}_to_${(exportEndDate||'end').replace(/[^0-9-]/g,'')}`
+        : ''
       a.href = url
-      a.download = `cylinder-transactions${suffix}-${ts}.csv`
+      a.download = `cylinder-transactions${suffix}${datePart}-${ts}.csv`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
@@ -537,13 +550,20 @@ export function CylinderManagement() {
   const exportCylinderPDF = () => {
     try {
       const term = (exportSearch || '').trim().toLowerCase()
-      const list = (Array.isArray(transactions) ? transactions : [])
+      const start = exportStartDate ? new Date(`${exportStartDate}T00:00:00.000`) : null
+      const end = exportEndDate ? new Date(`${exportEndDate}T23:59:59.999`) : null
+      const base = (Array.isArray(transactions) ? transactions : [])
         .filter((t) => {
           if (!term) return true
           const cname = t.customer?.name?.toLowerCase() || ''
           const sname = t.supplier?.companyName?.toLowerCase() || ''
           return cname.includes(term) || sname.includes(term)
         })
+      const list = base.filter((t) => {
+        const d = t.createdAt ? new Date(t.createdAt) : null
+        if (!d) return false
+        return (!start || d >= start) && (!end || d <= end)
+      })
 
       const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
       const marginX = 32
@@ -558,7 +578,8 @@ export function CylinderManagement() {
       y += 10
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(7.5)
-      if (term) { doc.text(`Filter: ${term}`, marginX, y); y += 9 }
+      if (term) { doc.text(`Party: ${term}`, marginX, y); y += 9 }
+      if (exportStartDate || exportEndDate) { doc.text(`Date: ${(exportStartDate||'...')} to ${(exportEndDate||'...')}`, marginX, y); y += 9 }
       doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, y)
       y += 10
 
@@ -697,8 +718,11 @@ export function CylinderManagement() {
       })
 
       const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')
-      const suffix = term ? `-${term.replace(/[^a-z0-9-_]+/g,'_')}` : ''
-      doc.save(`cylinder-transactions${suffix}-${ts}.pdf`)
+      const suffix = term ? `-party-${term.replace(/[^a-z0-9-_]+/g,'_')}` : ''
+      const datePart = (exportStartDate || exportEndDate)
+        ? `-date-${(exportStartDate||'start').replace(/[^0-9-]/g,'')}_to_${(exportEndDate||'end').replace(/[^0-9-]/g,'')}`
+        : ''
+      doc.save(`cylinder-transactions${suffix}${datePart}-${ts}.pdf`)
     } catch (e) {
       console.error('[CylinderManagement] PDF export failed:', e)
       alert('Failed to export PDF')
@@ -2182,6 +2206,26 @@ export function CylinderManagement() {
                         ))}
                       </div>
                     )}
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-gray-600">From</Label>
+                      <Input
+                        type="date"
+                        value={exportStartDate}
+                        onChange={(e) => setExportStartDate(e.target.value)}
+                        className="bg-white text-gray-900 w-36 h-9"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-gray-600">To</Label>
+                      <Input
+                        type="date"
+                        value={exportEndDate}
+                        onChange={(e) => setExportEndDate(e.target.value)}
+                        className="bg-white text-gray-900 w-36 h-9"
+                      />
+                    </div>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

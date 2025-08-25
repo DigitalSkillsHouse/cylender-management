@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { ReceiptDialog } from '@/components/receipt-dialog'
 import { SignatureDialog } from '@/components/signature-dialog'
 import SecuritySelectDialog from '@/components/security-select-dialog'
+import jsPDF from 'jspdf'
 
 interface EmployeeCylinderSalesProps {
   user: { id: string; email: string; name: string }
@@ -108,6 +109,13 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false)
   const [filteredSearchSuggestions, setFilteredSearchSuggestions] = useState<Customer[]>([])
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null)
+
+  // Export filters state (date range + customer autocomplete)
+  const [exportStart, setExportStart] = useState<string>("")
+  const [exportEnd, setExportEnd] = useState<string>("")
+  const [exportCustomerId, setExportCustomerId] = useState<string>("")
+  const [exportCustomerSearch, setExportCustomerSearch] = useState<string>("")
+  const [exportSuggestions, setExportSuggestions] = useState<Customer[]>([])
 
   // Receipt and signature dialog states
   const [isReceiptDialogOpen, setIsReceiptDialogOpen] = useState(false)
@@ -269,6 +277,21 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     setCurrentPage(1)
   }, [searchTerm, statusFilter, activeTab])
 
+  // Export customer autocomplete
+  useEffect(() => {
+    const term = exportCustomerSearch.trim().toLowerCase()
+    if (!term) {
+      setExportSuggestions([])
+      return
+    }
+    const list = customers.filter(c =>
+      (c.name || '').toLowerCase().includes(term) ||
+      (c.phone || '').toLowerCase().includes(term) ||
+      (c.email || '').toLowerCase().includes(term)
+    ).slice(0, 8)
+    setExportSuggestions(list)
+  }, [exportCustomerSearch, customers])
+
   // Reset security prompt flag if type or customer changes
   useEffect(() => {
     setSecurityPrompted(false)
@@ -301,6 +324,160 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       setFormData(prev => ({ ...prev, linkedDeposit: editingTransactionId }))
     }
   }, [formData.type, formData.linkedDeposit, editingTransactionId])
+
+  // Helpers for export filtering
+  const isWithinDateRange = (dateStr: string) => {
+    if (!exportStart && !exportEnd) return true
+    const d = new Date(dateStr)
+    if (Number.isNaN(d.getTime())) return false
+    const startOK = exportStart ? d >= new Date(exportStart) : true
+    const endOK = exportEnd ? d <= new Date(new Date(exportEnd).setHours(23, 59, 59, 999)) : true
+    return startOK && endOK
+  }
+
+  const getExportFilteredTransactions = () => {
+    return transactions.filter(t => {
+      const matchesDate = isWithinDateRange(t.createdAt)
+      const matchesCustomer = !exportCustomerId || (t.customer?._id === exportCustomerId)
+      return matchesDate && matchesCustomer
+    })
+  }
+
+  // CSV export
+  const exportCylinderCSV = () => {
+    const list = getExportFilteredTransactions()
+    const headers = [
+      'Date',
+      'Invoice No',
+      'Type',
+      'Customer/Supplier',
+      'Items/Cylinder Size',
+      'Quantity',
+      'Amount (AED)',
+      'Payment Method',
+      'Cash Amount',
+      'Bank Name',
+      'Check Number',
+      'Status',
+      'Notes'
+    ]
+
+    const esc = (v: any) => {
+      const s = (v ?? '').toString().replace(/"/g, '""')
+      return `"${s}` + `"`
+    }
+
+    const rows = list.map((t) => {
+      const items: any[] = Array.isArray((t as any).items) ? (t as any).items : []
+      const qty = items.length > 0 ? items.reduce((s, it: any) => s + (Number(it.quantity) || 0), 0) : t.quantity
+      const itemsDesc = items.length > 0
+        ? items.map((it: any) => `${it.productName || it.productId?.name || 'Item'} (${it.cylinderSize || '-'}) x${it.quantity} - AED ${Number(it.amount||0).toFixed(2)}`).join(' | ')
+        : `${t.product?.name || 'N/A'} (${t.cylinderSize || '-'})`
+      const party = t.type === 'refill' ? (t as any).supplier?.companyName || 'Supplier' : t.customer?.name || 'Customer'
+      return [
+        new Date(t.createdAt).toLocaleDateString(),
+        (t as any).invoiceNumber || `CYL-${(t._id || '').toString().slice(-6).toUpperCase()}`,
+        t.type,
+        party,
+        itemsDesc,
+        qty,
+        Number(t.amount || 0).toFixed(2),
+        t.paymentMethod || '-',
+        Number(t.cashAmount || 0).toFixed(2),
+        t.bankName || '-',
+        t.checkNumber || '-',
+        t.status,
+        t.notes || ''
+      ].map(esc).join(',')
+    })
+
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const custLabel = exportCustomerId ? (customers.find(c => c._id === exportCustomerId)?.name || 'customer') : 'all'
+    const rangeLabel = `${exportStart || 'start'}_to_${exportEnd || 'end'}`
+    a.href = url
+    a.download = `employee-cylinder-transactions_${custLabel}_${rangeLabel}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // PDF export
+  const exportCylinderPDF = () => {
+    const list = getExportFilteredTransactions()
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const margin = 36
+    let y = margin
+
+    // Header
+    doc.setFontSize(16)
+    doc.text('Employee Cylinder Transactions', pageWidth / 2, y, { align: 'center' })
+    y += 18
+    doc.setFontSize(10)
+    const custLabel = exportCustomerId ? (customers.find(c => c._id === exportCustomerId)?.name || '-') : 'All'
+    const rangeLabel = `${exportStart || 'Start'} to ${exportEnd || 'End'}`
+    doc.text(`Filters: Customer = ${custLabel}, Date = ${rangeLabel}`, pageWidth / 2, y, { align: 'center' })
+    y += 20
+
+    // Table headers
+    const headers = ['Inv#', 'Type', 'Customer/Supplier', 'Items / Size', 'Qty', 'Amount (AED)', 'Pay', 'Status', 'Date']
+    const colWidths = [70, 50, 180, 220, 40, 90, 60, 60, 80]
+    const xPositions = colWidths.reduce<number[]>((acc, w, i) => {
+      const prev = acc[i - 1] ?? margin
+      acc.push(i === 0 ? margin : prev + colWidths[i - 1])
+      return acc
+    }, [])
+
+    doc.setFontSize(9)
+    doc.setFillColor(240, 240, 240)
+    doc.rect(margin, y, colWidths.reduce((s, w) => s + w, 0), 18, 'F')
+    headers.forEach((h, i) => doc.text(h, xPositions[i] + 4, y + 12))
+    y += 22
+
+    const drawRow = (t: CylinderTransaction, idx: number) => {
+      const items: any[] = Array.isArray((t as any).items) ? (t as any).items : []
+      const qty = items.length > 0 ? items.reduce((s, it: any) => s + (Number(it.quantity) || 0), 0) : t.quantity
+      const itemsShort = items.length > 0
+        ? items.map((it: any) => `${(it.productName || it.productId?.name || 'Item')}(${it.cylinderSize || '-'}) x${it.quantity}`).join(' | ')
+        : `${t.product?.name || 'N/A'} (${t.cylinderSize || '-'})`
+      const party = t.type === 'refill' ? (t as any).supplier?.companyName || 'Supplier' : t.customer?.name || 'Customer'
+
+      if (y > doc.internal.pageSize.getHeight() - 60) {
+        doc.addPage()
+        y = margin
+        // redraw headers
+        doc.setFontSize(9)
+        doc.setFillColor(240, 240, 240)
+        doc.rect(margin, y, colWidths.reduce((s, w) => s + w, 0), 18, 'F')
+        headers.forEach((h, i) => doc.text(h, xPositions[i] + 4, y + 12))
+        y += 22
+      }
+
+      if (idx % 2 === 1) {
+        doc.setFillColor(250, 250, 250)
+        doc.rect(margin, y - 2, colWidths.reduce((s, w) => s + w, 0), 18, 'F')
+      }
+
+      const cells = [
+        (t as any).invoiceNumber || `CYL-${(t._id || '').toString().slice(-6).toUpperCase()}`,
+        t.type,
+        party,
+        itemsShort,
+        String(qty),
+        Number(t.amount || 0).toFixed(2),
+        t.paymentMethod || '-',
+        t.status,
+        new Date(t.createdAt).toLocaleDateString(),
+      ]
+      cells.forEach((val, i) => doc.text(String(val), xPositions[i] + 4, y + 12))
+      y += 20
+    }
+
+    list.forEach((t, idx) => drawRow(t, idx))
+    doc.save(`employee-cylinder-transactions_${custLabel}_${rangeLabel}.pdf`)
+  }
 
   // Fetch previous security records and prompt when returning and customer selected
   useEffect(() => {
@@ -1366,7 +1543,59 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           </div>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        {/* Export filters + actions */}
+        <div className="w-full md:w-auto space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <div>
+              <Label className="text-xs">Start Date</Label>
+              <Input type="date" value={exportStart} onChange={(e) => setExportStart(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">End Date</Label>
+              <Input type="date" value={exportEnd} onChange={(e) => setExportEnd(e.target.value)} />
+            </div>
+            <div className="relative">
+              <Label className="text-xs">Customer</Label>
+              <Input
+                placeholder="Search customer..."
+                value={exportCustomerSearch}
+                onChange={(e) => {
+                  setExportCustomerSearch(e.target.value)
+                  if (!e.target.value.trim()) setExportCustomerId("")
+                }}
+                onFocus={() => {
+                  if (exportCustomerSearch.trim() && exportSuggestions.length > 0) return
+                  setExportSuggestions(customers.slice(0, 8))
+                }}
+                onBlur={() => setTimeout(() => setExportSuggestions([]), 150)}
+                autoComplete="off"
+              />
+              {exportSuggestions.length > 0 && (
+                <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
+                  {exportSuggestions.map(c => (
+                    <li
+                      key={c._id}
+                      className="p-2 hover:bg-gray-100 cursor-pointer"
+                      onMouseDown={() => {
+                        setExportCustomerId(c._id)
+                        setExportCustomerSearch(c.name)
+                        setExportSuggestions([])
+                      }}
+                    >
+                      {c.name} ({c.phone})
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex items-end gap-2">
+              <Button variant="outline" onClick={exportCylinderCSV} className="w-full">Export CSV</Button>
+              <Button onClick={exportCylinderPDF} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white w-full">Export PDF</Button>
+            </div>
+          </div>
+        </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => resetForm()} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white w-full sm:w-auto">
               <Plus className="w-4 h-4 mr-2" />
