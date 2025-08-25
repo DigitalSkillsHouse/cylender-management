@@ -116,6 +116,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [exportCustomerId, setExportCustomerId] = useState<string>("")
   const [exportCustomerSearch, setExportCustomerSearch] = useState<string>("")
   const [exportSuggestions, setExportSuggestions] = useState<Customer[]>([])
+  // Toggle for showing export inputs (align with admin page behavior)
+  const [showExportInput, setShowExportInput] = useState(false)
 
   // Receipt and signature dialog states
   const [isReceiptDialogOpen, setIsReceiptDialogOpen] = useState(false)
@@ -1579,56 +1581,65 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           </div>
         </div>
 
-        {/* Export filters + actions */}
+        {/* Export actions */}
         <div className="w-full md:w-auto space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-            <div>
-              <Label className="text-xs">Start Date</Label>
-              <Input type="date" value={exportStart} onChange={(e) => setExportStart(e.target.value)} />
+          <Button
+            variant="secondary"
+            className="bg-white text-[#2B3068] hover:bg-gray-100 w-full md:w-auto"
+            onClick={() => setShowExportInput((v) => !v)}
+          >
+            Export Data
+          </Button>
+          {showExportInput && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
+              <div>
+                <Label className="text-xs">Start Date</Label>
+                <Input type="date" value={exportStart} onChange={(e) => setExportStart(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs">End Date</Label>
+                <Input type="date" value={exportEnd} onChange={(e) => setExportEnd(e.target.value)} />
+              </div>
+              <div className="relative">
+                <Label className="text-xs">Customer</Label>
+                <Input
+                  placeholder="Search customer..."
+                  value={exportCustomerSearch}
+                  onChange={(e) => {
+                    setExportCustomerSearch(e.target.value)
+                    if (!e.target.value.trim()) setExportCustomerId("")
+                  }}
+                  onFocus={() => {
+                    if (exportCustomerSearch.trim() && exportSuggestions.length > 0) return
+                    setExportSuggestions(customers.slice(0, 8))
+                  }}
+                  onBlur={() => setTimeout(() => setExportSuggestions([]), 150)}
+                  autoComplete="off"
+                />
+                {exportSuggestions.length > 0 && (
+                  <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
+                    {exportSuggestions.map(c => (
+                      <li
+                        key={c._id}
+                        className="p-2 hover:bg-gray-100 cursor-pointer"
+                        onMouseDown={() => {
+                          setExportCustomerId(c._id)
+                          setExportCustomerSearch(c.name)
+                          setExportSuggestions([])
+                        }}
+                      >
+                        {c.name} ({c.phone})
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="flex items-end gap-2">
+                <Button variant="outline" onClick={exportCylinderCSV} className="w-full">Export CSV</Button>
+                <Button onClick={exportCylinderPDF} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white w-full">Export PDF</Button>
+              </div>
             </div>
-            <div>
-              <Label className="text-xs">End Date</Label>
-              <Input type="date" value={exportEnd} onChange={(e) => setExportEnd(e.target.value)} />
-            </div>
-            <div className="relative">
-              <Label className="text-xs">Customer</Label>
-              <Input
-                placeholder="Search customer..."
-                value={exportCustomerSearch}
-                onChange={(e) => {
-                  setExportCustomerSearch(e.target.value)
-                  if (!e.target.value.trim()) setExportCustomerId("")
-                }}
-                onFocus={() => {
-                  if (exportCustomerSearch.trim() && exportSuggestions.length > 0) return
-                  setExportSuggestions(customers.slice(0, 8))
-                }}
-                onBlur={() => setTimeout(() => setExportSuggestions([]), 150)}
-                autoComplete="off"
-              />
-              {exportSuggestions.length > 0 && (
-                <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
-                  {exportSuggestions.map(c => (
-                    <li
-                      key={c._id}
-                      className="p-2 hover:bg-gray-100 cursor-pointer"
-                      onMouseDown={() => {
-                        setExportCustomerId(c._id)
-                        setExportCustomerSearch(c.name)
-                        setExportSuggestions([])
-                      }}
-                    >
-                      {c.name} ({c.phone})
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="flex items-end gap-2">
-              <Button variant="outline" onClick={exportCylinderCSV} className="w-full">Export CSV</Button>
-              <Button onClick={exportCylinderPDF} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white w-full">Export PDF</Button>
-            </div>
-          </div>
+          )}
         </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
