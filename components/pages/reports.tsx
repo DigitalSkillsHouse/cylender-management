@@ -1787,7 +1787,7 @@ export function Reports() {
 
             {/* Read-only grid like existing layout */}
             <div className="overflow-x-auto border rounded-md">
-              <Table className="min-w-[760px]">
+              <Table className="min-w-[1100px] whitespace-nowrap">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Items</TableHead>

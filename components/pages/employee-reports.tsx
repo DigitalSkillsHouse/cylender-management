@@ -1745,7 +1745,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[10.5rem]" />
           </div>
           <div className="border rounded-lg overflow-x-auto">
-            <Table>
+            <Table className="min-w-[1100px] sm:min-w-[1000px] whitespace-nowrap">
               <TableHeader>
                 <TableRow>
                   <TableHead>Items</TableHead>
