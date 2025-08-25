@@ -318,7 +318,7 @@ export function GasSales() {
       doc.setFontSize(7.5)
       if (term) { doc.text(`Customer: ${term}`, marginX, y); y += 9 }
       if (exportStartDate || exportEndDate) { doc.text(`Date: ${(exportStartDate||'...')} to ${(exportEndDate||'...')}`, marginX, y); y += 9 }
-      doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, y); y += 10
+      doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, y); y += 16
 
       // Header bar
       const headerHeight = 16

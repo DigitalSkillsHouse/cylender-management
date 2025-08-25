@@ -581,7 +581,7 @@ export function CylinderManagement() {
       if (term) { doc.text(`Party: ${term}`, marginX, y); y += 9 }
       if (exportStartDate || exportEndDate) { doc.text(`Date: ${(exportStartDate||'...')} to ${(exportEndDate||'...')}`, marginX, y); y += 9 }
       doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, y)
-      y += 10
+      y += 16
 
       // Header bar styling
       const headerHeight = 16
