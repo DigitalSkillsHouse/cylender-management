@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -1581,66 +1582,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           </div>
         </div>
 
-        {/* Export actions */}
-        <div className="w-full md:w-auto space-y-2">
-          <Button
-            variant="secondary"
-            className="bg-white text-[#2B3068] hover:bg-gray-100 w-full md:w-auto"
-            onClick={() => setShowExportInput((v) => !v)}
-          >
-            Export Data
-          </Button>
-          {showExportInput && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
-              <div>
-                <Label className="text-xs">Start Date</Label>
-                <Input type="date" value={exportStart} onChange={(e) => setExportStart(e.target.value)} />
-              </div>
-              <div>
-                <Label className="text-xs">End Date</Label>
-                <Input type="date" value={exportEnd} onChange={(e) => setExportEnd(e.target.value)} />
-              </div>
-              <div className="relative">
-                <Label className="text-xs">Customer</Label>
-                <Input
-                  placeholder="Search customer..."
-                  value={exportCustomerSearch}
-                  onChange={(e) => {
-                    setExportCustomerSearch(e.target.value)
-                    if (!e.target.value.trim()) setExportCustomerId("")
-                  }}
-                  onFocus={() => {
-                    if (exportCustomerSearch.trim() && exportSuggestions.length > 0) return
-                    setExportSuggestions(customers.slice(0, 8))
-                  }}
-                  onBlur={() => setTimeout(() => setExportSuggestions([]), 150)}
-                  autoComplete="off"
-                />
-                {exportSuggestions.length > 0 && (
-                  <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
-                    {exportSuggestions.map(c => (
-                      <li
-                        key={c._id}
-                        className="p-2 hover:bg-gray-100 cursor-pointer"
-                        onMouseDown={() => {
-                          setExportCustomerId(c._id)
-                          setExportCustomerSearch(c.name)
-                          setExportSuggestions([])
-                        }}
-                      >
-                        {c.name} ({c.phone})
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="flex items-end gap-2">
-                <Button variant="outline" onClick={exportCylinderCSV} className="w-full">Export CSV</Button>
-                <Button onClick={exportCylinderPDF} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white w-full">Export PDF</Button>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Export actions moved to results section header */}
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
@@ -1939,7 +1881,92 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     {/* Transactions Table */}
     <Card className="border-0 shadow-lg">
       <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">
-        <CardTitle>Cylinder Transactions</CardTitle>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
+          <CardTitle>Cylinder Transactions</CardTitle>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+            {showExportInput && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                <div className="relative">
+                  <Input
+                    placeholder="Enter customer or company name"
+                    value={exportCustomerSearch}
+                    onChange={(e) => {
+                      setExportCustomerSearch(e.target.value)
+                      if (!e.target.value.trim()) setExportCustomerId("")
+                    }}
+                    onFocus={() => {
+                      if (exportCustomerSearch.trim() && exportSuggestions.length > 0) return
+                      setExportSuggestions(customers.slice(0, 8))
+                    }}
+                    onBlur={() => setTimeout(() => setExportSuggestions([]), 150)}
+                    autoComplete="off"
+                    className="bg-white text-gray-900 placeholder:text-gray-500 w-full sm:w-64 h-9"
+                  />
+                  {exportSuggestions.length > 0 && (
+                    <ul className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                      {exportSuggestions.map(c => (
+                        <li
+                          key={c._id}
+                          className="px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm text-gray-800"
+                          onMouseDown={() => {
+                            setExportCustomerId(c._id)
+                            setExportCustomerSearch(c.name)
+                            setExportSuggestions([])
+                          }}
+                        >
+                          {c.name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Label className="text-xs text-gray-600">From</Label>
+                  <Input
+                    type="date"
+                    value={exportStart}
+                    onChange={(e) => setExportStart(e.target.value)}
+                    className="bg-white text-gray-900 w-full sm:w-36 h-9"
+                  />
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Label className="text-xs text-gray-600">To</Label>
+                  <Input
+                    type="date"
+                    value={exportEnd}
+                    onChange={(e) => setExportEnd(e.target.value)}
+                    className="bg-white text-gray-900 w-full sm:w-36 h-9"
+                  />
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="secondary"
+                      className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto"
+                    >
+                      Export
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={exportCylinderPDF}>
+                      Download PDF
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={exportCylinderCSV}>
+                      Download CSV
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+            <Button
+              variant="secondary"
+              className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto"
+              onClick={() => setShowExportInput((v) => !v)}
+            >
+              Export Data
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
