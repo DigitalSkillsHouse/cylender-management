@@ -287,8 +287,33 @@ export function GasSales() {
     }
   }
 
+  // Helper: ensure a Unicode font (Arabic-capable) is available for jsPDF
+  let _arabicFontLoaded: boolean | undefined
+  const ensureArabicFont = async (doc: any) => {
+    if (_arabicFontLoaded) return true
+    try {
+      const res = await fetch('/fonts/NotoNaskhArabic-Regular.ttf')
+      if (!res.ok) return false
+      const buf = await res.arrayBuffer()
+      // Convert to base64 for addFileToVFS
+      const bytes = new Uint8Array(buf)
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+      const base64 = btoa(binary)
+      const vfsName = 'NotoNaskhArabic-Regular.ttf'
+      const family = 'NotoNaskhArabic'
+      doc.addFileToVFS(vfsName, base64)
+      doc.addFont(vfsName, family, 'normal')
+      _arabicFontLoaded = true
+      return true
+    } catch (e) {
+      console.warn('[PDF] Arabic font load failed:', e)
+      return false
+    }
+  }
+
   // PDF export for Sales History (filtered by exportSearch) with compact layout and multiline rows
-  const exportSalesPDF = () => {
+  const exportSalesPDF = async () => {
     try {
       const term = (exportSearch || "").trim().toLowerCase()
       const sourceArray = Array.isArray(sales) ? sales : []
@@ -304,17 +329,25 @@ export function GasSales() {
       })
 
       const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      const arabicReady = await ensureArabicFont(doc)
+      if (arabicReady) {
+        try { doc.setFont('NotoNaskhArabic', 'normal') } catch {}
+      } else {
+        // Fallback to default
+        try { doc.setFont('helvetica', 'normal') } catch {}
+      }
       const marginX = 32
       const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
       let y = 52
 
       // Title
-      doc.setFont('helvetica', 'bold')
+      // Use bold where available; if custom family doesn't have bold, jsPDF will synthesize weight
+      doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'bold')
       doc.setFontSize(11)
       doc.text('Gas Sales Export', marginX, y)
       y += 10
-      doc.setFont('helvetica', 'normal')
+      doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'normal')
       doc.setFontSize(7.5)
       if (term) { doc.text(`Customer: ${term}`, marginX, y); y += 9 }
       if (exportStartDate || exportEndDate) { doc.text(`Date: ${(exportStartDate||'...')} to ${(exportEndDate||'...')}`, marginX, y); y += 9 }
@@ -352,7 +385,7 @@ export function GasSales() {
         if (y > pageHeight - 52) {
           doc.addPage()
           y = 52
-          doc.setFont('helvetica', 'bold')
+          doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'bold')
           doc.setFontSize(11)
           doc.text('Gas Sales Export (cont.)', marginX, y)
           y += 10
@@ -369,7 +402,7 @@ export function GasSales() {
         }
 
         // Measure lines for each cell
-        doc.setFont('helvetica', 'normal')
+        doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'normal')
         const cellLines: string[][] = []
         const widths: number[] = []
         cells.forEach((cell, i) => {
