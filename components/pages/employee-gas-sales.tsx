@@ -802,9 +802,30 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
     URL.revokeObjectURL(url)
   }
 
-  const exportSalesPDF = () => {
+  // Helper to ensure Arabic-capable font is loaded into jsPDF
+  const ensureArabicFont = async (doc: jsPDF): Promise<boolean> => {
+    try {
+      const res = await fetch('/fonts/NotoNaskhArabic-Regular.ttf')
+      if (!res.ok) return false
+      const buf = await res.arrayBuffer()
+      const bytes = new Uint8Array(buf)
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+      const base64 = btoa(binary)
+      doc.addFileToVFS('NotoNaskhArabic-Regular.ttf', base64)
+      doc.addFont('NotoNaskhArabic-Regular.ttf', 'NotoNaskhArabic', 'normal')
+      return true
+    } catch (e) {
+      console.warn('[PDF] Arabic font load failed:', e)
+      return false
+    }
+  }
+
+  const exportSalesPDF = async () => {
     const list = getExportFilteredSales()
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' })
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+    const arabicReady = await ensureArabicFont(doc)
+    try { doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'normal') } catch {}
     const margin = 32
     let y = margin
     doc.setFontSize(14)
