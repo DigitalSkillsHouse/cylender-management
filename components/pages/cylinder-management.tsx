@@ -401,14 +401,16 @@ export function CylinderManagement() {
       actions: () => (
         <TableCell className="p-4">
           <div className="flex space-x-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleReceiptClick(transaction)}
-              className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
-            >
-              Receipt
-            </Button>
+            {transaction.type !== 'refill' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleReceiptClick(transaction)}
+                className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
+              >
+                Receipt
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -1295,7 +1297,11 @@ export function CylinderManagement() {
   }
 
   const handleReceiptClick = (transaction: CylinderTransaction) => {
-    // Allow receipt generation for all types, including 'return'
+    // Block receipt generation for 'refill' transactions
+    if (transaction.type === 'refill') {
+      return
+    }
+    // Allow receipt generation for all other types, including 'return'
 
     if (!customerSignature) {
       // No signature yet - show signature dialog first

@@ -1080,6 +1080,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
   // Handle view receipt - opens signature dialog first
   const handleViewReceipt = (transaction: CylinderTransaction) => {
+    // Block receipt generation for refill transactions
+    if (transaction.type === 'refill') {
+      toast.info('Receipt is not available for Refill transactions')
+      return
+    }
     // Build a safe party object for receipt/signature
     const isRefill = transaction.type === 'refill'
     const party = isRefill
@@ -1393,15 +1398,17 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       actions: () => (
         <TableCell className="p-4">
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleViewReceipt(transaction)}
-              className="h-8 px-2 text-xs"
-            >
-              <Receipt className="w-3 h-3 mr-1" />
-              Receipt
-            </Button>
+            {transaction.type !== 'refill' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleViewReceipt(transaction)}
+                className="h-8 px-2 text-xs"
+              >
+                <Receipt className="w-3 h-3 mr-1" />
+                Receipt
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
