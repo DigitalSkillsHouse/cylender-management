@@ -80,6 +80,19 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
     const node = printRef.current
     if (!node) return
 
+    // Ensure all images inside the print node are fully loaded (especially header)
+    const imgs = Array.from(node.querySelectorAll<HTMLImageElement>("img"))
+    await Promise.all(
+      imgs.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            if (img.complete && img.naturalWidth > 0) return resolve()
+            img.addEventListener("load", () => resolve(), { once: true })
+            img.addEventListener("error", () => resolve(), { once: true })
+          })
+      )
+    )
+
     const canvas = await html2canvas(node, {
       scale: 4,
       backgroundColor: "#ffffff",
@@ -204,9 +217,16 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
           >
             {/* Moderate capture width for balanced density on A4 */}
             <div className="w-[1200px] mx-auto">
+              {/* PDF Header Image */}
+              <img
+                src="/images/Quotation-Paper-Invoice-Header.jpg"
+                alt="Quotation Header"
+                className="w-full mb-3"
+                crossOrigin="anonymous"
+              />
               <div className="text-center">
                 <h2 className="text-sm font-bold text-[#2B3068]">Product Quote</h2>
-                <p className="text-[10px] text-gray-600">Product List ({visibleCount}/{totalCount}) — {new Date().toLocaleDateString()}</p>
+                <p className="text-[10px] text-gray-600">{new Date().toLocaleDateString()}</p>
               </div>
 
               <Separator className="my-3" />
