@@ -618,17 +618,21 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         const assignments = stockData.data || stockData
         const list = Array.isArray(assignments) ? assignments : []
         setStockAssignments(list)
-        // Derive assigned cylinder products with remaining quantity > 0
-        const assignedProductsMap = new Map<string, any>()
+        // Build products list: include ALL cylinder products (so 'refill' can always pick),
+        // enriched with assigned ones; deduplicate by _id
+        const allCylinder = (allProducts || []).filter((p: any) => p?.category === 'cylinder')
+        const mergedMap = new Map<string, any>()
+        // seed with all cylinder products from catalog
+        allCylinder.forEach((p: any) => mergedMap.set(p._id, p))
+        // overlay assigned products (to ensure latest nested product object if needed)
         list
-          .filter(sa => sa?.product && sa?.product?.category === 'cylinder' && (sa.remainingQuantity || 0) > 0)
+          .filter(sa => sa?.product && sa?.product?.category === 'cylinder')
           .forEach(sa => {
             const prod = sa.product
-            // Prefer enriching from allProducts if exists (to ensure latest leastPrice), fallback to sa.product
-            const enriched = allProducts.find(p => p._id === prod._id) || prod
-            assignedProductsMap.set(enriched._id, enriched)
+            const enriched = allProducts.find((p: any) => p._id === prod._id) || prod
+            mergedMap.set(enriched._id, enriched)
           })
-        setProducts(Array.from(assignedProductsMap.values()))
+        setProducts(Array.from(mergedMap.values()))
       } else {
         console.error("Failed to fetch stock assignments:", stockAssignmentsResponse.status)
         setStockAssignments([])
@@ -806,7 +810,9 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
     // Enhanced validation
     if (formData.type === 'refill') {
-      if (!formData.supplier || !formData.product || !formData.cylinderSize || formData.quantity <= 0) {
+      const hasSingle = !!formData.product && !!formData.cylinderSize && Number(formData.quantity) > 0
+      const hasItems = Array.isArray(formData.items) && formData.items.length > 0
+      if (!formData.supplier || (!hasSingle && !hasItems)) {
         toast.error("Please fill in all required fields")
         return
       }
@@ -824,36 +830,38 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       }
     }
 
-    // Validate against assigned stock
-    if (formData.items.length === 0) {
-      const assignedAvailable = getAssignedAvailable()
-      if (assignedAvailable < formData.quantity) {
-        setStockAlert({
-          open: true,
-          productName: selectedProduct!.name,
-          size: formData.cylinderSize,
-          available: assignedAvailable,
-          requested: formData.quantity,
-        })
-        setStockValidationMessage(`You requested ${formData.quantity} unit(s) of ${selectedProduct!.name} (${formData.cylinderSize}). Only ${assignedAvailable} unit(s) are available in your assigned inventory.`)
-        setShowStockValidationPopup(true)
-        return
-      }
-    } else {
-      // Multi-item validation per item
-      for (const it of formData.items) {
-        const available = getAssignedAvailableFor(it.productId, it.cylinderSize)
-        if (available < (Number(it.quantity) || 0)) {
+    // Validate against assigned stock (skip for refill transactions)
+    if (formData.type !== 'refill') {
+      if (formData.items.length === 0) {
+        const assignedAvailable = getAssignedAvailable()
+        if (assignedAvailable < formData.quantity) {
           setStockAlert({
             open: true,
-            productName: it.productName,
-            size: it.cylinderSize,
-            available,
-            requested: it.quantity,
+            productName: selectedProduct!.name,
+            size: formData.cylinderSize,
+            available: assignedAvailable,
+            requested: formData.quantity,
           })
-          setStockValidationMessage(`You requested ${it.quantity} unit(s) of ${it.productName} (${it.cylinderSize}). Only ${available} unit(s) are available in your assigned inventory.`)
+          setStockValidationMessage(`You requested ${formData.quantity} unit(s) of ${selectedProduct!.name} (${formData.cylinderSize}). Only ${assignedAvailable} unit(s) are available in your assigned inventory.`)
           setShowStockValidationPopup(true)
           return
+        }
+      } else {
+        // Multi-item validation per item
+        for (const it of formData.items) {
+          const available = getAssignedAvailableFor(it.productId, it.cylinderSize)
+          if (available < (Number(it.quantity) || 0)) {
+            setStockAlert({
+              open: true,
+              productName: it.productName,
+              size: it.cylinderSize,
+              available,
+              requested: it.quantity,
+            })
+            setStockValidationMessage(`You requested ${it.quantity} unit(s) of ${it.productName} (${it.cylinderSize}). Only ${available} unit(s) are available in your assigned inventory.`)
+            setShowStockValidationPopup(true)
+            return
+          }
         }
       }
     }
