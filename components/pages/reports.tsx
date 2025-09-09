@@ -77,6 +77,9 @@ export function Reports() {
     inputAmount: string
   }>({ open: false, targetId: null, kind: 'sale', totalAmount: 0, currentReceived: 0, inputAmount: '' })
 
+  // Pending receipt context for signature-first flow after Receive Amount
+  const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'cylinder'; targetId: string } | null>(null)
+
   const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'cylinder' }) => {
     setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '' })
   }
@@ -257,77 +260,9 @@ export function Reports() {
 
       // Close receive dialog first to avoid overlay conflicts
       closeReceiveDialog()
-
-      // Prepare and open receipt preview. If fetching updated record fails,
-      // fall back to a minimal receipt so the dialog still opens.
-      const buildReceiptFromSource = (src: any) => {
-        const isCylinder = receiveDialog.kind === 'cylinder'
-        const customerName = src?.customer?.name || src?.customerName || (typeof src?.customer === 'string' ? src.customer : '-')
-        const customerPhone = src?.customer?.phone || src?.customerPhone || '-'
-        const customerAddress = src?.customer?.address || src?.customerAddress || '-'
-        const createdAt = src?.createdAt || new Date().toISOString()
-        const invoiceNumber = src?.invoiceNumber || src?._id || String(receiveDialog.targetId)
-        const totalAmount = Number(src?.totalAmount ?? src?.amount ?? receiveDialog.totalAmount ?? 0)
-        const paymentMethod = (src?.paymentMethod || src?.method || '-').toString()
-        const paymentStatus = (src?.paymentStatus || src?.status || newStatus).toString()
-        const type = (src?.type || '').toString()
-
-        let items: any[] = []
-        if (Array.isArray(src?.items) && src.items.length > 0) {
-          items = src.items.map((it: any) => ({
-            product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: Number(it?.price || it?.unitPrice || it?.costPrice || 0) },
-            quantity: Number(it?.quantity || 1),
-            price: Number(it?.price || it?.unitPrice || it?.costPrice || 0),
-            total: Number(it?.total || ((Number(it?.price || it?.unitPrice || it?.costPrice || 0)) * Number(it?.quantity || 1)))
-          }))
-        } else {
-          const label = isCylinder ? `${type || 'Cylinder'} Transaction` : 'Gas Sale'
-          items = [{
-            product: { name: label, price: Number(totalAmount) },
-            quantity: 1,
-            price: Number(totalAmount),
-            total: Number(totalAmount)
-          }]
-        }
-
-        return {
-          _id: String(src?._id || receiveDialog.targetId),
-          invoiceNumber,
-          customer: { name: customerName, phone: customerPhone, address: customerAddress },
-          items,
-          totalAmount,
-          paymentMethod,
-          paymentStatus,
-          type,
-          createdAt,
-          customerSignature: ''
-        }
-      }
-
-      try {
-        const getUrl = receiveDialog.kind === 'cylinder'
-          ? `/api/cylinders/${receiveDialog.targetId}`
-          : `/api/sales/${receiveDialog.targetId}`
-        const getRes = await fetch(getUrl)
-        if (getRes.ok) {
-          const updated = await getRes.json()
-          setReceiptDialogData(buildReceiptFromSource(updated))
-        } else {
-          // Non-OK response, open minimal receipt
-          setReceiptDialogData(buildReceiptFromSource({}))
-        }
-      } catch (e) {
-        setReceiptDialogData(buildReceiptFromSource({}))
-      }
-
-      // Delayed reload fallback: if no refresh helpers executed, reload after receipt opens
-      if (!usedRefreshHelpers) {
-        try {
-          setTimeout(() => {
-            try { (window as any).location && (window as any).location.reload() } catch {}
-          }, 1500)
-        } catch {}
-      }
+      // Signature-first: store pending receipt context and open signature dialog
+      setPendingReceiptData({ kind: receiveDialog.kind, targetId: String(receiveDialog.targetId) })
+      setShowSignatureDialog(true)
       // Removed success alert to avoid interrupting receipt preview flow
     } catch (e: any) {
       alert(`Failed to update payment: ${e?.message || 'Unknown error'}`)
@@ -1360,15 +1295,79 @@ export function Reports() {
   }
 
   const handleSignatureComplete = (signature: string) => {
-    
-    // Set signature state for future use
+    // Save signature and close dialog
     setCustomerSignature(signature)
     setShowSignatureDialog(false)
-    
-    // Directly open receipt dialog with the pending customer and signature embedded
-    if (pendingCustomer) {
 
-      // Build receipt items as separate rows per product for gas sales, plus cylinder transactions
+    // If invoked from Receive Amount flow, fetch record and open receipt with signature
+    if (pendingReceiptData) {
+      const { kind, targetId } = pendingReceiptData
+      const getUrl = kind === 'cylinder' ? `/api/cylinders/${targetId}` : `/api/sales/${targetId}`
+
+      const buildReceiptFromSource = (src: any) => {
+        const isCylinder = kind === 'cylinder'
+        const customerName = src?.customer?.name || src?.customerName || (typeof src?.customer === 'string' ? src.customer : '-')
+        const customerPhone = src?.customer?.phone || src?.customerPhone || '-'
+        const customerAddress = src?.customer?.address || src?.customerAddress || '-'
+        const createdAt = src?.createdAt || new Date().toISOString()
+        const invoiceNumber = src?.invoiceNumber || src?._id || String(targetId)
+        const totalAmount = Number(src?.totalAmount ?? src?.amount ?? 0)
+        const paymentMethod = (src?.paymentMethod || src?.method || '-').toString()
+        const paymentStatus = (src?.paymentStatus || src?.status || '').toString()
+        const type = (src?.type || '').toString()
+
+        let items: any[] = []
+        if (Array.isArray(src?.items) && src.items.length > 0) {
+          items = src.items.map((it: any) => ({
+            product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: Number(it?.price || it?.unitPrice || it?.costPrice || 0) },
+            quantity: Number(it?.quantity || 1),
+            price: Number(it?.price || it?.unitPrice || it?.costPrice || 0),
+            total: Number(it?.total || ((Number(it?.price || it?.unitPrice || it?.costPrice || 0)) * Number(it?.quantity || 1)))
+          }))
+        } else {
+          const label = isCylinder ? `${type || 'Cylinder'} Transaction` : 'Gas Sale'
+          items = [{
+            product: { name: label, price: Number(totalAmount) },
+            quantity: 1,
+            price: Number(totalAmount),
+            total: Number(totalAmount)
+          }]
+        }
+
+        return {
+          _id: String(src?._id || targetId),
+          invoiceNumber,
+          customer: { name: customerName, phone: customerPhone, address: customerAddress },
+          items,
+          totalAmount,
+          paymentMethod,
+          paymentStatus,
+          type,
+          createdAt,
+          customerSignature: signature,
+        }
+      }
+
+      ;(async () => {
+        try {
+          const getRes = await fetch(getUrl)
+          if (getRes.ok) {
+            const updated = await getRes.json()
+            setReceiptDialogData(buildReceiptFromSource(updated))
+          } else {
+            setReceiptDialogData(buildReceiptFromSource({}))
+          }
+        } catch {
+          setReceiptDialogData(buildReceiptFromSource({}))
+        } finally {
+          setPendingReceiptData(null)
+        }
+      })()
+      return
+    }
+
+    // Otherwise, this is the customer statement flow
+    if (pendingCustomer) {
       const filteredSales = (pendingCustomer.recentSales || []).filter((entry: any) => {
         if (filters.status === 'all') return true
         return entry.paymentStatus === filters.status
@@ -1376,51 +1375,25 @@ export function Reports() {
 
       const gasItems = filteredSales.flatMap((entry: any) =>
         (entry.items || []).map((it: any) => ({
-          product: {
-            name: it?.product?.name || 'Unknown Product',
-            price: Number(it?.price || 0),
-          },
+          product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: Number(it?.price || 0) },
           quantity: Number(it?.quantity || 1),
           price: Number(it?.price || 0),
-          total: Number(it?.total ?? ((Number(it?.price || 0)) * Number(it?.quantity || 1)))
+          total: Number(it?.total || ((Number(it?.price || 0)) * Number(it?.quantity || 1)))
         }))
       )
 
-      // Cylinder transactions (deposit/return have amount; refills treated as 0 amount in receipt)
-      const filteredCyl = (pendingCustomer.recentCylinderTransactions || []).filter((t: any) => {
-        if (filters.status === 'all') return true
-        return t.status === filters.status
-      })
-      const cylItems = filteredCyl.map((t: any) => {
-        const qty = Number(t?.quantity || 1)
-        const total = t?.type === 'refill' ? 0 : Number(t?.amount || 0)
-        const unit = qty > 0 ? (total / qty) : total
-        return {
-          product: {
-            name: `Cylinder ${t?.type} - ${t?.cylinderSize}`,
-            price: unit,
-          },
-          quantity: qty,
-          price: unit,
-          total: total,
-        }
-      })
+      const cylinderItems = (pendingCustomer.recentCylinderTransactions || [])
+        .filter((t: any) => (filters.status === 'all') ? true : (t?.status === filters.status))
+        .map((t: any) => ({
+          product: { name: `${t?.type || 'Cylinder'} – ${t?.cylinderSize || ''}`, price: Number(t?.amount || 0) },
+          quantity: Number(t?.quantity || 1),
+          price: Number(t?.amount || 0),
+          total: Number(t?.amount || 0)
+        }))
 
-      const items = [...gasItems, ...cylItems]
+      const items = [...gasItems, ...cylinderItems]
+      const totalAmount = items.reduce((sum, x) => sum + Number(x.total || 0), 0)
 
-      // Calculate total amount as sum of item totals
-      const totalAmount = items.reduce((sum, it) => sum + (Number(it.total) || 0), 0)
-      
-      // If no items, add a placeholder
-      if (items.length === 0) {
-        items.push({
-          product: { name: "No transactions found", price: 0 },
-          quantity: 1,
-          price: 0,
-          total: 0
-        })
-      }
-      
       const mockSale = {
         _id: pendingCustomer._id,
         invoiceNumber: `STATEMENT-${pendingCustomer.trNumber}`,
@@ -1429,14 +1402,14 @@ export function Reports() {
           phone: pendingCustomer.phone,
           address: pendingCustomer.address
         },
-        items: items,
-        totalAmount: totalAmount,
+        items,
+        totalAmount,
         paymentMethod: "Account Statement",
         paymentStatus: pendingCustomer.status,
         createdAt: pendingCustomer.lastTransactionDate || new Date().toISOString(),
         customerSignature: signature
       }
-      
+
       setReceiptDialogData(mockSale)
       setPendingCustomer(null)
     }
