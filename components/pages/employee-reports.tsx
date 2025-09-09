@@ -2003,9 +2003,10 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2 relative">
+          {/* Filters - Responsive Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Customer Search - Full width on mobile, half on sm, quarter on lg */}
+            <div className="space-y-2 relative sm:col-span-2 lg:col-span-1">
               <Label htmlFor="customerName">Customer Name</Label>
               <Input
                 id="customerName"
@@ -2014,7 +2015,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                 onChange={(e) => handleCustomerNameChange(e.target.value)}
                 onFocus={handleInputFocus}
                 onBlur={handleInputBlur}
-                className="pr-10"
+                className="pr-10 w-full"
               />
               {showSuggestions && filteredSuggestions.length > 0 && (
                 <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
@@ -2026,16 +2027,15 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                     >
                       <div className="flex flex-col">
                         <span className="font-medium text-gray-900">{customer.name}</span>
-                        <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                          <span>TR: {customer.trNumber}</span>
-                          <span>Phone: {customer.phone}</span>
-                          <TableCell className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-4 text-sm text-gray-500 mt-1">
+                          <span className="truncate">TR: {customer.trNumber}</span>
+                          <span className="truncate">Phone: {customer.phone}</span>
+                          <div className="mt-1 sm:mt-0">
                             {(() => {
                               const dynamicStatus = customer.balance <= 0 ? 'cleared' : customer.status;
-                              // It then renders the badge with the correct, dynamic status.
                               return getStatusBadge(dynamicStatus);
                             })()}
-                          </TableCell>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2044,10 +2044,14 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
               )}
             </div>
 
+            {/* Status Dropdown - Half width on mobile, quarter on lg */}
             <div className="space-y-2">
               <Label htmlFor="status">Status</Label>
-              <Select value={filters.status} onValueChange={(value) => setFilters({ ...filters, status: value })}>
-                <SelectTrigger>
+              <Select 
+                value={filters.status} 
+                onValueChange={(value) => setFilters({ ...filters, status: value })}
+              >
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2059,24 +2063,29 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="startDate">Start Date</Label>
-              <Input
-                id="startDate"
-                type="date"
-                value={filters.startDate}
-                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-              />
-            </div>
+            {/* Date Range - Half width on mobile, quarter on lg */}
+            <div className="grid grid-cols-2 gap-4 sm:col-span-2 lg:col-span-1">
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date</Label>
+                <Input
+                  id="startDate"
+                  type="date"
+                  value={filters.startDate}
+                  onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                  className="w-full"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="endDate">End Date</Label>
-              <Input
-                id="endDate"
-                type="date"
-                value={filters.endDate}
-                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date</Label>
+                <Input
+                  id="endDate"
+                  type="date"
+                  value={filters.endDate}
+                  onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                  className="w-full"
+                />
+              </div>
             </div>
           </div>
 
