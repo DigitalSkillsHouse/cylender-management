@@ -1342,9 +1342,14 @@ export function Reports() {
 
       const buildReceiptFromSource = (src: any) => {
         const isCylinder = kind === 'cylinder'
-        const customerName = src?.customer?.name || src?.customerName || (typeof src?.customer === 'string' ? src.customer : '-')
-        const customerPhone = src?.customer?.phone || src?.customerPhone || '-'
-        const customerAddress = src?.customer?.address || src?.customerAddress || '-'
+        // Attempt to resolve customer fields from API record, falling back to ledger customers
+        const srcCustomer = src?.customer
+        const custId = typeof srcCustomer === 'string' ? srcCustomer : (srcCustomer?._id || src?.customerId || '')
+        const ledgerCust = customers.find((c) => c._id === custId) ||
+                           customers.find((c) => (c.name || '').toLowerCase() === (src?.customerName || '').toLowerCase())
+        const customerName = (srcCustomer?.name) || src?.customerName || ledgerCust?.name || '-'
+        const customerPhone = (srcCustomer?.phone) || src?.customerPhone || ledgerCust?.phone || '-'
+        const customerAddress = (srcCustomer?.address) || src?.customerAddress || ledgerCust?.address || '-'
         const createdAt = src?.createdAt || new Date().toISOString()
         const invoiceNumber = src?.invoiceNumber || src?._id || String(targetId)
         // Prefer explicit totals, fallback to amount, then to the dialog's totalAmount snapshot
