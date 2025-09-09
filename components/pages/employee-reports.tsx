@@ -1977,15 +1977,15 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       {/* Cash Paper (Employee) */}
       <CashPaperSection title="Cash Paper (Employee)" employeeId={user.id} />
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Stats Cards - Responsive Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {reportCards.map((card, index) => (
-          <Card key={index}>
-            <CardContent className="flex items-center p-6">
-              <card.icon className="h-8 w-8 mr-4" style={{ color: card.color }} />
-              <div>
-                <p className="text-sm font-medium text-gray-600">{card.title}</p>
-                <div className="text-2xl font-bold" style={{ color: card.color }}>
+          <Card key={index} className="col-span-1">
+            <CardContent className="flex items-center p-4 sm:p-6">
+              <card.icon className="h-6 w-6 sm:h-8 sm:w-8 mr-2 sm:mr-4" style={{ color: card.color }} />
+              <div className="min-w-0">
+                <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">{card.title}</p>
+                <div className="text-lg sm:text-xl md:text-2xl font-bold truncate" style={{ color: card.color }}>
                   {card.value}
                 </div>
               </div>
