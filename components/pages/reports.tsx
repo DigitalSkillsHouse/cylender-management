@@ -276,6 +276,9 @@ export function Reports() {
       } catch (e) {
       }
 
+      // Soft refresh: re-fetch reports data so status/amounts update immediately
+      try { await fetchReportsData() } catch {}
+
       // Close receive dialog first to avoid overlay conflicts
       // Record last payment details locally
       if (receiveDialog.targetId) {
