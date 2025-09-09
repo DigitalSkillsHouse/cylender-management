@@ -72,6 +72,16 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const [employeeCylinders, setEmployeeCylinders] = useState<any[]>([])
 
   // Receive Amount dialog state for gas sales and cylinder transactions
+  const [paymentDetailsDialog, setPaymentDetailsDialog] = useState<{
+    open: boolean
+    data: any
+    kind: 'sale' | 'cylinder' | null
+  }>({
+    open: false,
+    data: null,
+    kind: null
+  })
+
   const [receiveDialog, setReceiveDialog] = useState<{
     open: boolean
     targetId: string | null
@@ -79,13 +89,57 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     totalAmount: number
     currentReceived: number
     inputAmount: string
-  }>({ open: false, targetId: null, kind: 'sale', totalAmount: 0, currentReceived: 0, inputAmount: '' })
+    paymentMethod: 'cash' | 'cheque'
+    bankName: string
+    checkNumber: string
+    isReceived: boolean
+  }>({ 
+    open: false, 
+    targetId: null, 
+    kind: 'sale', 
+    totalAmount: 0, 
+    currentReceived: 0, 
+    inputAmount: '',
+    paymentMethod: 'cash',
+    bankName: '',
+    checkNumber: '',
+    isReceived: false
+  })
+
+  // Show payment details for a transaction
+  const showPaymentDetails = (data: any, kind: 'sale' | 'cylinder') => {
+    setPaymentDetailsDialog({
+      open: true,
+      data,
+      kind
+    });
+  };
+
+  // Close payment details dialog
+  const closePaymentDetails = () => {
+    setPaymentDetailsDialog({
+      open: false,
+      data: null,
+      kind: null
+    });
+  };
 
   // Pending receipt context so we can capture signature before opening receipt
   const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'cylinder'; targetId: string } | null>(null)
 
   const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'cylinder' }) => {
-    setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '' })
+    setReceiveDialog({ 
+      open: true, 
+      targetId: opts.id, 
+      kind: opts.kind || 'sale', 
+      totalAmount: opts.totalAmount, 
+      currentReceived: opts.currentReceived, 
+      inputAmount: '',
+      paymentMethod: 'cash',
+      bankName: '',
+      checkNumber: '',
+      isReceived: false
+    })
   }
 
   // Auto-calculate Closing Full/Empty for selected date and roll forward as next day's Opening
@@ -228,7 +282,16 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   }
 
   const closeReceiveDialog = () => {
-    setReceiveDialog(prev => ({ ...prev, open: false, inputAmount: '', targetId: null }))
+    setReceiveDialog(prev => ({ 
+      ...prev, 
+      open: false, 
+      inputAmount: '', 
+      targetId: null,
+      paymentMethod: 'cash',
+      bankName: '',
+      checkNumber: '',
+      isReceived: false
+    }))
   }
 
   const submitReceiveAmount = async () => {
@@ -243,29 +306,68 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       alert(`Amount exceeds remaining balance. Remaining: ${remaining.toFixed(2)}`)
       return
     }
+    
+    // Validate payment method
+    if (receiveDialog.paymentMethod === 'cheque' && (!receiveDialog.bankName || !receiveDialog.checkNumber)) {
+      alert('Please provide bank name and check number for cheque payment')
+      return
+    }
+    
     const newReceived = Number(receiveDialog.currentReceived || 0) + add
     const newStatus = newReceived >= Number(receiveDialog.totalAmount || 0) ? 'cleared' : 'pending'
+    
     try {
+      // Prepare payment details
+      const paymentDetails = {
+        paymentMethod: receiveDialog.paymentMethod || 'cash',
+        ...(receiveDialog.paymentMethod === 'cheque' ? {
+          bankName: receiveDialog.bankName,
+          checkNumber: receiveDialog.checkNumber
+        } : {})
+      }
+      
       // Determine endpoint and payload based on kind (employee-scoped)
       const url = receiveDialog.kind === 'cylinder'
         ? `/api/employee-cylinders/${receiveDialog.targetId}`
         : `/api/employee-sales/${receiveDialog.targetId}`
+        
       const body = receiveDialog.kind === 'cylinder'
-        ? { cashAmount: newReceived, status: newStatus }
-        : { receivedAmount: newReceived, paymentStatus: newStatus }
+        ? { 
+            cashAmount: newReceived, 
+            status: newStatus,
+            ...(receiveDialog.paymentMethod === 'cheque' ? {
+              bankName: receiveDialog.bankName,
+              checkNumber: receiveDialog.checkNumber
+            } : {})
+          }
+        : { 
+            receivedAmount: newReceived, 
+            paymentStatus: newStatus,
+            paymentMethod: receiveDialog.paymentMethod || 'cash',
+            ...(receiveDialog.paymentMethod === 'cheque' ? {
+              bankName: receiveDialog.bankName,
+              checkNumber: receiveDialog.checkNumber
+            } : {})
+          }
+          
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error('Failed to update invoice')
-      // Do not reload/refetch immediately; proceed to signature-first flow
+      if (!res.ok) throw new Error('Failed to update payment')
+      
+      // Show success message
+      toast.success('Payment recorded successfully')
+      
+      // Close the dialog
       closeReceiveDialog()
-      setPendingReceiptData({ kind: receiveDialog.kind, targetId: String(receiveDialog.targetId) })
-      setShowSignatureDialog(true)
+      
+      // Refresh the page to show updated data
+      window.location.reload()
     } catch (e: any) {
-      console.error('receive submit failed', e)
-      alert(e?.message || 'Failed to update payment')
+      console.error('Error updating payment:', e)
+      toast.error(e?.message || 'Failed to update payment')
     }
   }
 
@@ -2209,9 +2311,28 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                             <TableCell>{formatCurrency(sale.amountPaid || 0)}</TableCell>
                                             <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
                                             <TableCell>
-                                              {String(sale.paymentStatus).toLowerCase() === 'pending' && (
-                                                <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
+                                              {String(sale.paymentStatus).toLowerCase() === 'pending' ? (
+                                                <Button 
+                                                  size="sm" 
+                                                  variant="outline" 
+                                                  onClick={() => openReceiveDialog({ 
+                                                    id: String(sale._id), 
+                                                    totalAmount: Number(sale.totalAmount || 0), 
+                                                    currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0),
+                                                    kind: 'sale'
+                                                  })}
+                                                  className="bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700"
+                                                >
                                                   Receive Amount
+                                                </Button>
+                                              ) : (
+                                                <Button 
+                                                  size="sm" 
+                                                  variant="ghost"
+                                                  onClick={() => showPaymentDetails(sale, 'sale')}
+                                                  className="text-blue-600 hover:bg-blue-50"
+                                                >
+                                                  See Details
                                                 </Button>
                                               )}
                                             </TableCell>
@@ -2266,11 +2387,15 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                             <TableCell>{formatCurrency(transaction.amount)}</TableCell>
                                             <TableCell>{formatCurrency(transaction.cashAmount || 0)}</TableCell>
                                             <TableCell>
-                                              {String(transaction.status).toLowerCase() === 'pending' && String(transaction.type).toLowerCase() !== 'refill' && (
+                                              {String(transaction.status).toLowerCase() === 'pending' && String(transaction.type).toLowerCase() !== 'refill' ? (
                                                 <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: 'cylinder', totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
                                                   Receive Amount
                                                 </Button>
-                                              )}
+                                              ) : String(transaction.type).toLowerCase() !== 'refill' ? (
+                                                <Button size="sm" variant="ghost" onClick={() => showPaymentDetails(transaction, 'cylinder')} className="text-blue-600 hover:bg-blue-50">
+                                                  See Details
+                                                </Button>
+                                              ) : null}
                                             </TableCell>
                                             <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                                           </TableRow>
@@ -2427,35 +2552,99 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           <DialogHeader>
             <DialogTitle>Receive Payment</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-600">Total Amount</span>
-              <span className="font-medium">{formatCurrency(receiveDialog.totalAmount || 0)}</span>
+          <div className="space-y-4">
+            {/* Amount Summary */}
+            <div className="space-y-2 p-3 bg-gray-50 rounded-md">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Total Amount</span>
+                <span className="font-medium">{formatCurrency(receiveDialog.totalAmount || 0)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Amount Received</span>
+                <span className="font-medium">{formatCurrency(receiveDialog.currentReceived || 0)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm font-semibold">
+                <span className="text-gray-700">Remaining Balance</span>
+                <span className="text-blue-600">{formatCurrency(Math.max(0, Number(receiveDialog.totalAmount || 0) - Number(receiveDialog.currentReceived || 0)))}</span>
+              </div>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-600">Amount Received</span>
-              <span className="font-medium">{formatCurrency(receiveDialog.currentReceived || 0)}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-600">Remaining</span>
-              <span className="font-medium">{formatCurrency(Math.max(0, Number(receiveDialog.totalAmount || 0) - Number(receiveDialog.currentReceived || 0)))}</span>
-            </div>
-            <div className="space-y-2 pt-1">
-              <Label>Receive Now</Label>
+
+            {/* Payment Amount */}
+            <div className="space-y-2">
+              <Label htmlFor="amount">Amount to Receive</Label>
               <Input
+                id="amount"
                 type="number"
-                inputMode="decimal"
                 step="0.01"
                 min={0}
                 placeholder="0.00"
                 value={receiveDialog.inputAmount}
                 onChange={(e) => setReceiveDialog(prev => ({ ...prev, inputAmount: e.target.value }))}
+                className="text-base"
               />
             </div>
+
+            {/* Payment Method */}
+            <div className="space-y-2">
+              <Label>Payment Method</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={receiveDialog.paymentMethod === 'cash' ? 'default' : 'outline'}
+                  className={`${receiveDialog.paymentMethod === 'cash' ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
+                  onClick={() => setReceiveDialog(prev => ({ ...prev, paymentMethod: 'cash' }))}
+                >
+                  Cash
+                </Button>
+                <Button
+                  type="button"
+                  variant={receiveDialog.paymentMethod === 'cheque' ? 'default' : 'outline'}
+                  className={`${receiveDialog.paymentMethod === 'cheque' ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
+                  onClick={() => setReceiveDialog(prev => ({ ...prev, paymentMethod: 'cheque' }))}
+                >
+                  Cheque
+                </Button>
+              </div>
+
+              {/* Cheque Details */}
+              {receiveDialog.paymentMethod === 'cheque' && (
+                <div className="space-y-3 pt-2 pl-2 border-l-2 border-l-blue-100">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="bankName">Bank Name</Label>
+                      <Input
+                        id="bankName"
+                        placeholder="Bank name"
+                        value={receiveDialog.bankName}
+                        onChange={(e) => setReceiveDialog(prev => ({ ...prev, bankName: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="checkNumber">Check #</Label>
+                      <Input
+                        id="checkNumber"
+                        placeholder="Check number"
+                        value={receiveDialog.checkNumber}
+                        onChange={(e) => setReceiveDialog(prev => ({ ...prev, checkNumber: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeReceiveDialog}>Cancel</Button>
-            <Button style={{ backgroundColor: "#2B3068" }} onClick={submitReceiveAmount}>Update</Button>
+          
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={closeReceiveDialog} className="px-6">
+              Cancel
+            </Button>
+            <Button 
+              onClick={submitReceiveAmount} 
+              className="px-6"
+              style={{ backgroundColor: "#2B3068" }}
+            >
+              Record Payment
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2562,6 +2751,127 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             <Button variant="outline" onClick={() => setClosingDialog(prev => ({ ...prev, open: false }))}>Cancel</Button>
             <Button style={{ backgroundColor: "#2B3068" }} onClick={() => submitClosingDialog()}>Save</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Details Dialog */}
+      <Dialog open={paymentDetailsDialog.open} onOpenChange={closePaymentDetails}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Payment Details</DialogTitle>
+          </DialogHeader>
+          {paymentDetailsDialog.data && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium text-gray-500">Transaction</h4>
+                <div className="flex justify-between">
+                  <span className="text-sm">Invoice/Ref #</span>
+                  <span className="font-medium">
+                    {paymentDetailsDialog.data.invoiceNumber || paymentDetailsDialog.data._id?.substring(0, 8) || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm">Date</span>
+                  <span className="font-medium">
+                    {formatDate(paymentDetailsDialog.data.createdAt || new Date().toISOString())}
+                  </span>
+                </div>
+                {paymentDetailsDialog.kind === 'sale' && (
+                  <div className="flex justify-between">
+                    <span className="text-sm">Total Amount</span>
+                    <span className="font-medium">
+                      {formatCurrency(paymentDetailsDialog.data.totalAmount || 0)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-2 border-t">
+                <h4 className="text-sm font-medium text-gray-500">Payment Information</h4>
+                <div className="flex justify-between">
+                  <span className="text-sm">Payment Method</span>
+                  <span className="font-medium capitalize">
+                    {paymentDetailsDialog.data.paymentMethod || 
+                     (paymentDetailsDialog.data.bankName ? 'cheque' : 'cash')}
+                  </span>
+                </div>
+                
+                {/* Always show payment amount */}
+                <div className="flex justify-between">
+                  <span className="text-sm">Paid Amount</span>
+                  <span className="font-medium text-green-600">
+                    {formatCurrency(
+                      paymentDetailsDialog.data.receivedAmount || 
+                      paymentDetailsDialog.data.amountPaid || 
+                      paymentDetailsDialog.data.cashAmount || 
+                      0
+                    )}
+                  </span>
+                </div>
+
+                {/* Show cheque details if payment method is cheque or bankName exists */}
+                {(paymentDetailsDialog.data.paymentMethod === 'cheque' || paymentDetailsDialog.data.bankName) && (
+                  <div className="mt-2 pt-2 border-t">
+                    <h4 className="text-xs font-medium text-gray-500 mb-1">Cheque Details</h4>
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-sm">Bank Name</span>
+                        <span className="font-medium text-right">
+                          {paymentDetailsDialog.data.bankName || 'Not provided'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Check #</span>
+                        <span className="font-medium">
+                          {paymentDetailsDialog.data.checkNumber || 'Not provided'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between">
+                  <span className="text-sm">Paid Amount</span>
+                  <span className="font-medium text-green-600">
+                    {formatCurrency(
+                      paymentDetailsDialog.data.receivedAmount || 
+                      paymentDetailsDialog.data.amountPaid || 
+                      paymentDetailsDialog.data.cashAmount || 
+                      0
+                    )}
+                  </span>
+                </div>
+
+                {paymentDetailsDialog.kind === 'sale' && (
+                  <div className="flex justify-between">
+                    <span className="text-sm">Payment Status</span>
+                    <span>
+                      {getStatusBadge(paymentDetailsDialog.data.paymentStatus || 'pending')}
+                    </span>
+                  </div>
+                )}
+
+                {paymentDetailsDialog.kind === 'cylinder' && (
+                  <div className="flex justify-between">
+                    <span className="text-sm">Status</span>
+                    <span>
+                      {getStatusBadge(paymentDetailsDialog.data.status || 'pending')}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-4 flex justify-end">
+                <Button 
+                  variant="outline" 
+                  onClick={closePaymentDetails}
+                  className="px-6"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
