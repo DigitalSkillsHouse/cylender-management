@@ -5,7 +5,7 @@ import { useState, useEffect, Fragment } from "react"
 import type { SVGProps } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -119,6 +119,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [exportCustomerId, setExportCustomerId] = useState<string>("")
   const [exportCustomerSearch, setExportCustomerSearch] = useState<string>("")
   const [exportSuggestions, setExportSuggestions] = useState<Customer[]>([])
+  // Show/Hide export inputs in header (to match admin styling)
+  const [showExportInput, setShowExportInput] = useState(false)
 
   // Customer autocomplete functionality for form
   const [customerSearchTerm, setCustomerSearchTerm] = useState("")
@@ -175,10 +177,11 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       setExportSuggestions([])
       return
     }
-    const list = customers.filter(c =>
-      (c.name || '').toLowerCase().includes(term) ||
-      (c.phone || '').toLowerCase().includes(term) ||
-      (c.email || '').toLowerCase().includes(term)
+    const list = customers.filter(
+      (customer) =>
+        customer.name.toLowerCase().includes(term) ||
+        (customer.phone && customer.phone.includes(term)) ||
+        (customer.email && customer.email.toLowerCase().includes(term))
     ).slice(0, 8)
     setExportSuggestions(list)
   }, [exportCustomerSearch, customers])
@@ -906,78 +909,110 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Employee Gas Sales</h2>
+    <div className="pt-16 lg:pt-0 space-y-8">
+      {/* Page Heading - match admin gradient style */}
+      <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
+        <h1 className="text-4xl font-bold mb-2">Employee Gas Sales</h1>
+        <p className="text-white/80 text-lg">Create and manage your gas sales</p>
+      </div>
+
+      {/* Toolbar: search/filter and New Sale button */}
+      <div className="flex items-center justify-between gap-3 flex-col sm:flex-row">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="relative w-full sm:w-80">
+            <Input
+              placeholder="Search by invoice or customer"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-40">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="cleared">Cleared</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="overdue">Overdue</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <Button
           onClick={() => {
             resetForm()
             setIsDialogOpen(true)
           }}
+          className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white w-full sm:w-auto"
         >
           <PlusIcon className="mr-2 h-4 w-4" /> New Sale
         </Button>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="relative w-full sm:w-80">
-          <Input
-            placeholder="Search by invoice or customer"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-40">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="cleared">Cleared</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="overdue">Overdue</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Export Filters */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 items-center">
-        <div>
-          <Label className="text-xs">From</Label>
-          <Input type="date" value={exportStart} onChange={e=>setExportStart(e.target.value)} />
-        </div>
-        <div>
-          <Label className="text-xs">To</Label>
-          <Input type="date" value={exportEnd} onChange={e=>setExportEnd(e.target.value)} />
-        </div>
-        <div className="relative">
-          <Label className="text-xs">Customer</Label>
-          <Input
-            placeholder="Type to search customer"
-            value={exportCustomerSearch}
-            onChange={(e)=>{ setExportCustomerSearch(e.target.value); setExportCustomerId("") }}
-          />
-          {exportSuggestions.length > 0 && (
-            <div className="absolute z-10 bg-white border rounded mt-1 w-full max-h-40 overflow-auto text-sm">
-              {exportSuggestions.map(c => (
-                <div
-                  key={c._id}
-                  className="px-2 py-1 hover:bg-gray-100 cursor-pointer"
-                  onMouseDown={() => { setExportCustomerId(c._id); setExportCustomerSearch(c.name); setExportSuggestions([]) }}
-                >
-                  {c.name} {c.phone ? `- ${c.phone}`: ''}
+      {/* Sales History */}
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <CardTitle>Sales History</CardTitle>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
+              {showExportInput && (
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 items-center">
+                  <div className="col-span-1">
+                    <Label className="text-xs text-white/80">From</Label>
+                    <Input
+                      className="bg-white text-black"
+                      type="date"
+                      value={exportStart}
+                      onChange={e=>setExportStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <Label className="text-xs text-white/80">To</Label>
+                    <Input
+                      className="bg-white text-black"
+                      type="date"
+                      value={exportEnd}
+                      onChange={e=>setExportEnd(e.target.value)}
+                    />
+                  </div>
+                  <div className="col-span-1 relative">
+                    <Label className="text-xs text-white/80">Customer</Label>
+                    <Input
+                      className="bg-white text-black"
+                      placeholder="Type to search customer"
+                      value={exportCustomerSearch}
+                      onChange={(e)=>{ setExportCustomerSearch(e.target.value); setExportCustomerId("") }}
+                    />
+                    {exportSuggestions.length > 0 && (
+                      <div className="absolute z-50 bg-white text-black border rounded mt-1 w-full max-h-40 overflow-auto text-sm">
+                        {exportSuggestions.map(c => (
+                          <div
+                            key={c._id}
+                            className="px-2 py-1 hover:bg-gray-100 cursor-pointer"
+                            onMouseDown={() => { setExportCustomerId(c._id); setExportCustomerSearch(c.name); setExportSuggestions([]) }}
+                          >
+                            {c.name} {c.phone ? `- ${c.phone}`: ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="col-span-1 flex gap-2 mt-6 sm:mt-6 lg:mt-6">
+                    <Button variant="secondary" className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto" onClick={exportSalesCSV}>Export CSV</Button>
+                    <Button variant="secondary" className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto" onClick={exportSalesPDF}>Export PDF</Button>
+                  </div>
                 </div>
-              ))}
+              )}
+              <Button
+                variant="secondary"
+                className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto"
+                onClick={() => setShowExportInput((v) => !v)}
+              >
+                Export Data
+              </Button>
             </div>
-          )}
-        </div>
-        <div className="flex gap-2 mt-6">
-          <Button variant="outline" onClick={exportSalesCSV}>Export CSV</Button>
-          <Button variant="outline" onClick={exportSalesPDF}>Export PDF</Button>
-        </div>
-      </div>
-
-      <Card>
+          </div>
+        </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
