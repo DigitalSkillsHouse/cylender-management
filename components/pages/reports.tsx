@@ -331,7 +331,7 @@ export function Reports() {
           <tr>
             <td>${p.name}</td>
             <td>${e ? e.openingFull : 0}</td>
-            <td>${e ? e.openingEmpty : 0}</td>
+            <td>${typeof e?.openingEmpty === 'number' ? e!.openingEmpty : 0}</td>
             <td>${refilledVal || 0}</td>
             <td>${cylSalesVal || 0}</td>
             <td>${gasSalesVal || 0}</td>
@@ -791,7 +791,7 @@ export function Reports() {
           <td>${e.date || ''}</td>
           <td>${e.itemName || ''}</td>
           <td>${e.openingFull ?? ''}</td>
-          <td>${e.openingEmpty ?? ''}</td>
+          <td>${typeof e.openingEmpty === 'number' ? e.openingEmpty : ''}</td>
           <td>${e.refilled ?? ''}</td>
           <td>${e.cylinderSales ?? ''}</td>
           <td>${e.gasSales ?? ''}</td>
@@ -1311,26 +1311,38 @@ export function Reports() {
         const customerAddress = src?.customer?.address || src?.customerAddress || '-'
         const createdAt = src?.createdAt || new Date().toISOString()
         const invoiceNumber = src?.invoiceNumber || src?._id || String(targetId)
-        const totalAmount = Number(src?.totalAmount ?? src?.amount ?? 0)
+        // Prefer explicit totals, fallback to amount, then to the dialog's totalAmount snapshot
+        const amountTotal = Number(src?.totalAmount ?? src?.amount ?? receiveDialog.totalAmount ?? 0)
         const paymentMethod = (src?.paymentMethod || src?.method || '-').toString()
         const paymentStatus = (src?.paymentStatus || src?.status || '').toString()
         const type = (src?.type || '').toString()
 
         let items: any[] = []
         if (Array.isArray(src?.items) && src.items.length > 0) {
-          items = src.items.map((it: any) => ({
-            product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: Number(it?.price || it?.unitPrice || it?.costPrice || 0) },
-            quantity: Number(it?.quantity || 1),
-            price: Number(it?.price || it?.unitPrice || it?.costPrice || 0),
-            total: Number(it?.total || ((Number(it?.price || it?.unitPrice || it?.costPrice || 0)) * Number(it?.quantity || 1)))
-          }))
+          items = src.items.map((it: any) => {
+            const qty = Number(it?.quantity || 1)
+            // Compute unit price robustly (avoid mixing ?? with || without parens)
+            const unit = Number(((it?.price ?? it?.unitPrice ?? it?.costPrice ?? (Number(it?.total ?? 0) / (qty || 1))) ?? 0))
+            const lineTotal = Number(it?.total || (unit * (qty || 0)))
+            return {
+              product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: unit },
+              quantity: qty,
+              price: unit,
+              total: lineTotal,
+            }
+          })
         } else {
-          const label = isCylinder ? `${type || 'Cylinder'} Transaction` : 'Gas Sale'
+          // Cylinder transactions typically don't have items; build a single line with proper qty and unit
+          const qty = Number(src?.quantity || 1)
+          const unit = (qty > 0) ? (amountTotal / qty) : amountTotal
+          const label = isCylinder
+            ? `${type || 'Cylinder'} – ${src?.cylinderSize || ''}`
+            : 'Gas Sale'
           items = [{
-            product: { name: label, price: Number(totalAmount) },
-            quantity: 1,
-            price: Number(totalAmount),
-            total: Number(totalAmount)
+            product: { name: label, price: unit },
+            quantity: qty,
+            price: unit,
+            total: amountTotal,
           }]
         }
 
@@ -1339,7 +1351,7 @@ export function Reports() {
           invoiceNumber,
           customer: { name: customerName, phone: customerPhone, address: customerAddress },
           items,
-          totalAmount,
+          totalAmount: items.reduce((s, it) => s + Number(it.total || (Number(it.price || 0) * Number(it.quantity || 0))), 0),
           paymentMethod,
           paymentStatus,
           type,
