@@ -1225,12 +1225,12 @@ export function GasSales() {
             
             {/* Search Suggestions Dropdown */}
             {showSearchSuggestions && filteredSearchSuggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 z-50 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+              <div className="absolute top-full left-0 right-0 z-50 bg-white text-black border border-gray-200 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
                 {filteredSearchSuggestions.map((customer) => (
                   <div
                     key={customer._id}
                     onClick={() => handleSearchSuggestionClick(customer)}
-                    className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                    className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0 text-black"
                   >
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
@@ -1247,11 +1247,11 @@ export function GasSales() {
             )}
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-[150px] bg-white text-black">
               <Filter className="w-4 h-4 mr-2" />
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="bg-white text-black">
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="cleared">Cleared</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
@@ -1316,10 +1316,10 @@ export function GasSales() {
                       value={formData.paymentMethod}
                       onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="bg-white text-black">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="bg-white text-black">
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="card">Card</SelectItem>
                         <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
@@ -1340,10 +1340,10 @@ export function GasSales() {
                   <div className="space-y-2">
                     <Label>Category</Label>
                     <Select value={currentItem.category} onValueChange={(v: any) => handleEntryCategoryChange(v)}>
-                      <SelectTrigger>
+                      <SelectTrigger className="bg-white text-black">
                         <SelectValue placeholder="Select category" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="bg-white text-black">
                         <SelectItem value="gas">Gas</SelectItem>
                         <SelectItem value="cylinder">Cylinder</SelectItem>
                       </SelectContent>
@@ -1393,10 +1393,10 @@ export function GasSales() {
                     <div className="space-y-2">
                       <Label>Cylinder Size</Label>
                       <Select value={(currentItem.cylinderSize || '') as any} disabled>
-                        <SelectTrigger>
+                        <SelectTrigger className="bg-white text-black">
                           <SelectValue placeholder="Auto from product" />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="bg-white text-black">
                           <SelectItem value="Large">Large</SelectItem>
                           <SelectItem value="Small">Small</SelectItem>
                         </SelectContent>
@@ -1510,10 +1510,10 @@ export function GasSales() {
                     setFormData(next)
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="bg-white text-black">
                     <SelectValue placeholder="Select option" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-white text-black">
                     <SelectItem value="credit">Credit</SelectItem>
                     <SelectItem value="debit">Debit</SelectItem>
                     <SelectItem value="delivery_note">Delivery Note</SelectItem>
@@ -1587,10 +1587,10 @@ export function GasSales() {
                     value={formData.paymentStatus}
                     onValueChange={(value) => setFormData({ ...formData, paymentStatus: value })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="bg-white text-black">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="bg-white text-black">
                       <SelectItem value="cleared">Cleared</SelectItem>
                       <SelectItem value="pending">Pending</SelectItem>
                       <SelectItem value="overdue">Overdue</SelectItem>
@@ -1627,7 +1627,7 @@ export function GasSales() {
         <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <CardTitle>Sales History</CardTitle>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
               {showExportInput && (
                 <div className="relative w-full sm:w-72">
                   <Input
@@ -1639,11 +1639,11 @@ export function GasSales() {
                     className="bg-white text-black placeholder:text-gray-500 w-full"
                   />
                   {showExportSuggestions && filteredExportSuggestions.length > 0 && (
-                    <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    <div className="absolute z-50 mt-1 w-full bg-white text-black border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
                       {filteredExportSuggestions.map((name) => (
                         <div
                           key={name}
-                          className="px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm text-gray-800"
+                          className="px-3 py-2 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 text-black"
                           onClick={() => handleExportSuggestionClick(name)}
                         >
                           {name}
@@ -1654,23 +1654,27 @@ export function GasSales() {
                 </div>
               )}
               {showExportInput && (
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs text-gray-600">From</Label>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <Label className="text-xs text-white/80">From</Label>
                     <Input
+                      className="w-full sm:w-auto placeholder:text-gray-500 text-black"
                       type="date"
+                      placeholder="From date"
+                      aria-label="From date"
                       value={exportStartDate}
                       onChange={(e) => setExportStartDate(e.target.value)}
-                      className="bg-white text-black w-36"
                     />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs text-gray-600">To</Label>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <Label className="text-xs text-white/80">To</Label>
                     <Input
+                      className="w-full sm:w-auto placeholder:text-gray-500 text-black"
                       type="date"
+                      placeholder="To date"
+                      aria-label="To date"
                       value={exportEndDate}
                       onChange={(e) => setExportEndDate(e.target.value)}
-                      className="bg-white text-black w-36"
                     />
                   </div>
                 </div>
@@ -1678,23 +1682,20 @@ export function GasSales() {
               {showExportInput && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="secondary" className="bg-white text-[#2B3068] hover:bg-gray-100">
-                      Export
+                    <Button variant="secondary" className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto">
+                      <Filter className="h-4 w-4 mr-2" />
+                      Export Format
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuItem onClick={exportSalesPDF}>
-                      Download PDF
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={exportSalesCSV}>
-                      Download CSV
-                    </DropdownMenuItem>
+                  <DropdownMenuContent align="end" className="bg-white text-black">
+                    <DropdownMenuItem onClick={exportSalesCSV}>Export CSV</DropdownMenuItem>
+                    <DropdownMenuItem onClick={exportSalesPDF}>Export PDF</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
               <Button
                 variant="secondary"
-                className="bg-white text-[#2B3068] hover:bg-gray-100"
+                className="bg-white text-[#2B3068] hover:bg-gray-100 w-full sm:w-auto"
                 onClick={() => setShowExportInput((v) => !v)}
               >
                 Export Data
