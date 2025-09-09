@@ -773,7 +773,16 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
   const exportSalesCSV = () => {
     const list = getExportFilteredSales()
     const headers = [
-      'Invoice', 'Customer', 'Items', 'Total (AED)', 'Payment Method', 'Status', 'Notes', 'Added By', 'Date'
+      'Invoice #',
+      'Customer Name',
+      'Items',
+      'Total Amount (AED)',
+      'Received Amount (AED)',
+      'Payment Method',
+      'Payment Status',
+      'Notes',
+      'Added By',
+      'Date',
     ]
     const rows = list.map(s => {
       const itemsStr = (Array.isArray(s.items) ? s.items : []).map((it: any) => {
@@ -782,15 +791,17 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
         const price = Number(it?.price||0).toFixed(2)
         return `${name} x${qty} @${price}`
       }).join(' | ')
+      const addedBy = `Employee: ${user?.name || 'N/A'}`
       return [
         s.invoiceNumber || '-',
         s.customer?.name || '-',
         itemsStr,
         Number(s.totalAmount||0).toFixed(2),
+        Number((s as any).receivedAmount||0).toFixed(2),
         s.paymentMethod || '-',
         s.paymentStatus || '-',
         s.notes || '',
-        s.employee || '-',
+        addedBy,
         new Date(s.createdAt).toLocaleString(),
       ]
     })
@@ -825,87 +836,142 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
   }
 
   const exportSalesPDF = async () => {
-    const list = getExportFilteredSales()
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
-    const arabicReady = await ensureArabicFont(doc)
-    try { doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'normal') } catch {}
-    const margin = 32
-    let y = margin
-    doc.setFontSize(14)
-    doc.text('Employee Gas Sales', margin, y)
-    y += 18
-    doc.setFontSize(10)
-    const subtitle = `Date: ${exportStart || 'All'} to ${exportEnd || 'All'}${exportCustomerId ? ` | Customer: ${(customers.find(c=>c._id===exportCustomerId)?.name)||''}` : ''}`
-    doc.text(subtitle, margin, y)
-    y += 24
+    try {
+      const list = getExportFilteredSales()
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      const arabicReady = await ensureArabicFont(doc)
+      if (arabicReady) { try { doc.setFont('NotoNaskhArabic', 'normal') } catch {} } else { try { doc.setFont('helvetica', 'normal') } catch {} }
 
-    const headers = ['Invoice #','Customer','Items','Total (AED)','Received (AED)','Payment Method','Payment Status','Notes']
-    const colWidths = [80, 120, 320, 80, 100, 110, 110, 130]
-    const startX = margin
-    let x = startX
-    doc.setFontSize(9)
-    headers.forEach((h, i) => {
-      doc.text(h, x, y)
-      x += colWidths[i]
-    })
-    y += 14
-    doc.setLineWidth(0.5)
-    doc.line(margin, y, 842 - margin, y)
-    y += 10
-
-    const ensureSpace = (rowHeight: number) => {
+      const marginX = 32
+      const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
-      if (y + rowHeight > pageHeight - margin) {
-        doc.addPage()
-        y = margin
-        doc.setFontSize(9)
-        // redraw header
-        let xh = startX
-        headers.forEach((h, i) => { doc.text(h, xh, y); xh += colWidths[i] })
-        y += 14
-        doc.line(margin, y, 842 - margin, y)
-        y += 10
-      }
-    }
+      let y = 52
 
-    list.forEach((s, idx) => {
-      const itemsStr = (Array.isArray(s.items) ? s.items : []).map((it: any) => {
-        const name = it?.product?.name || 'Product'
-        const qty = Number(it?.quantity||0)
-        const price = Number(it?.price||0).toFixed(2)
-        return `${name} x${qty} @${price}`
-      }).join(' | ')
-      const row = [
-        s.invoiceNumber || '-',
-        s.customer?.name || '-',
-        itemsStr,
-        `AED ${Number(s.totalAmount||0).toFixed(2)}`,
-        `AED ${Number((s as any).receivedAmount||0).toFixed(2)}`,
-        s.paymentMethod || '-',
-        s.paymentStatus || '-',
-        s.notes || '',
-      ]
-      const heights = [12,12, Math.ceil(itemsStr.length / 60) * 12,12,12,12,12,12]
-      const rowHeight = Math.max(...heights)
-      ensureSpace(rowHeight + 6)
-      let xr = startX
-      row.forEach((cell, i) => {
-        const text = String(cell)
-        const maxWidth = colWidths[i] - 4
-        const split = doc.splitTextToSize(text, maxWidth)
-        doc.text(split as any, xr, y)
-        xr += colWidths[i]
+      // Title
+      doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.text('Gas Sales Export', marginX, y)
+      y += 10
+      doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'normal')
+      doc.setFontSize(7.5)
+      const selectedCustomerName = exportCustomerId ? (customers.find(c=>c._id===exportCustomerId)?.name || '') : ''
+      if (selectedCustomerName) { doc.text(`Customer: ${selectedCustomerName}`, marginX, y); y += 9 }
+      if (exportStart || exportEnd) { doc.text(`Date: ${(exportStart||'...')} to ${(exportEnd||'...')}`, marginX, y); y += 9 }
+      doc.text(`Generated: ${new Date().toLocaleString()}`, marginX, y); y += 16
+
+      // Header bar
+      const headerHeight = 16
+      const headerY = y
+      doc.setFillColor(43, 48, 104)
+      doc.rect(marginX - 4, headerY - 14, pageWidth - marginX * 2 + 8, headerHeight, 'F')
+
+      // Headers (match admin: Debit/Credit)
+      const headers = ['Invoice #','Items','Debit (AED)','Credit (AED)','Payment Method','Payment Status','Notes','Added By','Date']
+      const colWidths = [80, 320, 80, 80, 100, 100, 140, 80, 100]
+
+      // Draw headers
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(7.5)
+      let xh = marginX
+      headers.forEach((h, i) => { doc.text(h, xh, headerY); xh += (colWidths[i] || 80) })
+      doc.setTextColor(0, 0, 0)
+      y += 12
+
+      // Row drawing with dynamic height and zebra background
+      const baseFontSize = 7
+      const lineHeight = 9
+      let rowIndex = 0
+      const drawRow = (cells: string[]) => {
+        // Page break + header redraw
+        if (y > pageHeight - 52) {
+          doc.addPage()
+          y = 52
+          doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'bold')
+          doc.setFontSize(11)
+          doc.text('Gas Sales Export (cont.)', marginX, y)
+          y += 10
+          const newHeaderY = y
+          doc.setFillColor(43, 48, 104)
+          doc.rect(marginX - 4, newHeaderY - 14, pageWidth - marginX * 2 + 8, headerHeight, 'F')
+          doc.setTextColor(255,255,255)
+          doc.setFontSize(7.5)
+          let nx = marginX
+          headers.forEach((h, i) => { doc.text(h, nx, newHeaderY); nx += (colWidths[i] || 80) })
+          doc.setTextColor(0,0,0)
+          y += 12
+          rowIndex = 0
+        }
+
+        // Measure lines for each cell
+        doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'normal')
+        const cellLines: string[][] = []
+        const widths: number[] = []
+        cells.forEach((cell, i) => {
+          const cw = colWidths[i] || 80
+          const text = String(cell ?? '')
+          const lines = doc.splitTextToSize(text, Math.max(10, cw - 4)) as string[]
+          cellLines.push(lines)
+          widths.push(cw)
+        })
+        const maxLines = cellLines.reduce((m, l) => Math.max(m, l.length), 1)
+        const rowHeight = Math.max(12, maxLines * lineHeight)
+
+        // Zebra background
+        if (rowIndex % 2 === 1) {
+          doc.setFillColor(245, 247, 250)
+          doc.rect(marginX - 4, y - (lineHeight - 2), pageWidth - marginX * 2 + 8, rowHeight, 'F')
+        }
+
+        // Draw text
+        doc.setFontSize(baseFontSize)
+        let cx = marginX
+        cellLines.forEach((lines, i) => {
+          const cw = widths[i]
+          lines.forEach((line, li) => { doc.text(String(line), cx, y + (li * lineHeight)) })
+          cx += cw
+        })
+
+        y += rowHeight
+        rowIndex++
+      }
+
+      // Build rows
+      list.forEach((s: any) => {
+        const itemsDesc = (s.items || []).map((it: any) => {
+          const name = it?.product?.name || 'Product'
+          const qty = Number(it?.quantity)||0
+          const price = Number(it?.price)||0
+          return `${name} x${qty} @ ${price}`
+        }).join('\n')
+        const addedBy = `Employee: ${user?.name || ''}`
+        const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleString() : ''
+        const totalStr = Number(s.totalAmount||0).toFixed(2)
+        const receivedStr = Number((s as any).receivedAmount||0).toFixed(2)
+        const row = [
+          s.invoiceNumber || '-',
+          itemsDesc,
+          totalStr,
+          receivedStr,
+          s.paymentMethod || '-',
+          s.paymentStatus || '-',
+          s.notes || '',
+          addedBy,
+          dateStr,
+        ]
+        drawRow(row)
       })
-      y += rowHeight + 6
-      if (idx % 2 === 1) {
-        doc.setDrawColor(230, 230, 230)
-        doc.setFillColor(245, 245, 245)
-        doc.rect(margin - 4, y - rowHeight - 6, 842 - margin*2 + 8, rowHeight + 6, 'F')
-        doc.setDrawColor(0)
-      }
-    })
 
-    doc.save(`employee-gas-sales-${exportStart || 'all'}-to-${exportEnd || 'all'}.pdf`)
+      const ts = new Date().toISOString().replace(/[:.]/g, '-')
+      const custPart = selectedCustomerName ? `-cust-${selectedCustomerName.replace(/\s+/g, '_')}` : ''
+      const datePart = (exportStart || exportEnd)
+        ? `-date-${(exportStart||'start').replace(/[^0-9-]/g,'')}_to_${(exportEnd||'end').replace(/[^0-9-]/g,'')}`
+        : ''
+      doc.save(`employee-sales-export${custPart}${datePart}-${ts}.pdf`)
+    } catch (err) {
+      console.error('Failed to export sales PDF:', err)
+      alert('Failed to export PDF')
+    }
   }
 
   return (
