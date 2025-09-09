@@ -359,12 +359,12 @@ export function GasSales() {
       doc.setFillColor(43, 48, 104)
       doc.rect(marginX - 4, headerY - 14, pageWidth - marginX * 2 + 8, headerHeight, 'F')
 
-      // Headers (Phone and Address removed as requested)
+      // Headers: show Debit and Credit as separate columns (Customer removed — shown in header)
       const headers = [
-        'Invoice #','Customer','Items','Total (AED)','Received (AED)','Payment Method','Payment Status','Notes','Added By','Date'
+        'Invoice #','Items','Debit (AED)','Credit (AED)','Payment Method','Payment Status','Notes','Added By','Date'
       ]
       const colWidths = [
-        70, 120, 260, 70, 80, 90, 90, 130, 70, 90
+        80, 320, 80, 80, 100, 100, 140, 80, 100
       ]
 
       // Draw headers
@@ -448,10 +448,9 @@ export function GasSales() {
         const receivedStr = ((s as any).receivedAmount ?? 0).toFixed ? (s as any).receivedAmount.toFixed(2) : String((s as any).receivedAmount || 0)
         const row = [
           s.invoiceNumber || '',
-          s.customer?.name || '',
           itemsDesc,
-          totalStr,
-          receivedStr,
+          totalStr,   // Debit
+          receivedStr, // Credit
           s.paymentMethod || '',
           s.paymentStatus || '',
           s.notes || '',
