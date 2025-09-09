@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
@@ -15,6 +15,24 @@ interface SignatureDialogProps {
 
 export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customerName }: SignatureDialogProps) {
   const signatureRef = useRef<SignatureCanvas>(null)
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 600, height: 220 })
+
+  // Make the signature area comfortably large on mobile and responsive on resize
+  useEffect(() => {
+    const computeSize = () => {
+      try {
+        const vw = Math.max(320, Math.min(window.innerWidth || 600, 1000))
+        // Leave some padding for dialog content
+        const width = Math.max(300, Math.min(vw - 48, 900))
+        // Taller canvas on narrow screens for natural finger movement
+        const height = vw < 640 ? 320 : 240
+        setCanvasSize({ width, height })
+      } catch {}
+    }
+    computeSize()
+    window.addEventListener('resize', computeSize)
+    return () => window.removeEventListener('resize', computeSize)
+  }, [])
 
   const handleSave = () => {
     const signatureData = signatureRef.current?.toDataURL()
@@ -36,7 +54,10 @@ export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customer
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl" aria-describedby="signature-description">
+      <DialogContent
+        className="max-w-full sm:max-w-2xl w-[95vw] p-4 sm:p-6"
+        aria-describedby="signature-description"
+      >
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle>Customer Signature Required</DialogTitle>
@@ -56,18 +77,18 @@ export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customer
             <p className="text-lg font-medium text-[#2B3068]">
               {customerName ? `${customerName}, please sign below:` : "Please sign below:"}
             </p>
-            <p className="text-sm text-gray-600">Use your finger or mouse to sign in the box</p>
+            <p className="text-sm text-gray-600">Use your finger to sign. The area below is optimized for touch.</p>
           </div>
 
-          <div className="border-2 border-[#2B3068] rounded-lg p-4 bg-gray-50">
+          <div className="border-2 border-[#2B3068] rounded-lg p-3 sm:p-4 bg-gray-50">
             <div className="bg-white border border-gray-300 rounded-lg">
               <SignatureCanvas
                 ref={signatureRef}
                 canvasProps={{
-                  width: 600,
-                  height: 200,
-                  className: "signature-canvas w-full",
-                  style: { border: "1px solid #ddd", borderRadius: "4px" },
+                  width: canvasSize.width,
+                  height: canvasSize.height,
+                  className: "signature-canvas w-full touch-manipulation",
+                  style: { border: "1px solid #ddd", borderRadius: "6px", width: '100%', height: `${canvasSize.height}px` },
                 }}
                 backgroundColor="white"
               />
