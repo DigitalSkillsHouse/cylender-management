@@ -75,14 +75,23 @@ export function Reports() {
     totalAmount: number
     currentReceived: number
     inputAmount: string
-  }>({ open: false, targetId: null, kind: 'sale', totalAmount: 0, currentReceived: 0, inputAmount: '' })
+    method: 'cash' | 'cheque'
+    bankName?: string
+    chequeNumber?: string
+  }>({ open: false, targetId: null, kind: 'sale', totalAmount: 0, currentReceived: 0, inputAmount: '', method: 'cash', bankName: '', chequeNumber: '' })
 
   // Pending receipt context for signature-first flow after Receive Amount
   const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'cylinder'; targetId: string } | null>(null)
 
   const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'cylinder' }) => {
-    setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '' })
+    setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '', method: 'cash', bankName: '', chequeNumber: '' })
   }
+
+  // Local record of last payment received per item (per kind)
+  type PaymentRecord = { kind: 'sale' | 'cylinder'; id: string; amount: number; method: 'cash' | 'cheque'; bankName?: string; chequeNumber?: string; newTotalReceived: number; at: string }
+  const [paymentRecords, setPaymentRecords] = useState<Record<string, PaymentRecord>>({})
+  const paymentKey = (kind: 'sale' | 'cylinder', id: string) => `${kind}:${id}`
+  const [showPaymentDetail, setShowPaymentDetail] = useState<PaymentRecord | null>(null)
 
   // Auto-calculate Closing Full/Empty for a given date (admin scope) and roll forward to next day openings
   const autoCalcAndSaveDsrForDate = async (date: string) => {
@@ -227,6 +236,15 @@ export function Reports() {
       alert('Enter a valid amount > 0')
       return
     }
+    // If cheque is selected, require bank name and cheque number
+    if (receiveDialog.method === 'cheque') {
+      const bank = String(receiveDialog.bankName || '').trim()
+      const chq = String(receiveDialog.chequeNumber || '').trim()
+      if (!bank || !chq) {
+        alert('Please enter Bank Name and Cheque Number')
+        return
+      }
+    }
     const remaining = Math.max(0, Number(receiveDialog.totalAmount || 0) - Number(receiveDialog.currentReceived || 0))
     if (add > remaining) {
       alert(`Amount exceeds remaining balance. Remaining: ${remaining.toFixed(2)}`)
@@ -259,6 +277,21 @@ export function Reports() {
       }
 
       // Close receive dialog first to avoid overlay conflicts
+      // Record last payment details locally
+      if (receiveDialog.targetId) {
+        const rec: PaymentRecord = {
+          kind: receiveDialog.kind,
+          id: String(receiveDialog.targetId),
+          amount: add,
+          method: receiveDialog.method,
+          bankName: receiveDialog.method === 'cheque' ? (receiveDialog.bankName || '') : undefined,
+          chequeNumber: receiveDialog.method === 'cheque' ? (receiveDialog.chequeNumber || '') : undefined,
+          newTotalReceived: newReceived,
+          at: new Date().toISOString(),
+        }
+        setPaymentRecords(prev => ({ ...prev, [paymentKey(rec.kind, rec.id)]: rec }))
+      }
+
       closeReceiveDialog()
       // Signature-first: store pending receipt context and open signature dialog
       setPendingReceiptData({ kind: receiveDialog.kind, targetId: String(receiveDialog.targetId) })
@@ -2356,11 +2389,25 @@ export function Reports() {
                                           <TableCell>{formatCurrency(sale.amountPaid || 0)}</TableCell>
                                           <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
                                           <TableCell>
-                                            {String(sale.paymentStatus).toLowerCase() === 'pending' && (
-                                              <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
-                                                Receive Amount
-                                              </Button>
-                                            )}
+                                            {(() => {
+                                              const key = paymentKey('sale', String(sale._id))
+                                              const rec = paymentRecords[key]
+                                              if (rec) {
+                                                return (
+                                                  <Button size="sm" variant="outline" onClick={() => setShowPaymentDetail(rec)}>
+                                                    See Detail
+                                                  </Button>
+                                                )
+                                              }
+                                              if (String(sale.paymentStatus).toLowerCase() === 'pending') {
+                                                return (
+                                                  <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
+                                                    Receive Amount
+                                                  </Button>
+                                                )
+                                              }
+                                              return null
+                                            })()}
                                           </TableCell>
                                           <TableCell>
                                             <div>{item?.product?.name || 'N/A'} (x{item?.quantity})</div>
@@ -2410,11 +2457,27 @@ export function Reports() {
                                             <TableCell>{formatCurrency(transaction.amount)}</TableCell>
                                             <TableCell>{formatCurrency(transaction.cashAmount || 0)}</TableCell>
                                             <TableCell>
-                                              {String(transaction.status).toLowerCase() === 'pending' && String(transaction.type).toLowerCase() !== 'refill' && (
-                                                <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: 'cylinder', totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
-                                                  Receive Amount
-                                                </Button>
-                                              )}
+                                              {(() => {
+                                                const key = paymentKey('cylinder', String(transaction._id))
+                                                const rec = paymentRecords[key]
+                                                if (rec) {
+                                                  return (
+                                                    <Button size="sm" variant="outline" onClick={() => setShowPaymentDetail(rec)}>
+                                                      See Detail
+                                                    </Button>
+                                                  )
+                                                }
+                                                const isPending = String(transaction.status).toLowerCase() === 'pending'
+                                                const isRefill = String(transaction.type).toLowerCase() === 'refill'
+                                                if (isPending && !isRefill) {
+                                                  return (
+                                                    <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: 'cylinder', totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
+                                                      Receive Amount
+                                                    </Button>
+                                                  )
+                                                }
+                                                return null
+                                              })()}
                                             </TableCell>
                                             <TableCell>{getStatusBadge(transaction.status)}</TableCell>
                                           </TableRow>
@@ -2576,13 +2639,72 @@ export function Reports() {
             <div className="flex justify-between"><span>Received So Far:</span><span className="font-semibold text-green-600">{formatCurrency(receiveDialog.currentReceived)}</span></div>
             <div className="flex justify-between border-t pt-2"><span>Remaining:</span><span className="font-semibold text-red-600">{formatCurrency(Math.max(0, receiveDialog.totalAmount - receiveDialog.currentReceived))}</span></div>
           </div>
-          <div className="space-y-2 mt-2">
-            <Label>Amount Received Now</Label>
-            <Input type="number" min={0} step="0.01" value={receiveDialog.inputAmount} onChange={(e) => setReceiveDialog(prev => ({ ...prev, inputAmount: e.target.value }))} />
+          <div className="space-y-3 mt-3">
+            <div className="space-y-1">
+              <Label>Payment Method</Label>
+              <Select value={receiveDialog.method} onValueChange={(v: any) => setReceiveDialog(prev => ({ ...prev, method: v }))}>
+                <SelectTrigger className="bg-white text-black"><SelectValue placeholder="Select method" /></SelectTrigger>
+                <SelectContent className="bg-white text-black">
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {receiveDialog.method === 'cheque' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Bank Name</Label>
+                  <Input
+                    placeholder="Enter bank name"
+                    value={receiveDialog.bankName || ''}
+                    onChange={(e) => setReceiveDialog(prev => ({ ...prev, bankName: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Cheque Number</Label>
+                  <Input
+                    placeholder="Enter cheque number"
+                    value={receiveDialog.chequeNumber || ''}
+                    onChange={(e) => setReceiveDialog(prev => ({ ...prev, chequeNumber: e.target.value }))}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="space-y-1">
+              <Label>Amount Received Now</Label>
+              <Input type="number" min={0} step="0.01" value={receiveDialog.inputAmount} onChange={(e) => setReceiveDialog(prev => ({ ...prev, inputAmount: e.target.value }))} />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeReceiveDialog}>Cancel</Button>
             <Button style={{ backgroundColor: '#2B3068' }} onClick={submitReceiveAmount}>Update</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Detail Dialog */}
+      <Dialog open={!!showPaymentDetail} onOpenChange={(v) => setShowPaymentDetail(v ? showPaymentDetail : null)}>
+        <DialogContent className="max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Payment Detail</DialogTitle>
+          </DialogHeader>
+          {showPaymentDetail && (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span>Type:</span><span className="font-semibold capitalize">{showPaymentDetail.kind}</span></div>
+              <div className="flex justify-between"><span>Method:</span><span className="font-semibold capitalize">{showPaymentDetail.method}</span></div>
+              {showPaymentDetail.method === 'cheque' && (
+                <>
+                  <div className="flex justify-between"><span>Bank:</span><span className="font-semibold">{showPaymentDetail.bankName || '-'}</span></div>
+                  <div className="flex justify-between"><span>Cheque #:</span><span className="font-semibold">{showPaymentDetail.chequeNumber || '-'}</span></div>
+                </>
+              )}
+              <div className="flex justify-between"><span>Received Now:</span><span className="font-semibold">{formatCurrency(showPaymentDetail.amount)}</span></div>
+              <div className="flex justify-between"><span>Total Received:</span><span className="font-semibold">{formatCurrency(showPaymentDetail.newTotalReceived)}</span></div>
+              <div className="flex justify-between"><span>Date:</span><span className="font-semibold">{new Date(showPaymentDetail.at).toLocaleString()}</span></div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPaymentDetail(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
