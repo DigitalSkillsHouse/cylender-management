@@ -85,7 +85,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const [receiveDialog, setReceiveDialog] = useState<{
     open: boolean
     targetId: string | null
-    kind: 'sale' | 'cylinder'
+    // kind: which collection to update when receiving payment
+    // 'sale' = employee sale, 'admin_sale' = admin sale, 'cylinder' = employee cylinder
+    kind: 'sale' | 'admin_sale' | 'cylinder'
     totalAmount: number
     currentReceived: number
     inputAmount: string
@@ -127,7 +129,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   // Pending receipt context so we can capture signature before opening receipt
   const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'cylinder'; targetId: string } | null>(null)
 
-  const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'cylinder' }) => {
+  const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'admin_sale' | 'cylinder' }) => {
     setReceiveDialog({ 
       open: true, 
       targetId: opts.id, 
@@ -326,29 +328,43 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         } : {})
       }
       
-      // Determine endpoint and payload based on kind (employee-scoped)
-      const url = receiveDialog.kind === 'cylinder'
-        ? `/api/employee-cylinders/${receiveDialog.targetId}`
-        : `/api/employee-sales/${receiveDialog.targetId}`
-        
-      const body = receiveDialog.kind === 'cylinder'
-        ? { 
-            cashAmount: newReceived, 
-            status: newStatus,
-            ...(receiveDialog.paymentMethod === 'cheque' ? {
-              bankName: receiveDialog.bankName,
-              checkNumber: receiveDialog.checkNumber
-            } : {})
-          }
-        : { 
-            receivedAmount: newReceived, 
-            paymentStatus: newStatus,
-            paymentMethod: receiveDialog.paymentMethod || 'cash',
-            ...(receiveDialog.paymentMethod === 'cheque' ? {
-              bankName: receiveDialog.bankName,
-              checkNumber: receiveDialog.checkNumber
-            } : {})
-          }
+      // Determine endpoint and payload based on kind
+      let url = ''
+      let body: any = {}
+      if (receiveDialog.kind === 'cylinder') {
+        url = `/api/employee-cylinders/${receiveDialog.targetId}`
+        body = {
+          cashAmount: newReceived,
+          status: newStatus,
+          ...(receiveDialog.paymentMethod === 'cheque' ? {
+            bankName: receiveDialog.bankName,
+            checkNumber: receiveDialog.checkNumber
+          } : {})
+        }
+      } else if (receiveDialog.kind === 'admin_sale') {
+        url = `/api/sales/${receiveDialog.targetId}`
+        body = {
+          receivedAmount: newReceived,
+          paymentStatus: newStatus,
+          paymentMethod: receiveDialog.paymentMethod || 'cash',
+          ...(receiveDialog.paymentMethod === 'cheque' ? {
+            bankName: receiveDialog.bankName,
+            checkNumber: receiveDialog.checkNumber
+          } : {})
+        }
+      } else {
+        // default: employee sale
+        url = `/api/employee-sales/${receiveDialog.targetId}`
+        body = {
+          receivedAmount: newReceived,
+          paymentStatus: newStatus,
+          paymentMethod: receiveDialog.paymentMethod || 'cash',
+          ...(receiveDialog.paymentMethod === 'cheque' ? {
+            bankName: receiveDialog.bankName,
+            checkNumber: receiveDialog.checkNumber
+          } : {})
+        }
+      }
           
       const res = await fetch(url, {
         method: 'PUT',
@@ -1367,11 +1383,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       if (!user?.id) return
       setLoading(true)
 
-      // Fetch employee-scoped gas sales, cylinder transactions, and stock assignments
-      const [salesRes, cylRes, assignRes] = await Promise.all([
+      // Fetch employee-scoped gas sales, cylinder transactions, stock assignments, and admin sales
+      const [salesRes, cylRes, assignRes, adminSalesRes] = await Promise.all([
         fetch(`/api/employee-sales?employeeId=${user.id}`, { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => ([])),
         fetch(`/api/employee-cylinders?employeeId=${user.id}`, { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => ([])),
         fetch(`/api/stock-assignments?employeeId=${user.id}&status=assigned`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => ([])),
+        fetch(`/api/sales`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => ([])),
       ])
 
       const sales: any[] = Array.isArray(salesRes)
@@ -1388,6 +1405,11 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         ? assignRes
         : Array.isArray(assignRes?.data)
           ? assignRes.data
+          : []
+      const adminSalesAll: any[] = Array.isArray(adminSalesRes)
+        ? adminSalesRes
+        : Array.isArray(adminSalesRes?.data)
+          ? adminSalesRes.data
           : []
 
       // Compute lightweight stats for employee
@@ -1434,6 +1456,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       const getKey = (obj: any) => String(obj?.customer?._id || obj?.customerId || obj?.customerName || "unknown")
       const getName = (obj: any) => String(obj?.customer?.name || obj?.customerName || "Unknown")
 
+      // Employee sales into ledger (tag source)
       sales.forEach(s => {
         const key = getKey(s)
         const item = byCustomer.get(key) || {
@@ -1469,9 +1492,51 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         item.balance = item.totalDebit - item.totalCredit
         item.hasRecentActivity = true
         item.lastTransactionDate = s.createdAt || item.lastTransactionDate
-        item.recentSales.push(s)
+        item.recentSales.push({ ...s, _source: 'employee' })
         byCustomer.set(key, item)
       })
+
+      // Admin sales (only pending) into ledger so employee can see and receive
+      adminSalesAll
+        .filter((s: any) => String(s?.paymentStatus || '').toLowerCase() === 'pending')
+        .forEach((s: any) => {
+          const key = getKey(s)
+          const item = byCustomer.get(key) || {
+            _id: key,
+            name: getName(s),
+            trNumber: s.customer?.trNumber || "",
+            phone: s.customer?.phone || "",
+            email: s.customer?.email || "",
+            address: s.customer?.address || "",
+            balance: 0,
+            totalDebit: 0,
+            totalCredit: 0,
+            status: 'pending',
+            totalSales: 0,
+            totalSalesAmount: 0,
+            totalPaidAmount: 0,
+            totalCylinderAmount: 0,
+            totalDeposits: 0,
+            totalRefills: 0,
+            totalReturns: 0,
+            hasRecentActivity: false,
+            lastTransactionDate: null,
+            recentSales: [],
+            recentCylinderTransactions: [],
+          } as CustomerLedgerData
+          const total = Number(s.totalAmount) || 0
+          const paid = Number(s.receivedAmount) || 0
+          item.totalSales += 1
+          item.totalSalesAmount += total
+          item.totalPaidAmount += paid
+          item.totalDebit += total
+          item.totalCredit += paid
+          item.balance = item.totalDebit - item.totalCredit
+          item.hasRecentActivity = true
+          item.lastTransactionDate = s.createdAt || item.lastTransactionDate
+          item.recentSales.push({ ...s, _source: 'admin' })
+          byCustomer.set(key, item)
+        })
 
       cylinders.forEach(c => {
         const key = getKey(c)
@@ -2311,13 +2376,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                     </TableHeader>
                                     <TableBody>
                                       {filteredSales.map((sale) => {
-                                        console.log(`[Ledger Render] Sale: ${sale.invoiceNumber}, Status: ${sale.paymentStatus}`);
                                         return (
                                           <TableRow key={sale._id}>
                                             <TableCell className="font-mono">{sale.invoiceNumber}</TableCell>
                                             <TableCell>{formatDate(sale.createdAt)}</TableCell>
                                             <TableCell>{formatCurrency(sale.totalAmount)}</TableCell>
-                                            <TableCell>{formatCurrency(sale.amountPaid || 0)}</TableCell>
+                                            <TableCell>{formatCurrency(sale.receivedAmount ?? sale.amountPaid ?? 0)}</TableCell>
                                             <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
                                             <TableCell>
                                               {String(sale.paymentStatus).toLowerCase() === 'pending' ? (
@@ -2328,7 +2392,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                                     id: String(sale._id), 
                                                     totalAmount: Number(sale.totalAmount || 0), 
                                                     currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0),
-                                                    kind: 'sale'
+                                                    kind: (sale as any)._source === 'admin' ? 'admin_sale' : 'sale'
                                                   })}
                                                   className="bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700"
                                                 >

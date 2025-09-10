@@ -71,7 +71,8 @@ export function Reports() {
   const [receiveDialog, setReceiveDialog] = useState<{
     open: boolean
     targetId: string | null
-    kind: 'sale' | 'cylinder'
+    // kind: 'sale' (admin sale), 'employee_sale' (employee gas sale), or 'cylinder' (admin cylinder tx)
+    kind: 'sale' | 'employee_sale' | 'cylinder'
     totalAmount: number
     currentReceived: number
     inputAmount: string
@@ -81,16 +82,16 @@ export function Reports() {
   }>({ open: false, targetId: null, kind: 'sale', totalAmount: 0, currentReceived: 0, inputAmount: '', method: 'cash', bankName: '', chequeNumber: '' })
 
   // Pending receipt context for signature-first flow after Receive Amount
-  const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'cylinder'; targetId: string } | null>(null)
+  const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'employee_sale' | 'cylinder'; targetId: string } | null>(null)
 
-  const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'cylinder' }) => {
+  const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'employee_sale' | 'cylinder' }) => {
     setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '', method: 'cash', bankName: '', chequeNumber: '' })
   }
 
   // Local record of last payment received per item (per kind)
-  type PaymentRecord = { kind: 'sale' | 'cylinder'; id: string; amount: number; method: 'cash' | 'cheque'; bankName?: string; chequeNumber?: string; newTotalReceived: number; at: string }
+  type PaymentRecord = { kind: 'sale' | 'employee_sale' | 'cylinder'; id: string; amount: number; method: 'cash' | 'cheque'; bankName?: string; chequeNumber?: string; newTotalReceived: number; at: string }
   const [paymentRecords, setPaymentRecords] = useState<Record<string, PaymentRecord>>({})
-  const paymentKey = (kind: 'sale' | 'cylinder', id: string) => `${kind}:${id}`
+  const paymentKey = (kind: 'sale' | 'employee_sale' | 'cylinder', id: string) => `${kind}:${id}`
   const [showPaymentDetail, setShowPaymentDetail] = useState<PaymentRecord | null>(null)
 
   // Auto-calculate Closing Full/Empty for a given date (admin scope) and roll forward to next day openings
@@ -253,12 +254,18 @@ export function Reports() {
     const newReceived = Number(receiveDialog.currentReceived || 0) + add
     const newStatus = newReceived >= Number(receiveDialog.totalAmount || 0) ? 'cleared' : 'pending'
     try {
-      const url = receiveDialog.kind === 'cylinder'
-        ? `/api/cylinders/${receiveDialog.targetId}`
-        : `/api/sales/${receiveDialog.targetId}`
-      const body = receiveDialog.kind === 'cylinder'
-        ? { cashAmount: newReceived, status: newStatus }
-        : { receivedAmount: newReceived, paymentStatus: newStatus }
+      let url = ''
+      let body: any = {}
+      if (receiveDialog.kind === 'cylinder') {
+        url = `/api/cylinders/${receiveDialog.targetId}`
+        body = { cashAmount: newReceived, status: newStatus }
+      } else if (receiveDialog.kind === 'employee_sale') {
+        url = `/api/employee-sales/${receiveDialog.targetId}`
+        body = { receivedAmount: newReceived, paymentStatus: newStatus }
+      } else {
+        url = `/api/sales/${receiveDialog.targetId}`
+        body = { receivedAmount: newReceived, paymentStatus: newStatus }
+      }
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -2362,7 +2369,6 @@ export function Reports() {
                                 );
                               })()}
                             </TabsContent>
-                            
                             <TabsContent value="gas_sales" className="mt-4">
                               {(() => {
                                 const filteredSales = customer.recentSales?.filter(sale => {
@@ -2394,22 +2400,14 @@ export function Reports() {
                                           <TableCell className="font-mono">{sale.invoiceNumber}</TableCell>
                                           <TableCell>{formatDate(sale.createdAt)}</TableCell>
                                           <TableCell>{formatCurrency(sale.totalAmount)}</TableCell>
-                                          <TableCell>{formatCurrency(sale.amountPaid || 0)}</TableCell>
+                                          <TableCell>{formatCurrency(sale.receivedAmount ?? sale.amountPaid ?? 0)}</TableCell>
                                           <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
                                           <TableCell>
                                             {(() => {
-                                              const key = paymentKey('sale', String(sale._id))
-                                              const rec = paymentRecords[key]
-                                              if (rec) {
+                                              const canReceive = String(sale.paymentStatus).toLowerCase() === 'pending'
+                                              if (canReceive) {
                                                 return (
-                                                  <Button size="sm" variant="outline" onClick={() => setShowPaymentDetail(rec)}>
-                                                    See Detail
-                                                  </Button>
-                                                )
-                                              }
-                                              if (String(sale.paymentStatus).toLowerCase() === 'pending') {
-                                                return (
-                                                  <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
+                                                  <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), kind: (sale as any).saleSource === 'employee' ? 'employee_sale' : 'sale', totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
                                                     Receive Amount
                                                   </Button>
                                                 )

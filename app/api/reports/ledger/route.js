@@ -59,7 +59,11 @@ export async function GET(request) {
             .populate('employee', 'name')
             .lean();
 
-          const sales = [...adminSales, ...employeeSales].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+          // Merge admin and employee sales; preserve a flag to identify the origin
+          const sales = [
+            ...adminSales.map(s => ({ ...s, _saleSource: 'admin' })),
+            ...employeeSales.map(s => ({ ...s, _saleSource: 'employee' })),
+          ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
           // Get cylinder transactions for this customer
           let cylinderQuery = {
@@ -164,10 +168,14 @@ export async function GET(request) {
               _id: sale._id,
               invoiceNumber: sale.invoiceNumber,
               totalAmount: sale.totalAmount,
+              // For UI convenience
               amountPaid: sale.receivedAmount,
+              receivedAmount: sale.receivedAmount,
               paymentStatus: sale.paymentStatus, // Use the transaction's own status
               createdAt: sale.createdAt,
-              items: sale.items
+              items: sale.items,
+              // Flag to distinguish which API to call when updating payment
+              saleSource: sale._saleSource === 'employee' ? 'employee' : 'admin'
             })),
             
             recentCylinderTransactions: cylinderTransactions.slice(0, 5).map(transaction => ({
