@@ -310,6 +310,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                   <TableRow>
                     <TableHead>Product</TableHead>
                     <TableHead>Category</TableHead>
+                    <TableHead>Cylinder Size</TableHead>
                     <TableHead>Quantity</TableHead>
                     <TableHead>Least Price (Assigned)</TableHead>
                     <TableHead>Assigned Date</TableHead>
@@ -321,6 +322,14 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                     <TableRow key={stock._id}>
                       <TableCell className="font-medium">{stock.product?.name || "Unknown Product"}</TableCell>
                       <TableCell>{stock.product?.category || "-"}</TableCell>
+                      <TableCell>
+                        {stock.product?.category === 'cylinder'
+                          ? (() => {
+                              const size = (stock.cylinderSize || stock.product?.cylinderSize || '').toString()
+                              return size ? size.charAt(0).toUpperCase() + size.slice(1) : '-'
+                            })()
+                          : '-'}
+                      </TableCell>
                       <TableCell>{stock.quantity}</TableCell>
                       <TableCell>{(() => {
                         const leastPrice = stock.leastPrice ?? stock.product?.leastPrice;
@@ -341,7 +350,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                   ))}
                   {pendingStock.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-gray-500 py-8">
+                      <TableCell colSpan={7} className="text-center text-gray-500 py-8">
                         No pending stock assignments.
                       </TableCell>
                     </TableRow>
@@ -366,6 +375,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                   <TableRow>
                     <TableHead>Product</TableHead>
                     <TableHead>Category</TableHead>
+                    <TableHead>Cylinder Size</TableHead>
                     <TableHead>Quantity</TableHead>
                     <TableHead>Available Quantity</TableHead>
                     <TableHead>Least Price (Assigned)</TableHead>
@@ -378,6 +388,14 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                     <TableRow key={stock._id}>
                       <TableCell className="font-medium">{stock.product?.name || "Unknown Product"}</TableCell>
                       <TableCell>{stock.product?.category || "-"}</TableCell>
+                      <TableCell>
+                        {stock.product?.category === 'cylinder'
+                          ? (() => {
+                              const size = (stock.cylinderSize || stock.product?.cylinderSize || '').toString()
+                              return size ? size.charAt(0).toUpperCase() + size.slice(1) : '-'
+                            })()
+                          : '-'}
+                      </TableCell>
                       <TableCell>{stock.quantity}</TableCell>
                       <TableCell>{getAvailableForStock(stock)}</TableCell>
                       <TableCell>{(() => {
@@ -399,7 +417,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                   ))}
                   {receivedStock.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+                      <TableCell colSpan={8} className="text-center text-gray-500 py-8">
                         No received stock assignments.
                       </TableCell>
                     </TableRow>
