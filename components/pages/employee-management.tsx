@@ -144,19 +144,28 @@ setStockAssignments(stockData)
 
   const checkForNewNotifications = async () => {
     try {
-      const response = await fetch('/api/notifications?userId=' + user.id + '&type=stock_returned&unread=true')
-      if (response.ok) {
-        const data = await response.json()
+      // Check for returned stock notifications
+      const respReturned = await fetch('/api/notifications?userId=' + user.id + '&type=stock_returned&unread=true')
+      if (respReturned.ok) {
+        const data = await respReturned.json()
         if (data.length > 0) {
-          const latestNotification = data[0]
-          showNotification(`Stock returned by ${latestNotification.sender?.name || 'Employee'}: ${latestNotification.message}`)
-          // Mark notification as read
-          await fetch(`/api/notifications/${latestNotification._id}/read`, { method: 'PUT' })
-          // Refresh stock assignments to show updated data
+          const latest = data[0]
+          showNotification(`Stock returned by ${latest.sender?.name || 'Employee'}: ${latest.message}`)
+          await fetch(`/api/notifications/${latest._id}/read`, { method: 'PUT' })
           await fetchStockAssignments()
         }
-      } else {
-        
+      }
+
+      // Check for rejected stock notifications
+      const respRejected = await fetch('/api/notifications?userId=' + user.id + '&type=stock_rejected&unread=true')
+      if (respRejected.ok) {
+        const data = await respRejected.json()
+        if (data.length > 0) {
+          const latest = data[0]
+          showNotification(`Stock rejected by ${latest.sender?.name || 'Employee'}: ${latest.message}`)
+          await fetch(`/api/notifications/${latest._id}/read`, { method: 'PUT' })
+          await fetchStockAssignments()
+        }
       }
     } catch (error) {
       

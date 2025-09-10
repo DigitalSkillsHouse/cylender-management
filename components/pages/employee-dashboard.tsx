@@ -129,6 +129,16 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
     }
   }
 
+  const handleRejectStock = async (assignmentId: string) => {
+    try {
+      await stockAPI.reject(assignmentId)
+      await fetchEmployeeData()
+    } catch (error) {
+      console.error("Failed to reject stock:", error)
+      alert('Failed to reject stock. Please try again.')
+    }
+  }
+
   const handleReturnStock = async (assignmentId: string) => {
     try {
       await stockAPI.returnStock(assignmentId);
@@ -337,14 +347,24 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                       })()}</TableCell>
                       <TableCell>{new Date(stock.assignedDate).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Button
-                          size="sm"
-                          onClick={() => handleReceiveStock(stock._id)}
-                          style={{ backgroundColor: "#2B3068" }}
-                          className="hover:opacity-90"
-                        >
-                          Receive
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleReceiveStock(stock._id)}
+                            style={{ backgroundColor: "#2B3068" }}
+                            className="hover:opacity-90"
+                          >
+                            Receive
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRejectStock(stock._id)}
+                            className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                          >
+                            Reject
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

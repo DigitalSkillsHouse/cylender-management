@@ -79,6 +79,7 @@ export const stockAPI = {
   delete: (id: string) => api.delete(`/stock-assignments/${id}`),
   receive: (id: string) => api.put(`/stock-assignments/${id}/receive`),
   returnStock: (id: string) => api.put(`/stock-assignments/${id}/return`),
+  reject: (id: string) => api.put(`/stock-assignments/${id}/reject`),
 }
 
 // Alternative export for consistency

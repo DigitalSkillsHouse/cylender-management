@@ -29,7 +29,7 @@ const StockAssignmentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["assigned", "received", "returned"],
+      enum: ["assigned", "received", "returned", "rejected"],
       default: "assigned",
     },
     assignedDate: {
@@ -40,6 +40,9 @@ const StockAssignmentSchema = new mongoose.Schema(
       type: Date,
     },
     returnedDate: {
+      type: Date,
+    },
+    rejectedDate: {
       type: Date,
     },
     notes: {
