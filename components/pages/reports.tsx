@@ -2311,13 +2311,15 @@ export function Reports() {
                                       (entry.items || []).map((item: any, idx: number) => ({
                                         ...entry,
                                         _id: `ledger-${entry._id}-${item?._id || item?.product?._id || idx}`,
+                                        srcId: entry._id,
                                         createdAt: entry.createdAt,
                                         type: 'gas_sale',
                                         displayType: 'Gas Sale',
                                         description: `${item.product?.name || 'Unknown Product'} (${item.quantity}x)`,
                                         amount: Number(item?.total ?? ((Number(item?.price || 0)) * Number(item?.quantity || 1))) || 0,
-                                        paidAmount: entry.amountPaid || 0,
+                                        paidAmount: entry.receivedAmount ?? entry.amountPaid ?? 0,
                                         status: entry.paymentStatus,
+                                        saleSource: (entry as any).saleSource || 'admin',
                                       }))
                                     ),
                                   // Add cylinder transactions (filter by status if needed)
@@ -2329,12 +2331,13 @@ export function Reports() {
                                     .map(transaction => ({
                                       ...transaction,
                                       _id: `cylinder-${transaction._id}`,
+                                      srcId: transaction._id,
                                       createdAt: transaction.createdAt,
                                       type: transaction.type,
                                       displayType: `Cylinder ${transaction.type}`,
                                       description: `${transaction.cylinderSize} (${transaction.quantity}x)`,
                                       amount: transaction.amount,
-                                      paidAmount: transaction.amount || 0,
+                                      paidAmount: transaction.cashAmount || 0,
                                       status: transaction.status,
                                     }))
                                 ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -2349,10 +2352,11 @@ export function Reports() {
                                         <TableHead>Total</TableHead>
                                         <TableHead>Paid Amount</TableHead>
                                         <TableHead>Status</TableHead>
+                                        <TableHead>Action</TableHead>
                                       </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                      {allTransactions.map((transaction, index) => (
+                                      {allTransactions.map((transaction: any, index) => (
                                         <TableRow key={`${transaction.type}-${transaction._id}-${index}`}>
                                           <TableCell>
                                             <Badge 
@@ -2367,6 +2371,47 @@ export function Reports() {
                                           <TableCell>{formatCurrency(transaction.amount)}</TableCell>
                                           <TableCell>{formatCurrency(transaction.paidAmount || 0)}</TableCell>
                                           <TableCell>{getStatusBadge(transaction.status)}</TableCell>
+                                          <TableCell>
+                                            {(() => {
+                                              // Determine kind/id
+                                              const isGas = transaction.type === 'gas_sale'
+                                              const kind = isGas
+                                                ? ((transaction.saleSource === 'employee') ? 'employee_sale' : 'sale')
+                                                : 'cylinder'
+                                              const id = String(transaction.srcId)
+                                              const key = paymentKey(kind as any, id)
+                                              const rec = paymentRecords[key]
+                                              const minimalRec: PaymentRecord = {
+                                                kind: kind as any,
+                                                id,
+                                                amount: 0,
+                                                method: 'cash',
+                                                bankName: '',
+                                                chequeNumber: '',
+                                                newTotalReceived: Number(transaction.paidAmount || 0),
+                                                at: String(transaction.createdAt || new Date().toISOString()),
+                                              }
+                                              const isPending = String(transaction.status).toLowerCase() === 'pending'
+                                              const canReceive = isPending && (!isGas || (isGas))
+                                              if (isPending && (isGas || (!isGas && String(transaction.type).toLowerCase() !== 'refill'))) {
+                                                return (
+                                                  <div className="flex items-center gap-2">
+                                                    <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id, kind: kind as any, totalAmount: Number(isGas ? (transaction.totalAmount || transaction.amount) : (transaction.amount || 0)), currentReceived: Number(transaction.paidAmount || 0) })}>
+                                                      Receive Amount
+                                                    </Button>
+                                                    <Button size="sm" variant="ghost" onClick={() => setShowPaymentDetail(rec || minimalRec)} className="text-blue-600 hover:bg-blue-50">
+                                                      See Details
+                                                    </Button>
+                                                  </div>
+                                                )
+                                              }
+                                              return (
+                                                <Button size="sm" variant="ghost" onClick={() => setShowPaymentDetail(rec || minimalRec)} className="text-blue-600 hover:bg-blue-50">
+                                                  See Details
+                                                </Button>
+                                              )
+                                            })()}
+                                          </TableCell>
                                         </TableRow>
                                       ))}
                                     </TableBody>
@@ -2411,15 +2456,40 @@ export function Reports() {
                                           <TableCell key={`${sale._id}-${sale.paymentStatus}`}>{getStatusBadge(sale.paymentStatus)}</TableCell>
                                           <TableCell>
                                             {(() => {
+                                              const sourceKind = (sale as any).saleSource === 'employee' ? 'employee_sale' : 'sale'
+                                              const key = paymentKey(sourceKind as any, String(sale._id))
+                                              const rec = paymentRecords[key]
+                                              // Helper to build a minimal record if needed
+                                              const minimalRec: PaymentRecord = {
+                                                kind: sourceKind as any,
+                                                id: String(sale._id),
+                                                amount: 0,
+                                                method: 'cash',
+                                                bankName: '',
+                                                chequeNumber: '',
+                                                newTotalReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0),
+                                                at: String(sale.createdAt || new Date().toISOString()),
+                                              }
                                               const canReceive = String(sale.paymentStatus).toLowerCase() === 'pending'
+                                              // When pending, show both Receive and See Details (details uses either rec or minimal)
                                               if (canReceive) {
                                                 return (
-                                                  <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), kind: (sale as any).saleSource === 'employee' ? 'employee_sale' : 'sale', totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
-                                                    Receive Amount
-                                                  </Button>
+                                                  <div className="flex items-center gap-2">
+                                                    <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(sale._id), kind: sourceKind as any, totalAmount: Number(sale.totalAmount || 0), currentReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0) })}>
+                                                      Receive Amount
+                                                    </Button>
+                                                    <Button size="sm" variant="ghost" onClick={() => setShowPaymentDetail(rec || minimalRec)} className="text-blue-600 hover:bg-blue-50">
+                                                      See Details
+                                                    </Button>
+                                                  </div>
                                                 )
                                               }
-                                              return null
+                                              // Not pending: show See Details (prefer recorded, else minimal)
+                                              return (
+                                                <Button size="sm" variant="ghost" onClick={() => setShowPaymentDetail(rec || minimalRec)} className="text-blue-600 hover:bg-blue-50">
+                                                  See Details
+                                                </Button>
+                                              )
                                             })()}
                                           </TableCell>
                                           <TableCell>
@@ -2473,23 +2543,35 @@ export function Reports() {
                                               {(() => {
                                                 const key = paymentKey('cylinder', String(transaction._id))
                                                 const rec = paymentRecords[key]
-                                                if (rec) {
-                                                  return (
-                                                    <Button size="sm" variant="outline" onClick={() => setShowPaymentDetail(rec)}>
-                                                      See Detail
-                                                    </Button>
-                                                  )
+                                                const minimalRec: PaymentRecord = {
+                                                  kind: 'cylinder',
+                                                  id: String(transaction._id),
+                                                  amount: 0,
+                                                  method: 'cash',
+                                                  bankName: '',
+                                                  chequeNumber: '',
+                                                  newTotalReceived: Number(transaction.cashAmount || 0),
+                                                  at: String(transaction.createdAt || new Date().toISOString()),
                                                 }
                                                 const isPending = String(transaction.status).toLowerCase() === 'pending'
                                                 const isRefill = String(transaction.type).toLowerCase() === 'refill'
                                                 if (isPending && !isRefill) {
                                                   return (
-                                                    <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: 'cylinder', totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
-                                                      Receive Amount
-                                                    </Button>
+                                                    <div className="flex items-center gap-2">
+                                                      <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: 'cylinder', totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
+                                                        Receive Amount
+                                                      </Button>
+                                                      <Button size="sm" variant="ghost" onClick={() => setShowPaymentDetail(rec || minimalRec)} className="text-blue-600 hover:bg-blue-50">
+                                                        See Details
+                                                      </Button>
+                                                    </div>
                                                   )
                                                 }
-                                                return null
+                                                return (
+                                                  <Button size="sm" variant="ghost" onClick={() => setShowPaymentDetail(rec || minimalRec)} className="text-blue-600 hover:bg-blue-50">
+                                                    See Details
+                                                  </Button>
+                                                )
                                               })()}
                                             </TableCell>
                                             <TableCell>{getStatusBadge(transaction.status)}</TableCell>
@@ -2697,28 +2779,64 @@ export function Reports() {
 
       {/* Payment Detail Dialog */}
       <Dialog open={!!showPaymentDetail} onOpenChange={(v) => setShowPaymentDetail(v ? showPaymentDetail : null)}>
-        <DialogContent className="max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>Payment Detail</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="max-w-[520px] p-0 overflow-hidden">
           {showPaymentDetail && (
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span>Type:</span><span className="font-semibold capitalize">{showPaymentDetail.kind}</span></div>
-              <div className="flex justify-between"><span>Method:</span><span className="font-semibold capitalize">{showPaymentDetail.method}</span></div>
-              {showPaymentDetail.method === 'cheque' && (
-                <>
-                  <div className="flex justify-between"><span>Bank:</span><span className="font-semibold">{showPaymentDetail.bankName || '-'}</span></div>
-                  <div className="flex justify-between"><span>Cheque #:</span><span className="font-semibold">{showPaymentDetail.chequeNumber || '-'}</span></div>
-                </>
-              )}
-              <div className="flex justify-between"><span>Received Now:</span><span className="font-semibold">{formatCurrency(showPaymentDetail.amount)}</span></div>
-              <div className="flex justify-between"><span>Total Received:</span><span className="font-semibold">{formatCurrency(showPaymentDetail.newTotalReceived)}</span></div>
-              <div className="flex justify-between"><span>Date:</span><span className="font-semibold">{new Date(showPaymentDetail.at).toLocaleString()}</span></div>
+            <div className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-5 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-white/15 rounded-full p-2">
+                  <Receipt className="h-5 w-5" />
+                </div>
+                <div>
+                  <DialogTitle className="text-white text-base sm:text-lg">Payment Received</DialogTitle>
+                  <p className="text-white/80 text-xs sm:text-sm">{new Date(showPaymentDetail.at).toLocaleString()}</p>
+                </div>
+              </div>
+              <Badge className="bg-white text-indigo-700 hover:bg-white">{String(showPaymentDetail.kind).replace('_', ' ')}</Badge>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPaymentDetail(null)}>Close</Button>
-          </DialogFooter>
+          {showPaymentDetail && (
+            <div className="p-5 space-y-4">
+              {/* Amounts */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-lg border bg-white p-4">
+                  <div className="text-xs text-gray-500">Received Now</div>
+                  <div className="text-xl font-semibold text-green-600">{formatCurrency(showPaymentDetail.amount)}</div>
+                </div>
+                <div className="rounded-lg border bg-white p-4">
+                  <div className="text-xs text-gray-500">Total Received</div>
+                  <div className="text-xl font-semibold text-blue-700">{formatCurrency(showPaymentDetail.newTotalReceived)}</div>
+                </div>
+              </div>
+
+              {/* Method & Cheque info */}
+              <div className="rounded-lg border bg-white p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-gray-600">Payment Method</div>
+                  <Badge className={showPaymentDetail.method === 'cheque' ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-emerald-500 hover:bg-emerald-600'}>
+                    {showPaymentDetail.method === 'cheque' ? 'Cheque' : 'Cash'}
+                  </Badge>
+                </div>
+                {showPaymentDetail.method === 'cheque' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <div className="text-xs text-gray-500">Bank Name</div>
+                      <div className="font-medium">{showPaymentDetail.bankName || '-'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500">Cheque #</div>
+                      <div className="font-medium">{showPaymentDetail.chequeNumber || '-'}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Meta hidden per request: Reference ID and Timestamp removed */}
+
+              <div className="flex justify-end pt-1">
+                <Button variant="outline" onClick={() => setShowPaymentDetail(null)}>Close</Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
