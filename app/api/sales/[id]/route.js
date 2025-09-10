@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import Sale from "@/models/Sale"
+import Product from "@/models/Product"
 
 // Align PUT with POST schema: items[], totalAmount, paymentMethod, paymentStatus, receivedAmount, notes, customer, invoiceNumber
 export async function PUT(request, { params }) {
@@ -103,5 +104,23 @@ export async function DELETE(request, { params }) {
   } catch (error) {
     console.error("Error deleting sale:", error)
     return NextResponse.json({ error: "Failed to delete sale" }, { status: 500 })
+  }
+}
+
+// GET /api/sales/[id] - fetch single sale with populated refs (for receipt)
+export async function GET(request, { params }) {
+  try {
+    await dbConnect()
+    const { id } = params
+    const sale = await Sale.findById(id)
+      .populate('customer', 'name phone address email')
+      .populate('items.product', 'name price category cylinderSize')
+    if (!sale) {
+      return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
+    }
+    return NextResponse.json({ data: sale })
+  } catch (error) {
+    console.error('Error fetching sale:', error)
+    return NextResponse.json({ error: 'Failed to fetch sale' }, { status: 500 })
   }
 }

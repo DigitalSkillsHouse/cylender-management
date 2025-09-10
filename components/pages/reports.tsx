@@ -1345,10 +1345,17 @@ export function Reports() {
     // If invoked from Receive Amount flow, fetch record and open receipt with signature
     if (pendingReceiptData) {
       const { kind, targetId } = pendingReceiptData
-      const getUrl = kind === 'cylinder' ? `/api/cylinders/${targetId}` : `/api/sales/${targetId}`
+      // Route to correct API to fetch updated record with populated customer
+      const getUrl = kind === 'cylinder'
+        ? `/api/cylinders/${targetId}`
+        : (kind === 'employee_sale'
+            ? `/api/employee-sales/${targetId}`
+            : `/api/sales/${targetId}`)
 
-      const buildReceiptFromSource = (src: any) => {
+      const buildReceiptFromSource = (srcRaw: any) => {
         const isCylinder = kind === 'cylinder'
+        // Unwrap axios/fetch JSON shape: many APIs return { data: record }
+        const src = srcRaw?.data ?? srcRaw
         // Attempt to resolve customer fields from API record, falling back to ledger customers
         const srcCustomer = src?.customer
         const custId = typeof srcCustomer === 'string' ? srcCustomer : (srcCustomer?._id || src?.customerId || '')
