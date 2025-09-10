@@ -39,7 +39,7 @@ interface Product {
   costPrice: number
   leastPrice: number
   currentStock: number
-  cylinderType?: string
+  cylinderSize?: string
 }
 
 interface EmployeeManagementProps {
@@ -723,7 +723,9 @@ setStockAssignments(stockData)
                     
                     return filteredProducts.map((product) => (
                       <SelectItem key={product._id} value={product._id}>
-                        {product.name} (Available: {product.currentStock})
+                        {product.category === 'cylinder'
+                          ? `${product.name} - ${(product.cylinderSize || '').charAt(0).toUpperCase()}${(product.cylinderSize || '').slice(1)} (Available: ${product.currentStock})`
+                          : `${product.name} (Available: ${product.currentStock})`}
                       </SelectItem>
                     ))
                   })()}
@@ -737,6 +739,21 @@ setStockAssignments(stockData)
                 </SelectContent>
               </Select>
             </div>
+
+            {stockFormData.category === "cylinder" && stockFormData.productId && (
+              <div className="space-y-2">
+                <Label htmlFor="cylinderSize">Cylinder Size</Label>
+                <Input
+                  id="cylinderSize"
+                  value={(() => {
+                    const p = products.find((prod) => prod._id === stockFormData.productId)
+                    const val = p?.cylinderSize || ""
+                    return val ? val.charAt(0).toUpperCase() + val.slice(1) : ""
+                  })()}
+                  disabled
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="quantity">Quantity *</Label>
