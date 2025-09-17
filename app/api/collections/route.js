@@ -20,6 +20,7 @@ export async function GET(request) {
     const [adminSales, employeeSales] = await Promise.all([
       Sale.find(customerId ? { ...pendingQuery, customer: customerId } : pendingQuery)
         .populate("customer", "name phone")
+        .populate("items.product", "name")
         .lean(),
       EmployeeSale.find({
           ...(customerId ? { customer: customerId } : {}),
@@ -28,6 +29,7 @@ export async function GET(request) {
         })
         .populate("customer", "name phone")
         .populate("employee", "name email")
+        .populate("items.product", "name")
         .lean(),
     ])
 
@@ -38,6 +40,12 @@ export async function GET(request) {
       invoiceNumber: s.invoiceNumber,
       customer: s.customer ? { _id: s.customer._id, name: s.customer.name, phone: s.customer.phone } : null,
       employee: null,
+      items: s.items?.map(item => ({
+        product: item.product ? { name: item.product.name } : { name: 'Unknown Product' },
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total
+      })) || [],
       totalAmount: Number(s.totalAmount || 0),
       receivedAmount: Number(s.receivedAmount || 0),
       balance: Math.max(0, Number(s.totalAmount || 0) - Number(s.receivedAmount || 0)),
@@ -52,6 +60,12 @@ export async function GET(request) {
       invoiceNumber: s.invoiceNumber,
       customer: s.customer ? { _id: s.customer._id, name: s.customer.name, phone: s.customer.phone } : null,
       employee: s.employee ? { _id: s.employee._id, name: s.employee.name, email: s.employee.email } : null,
+      items: s.items?.map(item => ({
+        product: item.product ? { name: item.product.name } : { name: 'Unknown Product' },
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total
+      })) || [],
       totalAmount: Number(s.totalAmount || 0),
       receivedAmount: Number(s.receivedAmount || 0),
       balance: Math.max(0, Number(s.totalAmount || 0) - Number(s.receivedAmount || 0)),

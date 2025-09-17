@@ -20,6 +20,13 @@ interface User {
   name: string
 }
 
+interface PendingInvoiceItem {
+  product: { name: string }
+  quantity: number
+  price: number
+  total: number
+}
+
 interface PendingInvoice {
   _id: string
   model: "Sale" | "EmployeeSale"
@@ -27,6 +34,7 @@ interface PendingInvoice {
   invoiceNumber: string
   customer: { _id: string; name: string; phone?: string } | null
   employee?: { _id: string; name: string; email?: string } | null
+  items: PendingInvoiceItem[]
   totalAmount: number
   receivedAmount: number
   balance: number
@@ -224,12 +232,34 @@ export function CollectionPage({ user }: CollectionPageProps) {
       setAmounts({})
       await fetchData()
       // Format receipt data for the ReceiptDialog
-      const receiptItems = payments.map(p => ({
-        product: { name: `${p.model} - ${p.id}`, price: p.amount },
-        quantity: 1,
-        price: p.amount,
-        total: p.amount
-      }))
+      const receiptItems = payments.flatMap(p => {
+        const invoice = invoices.find(inv => inv._id === p.id)
+        if (!invoice) return []
+        
+        // If invoice has items, use them, otherwise create a single item for the payment
+        if (invoice.items?.length > 0) {
+          return invoice.items.map(item => ({
+            product: {
+              name: item.product.name,
+              price: item.price
+            },
+            quantity: item.quantity,
+            price: item.price,
+            total: item.total
+          }))
+        }
+        
+        // Fallback for invoices without items
+        return [{
+          product: { 
+            name: `Payment for Invoice #${invoice.invoiceNumber} (${invoice.source.toUpperCase()})`,
+            price: p.amount
+          },
+          quantity: 1,
+          price: p.amount,
+          total: p.amount
+        }]
+      })
 
 setReceiptData({
         _id: `collection-${Date.now()}`,
@@ -408,6 +438,7 @@ setReceiptData({
                         <th className="p-2"></th>
                         <th className="text-left p-2">Invoice</th>
                         <th className="text-left p-2">Source</th>
+                        <th className="text-left p-2">Items</th>
                         <th className="text-right p-2">Total (AED)</th>
                         <th className="text-right p-2">Received (AED)</th>
                         <th className="text-right p-2">Balance (AED)</th>
@@ -427,6 +458,21 @@ setReceiptData({
                             <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
                               {inv.source}
                             </Badge>
+                          </td>
+                          <td className="p-2 align-middle">
+                            <div className="flex flex-col gap-1">
+                              {inv.items?.slice(0, 2).map((item, idx) => (
+                                <div key={idx} className="text-sm">
+                                  {item.quantity} × {item.product.name} @ AED {item.price.toFixed(2)}
+                                </div>
+                              ))}
+                              {inv.items?.length > 2 && (
+                                <div className="text-xs text-gray-500">+{inv.items.length - 2} more items</div>
+                              )}
+                              {!inv.items?.length && (
+                                <div className="text-xs text-gray-400">No items</div>
+                              )}
+                            </div>
                           </td>
                           <td className="p-2 align-middle text-right">{inv.totalAmount.toFixed(2)}</td>
                           <td className="p-2 align-middle text-right">{inv.receivedAmount.toFixed(2)}</td>
