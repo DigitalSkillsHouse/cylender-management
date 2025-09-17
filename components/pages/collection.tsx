@@ -11,6 +11,7 @@ import { toast } from "@/hooks/use-toast"
 import { format } from "date-fns"
 import { Printer, RefreshCcw } from "lucide-react"
 import { SignatureDialog } from "@/components/signature-dialog"
+import { ReceiptDialog } from "@/components/receipt-dialog"
 
 interface User {
   id: string
@@ -44,6 +45,20 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const [amounts, setAmounts] = useState<Record<string, string>>({})
   const [signatureOpen, setSignatureOpen] = useState(false)
   const [pendingPaymentsCache, setPendingPaymentsCache] = useState<Array<{ model: string; id: string; amount: number }>>([])
+  // Receipt dialog state
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false)
+  const [receiptData, setReceiptData] = useState<{
+    _id: string
+    invoiceNumber: string
+    customer: { name: string; phone: string; address: string }
+    items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number }>
+    totalAmount: number
+    paymentMethod: string
+    paymentStatus: string
+    type: string
+    createdAt: string
+    customerSignature?: string  // Changed from signature to customerSignature to match ReceiptDialogProps
+  } | null>(null)
   // Customer selection state
   const [customers, setCustomers] = useState<any[]>([])
   const [customerSearch, setCustomerSearch] = useState("")
@@ -208,8 +223,31 @@ export function CollectionPage({ user }: CollectionPageProps) {
       setSelected({})
       setAmounts({})
       await fetchData()
-      // Print collection receipt including signature
-      openPrintWindow(payments, signature || undefined)
+      // Format receipt data for the ReceiptDialog
+      const receiptItems = payments.map(p => ({
+        product: { name: `${p.model} - ${p.id}`, price: p.amount },
+        quantity: 1,
+        price: p.amount,
+        total: p.amount
+      }))
+
+setReceiptData({
+        _id: `collection-${Date.now()}`,
+        invoiceNumber: `COL-${Date.now().toString().slice(-6)}`,
+        customer: {
+          name: selectedCustomer?.name || 'Customer',
+          phone: selectedCustomer?.phone || '',
+          address: ''
+        },
+        items: receiptItems,
+        totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
+        paymentMethod: 'Cash',
+        paymentStatus: 'cleared',
+        type: 'collection',
+        createdAt: new Date().toISOString(),
+        customerSignature: signature || undefined
+      })
+      setShowReceiptDialog(true)
     } catch (e: any) {
       toast({ title: "Collection failed", description: e?.message || "", variant: "destructive" })
     } finally {
@@ -219,49 +257,31 @@ export function CollectionPage({ user }: CollectionPageProps) {
   }
 
   const openPrintWindow = (payments: Array<{ model: string; id: string; amount: number }>, signature?: string) => {
-    try {
-      const total = payments.reduce((s, p) => s + (p.amount || 0), 0)
-      const html = `<!DOCTYPE html>
-<html><head><title>Collection Receipt</title>
-<style>
-  body { font-family: Arial, sans-serif; padding: 16px; }
-  h1 { font-size: 18px; margin: 0 0 8px; }
-  .muted { color: #666; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-  th, td { border: 1px solid #ddd; padding: 8px; font-size: 12px; }
-  th { background: #2B3068; color: #fff; text-align: left; }
-  .right { text-align: right; }
-  .sig { margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
-  .sig img { max-height: 60px; }
-</style>
-</head><body>
-  <h1>Collection Receipt</h1>
-  <div class="muted">Collector: ${user.name} (${user.role}) • Date: ${format(new Date(), "yyyy-MM-dd HH:mm")}</div>
-  <table>
-    <thead><tr><th>#</th><th>Model</th><th>Invoice/ID</th><th class="right">Amount (AED)</th></tr></thead>
-    <tbody>
-      ${payments
-        .map(
-          (p, idx) => `<tr><td>${idx + 1}</td><td>${p.model}</td><td>${p.id}</td><td class="right">${p.amount.toFixed(
-            2,
-          )}</td></tr>`,
-        )
-        .join("")}
-      <tr><td colspan="3" class="right"><strong>Total Collected</strong></td><td class="right"><strong>${total.toFixed(
-        2,
-      )}</strong></td></tr>
-    </tbody>
-  </table>
-  ${signature ? `<div class="sig"><div>Customer Signature:</div><img src="${signature}" alt="Customer Signature" /></div>` : ''}
-  <p class="muted">This receipt summarizes collection against multiple invoices.</p>
-  <script>window.onload = () => { window.print(); };</script>
-</body></html>`
-      const win = window.open("", "_blank")
-      if (win) {
-        win.document.write(html)
-        win.document.close()
-      }
-    } catch {}
+    // Format receipt data for the ReceiptDialog
+    const receiptItems = payments.map(p => ({
+      product: { name: `${p.model} - ${p.id}`, price: p.amount },
+      quantity: 1,
+      price: p.amount,
+      total: p.amount
+    }))
+
+    setReceiptData({
+      _id: `preview-${Date.now()}`,
+      invoiceNumber: `PREV-${Date.now().toString().slice(-6)}`,
+      customer: {
+        name: selectedCustomer?.name || 'Customer',
+        phone: selectedCustomer?.phone || '',
+        address: ''
+      },
+      items: receiptItems,
+      totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
+      paymentMethod: 'Cash',
+      paymentStatus: 'cleared',
+      type: 'collection',
+      createdAt: new Date().toISOString(),
+      customerSignature: signature
+    })
+    setShowReceiptDialog(true)
   }
 
   return (
@@ -475,6 +495,18 @@ export function CollectionPage({ user }: CollectionPageProps) {
           return uniqueCustomers.length === 1 ? uniqueCustomers[0] : undefined
         })()}
       />
+
+      {/* Use the standard ReceiptDialog for consistency */}
+      {receiptData && (
+        <ReceiptDialog
+          sale={{
+            ...receiptData,
+            customerSignature: receiptData.customerSignature || undefined
+          }}
+          signature={receiptData.customerSignature}
+          onClose={() => setShowReceiptDialog(false)}
+        />
+      )}
     </div>
   )
 }

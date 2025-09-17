@@ -36,9 +36,11 @@ interface ReceiptDialogProps {
   onClose: () => void
   // If true, force the Receiving header (used by cylinder-management page only)
   useReceivingHeader?: boolean
+  // Control dialog visibility
+  open?: boolean
 }
 
-export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: ReceiptDialogProps) {
+export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, open = true }: ReceiptDialogProps) {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
@@ -159,11 +161,11 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: 
 
 
   return (
-    <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby="receipt-description">
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" aria-describedby="receipt-dialog-description">
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <DialogTitle>Receipt - {sale.invoiceNumber}</DialogTitle>
+            <DialogTitle>Receipt</DialogTitle>
             <Button variant="ghost" size="sm" onClick={onClose}>
               <X className="w-4 h-4" />
             </Button>
@@ -171,14 +173,14 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: 
         </DialogHeader>
         
         {/* Hidden description for accessibility */}
-        <div id="receipt-description" className="sr-only">
+        <div id="receipt-dialog-description" className="sr-only">
           Sales receipt for invoice {sale.invoiceNumber} showing customer information, purchased items, and total amount with signature area for printing or download.
         </div>
 
         <div className="space-y-6">
           <div ref={contentRef}>
-          {/* Company Header Image */}
-          <div className="text-center pb-4">
+            {/* Company Header Image */}
+            <div className="text-center pb-4">
             <img 
               src={headerSrc}
               alt="SYED TAYYAB INDUSTRIAL Header" 
@@ -366,19 +368,19 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader }: 
           </div>
         </div>
 
-          {/* Action Buttons - Moved to bottom */}
-          <div className="flex gap-3 justify-center mt-8 no-print">
-            <Button variant="outline" onClick={handleDownload}>
-              <Download className="w-4 h-4 mr-2" />
-              Download
-            </Button>
-            <Button onClick={handlePrint} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white">
-              <Printer className="w-4 h-4 mr-2" />
-              Print Receipt
-            </Button>
-          </div>
+        {/* Action Buttons - Moved to bottom */}
+        <div className="flex gap-3 justify-center mt-8 no-print">
+          <Button variant="outline" onClick={handleDownload}>
+            <Download className="w-4 h-4 mr-2" />
+            Download
+          </Button>
+          <Button onClick={handlePrint} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white">
+            <Printer className="w-4 h-4 mr-2" />
+            Print Receipt
+          </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </DialogContent>
+  </Dialog>
   )
 }
