@@ -23,6 +23,7 @@ import { NotificationPopup } from "@/components/notification-popup"
 import { LogoutConfirmation } from "@/components/logout-confirmation"
 import { authAPI } from "@/lib/api"
 import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
+import { CollectionPage } from "@/components/pages/collection"
 
 interface MainLayoutProps {
   user: {
@@ -127,6 +128,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
           return <EmployeeReports user={user} />
         case "notifications":
           return <Notifications user={user} setUnreadCount={setUnreadCount} />
+        case "collection":
+          return <CollectionPage user={user} />
         case "dashboard":
         default:
           return <EmployeeDashboard user={user} setUnreadCount={setUnreadCount} />
@@ -156,6 +159,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         return <Reports />
       case "profit-loss":
         return <ProfitLoss />
+      case "collection":
+        return <CollectionPage user={user} />
       default:
         return <Dashboard />
     }

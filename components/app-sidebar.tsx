@@ -15,6 +15,7 @@ import {
   Bell,
   Menu,
   TrendingUp,
+  Receipt,
 } from "lucide-react"
 
 import {
@@ -102,6 +103,11 @@ const adminMenuItems = [
     url: "profit-loss",
     icon: TrendingUp,
   },
+  {
+    title: "Collection",
+    url: "collection",
+    icon: Receipt,
+  },
 ]
 
 const employeeMenuItems = [
@@ -129,6 +135,11 @@ const employeeMenuItems = [
     title: "Notifications",
     url: "notifications",
     icon: Bell,
+  },
+  {
+    title: "Collection",
+    url: "collection",
+    icon: Receipt,
   },
 ]
 
