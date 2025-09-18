@@ -68,12 +68,13 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
 
-  // Choose header image by transaction type first (Deposit/Return),
+  // Choose header image by transaction type first (Deposit/Return/Collection),
   // then allow forcing Receiving header, otherwise default to Tax header.
   const headerSrc = (() => {
     const t = (sale?.type || '').toString().toLowerCase()
     if (t === 'deposit') return '/images/Header-deposit-invoice.jpg'
     if (t === 'return') return '/images/Header-Return-invoice.jpg'
+    if (t === 'collection') return '/images/Header-Receiving-invoice.jpg'
     if (useReceivingHeader) return '/images/Header-Receiving-invoice.jpg'
     return '/images/Header-Tax-invoice.jpg'
   })()

@@ -7,6 +7,9 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/hooks/use-toast"
 import { format } from "date-fns"
 import { Printer, RefreshCcw } from "lucide-react"
@@ -73,6 +76,18 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
   const [filteredCustomers, setFilteredCustomers] = useState<any[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<{ _id: string; name: string; phone?: string } | null>(null)
+  
+  // Payment collection dialog state
+  const [paymentDialog, setPaymentDialog] = useState({
+    open: false,
+    totalAmount: 0,
+    currentReceived: 0,
+    method: 'cash' as 'cash' | 'cheque',
+    bankName: '',
+    chequeNumber: '',
+    inputAmount: '',
+    selectedInvoices: [] as PendingInvoice[]
+  })
 
   const fetchCustomers = async () => {
     try {
@@ -197,21 +212,81 @@ export function CollectionPage({ user }: CollectionPageProps) {
   }
 
   const handleReceiveAmountClick = () => {
-    const payments = filtered
-      .filter((i) => selected[i._id])
-      .map((i) => {
-        const raw = amounts[i._id]
-        const amt = Number(raw)
-        return { model: i.model, id: i._id, amount: isFinite(amt) && amt > 0 ? Math.min(amt, i.balance) : 0 }
-      })
-      .filter((p) => p.amount > 0)
-
-    if (!payments.length) {
-      toast({ title: "No valid payments selected", variant: "destructive" })
+    const selectedInvoices = filtered.filter((i) => selected[i._id])
+    
+    if (!selectedInvoices.length) {
+      toast({ title: "No invoices selected", variant: "destructive" })
       return
     }
-    // Cache the payments and ask for signature
+    
+    const totalAmount = selectedInvoices.reduce((sum, inv) => sum + inv.balance, 0)
+    const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
+    
+    // Open payment collection dialog
+    setPaymentDialog({
+      open: true,
+      totalAmount,
+      currentReceived,
+      method: 'cash',
+      bankName: '',
+      chequeNumber: '',
+      inputAmount: '',
+      selectedInvoices
+    })
+  }
+  
+  const closePaymentDialog = () => {
+    setPaymentDialog({
+      open: false,
+      totalAmount: 0,
+      currentReceived: 0,
+      method: 'cash',
+      bankName: '',
+      chequeNumber: '',
+      inputAmount: '',
+      selectedInvoices: []
+    })
+  }
+  
+  const submitPaymentCollection = async () => {
+    const add = Number.parseFloat(paymentDialog.inputAmount || '0')
+    if (!Number.isFinite(add) || add <= 0) {
+      toast({ title: 'Enter a valid amount > 0', variant: 'destructive' })
+      return
+    }
+    
+    // If cheque is selected, require bank name and cheque number
+    if (paymentDialog.method === 'cheque') {
+      const bank = String(paymentDialog.bankName || '').trim()
+      const chq = String(paymentDialog.chequeNumber || '').trim()
+      if (!bank || !chq) {
+        toast({ title: 'Please enter Bank Name and Cheque Number', variant: 'destructive' })
+        return
+      }
+    }
+    
+    const remaining = Math.max(0, paymentDialog.totalAmount - paymentDialog.currentReceived)
+    if (add > remaining) {
+      toast({ title: `Amount exceeds remaining balance. Remaining: ${remaining.toFixed(2)}`, variant: 'destructive' })
+      return
+    }
+    
+    // Create payments array for API
+    const payments = paymentDialog.selectedInvoices.map((inv) => {
+      const invoiceAmount = Number(amounts[inv._id]) || inv.balance
+      const proportionalAmount = (invoiceAmount / paymentDialog.totalAmount) * add
+      return {
+        model: inv.model,
+        id: inv._id,
+        amount: proportionalAmount
+      }
+    }).filter(p => p.amount > 0)
+    
+    // Cache the payments and payment details for signature
     setPendingPaymentsCache(payments)
+    
+    // Close payment dialog and open signature dialog
+    closePaymentDialog()
     setSignatureOpen(true)
   }
 
@@ -230,7 +305,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
       toast({ title: "Payments collected", description: `${payments.length} invoice(s) updated.` })
       setSelected({})
       setAmounts({})
-      await fetchData()
+      await fetchData(selectedCustomer?._id)
       // Format receipt data for the ReceiptDialog
       const receiptItems = payments.flatMap(p => {
         const invoice = invoices.find(inv => inv._id === p.id)
@@ -271,7 +346,7 @@ setReceiptData({
         },
         items: receiptItems,
         totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
-        paymentMethod: 'Cash',
+        paymentMethod: paymentDialog.method === 'cheque' ? 'Cheque' : 'Cash',
         paymentStatus: 'cleared',
         type: 'collection',
         createdAt: new Date().toISOString(),
@@ -410,21 +485,27 @@ setReceiptData({
                       <Button
                         size="sm"
                         onClick={() => {
-                          // Limit pendingPaymentsCache to this group's selected invoices
-                          const payments = group.invoices
-                            .filter((i) => selected[i._id])
-                            .map((i) => {
-                              const raw = amounts[i._id]
-                              const amt = Number(raw)
-                              return { model: i.model, id: i._id, amount: isFinite(amt) && amt > 0 ? Math.min(amt, i.balance) : 0 }
-                            })
-                            .filter((p) => p.amount > 0)
-                          if (!payments.length) {
-                            toast({ title: 'No valid payments selected in this customer group', variant: 'destructive' })
+                          const selectedInvoices = group.invoices.filter((i) => selected[i._id])
+                          
+                          if (!selectedInvoices.length) {
+                            toast({ title: 'No invoices selected in this customer group', variant: 'destructive' })
                             return
                           }
-                          setPendingPaymentsCache(payments)
-                          setSignatureOpen(true)
+                          
+                          const totalAmount = selectedInvoices.reduce((sum, inv) => sum + inv.balance, 0)
+                          const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
+                          
+                          // Open payment collection dialog
+                          setPaymentDialog({
+                            open: true,
+                            totalAmount,
+                            currentReceived,
+                            method: 'cash',
+                            bankName: '',
+                            chequeNumber: '',
+                            inputAmount: '',
+                            selectedInvoices
+                          })
                         }}
                         disabled={group.invoices.every((i) => !selected[i._id])}
                       >
@@ -526,6 +607,77 @@ setReceiptData({
         </CardContent>
       </Card>
 
+      {/* Payment Collection Dialog */}
+      <Dialog open={paymentDialog.open} onOpenChange={(v) => v ? setPaymentDialog(prev => ({ ...prev, open: true })) : closePaymentDialog()}>
+        <DialogContent className="max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Receive Payment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span>Total Amount:</span>
+              <span className="font-semibold">AED {paymentDialog.totalAmount.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Received So Far:</span>
+              <span className="font-semibold text-green-600">AED {paymentDialog.currentReceived.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between border-t pt-2">
+              <span>Remaining:</span>
+              <span className="font-semibold text-red-600">AED {Math.max(0, paymentDialog.totalAmount - paymentDialog.currentReceived).toFixed(2)}</span>
+            </div>
+          </div>
+          <div className="space-y-3 mt-3">
+            <div className="space-y-1">
+              <Label>Payment Method</Label>
+              <Select value={paymentDialog.method} onValueChange={(v: any) => setPaymentDialog(prev => ({ ...prev, method: v }))}>
+                <SelectTrigger className="bg-white text-black">
+                  <SelectValue placeholder="Select method" />
+                </SelectTrigger>
+                <SelectContent className="bg-white text-black">
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {paymentDialog.method === 'cheque' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Bank Name</Label>
+                  <Input
+                    placeholder="Enter bank name"
+                    value={paymentDialog.bankName || ''}
+                    onChange={(e) => setPaymentDialog(prev => ({ ...prev, bankName: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Cheque Number</Label>
+                  <Input
+                    placeholder="Enter cheque number"
+                    value={paymentDialog.chequeNumber || ''}
+                    onChange={(e) => setPaymentDialog(prev => ({ ...prev, chequeNumber: e.target.value }))}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="space-y-1">
+              <Label>Amount Received Now</Label>
+              <Input 
+                type="number" 
+                min={0} 
+                step="0.01" 
+                value={paymentDialog.inputAmount} 
+                onChange={(e) => setPaymentDialog(prev => ({ ...prev, inputAmount: e.target.value }))} 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closePaymentDialog}>Cancel</Button>
+            <Button style={{ backgroundColor: '#2B3068' }} onClick={submitPaymentCollection}>Update</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Signature capture dialog shown before applying collections */}
       <SignatureDialog
         isOpen={signatureOpen}
@@ -550,7 +702,11 @@ setReceiptData({
             customerSignature: receiptData.customerSignature || undefined
           }}
           signature={receiptData.customerSignature}
-          onClose={() => setShowReceiptDialog(false)}
+          open={showReceiptDialog}
+          onClose={() => {
+            setShowReceiptDialog(false)
+            setReceiptData(null)
+          }}
         />
       )}
     </div>
