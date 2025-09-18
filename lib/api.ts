@@ -110,9 +110,9 @@ export const inventoryAPI = {
   create: (data: any) => api.post("/inventory", data),
   update: (id: string, data: any) => api.put(`/inventory/${id}`, data),
   delete: (id: string) => api.delete(`/inventory/${id}`),
-  updateStatus: (id: string, status: string) => api.patch("/inventory", { id, status }),
-  updateItem: (id: string, data: any) => api.patch("/inventory", { id, ...data }),
-  receiveInventory: (id: string) => api.patch("/inventory", { id, status: "received" }),
+  updateStatus: (id: string, status: string) => api.patch(`/inventory/${id}`, { status }),
+  updateItem: (id: string, data: any) => api.patch(`/inventory/${id}`, data),
+  receiveInventory: (id: string) => api.patch(`/inventory/${id}`, { status: "received" }),
 }
 
 // Employee Cylinders API

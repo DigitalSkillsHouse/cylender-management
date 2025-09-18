@@ -18,6 +18,7 @@ import { EmployeeDashboard } from "@/components/pages/employee-dashboard"
 import { EmployeeGasSales } from "@/components/pages/employee-gas-sales"
 import { EmployeeCylinderSales } from "@/components/pages/employee-cylinder-sales"
 import EmployeeReports from "@/components/pages/employee-reports"
+import { PurchaseManagement as EmployeePurchaseManagement } from "@/components/pages/purchase-emp-management"
 import { Notifications } from "@/components/pages/notifications"
 import { NotificationPopup } from "@/components/notification-popup"
 import { LogoutConfirmation } from "@/components/logout-confirmation"
@@ -130,6 +131,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
           return <Notifications user={user} setUnreadCount={setUnreadCount} />
         case "collection":
           return <CollectionPage user={user} />
+        case "employee-purchases":
+          return <EmployeePurchaseManagement />
         case "dashboard":
         default:
           return <EmployeeDashboard user={user} setUnreadCount={setUnreadCount} />

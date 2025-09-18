@@ -2,6 +2,7 @@ import dbConnect from "@/lib/mongodb";
 import PurchaseOrder from "@/models/PurchaseOrder";
 import Product from "@/models/Product";
 import StockManager from "@/lib/stock-manager";
+import { verifyToken } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
 export async function GET() {
@@ -66,124 +67,33 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request) {
+// POST - Create new inventory item (if needed)
+export async function POST(request) {
   try {
     await dbConnect();
-    console.log("PATCH inventory request received");
-
-    const { id, status, quantity, unitPrice } = await request.json();
-    console.log("Update data:", { id, status, quantity, unitPrice });
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: "Purchase order ID is required" },
-        { status: 400 }
-      );
-    }
-
-    // Build update object
-    const updateData = {};
+    console.log("POST inventory request received");
     
-    if (status) {
-      updateData.inventoryStatus = status;
-      console.log("Updating inventory status to:", status);
-      
-      // If inventory status is being set to "received", also update the main purchase order status
-      if (status === "received") {
-        updateData.status = "completed";
-        console.log("Also updating purchase order status to: completed");
-      }
-    }
+    // Verify authentication if needed
+    // const user = await verifyToken(request);
+    // if (!user) {
+    //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // }
     
-    if (quantity !== undefined) {
-      updateData.quantity = quantity;
-      // Recalculate total amount if quantity or unit price changes
-      if (unitPrice !== undefined) {
-        updateData.unitPrice = unitPrice;
-        updateData.totalAmount = quantity * unitPrice;
-      } else {
-        // Get current unit price to recalculate total
-        const currentOrder = await PurchaseOrder.findById(id);
-        if (currentOrder) {
-          updateData.totalAmount = quantity * (currentOrder.unitPrice || 0);
-        }
-      }
-    } else if (unitPrice !== undefined) {
-      updateData.unitPrice = unitPrice;
-      // Get current quantity to recalculate total
-      const currentOrder = await PurchaseOrder.findById(id);
-      if (currentOrder) {
-        updateData.totalAmount = (currentOrder.quantity || 0) * unitPrice;
-      }
-    }
-
-    console.log("Update data to apply:", updateData);
-
-    // Update the purchase order with fallback for population errors
-    let updatedOrder;
-    try {
-      updatedOrder = await PurchaseOrder.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      ).populate('product', 'name category')
-       .populate('supplier', 'companyName');
-    } catch (populateError) {
-      console.warn("Population failed during update, trying without populate:", populateError.message);
-      // Fallback: update without populate
-      updatedOrder = await PurchaseOrder.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      );
-    }
-
-    if (!updatedOrder) {
-      return NextResponse.json(
-        { success: false, error: "Purchase order not found" },
-        { status: 404 }
-      );
-    }
-
-    console.log("Successfully updated order:", updatedOrder._id);
-
-    // Transform back to inventory item format with safe property access
-    const inventoryItem = {
-      id: updatedOrder._id?.toString() || '',
-      poNumber: updatedOrder.poNumber || 'N/A',
-      productName: updatedOrder.product?.name || updatedOrder.productName || "Unknown Product",
-      supplierName: updatedOrder.supplier?.companyName || updatedOrder.supplierName || "Unknown Supplier",
-      purchaseDate: updatedOrder.purchaseDate,
-      quantity: updatedOrder.quantity || 0,
-      unitPrice: updatedOrder.unitPrice || 0,
-      totalAmount: updatedOrder.totalAmount || 0,
-      status: updatedOrder.inventoryStatus || "pending",
-      purchaseType: updatedOrder.purchaseType || "gas",
-      createdAt: updatedOrder.createdAt,
-      updatedAt: updatedOrder.updatedAt
-    };
-
-    // Use centralized StockManager to synchronize product stock after any update
-    if (updatedOrder.product) {
-      await StockManager.syncProductStock(updatedOrder.product);
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: inventoryItem,
-      message: "Inventory item updated successfully"
-    });
-
-  } catch (error) {
-    console.error("Inventory update error:", error);
+    const body = await request.json();
+    console.log("Create data:", body);
+    
+    // For now, return not implemented as inventory items are created via purchase orders
     return NextResponse.json(
-      { 
-        success: false, 
-        error: "Failed to update inventory item", 
-        details: error.message 
-      },
+      { success: false, error: "Inventory items are created via purchase orders" },
+      { status: 501 }
+    );
+  } catch (error) {
+    console.error("Inventory creation error:", error);
+    return NextResponse.json(
+      { success: false, error: "Failed to create inventory item", details: error.message },
       { status: 500 }
     );
   }
 }
 
+// PATCH method removed - now using dynamic routes /api/inventory/[id]

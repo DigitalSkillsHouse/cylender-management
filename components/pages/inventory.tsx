@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Package, Loader2, Edit, ChevronDown } from "lucide-react"
 import { purchaseOrdersAPI, inventoryAPI, productsAPI, suppliersAPI } from "@/lib/api"
+import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 
 interface InventoryItem {
   id: string
@@ -23,6 +24,8 @@ interface InventoryItem {
   totalAmount: number
   status: "pending" | "received"
   purchaseType: "gas" | "cylinder" | "multiple"
+  isEmployeePurchase?: boolean
+  employeeName?: string
 }
 
 interface Product {
@@ -67,13 +70,17 @@ export function Inventory() {
   const fetchInventoryData = async () => {
     try {
       setError("")
-      const [purchaseOrdersRes, productsRes, suppliersRes] = await Promise.all([
+      
+      // Fetch both admin and employee purchase orders in parallel
+      const [purchaseOrdersRes, employeePurchaseOrdersRes, productsRes, suppliersRes] = await Promise.all([
         purchaseOrdersAPI.getAll(),
+        employeePurchaseOrdersAPI.getAll(),
         productsAPI.getAll(),
         suppliersAPI.getAll()
       ])
 
       const purchaseOrdersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
+      const employeePurchaseOrdersData = employeePurchaseOrdersRes.data?.data || employeePurchaseOrdersRes.data || []
       const productsData = Array.isArray(productsRes.data?.data)
         ? productsRes.data.data
         : Array.isArray(productsRes.data)
@@ -89,6 +96,12 @@ export function Inventory() {
             ? suppliersRes
             : []
 
+      // Combine admin and employee purchase orders
+      const allPurchaseOrders = [
+        ...purchaseOrdersData.map((order: any) => ({ ...order, isEmployeePurchase: false })),
+        ...employeePurchaseOrdersData.map((order: any) => ({ ...order, isEmployeePurchase: true }))
+      ]
+
       // Build quick-lookup maps by ID
       const productsMap = new Map<string, any>(
         (productsData as any[]).filter(Boolean).map((p: any) => [p._id, p])
@@ -97,8 +110,8 @@ export function Inventory() {
         (suppliersData as any[]).filter(Boolean).map((s: any) => [s._id, s])
       )
 
-      const inventoryItems = Array.isArray(purchaseOrdersData)
-        ? purchaseOrdersData.map((order: any, idx: number) => {
+      const inventoryItems = Array.isArray(allPurchaseOrders)
+        ? allPurchaseOrders.map((order: any, idx: number) => {
             const productRef = order.product ?? order.productId
             const supplierRef = order.supplier ?? order.supplierId ?? order.vendor
 
@@ -133,6 +146,17 @@ export function Inventory() {
               resolvedSupplierName = supplierRef
             }
 
+            // Resolve employee name for employee purchases
+            let employeeName = ''
+            if (order.isEmployeePurchase && order.employee) {
+              if (typeof order.employee === 'object') {
+                employeeName = order.employee.name || order.employee.email || ''
+              } else if (typeof order.employee === 'string') {
+                // If employee is just an ID, we'll show it as is
+                employeeName = `Employee ${order.employee.slice(-6)}`
+              }
+            }
+
             // Debug when names cannot be resolved
             if (resolvedSupplierName === 'Unknown Supplier') {
               console.debug('[Inventory] Could not resolve supplier name for PO', order.poNumber || order._id, {
@@ -161,7 +185,9 @@ export function Inventory() {
               unitPrice: order.unitPrice || 0,
               totalAmount: order.totalAmount || 0,
               status: order.inventoryStatus || 'pending',
-              purchaseType: order.purchaseType || 'gas'
+              purchaseType: order.purchaseType || 'gas',
+              isEmployeePurchase: order.isEmployeePurchase || false,
+              employeeName: employeeName
             } as InventoryItem
           })
         : []
@@ -428,6 +454,7 @@ export function Inventory() {
                       <TableHead className="font-bold text-gray-700 p-4">INV Number</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
+                      <TableHead className="font-bold text-gray-700 p-4">Employee</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Quantity</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Unit Price</TableHead>
@@ -437,10 +464,28 @@ export function Inventory() {
                   </TableHeader>
                   <TableBody>
                     {filteredPending.map((item) => (
-                      <TableRow key={item.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                        <TableCell className="font-semibold text-[#2B3068] p-4">{item.poNumber}</TableCell>
+                      <TableRow key={item.id} className={`hover:bg-gray-50 transition-colors border-b border-gray-100 ${item.isEmployeePurchase ? 'bg-blue-50/30' : ''}`}>
+                        <TableCell className="font-semibold text-[#2B3068] p-4">
+                          <div className="flex items-center gap-2">
+                            {item.poNumber}
+                            {item.isEmployeePurchase && (
+                              <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                Employee
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="p-4">{item.productName}</TableCell>
                         <TableCell className="p-4">{item.supplierName}</TableCell>
+                        <TableCell className="p-4">
+                          {item.isEmployeePurchase && item.employeeName ? (
+                            <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">
+                              {item.employeeName}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-500 text-sm">Admin</span>
+                          )}
+                        </TableCell>
                         <TableCell className="p-4">
                           <Badge variant={item.purchaseType === "gas" ? "default" : "secondary"}>
                             {item.purchaseType}
@@ -515,6 +560,7 @@ export function Inventory() {
                       <TableHead className="font-bold text-gray-700 p-4">INV Number</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
+                      <TableHead className="font-bold text-gray-700 p-4">Employee</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Quantity</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Available Stock</TableHead>
@@ -525,10 +571,28 @@ export function Inventory() {
                   </TableHeader>
                   <TableBody>
                     {filteredReceived.map((item) => (
-                      <TableRow key={item.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                        <TableCell className="font-semibold text-[#2B3068] p-4">{item.poNumber}</TableCell>
+                      <TableRow key={item.id} className={`hover:bg-gray-50 transition-colors border-b border-gray-100 ${item.isEmployeePurchase ? 'bg-blue-50/30' : ''}`}>
+                        <TableCell className="font-semibold text-[#2B3068] p-4">
+                          <div className="flex items-center gap-2">
+                            {item.poNumber}
+                            {item.isEmployeePurchase && (
+                              <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                Employee
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="p-4">{item.productName}</TableCell>
                         <TableCell className="p-4">{item.supplierName}</TableCell>
+                        <TableCell className="p-4">
+                          {item.isEmployeePurchase && item.employeeName ? (
+                            <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">
+                              {item.employeeName}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-500 text-sm">Admin</span>
+                          )}
+                        </TableCell>
                         <TableCell className="p-4">
                           {item.purchaseType === "multiple" ? (
                             <Badge variant="secondary">multiple</Badge>
@@ -578,7 +642,7 @@ export function Inventory() {
                     ))}
                     {filteredReceived.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center text-gray-500 py-12">
+                        <TableCell colSpan={10} className="text-center text-gray-500 py-12">
                           <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
                           <p className="text-lg font-medium">No received items</p>
                           <p className="text-sm">All items are pending</p>
