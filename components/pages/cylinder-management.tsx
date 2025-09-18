@@ -549,7 +549,7 @@ export function CylinderManagement() {
   }
 
   // Export PDF of transactions with styled header and no Customer/Supplier column
-  const exportCylinderPDF = () => {
+  const exportCylinderPDF = async () => {
     try {
       const term = (exportSearch || '').trim().toLowerCase()
       const start = exportStartDate ? new Date(`${exportStartDate}T00:00:00.000`) : null
@@ -571,13 +571,33 @@ export function CylinderManagement() {
       const marginX = 32
       const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
-      let y = 52
+      let y = 20
 
-      // Title
-      doc.setFont('helvetica', 'bold')
-      doc.setFontSize(11)
-      doc.text('Cylinder Transactions', marginX, y)
-      y += 10
+      // Add header image
+      try {
+        const headerImg = new Image()
+        headerImg.crossOrigin = 'anonymous'
+        await new Promise((resolve, reject) => {
+          headerImg.onload = resolve
+          headerImg.onerror = reject
+          headerImg.src = '/images/Customer-Ledger-header.jpg'
+        })
+        
+        // Calculate image dimensions to fit page width
+        const imgWidth = pageWidth - marginX * 2
+        const imgHeight = (headerImg.height * imgWidth) / headerImg.width
+        
+        doc.addImage(headerImg, 'JPEG', marginX, y, imgWidth, imgHeight)
+        y += imgHeight + 20
+      } catch (error) {
+        console.warn('Could not load header image, continuing without it:', error)
+        // Fallback to text title if image fails
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.text('Cylinder Transactions', marginX, y)
+        y += 10
+      }
+
       doc.setFont('helvetica', 'normal')
       doc.setFontSize(7.5)
       if (term) { doc.text(`Party: ${term}`, marginX, y); y += 9 }

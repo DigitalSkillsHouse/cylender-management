@@ -433,12 +433,31 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     try { doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'normal') } catch {}
     const pageWidth = doc.internal.pageSize.getWidth()
     const margin = 36
-    let y = margin
+    let y = 20
 
-    // Header
-    doc.setFontSize(16)
-    doc.text('Employee Cylinder Transactions', pageWidth / 2, y, { align: 'center' })
-    y += 18
+    // Add header image
+    try {
+      const headerImg = new Image()
+      headerImg.crossOrigin = 'anonymous'
+      await new Promise((resolve, reject) => {
+        headerImg.onload = resolve
+        headerImg.onerror = reject
+        headerImg.src = '/images/Customer-Ledger-header.jpg'
+      })
+      
+      // Calculate image dimensions to fit page width
+      const imgWidth = pageWidth - margin * 2
+      const imgHeight = (headerImg.height * imgWidth) / headerImg.width
+      
+      doc.addImage(headerImg, 'JPEG', margin, y, imgWidth, imgHeight)
+      y += imgHeight + 20
+    } catch (error) {
+      console.warn('Could not load header image, continuing without it:', error)
+      // Fallback to text title if image fails
+      doc.setFontSize(16)
+      doc.text('Employee Cylinder Transactions', pageWidth / 2, y, { align: 'center' })
+      y += 18
+    }
     doc.setFontSize(10)
     const custLabel = exportCustomerId ? (customers.find(c => c._id === exportCustomerId)?.name || '-') : 'All'
     const rangeLabel = `${exportStart || 'Start'} to ${exportEnd || 'End'}`

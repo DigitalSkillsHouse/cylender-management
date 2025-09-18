@@ -339,14 +339,32 @@ export function GasSales() {
       const marginX = 32
       const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
-      let y = 52
+      let y = 20
 
-      // Title
-      // Use bold where available; if custom family doesn't have bold, jsPDF will synthesize weight
-      doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'bold')
-      doc.setFontSize(11)
-      doc.text('Gas Sales Export', marginX, y)
-      y += 10
+      // Add header image
+      try {
+        const headerImg = new Image()
+        headerImg.crossOrigin = 'anonymous'
+        await new Promise((resolve, reject) => {
+          headerImg.onload = resolve
+          headerImg.onerror = reject
+          headerImg.src = '/images/Customer-Ledger-header.jpg'
+        })
+        
+        // Calculate image dimensions to fit page width
+        const imgWidth = pageWidth - marginX * 2
+        const imgHeight = (headerImg.height * imgWidth) / headerImg.width
+        
+        doc.addImage(headerImg, 'JPEG', marginX, y, imgWidth, imgHeight)
+        y += imgHeight + 20
+      } catch (error) {
+        console.warn('Could not load header image, continuing without it:', error)
+        // Fallback to text title if image fails
+        doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.text('Gas Sales Export', marginX, y)
+        y += 10
+      }
       doc.setFont(arabicReady ? 'NotoNaskhArabic' : 'helvetica', 'normal')
       doc.setFontSize(7.5)
       if (term) { doc.text(`Customer: ${term}`, marginX, y); y += 9 }
