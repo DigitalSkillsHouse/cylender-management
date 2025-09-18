@@ -74,9 +74,9 @@ export function CustomerManagement() {
     setError("")
 
     try {
-      // Validate form data
-      if (!formData.name || !formData.trNumber || !formData.phone || !formData.email || !formData.address) {
-        throw new Error("Please fill in all required fields")
+      // Validate form data - only name is required
+      if (!formData.name) {
+        throw new Error("Customer name is required")
       }
 
       if (editingCustomer) {
@@ -250,58 +250,54 @@ export function CustomerManagement() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="trNumber" className="text-sm font-medium text-gray-700">
-                      TR Number *
+                      TR Number
                     </Label>
                     <Input
                       id="trNumber"
                       type="text"
-                      placeholder="Enter TR number"
+                      placeholder="Enter TR number (optional)"
                       value={formData.trNumber}
                       onChange={(e) => setFormData({ ...formData, trNumber: e.target.value })}
-                      required
                       className="h-11 sm:h-12 border-gray-300 focus:border-[#2B3068] focus:ring-[#2B3068] text-sm sm:text-base"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="phone" className="text-sm font-medium text-gray-700">
-                      Phone Number *
+                      Phone Number
                     </Label>
                     <Input
                       id="phone"
                       type="tel"
-                      placeholder="Enter phone number"
+                      placeholder="Enter phone number (optional)"
                       value={formData.phone}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      required
                       className="h-11 sm:h-12 border-gray-300 focus:border-[#2B3068] focus:ring-[#2B3068] text-sm sm:text-base"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email" className="text-sm font-medium text-gray-700">
-                      Email Address *
+                      Email Address
                     </Label>
                     <Input
                       id="email"
                       type="email"
-                      placeholder="Enter email address"
+                      placeholder="Enter email address (optional)"
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      required
                       className="h-11 sm:h-12 border-gray-300 focus:border-[#2B3068] focus:ring-[#2B3068] text-sm sm:text-base"
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="address" className="text-sm font-medium text-gray-700">
-                    Address *
+                    Address
                   </Label>
                   <Input
                     id="address"
                     type="text"
-                    placeholder="Enter full address"
+                    placeholder="Enter full address (optional)"
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    required
                     className="h-11 sm:h-12 border-gray-300 focus:border-[#2B3068] focus:ring-[#2B3068] text-sm sm:text-base"
                   />
                 </div>
