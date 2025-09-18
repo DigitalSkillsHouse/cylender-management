@@ -26,6 +26,7 @@ interface InventoryItem {
   purchaseType: "gas" | "cylinder" | "multiple"
   isEmployeePurchase?: boolean
   employeeName?: string
+  groupedItems?: InventoryItem[]
 }
 
 interface Product {
@@ -253,11 +254,9 @@ export function Inventory() {
     }
   }
 
-  // Open group dialog for aggregated received row (by INV Number)
+  // Open group dialog for aggregated received row (by grouped items)
   const openGroupDialog = (aggItem: InventoryItem, mode: "edit" | "delete") => {
-    const items = inventory.filter(
-      (i) => i.status === "received" && i.poNumber === aggItem.poNumber
-    )
+    const items = aggItem.groupedItems || [aggItem]
     setGroupItems(items)
     setGroupDialogMode(mode)
     setIsGroupDialogOpen(true)
@@ -332,45 +331,47 @@ export function Inventory() {
   const pendingItems = inventory.filter((item) => item.status === "pending")
   const receivedItemsRaw = inventory.filter((item) => item.status === "received")
 
-  // Aggregate received items by INV Number
+  // Aggregate received items by product, supplier, and type (not by INV number)
   const aggregateReceived = (items: InventoryItem[]) => {
     const map = new Map<string, any>()
     items.forEach((it) => {
-      const key = it.poNumber
+      // Create a key based on product, supplier, and type to group similar items
+      const key = `${it.productName}|${it.supplierName}|${it.purchaseType}`
       const curr = map.get(key) || {
         idList: [] as string[],
-        poNumber: key,
-        productSet: new Set<string>(),
-        supplierSet: new Set<string>(),
-        typeSet: new Set<string>(),
+        poNumbers: new Set<string>(),
+        productName: it.productName,
+        supplierName: it.supplierName,
+        purchaseType: it.purchaseType,
         quantity: 0,
         totalAmount: 0,
+        items: [] as InventoryItem[],
       }
       curr.idList.push(it.id)
-      curr.productSet.add(it.productName)
-      curr.supplierSet.add(it.supplierName)
-      curr.typeSet.add(it.purchaseType)
+      curr.poNumbers.add(it.poNumber)
       curr.quantity += Number(it.quantity) || 0
       curr.totalAmount += Number(it.totalAmount) || 0
+      curr.items.push(it)
       map.set(key, curr)
     })
     return Array.from(map.values()).map((grp) => {
       const unitPrice = grp.quantity ? grp.totalAmount / grp.quantity : 0
-      const productNames = Array.from(grp.productSet)
-      const supplierNames = Array.from(grp.supplierSet)
-      const typeNames = Array.from(grp.typeSet)
+      const poNumbersArray = Array.from(grp.poNumbers)
       return {
         id: grp.idList.join(","),
-        poNumber: grp.poNumber,
-        productName: productNames.length === 1 ? productNames[0] : "Multiple",
-        supplierName: supplierNames.length === 1 ? supplierNames[0] : "Multiple",
+        poNumber: poNumbersArray.length === 1 ? poNumbersArray[0] : `Multiple (${poNumbersArray.length})`,
+        productName: grp.productName,
+        supplierName: grp.supplierName,
         purchaseDate: "",
         quantity: grp.quantity,
         unitPrice,
         totalAmount: grp.totalAmount,
         status: "received" as const,
-        purchaseType: (typeNames.length === 1 ? typeNames[0] : "multiple") as any,
-      } as InventoryItem
+        purchaseType: grp.purchaseType,
+        isEmployeePurchase: grp.items.some((item: InventoryItem) => item.isEmployeePurchase),
+        employeeName: grp.items.find((item: InventoryItem) => item.employeeName)?.employeeName || "",
+        groupedItems: grp.items, // Store individual items for dropdown
+      } as InventoryItem & { groupedItems: InventoryItem[] }
     })
   }
   const receivedItems = aggregateReceived(receivedItemsRaw)
@@ -574,7 +575,14 @@ export function Inventory() {
                       <TableRow key={item.id} className={`hover:bg-gray-50 transition-colors border-b border-gray-100 ${item.isEmployeePurchase ? 'bg-blue-50/30' : ''}`}>
                         <TableCell className="font-semibold text-[#2B3068] p-4">
                           <div className="flex items-center gap-2">
-                            {item.poNumber}
+                            <div className="flex flex-col">
+                              <span>{item.poNumber}</span>
+                              {item.groupedItems && item.groupedItems.length > 1 && (
+                                <span className="text-xs text-gray-500">
+                                  {item.groupedItems.length} orders grouped
+                                </span>
+                              )}
+                            </div>
                             {item.isEmployeePurchase && (
                               <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
                                 Employee
@@ -754,6 +762,7 @@ export function Inventory() {
                       <TableHead className="p-3">INV Number</TableHead>
                       <TableHead className="p-3">Product</TableHead>
                       <TableHead className="p-3">Supplier</TableHead>
+                      <TableHead className="p-3">Employee</TableHead>
                       <TableHead className="p-3">Qty</TableHead>
                       <TableHead className="p-3">Available Stock</TableHead>
                       <TableHead className="p-3">Unit Price</TableHead>
@@ -764,9 +773,27 @@ export function Inventory() {
                   <TableBody>
                     {groupItems.map((gi) => (
                       <TableRow key={gi.id}>
-                        <TableCell className="p-3 font-medium">{gi.poNumber}</TableCell>
+                        <TableCell className="p-3 font-medium">
+                          <div className="flex items-center gap-2">
+                            {gi.poNumber}
+                            {gi.isEmployeePurchase && (
+                              <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                                Employee
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="p-3">{gi.productName}</TableCell>
                         <TableCell className="p-3">{gi.supplierName}</TableCell>
+                        <TableCell className="p-3">
+                          {gi.isEmployeePurchase && gi.employeeName ? (
+                            <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">
+                              {gi.employeeName}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-500 text-sm">Admin</span>
+                          )}
+                        </TableCell>
                         <TableCell className="p-3">{gi.quantity}</TableCell>
                         <TableCell className={`p-3 font-semibold ${getAvailableStock(gi.productName).color}`}>
                           {getAvailableStock(gi.productName).stock}
