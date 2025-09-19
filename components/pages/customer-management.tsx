@@ -74,9 +74,12 @@ export function CustomerManagement() {
     setError("")
 
     try {
-      // Validate form data - only name is required
+      // Validate form data - name and TR Number are required
       if (!formData.name) {
         throw new Error("Customer name is required")
+      }
+      if (!formData.trNumber) {
+        throw new Error("TR Number is required")
       }
 
       if (editingCustomer) {
@@ -250,15 +253,16 @@ export function CustomerManagement() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="trNumber" className="text-sm font-medium text-gray-700">
-                      TR Number
+                      TR Number *
                     </Label>
                     <Input
                       id="trNumber"
                       type="text"
-                      placeholder="Enter TR number (optional)"
+                      placeholder="Enter TR number"
                       value={formData.trNumber}
                       onChange={(e) => setFormData({ ...formData, trNumber: e.target.value })}
                       className="h-11 sm:h-12 border-gray-300 focus:border-[#2B3068] focus:ring-[#2B3068] text-sm sm:text-base"
+                      required
                     />
                   </div>
                   <div className="space-y-2">
