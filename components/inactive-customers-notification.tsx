@@ -229,9 +229,10 @@ export function InactiveCustomersNotification({
                   return (
                     <div
                       key={customer._id}
-                      className="flex items-center justify-between p-4 border rounded-lg transition-all duration-200 bg-white border-gray-200 hover:shadow-md"
+                      className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 border rounded-lg transition-all duration-200 bg-white border-gray-200 hover:shadow-md"
                     >
-                      <div className="flex items-center gap-4">
+                      {/* Mobile: Top row with checkmark, avatar, name, and badge */}
+                      <div className="flex items-center gap-3 w-full sm:flex-1">
                         {/* Mark as Read Checkmark Icon */}
                         <div className="flex-shrink-0">
                           <Button
@@ -239,11 +240,11 @@ export function InactiveCustomersNotification({
                             disabled={isLoading}
                             variant="outline"
                             size="sm"
-                            className="w-8 h-8 p-0 rounded-full transition-all duration-200 bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700"
+                            className="w-8 h-8 sm:w-8 sm:h-8 p-0 rounded-full transition-all duration-200 bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700 min-h-[32px]"
                             title="Mark as Read"
                           >
                             {isLoading ? (
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                              <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-blue-600"></div>
                             ) : (
                               "✓"
                             )}
@@ -251,42 +252,65 @@ export function InactiveCustomersNotification({
                         </div>
 
                         <div className="flex-shrink-0">
-                          <div className="w-12 h-12 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
-                            <User className="h-6 w-6 text-gray-500" />
+                          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
+                            <User className="h-5 w-5 sm:h-6 sm:w-6 text-gray-500" />
                           </div>
                         </div>
                         
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-medium truncate text-gray-900">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                            <h4 className="font-medium truncate text-gray-900 text-sm sm:text-base">
                               {customer.name}
                             </h4>
-                            <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
-                              #{index + 1}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 flex-shrink-0">
+                                #{index + 1}
+                              </Badge>
+                              <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200 text-xs sm:hidden flex-shrink-0">
+                                30+ days
+                              </Badge>
+                            </div>
                           </div>
-                          
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 text-sm text-gray-500">
-                            {customer.email && (
-                              <div className="flex items-center gap-1">
-                                <Mail className="h-3 w-3" />
-                                <span className="truncate">{customer.email}</span>
-                              </div>
-                            )}
-                            {customer.phone && (
-                              <div className="flex items-center gap-1">
-                                <Phone className="h-3 w-3" />
-                                <span>{customer.phone}</span>
-                              </div>
-                            )}
-                          </div>
+                        </div>
+
+                        {/* Desktop: 30+ days badge */}
+                        <div className="hidden sm:flex flex-shrink-0">
+                          <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200">
+                            30+ days
+                          </Badge>
                         </div>
                       </div>
 
-                      <div className="flex-shrink-0">
-                        <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200">
-                          30+ days
-                        </Badge>
+                      {/* Mobile: Bottom row with contact info */}
+                      <div className="flex flex-col gap-1 w-full sm:hidden pl-11">
+                        {customer.email && (
+                          <div className="flex items-center gap-1 text-xs text-gray-500">
+                            <Mail className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{customer.email}</span>
+                          </div>
+                        )}
+                        {customer.phone && (
+                          <div className="flex items-center gap-1 text-xs text-gray-500">
+                            <Phone className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{customer.phone}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Desktop: Contact info in same row */}
+                      <div className="hidden sm:flex flex-col gap-1 text-sm text-gray-500 min-w-0">
+                        {customer.email && (
+                          <div className="flex items-center gap-1">
+                            <Mail className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{customer.email}</span>
+                          </div>
+                        )}
+                        {customer.phone && (
+                          <div className="flex items-center gap-1">
+                            <Phone className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{customer.phone}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
