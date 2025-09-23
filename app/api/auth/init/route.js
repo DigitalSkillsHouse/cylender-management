@@ -6,20 +6,19 @@ export async function POST() {
   try {
     await dbConnect()
 
-    // Check if admin already exists
-    const existingAdmin = await User.findOne({ email: "admin@gmail.com" })
-    if (existingAdmin) {
-      return NextResponse.json({ message: "Admin already exists" })
-    }
+    // Remove any existing admin users (including old admin@gmail.com)
+    await User.deleteMany({ role: "admin" })
+    console.log("Removed all existing admin users")
 
-    // Create default admin user
+    // Create the new admin user with specified credentials
     const admin = await User.create({
-      name: "Administrator",
-      email: "admin@gmail.com",
-      password: "admin",
+      name: "Syed Tayyab Industrial Gases LLC",
+      email: "syyedtayyabindustrialgasesllc@gmail.com",
+      password: "(Huraira@jutt$9292)",
       role: "admin",
     })
 
+    console.log("Created new admin user:", admin.email)
     return NextResponse.json({ message: "Admin user created successfully" })
   } catch (error) {
     console.error("Init error:", error)

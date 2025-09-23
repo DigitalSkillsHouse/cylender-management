@@ -15,8 +15,8 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ onLogin }: LoginFormProps) {
-  const [email, setEmail] = useState("admin@gmail.com")
-  const [password, setPassword] = useState("admin")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [userType, setUserType] = useState("admin")
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(false)
@@ -57,8 +57,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setUserType(type)
     setError("")
     if (type === "admin") {
-      setEmail("admin@gmail.com")
-      setPassword("admin")
+      setEmail("")
+      setPassword("")
     } else {
       setEmail("")
       setPassword("")
@@ -166,8 +166,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           </form>
 
           <div className="text-center text-sm text-gray-500 pt-4 border-t">
-            <p>Default Admin: admin@gmail.com / admin</p>
-            <p className="text-xs mt-1">Employee accounts can be created by admin</p>
+            <p className="text-xs">Employee accounts can be created by admin</p>
           </div>
         </CardContent>
       </Card>
