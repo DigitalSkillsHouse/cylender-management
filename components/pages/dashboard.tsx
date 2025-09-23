@@ -136,14 +136,14 @@ export function Dashboard() {
   return (
     <div className="pt-16 lg:pt-0 space-y-4 sm:space-y-6 lg:space-y-8">
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 text-white">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col gap-4">
           <div className="flex-1">
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2">Dashboard</h1>
             <p className="text-white/80 text-sm sm:text-base lg:text-lg">Welcome to SYED TAYYAB INDUSTRIAL Gas Management System</p>
           </div>
           
           {/* Inactive Customers Notification */}
-          <div className="flex-shrink-0">
+          <div className="w-full sm:w-auto sm:self-end">
             <InactiveCustomersNotification 
               inactiveCustomers={stats.inactiveCustomers}
               inactiveCustomersCount={stats.inactiveCustomersCount}

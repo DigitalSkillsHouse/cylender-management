@@ -101,19 +101,20 @@ export function InactiveCustomersNotification({
   return (
     <>
       {/* Notification Icon */}
-      <div className="relative flex items-center gap-2">
+      <div className="relative flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
         <Button
           onClick={() => setShowModal(true)}
           variant="outline"
           size="sm"
-          className="relative bg-orange-50 border-orange-200 hover:bg-orange-100 text-orange-700 transition-all duration-200"
+          className="relative bg-orange-50 border-orange-200 hover:bg-orange-100 text-orange-700 transition-all duration-200 w-full sm:w-auto min-h-[44px] text-xs sm:text-sm"
         >
-          <Bell className="h-4 w-4 mr-2" />
-          Inactive Customers
+          <Bell className="h-4 w-4 mr-1 sm:mr-2 flex-shrink-0" />
+          <span className="hidden sm:inline">Inactive Customers</span>
+          <span className="sm:hidden">Inactive</span>
           {inactiveCustomersCount > 0 && (
             <Badge 
               variant="destructive" 
-              className="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full"
+              className="ml-1 sm:ml-2 bg-red-500 text-white text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex-shrink-0"
             >
               {inactiveCustomersCount}
             </Badge>
@@ -130,7 +131,7 @@ export function InactiveCustomersNotification({
             variant="outline"
             size="sm"
             disabled={isMarkingAsViewed}
-            className="bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700 transition-all duration-200 p-2"
+            className="bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700 transition-all duration-200 p-2 min-h-[44px] w-full sm:w-auto"
             title="Mark as Read"
           >
             {isMarkingAsViewed ? (
@@ -149,9 +150,9 @@ export function InactiveCustomersNotification({
 
       {/* Floating Success Notification */}
       {showSuccessMessage && (
-        <div className="fixed top-4 right-4 z-50 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-in fade-in-0 slide-in-from-top-2">
-          <CheckCircle className="h-5 w-5" />
-          <span className="font-medium">
+        <div className="fixed top-4 left-4 right-4 sm:top-4 sm:right-4 sm:left-auto z-50 bg-green-500 text-white px-4 sm:px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-in fade-in-0 slide-in-from-top-2 max-w-sm sm:max-w-none mx-auto sm:mx-0">
+          <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
+          <span className="font-medium text-sm sm:text-base">
             {inactiveCustomersCount} customer{inactiveCustomersCount > 1 ? 's' : ''} marked as read!
           </span>
         </div>
@@ -159,22 +160,23 @@ export function InactiveCustomersNotification({
 
       {/* Modal Dialog */}
       <Dialog open={showModal} onOpenChange={setShowModal}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
-          <DialogHeader className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-t-lg p-6 -m-6 mb-4">
+        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] sm:max-h-[80vh] overflow-hidden">
+          <DialogHeader className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-t-lg p-4 sm:p-6 -m-4 sm:-m-6 mb-4">
             <div className="flex items-center justify-between">
-              <DialogTitle className="flex items-center gap-3 text-xl font-bold">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <Bell className="h-6 w-6" />
+              <DialogTitle className="flex items-center gap-2 sm:gap-3 text-lg sm:text-xl font-bold">
+                <div className="p-1.5 sm:p-2 bg-white/20 rounded-lg">
+                  <Bell className="h-5 w-5 sm:h-6 sm:w-6" />
                 </div>
-                Inactive Customers Alert
+                <span className="hidden sm:inline">Inactive Customers Alert</span>
+                <span className="sm:hidden">Inactive Alert</span>
               </DialogTitle>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowModal(false)}
-                className="text-white hover:bg-white/20 rounded-full p-2"
+                className="text-white hover:bg-white/20 rounded-full p-2 min-h-[44px]"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
             <p className="text-white/90 mt-2">
@@ -315,7 +317,7 @@ export function InactiveCustomersNotification({
               <Button
                 variant="outline"
                 onClick={() => setShowModal(false)}
-                className="px-6"
+                className="px-4 sm:px-6 min-h-[44px] w-full sm:w-auto"
                 disabled={isMarkingAsViewed}
               >
                 Close
@@ -324,17 +326,19 @@ export function InactiveCustomersNotification({
               <Button
                 onClick={handleMarkAsViewed}
                 disabled={isMarkingAsViewed || showSuccessMessage}
-                className="px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
+                className="px-4 sm:px-6 min-h-[44px] w-full sm:w-auto bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
               >
                 {isMarkingAsViewed ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Marking as Viewed...
+                    <span className="hidden sm:inline">Marking as Viewed...</span>
+                    <span className="sm:hidden">Marking...</span>
                   </>
                 ) : (
                   <>
                     <Eye className="h-4 w-4 mr-2" />
-                    Mark as Viewed
+                    <span className="hidden sm:inline">Mark as Viewed</span>
+                    <span className="sm:hidden">Mark Read</span>
                   </>
                 )}
               </Button>
