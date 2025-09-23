@@ -184,7 +184,7 @@ export function InactiveCustomersNotification({
             </p>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 pb-4">
             {/* Summary Card */}
             <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-lg p-4">
               <div className="flex items-center gap-3">
@@ -205,7 +205,7 @@ export function InactiveCustomersNotification({
 
             {/* Customer List */}
             <div className="max-h-96 overflow-y-auto">
-              <div className="grid gap-3">
+              <div className="grid gap-3 pb-4 sm:pb-6">
                 {inactiveCustomers.filter(customer => !markedCustomers.has(customer._id)).length === 0 ? (
                   <div className="text-center py-8">
                     <div className="flex flex-col items-center gap-3">
@@ -337,11 +337,11 @@ export function InactiveCustomersNotification({
             )}
 
             {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
+            <div className="grid grid-cols-2 sm:flex sm:flex-row sm:justify-end gap-3 pt-4 mt-4 sm:mt-6 border-t">
               <Button
                 variant="outline"
                 onClick={() => setShowModal(false)}
-                className="px-4 sm:px-6 min-h-[44px] w-full sm:w-auto"
+                className="px-3 sm:px-6 min-h-[44px] w-full sm:w-auto text-sm sm:text-base"
                 disabled={isMarkingAsViewed}
               >
                 Close
@@ -350,17 +350,17 @@ export function InactiveCustomersNotification({
               <Button
                 onClick={handleMarkAsViewed}
                 disabled={isMarkingAsViewed || showSuccessMessage}
-                className="px-4 sm:px-6 min-h-[44px] w-full sm:w-auto bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
+                className="px-3 sm:px-6 min-h-[44px] w-full sm:w-auto bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 text-sm sm:text-base"
               >
                 {isMarkingAsViewed ? (
                   <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-white mr-1 sm:mr-2"></div>
                     <span className="hidden sm:inline">Marking as Viewed...</span>
                     <span className="sm:hidden">Marking...</span>
                   </>
                 ) : (
                   <>
-                    <Eye className="h-4 w-4 mr-2" />
+                    <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
                     <span className="hidden sm:inline">Mark as Viewed</span>
                     <span className="sm:hidden">Mark Read</span>
                   </>
