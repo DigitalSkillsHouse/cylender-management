@@ -1,9 +1,12 @@
 import dbConnect from "@/lib/mongodb"
 import Sale from "@/models/Sale"
+import EmployeeSale from "@/models/EmployeeSale"
 import Customer from "@/models/Customer"
 import User from "@/models/User"
 import Product from "@/models/Product"
 import CylinderTransaction from "@/models/Cylinder"
+import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction"
+import InactiveCustomerView from "@/models/InactiveCustomerView"
 import { NextResponse } from "next/server"
 
 export async function GET() {
@@ -63,6 +66,61 @@ export async function GET() {
     // Calculate total combined revenue
     const totalCombinedRevenue = (gasSales.gasSalesRevenue || 0) + (cylinderRevenue.cylinderRevenue || 0)
 
+    // Find inactive customers (no transactions in the last 30 days)
+    const oneMonthAgo = new Date()
+    oneMonthAgo.setDate(oneMonthAgo.getDate() - 30)
+
+    // Get all customers who made transactions in the last 30 days
+    const activeCustomerIds = new Set()
+
+    // Check admin gas sales
+    const recentAdminSales = await Sale.find({ 
+      createdAt: { $gte: oneMonthAgo } 
+    }).select('customerId')
+    recentAdminSales.forEach(sale => {
+      if (sale.customerId) activeCustomerIds.add(sale.customerId.toString())
+    })
+
+    // Check employee gas sales
+    const recentEmployeeSales = await EmployeeSale.find({ 
+      createdAt: { $gte: oneMonthAgo } 
+    }).select('customerId')
+    recentEmployeeSales.forEach(sale => {
+      if (sale.customerId) activeCustomerIds.add(sale.customerId.toString())
+    })
+
+    // Check admin cylinder transactions
+    const recentAdminCylinders = await CylinderTransaction.find({ 
+      createdAt: { $gte: oneMonthAgo } 
+    }).select('customerId')
+    recentAdminCylinders.forEach(transaction => {
+      if (transaction.customerId) activeCustomerIds.add(transaction.customerId.toString())
+    })
+
+    // Check employee cylinder transactions
+    const recentEmployeeCylinders = await EmployeeCylinderTransaction.find({ 
+      createdAt: { $gte: oneMonthAgo } 
+    }).select('customerId')
+    recentEmployeeCylinders.forEach(transaction => {
+      if (transaction.customerId) activeCustomerIds.add(transaction.customerId.toString())
+    })
+
+    // Get customers who have been viewed in the last 30 days
+    const viewedCustomerIds = new Set()
+    const recentViews = await InactiveCustomerView.find({
+      viewedAt: { $gte: oneMonthAgo }
+    }).select('customerId')
+    recentViews.forEach(view => {
+      if (view.customerId) viewedCustomerIds.add(view.customerId.toString())
+    })
+
+    // Get all customers and find inactive ones (excluding recently viewed ones)
+    const allCustomers = await Customer.find({}).select('_id name email phone')
+    const inactiveCustomers = allCustomers.filter(customer => 
+      !activeCustomerIds.has(customer._id.toString()) && 
+      !viewedCustomerIds.has(customer._id.toString())
+    )
+
     // Ensure all values are numbers and not null/undefined
     const statsResponse = {
       totalRevenue: Number(totalCombinedRevenue) || 0, // Total business revenue (gas + cylinder)
@@ -76,6 +134,8 @@ export async function GET() {
       totalSales: Number(gasSales.totalSales) || 0,
       totalCombinedRevenue: Number(totalCombinedRevenue) || 0,
       totalPaid: Number(gasSales.gasSalesPaid) || 0, // Amount actually received
+      inactiveCustomers: inactiveCustomers, // Customers with no transactions in last 30 days
+      inactiveCustomersCount: inactiveCustomers.length, // Count of inactive customers
     }
 
     console.log('Dashboard stats response:', statsResponse)
@@ -95,6 +155,8 @@ export async function GET() {
       totalSales: 0,
       totalCombinedRevenue: 0,
       totalPaid: 0,
+      inactiveCustomers: [],
+      inactiveCustomersCount: 0,
       error: "Failed to fetch dashboard stats"
     }, { status: 200 }) // Return 200 status with error message so frontend can still show 0 values
   }

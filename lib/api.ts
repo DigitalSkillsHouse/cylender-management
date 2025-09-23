@@ -140,6 +140,11 @@ export const dashboardAPI = {
   getStats: () => api.get("/dashboard/stats"),
 }
 
+// Inactive Customers API
+export const inactiveCustomersAPI = {
+  markAsViewed: (customerIds: string[]) => api.post("/inactive-customers/mark-viewed", { customerIds }),
+}
+
 // Reports API
 export const reportsAPI = {
   getRevenue: (params?: any) => api.get("/reports/revenue", { params }),
