@@ -14,7 +14,7 @@ export async function POST() {
     const admin = await User.create({
       name: "Syed Tayyab Industrial Gases LLC",
       email: "syyedtayyabindustrialgasesllc@gmail.com",
-      password: "(Huraira@jutt$9292)",
+      password: "Syed@8175",
       role: "admin",
     })
 
