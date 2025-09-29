@@ -48,8 +48,23 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
   const [showAdminSignatureDialog, setShowAdminSignatureDialog] = useState(false)
 
   useEffect(() => {
+    // Initialize current page from URL on mount
+    const urlParams = new URLSearchParams(window.location.search)
+    const pageParam = urlParams.get('page')
+    if (pageParam) {
+      setCurrentPage(pageParam)
+    }
     setMounted(true)
   }, [])
+
+  // Update URL when page changes
+  useEffect(() => {
+    if (mounted && currentPage !== 'dashboard') {
+      const url = new URL(window.location.href)
+      url.searchParams.set('page', currentPage)
+      window.history.pushState({}, '', url)
+    }
+  }, [currentPage, mounted])
 
   // Fetch employee financial data if user is an employee
   useEffect(() => {
