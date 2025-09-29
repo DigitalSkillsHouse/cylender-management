@@ -14,6 +14,7 @@ interface ReceiptDialogProps {
       name: string
       phone: string
       address: string
+      trNumber?: string
     }
     items: Array<{
       product: {
@@ -198,7 +199,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                   <strong>Name:</strong> {sale?.customer?.name || '-'}
                 </div>
                 <div>
-                  <strong>Phone:</strong> {sale?.customer?.phone || '-'}
+                  <strong>TR Number:</strong> {sale?.customer?.trNumber || '-'}
                 </div>
                 <div>
                   <strong>Address:</strong> {sale?.customer?.address || '-'}
@@ -214,9 +215,6 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                 </div>
                 <div>
                   <strong>Date:</strong> {sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-'}
-                </div>
-                <div>
-                  <strong>Time:</strong> {sale?.createdAt ? new Date(sale.createdAt).toLocaleTimeString() : '-'}
                 </div>
                 <div>
                   <strong>Payment Method:</strong> {(

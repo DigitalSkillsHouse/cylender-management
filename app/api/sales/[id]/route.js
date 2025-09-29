@@ -54,7 +54,7 @@ export async function PUT(request, { params }) {
     if (notes !== undefined) updateData.notes = notes
 
     const sale = await Sale.findByIdAndUpdate(id, updateData, { new: true })
-      .populate("customer", "name phone address email")
+      .populate("customer", "name phone address email trNumber")
       .populate("items.product", "name price category")
 
     return NextResponse.json({ data: sale, message: "Sale updated successfully" })
@@ -113,7 +113,7 @@ export async function GET(request, { params }) {
     await dbConnect()
     const { id } = params
     const sale = await Sale.findById(id)
-      .populate('customer', 'name phone address email')
+      .populate('customer', 'name phone address email trNumber')
       .populate('items.product', 'name price category cylinderSize')
     if (!sale) {
       return NextResponse.json({ error: 'Sale not found' }, { status: 404 })
