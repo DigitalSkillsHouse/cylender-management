@@ -16,6 +16,7 @@ import ProductQuoteDialog from "@/components/product-quote-dialog"
 interface Product {
   _id: string
   name: string
+  productCode: string
   category: "gas" | "cylinder"
   cylinderSize?: "large" | "small"
   costPrice: number
@@ -36,6 +37,7 @@ export function ProductManagement() {
   const [showQuoteDialog, setShowQuoteDialog] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
+    productCode: "",
     category: "gas" as "gas" | "cylinder",
     cylinderSize: "large" as "large" | "small",
     costPrice: "",
@@ -64,6 +66,8 @@ export function ProductManagement() {
     try {
       const productData = {
         name: formData.name,
+        // Only include productCode when editing, let backend generate it for new products
+        ...(editingProduct ? { productCode: formData.productCode } : {}),
         category: formData.category,
         cylinderSize: formData.category === "cylinder" ? formData.cylinderSize : undefined,
         costPrice: Number.parseFloat(formData.costPrice),
@@ -91,6 +95,7 @@ export function ProductManagement() {
   const resetForm = () => {
     setFormData({
       name: "",
+      productCode: "",
       category: "gas",
       cylinderSize: "large",
       costPrice: "",
@@ -103,6 +108,7 @@ export function ProductManagement() {
     setEditingProduct(product)
     setFormData({
       name: product.name,
+      productCode: product.productCode,
       category: product.category,
       cylinderSize: product.cylinderSize || "large",
       costPrice: product.costPrice.toString(),
@@ -189,6 +195,30 @@ export function ProductManagement() {
                       required
                       className="h-11 sm:h-12 text-sm sm:text-base"
                     />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="productCode" className="text-sm font-medium">Product Code</Label>
+                    <div className="flex items-center h-11 sm:h-12 px-3 bg-gray-50 border border-gray-200 rounded-md text-sm sm:text-base text-gray-600">
+                      {formData.name ? (
+                        <span className="font-mono">
+                          {formData.name.trim().split(/\s+/).map((word, index) => {
+                            const upperWord = word.toUpperCase()
+                            if (index === 0) {
+                              // First word: apply special abbreviations
+                              if (upperWord.startsWith('CYL')) return 'CY'
+                              if (upperWord.startsWith('GAS')) return 'GA'
+                              if (upperWord.startsWith('OXY')) return 'OX'
+                            }
+                            // All other words (or first word without special pattern): just first letter
+                            return word.charAt(0).toUpperCase()
+                          }).join('')}-1
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">N/A</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">Auto-generated from product name (first letters + sequential number)</p>
                   </div>
 
                   <div className="space-y-2">
@@ -312,6 +342,7 @@ export function ProductManagement() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-gray-50 border-b-2 border-gray-200">
+                  <TableHead className="font-bold text-gray-700 p-4">Product Code</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Product Name</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Category</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
@@ -324,6 +355,7 @@ export function ProductManagement() {
               <TableBody>
                 {filteredProducts.map((product) => (
                   <TableRow key={product._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                    <TableCell className="font-mono font-semibold text-[#2B3068] p-4">{product.productCode || "N/A"}</TableCell>
                     <TableCell className="font-semibold text-[#2B3068] p-4">{product.name}</TableCell>
                     <TableCell className="capitalize p-4">{product.category}</TableCell>
                     <TableCell className="p-4">{product.category === "cylinder" ? product.cylinderSize : "-"}</TableCell>
@@ -361,7 +393,7 @@ export function ProductManagement() {
                 ))}
                 {filteredProducts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-gray-500 py-12">
+                    <TableCell colSpan={8} className="text-center text-gray-500 py-12">
                       <div className="text-gray-500">
                         <Plus className="w-16 h-16 mx-auto mb-4 opacity-50" />
                         <p className="text-lg font-medium">No products found</p>
@@ -380,6 +412,7 @@ export function ProductManagement() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50 border-b border-gray-200">
+                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Code</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Product</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Category</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Type</TableHead>
@@ -392,6 +425,7 @@ export function ProductManagement() {
                 <TableBody>
                   {filteredProducts.map((product) => (
                     <TableRow key={product._id} className="border-b border-gray-100">
+                      <TableCell className="p-3 font-mono font-medium text-[#2B3068] text-sm">{product.productCode || "N/A"}</TableCell>
                       <TableCell className="p-3 font-medium text-[#2B3068] text-sm truncate max-w-[160px]">{product.name}</TableCell>
                       <TableCell className="p-3 capitalize text-sm">{product.category}</TableCell>
                       <TableCell className="p-3 text-sm">{product.category === "cylinder" ? product.cylinderSize : "-"}</TableCell>
@@ -424,7 +458,7 @@ export function ProductManagement() {
                   ))}
                   {filteredProducts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+                      <TableCell colSpan={8} className="text-center text-gray-500 py-8">
                         <div className="text-gray-500">
                           <Plus className="w-12 h-12 mx-auto mb-3 opacity-50" />
                           <p className="text-sm font-medium">No products found</p>
@@ -445,6 +479,7 @@ export function ProductManagement() {
           products={filteredProducts.map((p) => ({
             _id: p._id,
             name: p.name,
+            productCode: p.productCode,
             category: p.category,
             cylinderSize: p.cylinderSize,
             costPrice: p.costPrice,

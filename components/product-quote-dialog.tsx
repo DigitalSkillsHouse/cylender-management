@@ -10,6 +10,7 @@ import { Download, Trash2, X, Plus } from "lucide-react"
 export interface ProductQuoteItem {
   _id: string
   name: string
+  productCode: string
   category: "gas" | "cylinder"
   cylinderSize?: "large" | "small"
   price: number
@@ -19,6 +20,7 @@ interface ProductQuoteDialogProps {
   products: Array<{
     _id: string
     name: string
+    productCode: string
     category: "gas" | "cylinder"
     cylinderSize?: "large" | "small"
     costPrice: number
@@ -36,6 +38,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       (products || []).map((p) => ({
         _id: p._id,
         name: p.name,
+        productCode: p.productCode,
         category: p.category,
         cylinderSize: p.cylinderSize,
         // Default quote price: use leastPrice if set, otherwise costPrice
@@ -62,6 +65,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       {
         _id: Math.random().toString(36).slice(2),
         name: "",
+        productCode: "",
         category: "gas",
         price: 0,
       },
@@ -134,7 +138,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       // Add table headers with proper spacing after header
       const tableStartY = margin + 45
       const rowHeight = 8
-      const colWidths = [15, 85, 35, 25, 35] // S.No, Item, Category, Type, Price
+      const colWidths = [15, 25, 75, 35, 25, 35] // S.No, Code, Item, Category, Type, Price
       const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
       const tableX = (pageWidth - tableWidth) / 2
 
@@ -146,10 +150,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       pdf.setFontSize(10)
       pdf.setTextColor(255, 255, 255)
       pdf.text("S.No", tableX + 2, tableStartY + rowHeight - 2)
-      pdf.text("Item", tableX + colWidths[0] + 2, tableStartY + rowHeight - 2)
-      pdf.text("Category", tableX + colWidths[0] + colWidths[1] + 2, tableStartY + rowHeight - 2)
-      pdf.text("Type", tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, tableStartY + rowHeight - 2)
-      pdf.text("Price (AED)", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Code", tableX + colWidths[0] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Item", tableX + colWidths[0] + colWidths[1] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Category", tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Type", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Price (AED)", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 2, tableStartY + rowHeight - 2)
 
       // Table rows
       pdf.setFontSize(6)
@@ -172,10 +177,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         
         // Cell content
         pdf.text(actualIndex.toString(), tableX + 2, currentY + rowHeight - 2)
-        pdf.text(item.name || "-", tableX + colWidths[0] + 2, currentY + rowHeight - 2)
-        pdf.text(item.category, tableX + colWidths[0] + colWidths[1] + 2, currentY + rowHeight - 2)
-        pdf.text(item.category === "cylinder" ? item.cylinderSize || "-" : "-", tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, currentY + rowHeight - 2)
-        pdf.text(`AED ${Number(item.price || 0).toFixed(2)}`, tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, currentY + rowHeight - 2)
+        pdf.text(item.productCode || "-", tableX + colWidths[0] + 2, currentY + rowHeight - 2)
+        pdf.text(item.name || "-", tableX + colWidths[0] + colWidths[1] + 2, currentY + rowHeight - 2)
+        pdf.text(item.category, tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, currentY + rowHeight - 2)
+        pdf.text(item.category === "cylinder" ? item.cylinderSize || "-" : "-", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, currentY + rowHeight - 2)
+        pdf.text(`AED ${Number(item.price || 0).toFixed(2)}`, tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 2, currentY + rowHeight - 2)
         
         currentY += rowHeight
       })
@@ -223,6 +229,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                 <thead>
                   <tr className="bg-[#2B3068] text-white">
                     <th className="text-center p-2 border w-12">S.No</th>
+                    <th className="text-left p-2 border">Code</th>
                     <th className="text-left p-2 border">Item</th>
                     <th className="text-center p-2 border">Category</th>
                     <th className="text-center p-2 border">Type</th>
@@ -236,6 +243,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                       <td className="p-2 align-middle text-center w-12">
                         <span className="text-[11px] font-medium">{index + 1}</span>
                       </td>
+                      <td className="p-2 align-middle font-mono">{it.productCode || "-"}</td>
                       <td className="p-2 align-middle">{it.name || "-"}</td>
                       <td className="p-2 align-middle text-center capitalize">{it.category}</td>
                       <td className="p-2 align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>
@@ -288,6 +296,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                     <thead>
                       <tr className="bg-[#2B3068] text-white">
                         <th className="text-center p-2 border w-12">S.No</th>
+                        <th className="text-left p-2 border">Code</th>
                         <th className="text-left p-2 border">Item</th>
                         <th className="text-center p-2 border">Category</th>
                         <th className="text-center p-2 border">Type</th>
@@ -298,6 +307,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                       {items.map((it, index) => (
                         <tr key={it._id} className="border-b h-5">
                           <td className="p-2 align-middle text-center w-12">{index + 1}</td>
+                          <td className="p-2 align-middle">{it.productCode || "-"}</td>
                           <td className="p-2 align-middle">{it.name || "-"}</td>
                           <td className="p-2 align-middle text-center capitalize">{it.category}</td>
                           <td className="p-2 align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>

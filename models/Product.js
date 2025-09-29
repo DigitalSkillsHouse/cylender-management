@@ -6,6 +6,11 @@ const ProductSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    productCode: {
+      type: String,
+      required: true,
+      unique: true,
+    },
     category: {
       type: String,
       enum: ["gas", "cylinder"],
