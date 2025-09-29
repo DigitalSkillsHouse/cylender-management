@@ -93,32 +93,97 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       )
     )
 
-    const canvas = await html2canvas(node, {
-      scale: 4,
-      backgroundColor: "#ffffff",
-      useCORS: true,
-    })
-    const imgData = canvas.toDataURL("image/png")
-
     const pdf = new (jsPDFModule as any).jsPDF("p", "mm", "a4")
     const pageWidth = pdf.internal.pageSize.getWidth()
     const pageHeight = pdf.internal.pageSize.getHeight()
+    const margin = 15
 
-    const margin = 10
-    const imgWidth = pageWidth - margin * 2
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
+    // Calculate items per page (approximately 22-25 items per A4 page with smaller text)
+    const itemsPerPage = 22
+    const totalPages = Math.ceil(items.length / itemsPerPage)
 
-    let heightLeft = imgHeight
-    let position = 0
+    for (let pageNum = 0; pageNum < totalPages; pageNum++) {
+      if (pageNum > 0) {
+        pdf.addPage()
+      }
 
-    pdf.addImage(imgData, "PNG", margin, margin + position, imgWidth, imgHeight, undefined, "SLOW")
-    heightLeft -= pageHeight
+      const startIndex = pageNum * itemsPerPage
+      const endIndex = Math.min(startIndex + itemsPerPage, items.length)
+      const pageItems = items.slice(startIndex, endIndex)
 
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight
-      pdf.addPage()
-      pdf.addImage(imgData, "PNG", margin, margin + position, imgWidth, imgHeight, undefined, "SLOW")
-      heightLeft -= pageHeight
+      // Add header image to each page
+      const headerImg = node.querySelector("img") as HTMLImageElement
+      if (headerImg) {
+        try {
+          const headerCanvas = await html2canvas(headerImg, {
+            scale: 2,
+            backgroundColor: "#ffffff",
+            useCORS: true,
+          })
+          const headerImgData = headerCanvas.toDataURL("image/png")
+          const headerWidth = pageWidth - margin * 2
+          const headerHeight = (headerCanvas.height * headerWidth) / headerCanvas.width
+          pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight)
+        } catch (error) {
+          console.warn("Failed to capture header image:", error)
+        }
+      }
+
+      // Title and date are already in the header image, no need to duplicate
+
+      // Add table headers with proper spacing after header
+      const tableStartY = margin + 45
+      const rowHeight = 8
+      const colWidths = [15, 85, 35, 25, 35] // S.No, Item, Category, Type, Price
+      const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
+      const tableX = (pageWidth - tableWidth) / 2
+
+      // Table header background
+      pdf.setFillColor(43, 48, 104) // #2B3068
+      pdf.rect(tableX, tableStartY, tableWidth, rowHeight, "F")
+
+      // Table header text
+      pdf.setFontSize(10)
+      pdf.setTextColor(255, 255, 255)
+      pdf.text("S.No", tableX + 2, tableStartY + rowHeight - 2)
+      pdf.text("Item", tableX + colWidths[0] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Category", tableX + colWidths[0] + colWidths[1] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Type", tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Price (AED)", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, tableStartY + rowHeight - 2)
+
+      // Table rows
+      pdf.setFontSize(6)
+      pdf.setTextColor(0, 0, 0)
+      
+      let currentY = tableStartY + rowHeight
+      
+      pageItems.forEach((item, index) => {
+        const actualIndex = startIndex + index + 1
+        
+        // Alternate row background for better readability
+        if (index % 2 === 0) {
+          pdf.setFillColor(249, 250, 251) // gray-50
+          pdf.rect(tableX, currentY, tableWidth, rowHeight, "F")
+        }
+        
+        // Row borders
+        pdf.setDrawColor(229, 231, 235) // gray-200
+        pdf.rect(tableX, currentY, tableWidth, rowHeight)
+        
+        // Cell content
+        pdf.text(actualIndex.toString(), tableX + 2, currentY + rowHeight - 2)
+        pdf.text(item.name || "-", tableX + colWidths[0] + 2, currentY + rowHeight - 2)
+        pdf.text(item.category, tableX + colWidths[0] + colWidths[1] + 2, currentY + rowHeight - 2)
+        pdf.text(item.category === "cylinder" ? item.cylinderSize || "-" : "-", tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, currentY + rowHeight - 2)
+        pdf.text(`AED ${Number(item.price || 0).toFixed(2)}`, tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, currentY + rowHeight - 2)
+        
+        currentY += rowHeight
+      })
+
+      // Add page number
+      pdf.setFontSize(8)
+      pdf.setTextColor(107, 114, 128)
+      pdf.text(`Page ${pageNum + 1} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" })
     }
 
     const dt = new Date()
@@ -130,7 +195,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" aria-describedby="product-quote-description">
+      <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto" aria-describedby="product-quote-description">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle>Generate Quote — Product List ({visibleCount}/{totalCount})</DialogTitle>
@@ -151,13 +216,13 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
               <h2 className="text-lg font-bold text-[#2B3068]">Product Quote</h2>
               <p className="text-[11px] text-gray-500">Product List ({visibleCount}/{totalCount})</p>
             </div>
-
             <Separator className="my-4" />
 
             <div className="overflow-x-auto">
               <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
                 <thead>
                   <tr className="bg-[#2B3068] text-white">
+                    <th className="text-center p-2 border w-12">S.No</th>
                     <th className="text-left p-2 border">Item</th>
                     <th className="text-center p-2 border">Category</th>
                     <th className="text-center p-2 border">Type</th>
@@ -166,16 +231,12 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((it) => (
+                  {items.map((it, index) => (
                     <tr key={it._id} className="border-b h-5">
-                      <td className="p-2 align-middle min-w-[200px]">
-                        <Input
-                          value={it.name}
-                          onChange={(e) => handleNameChange(it._id, e.target.value)}
-                          placeholder="Product name"
-                          className="h-8 text-[11px]"
-                        />
+                      <td className="p-2 align-middle text-center w-12">
+                        <span className="text-[11px] font-medium">{index + 1}</span>
                       </td>
+                      <td className="p-2 align-middle">{it.name || "-"}</td>
                       <td className="p-2 align-middle text-center capitalize">{it.category}</td>
                       <td className="p-2 align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>
                       <td className="p-2 align-middle min-w-[120px]">
@@ -197,61 +258,55 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                       </td>
                     </tr>
                   ))}
-
-                  {items.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="text-center text-gray-500 py-8">
-                        No items. Use "Add Row" to add products.
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>
-          </div>
 
-          {/* Print/PDF read-only view (off-screen on screen, visible in print) */}
-          <div
-            ref={printRef}
-            className="absolute -left-[9999px] top-0 print:static print:left-auto print:top-auto"
-          >
-            {/* Moderate capture width for balanced density on A4 */}
-            <div className="w-[1200px] mx-auto">
-              {/* PDF Header Image */}
-              <img
-                src="/images/Quotation-Paper-Invoice-Header.jpg"
-                alt="Quotation Header"
-                className="w-full mb-3"
-                crossOrigin="anonymous"
-              />
-              <div className="text-center">
-                <h2 className="text-sm font-bold text-[#2B3068]">Product Quote</h2>
-                <p className="text-[10px] text-gray-600">{new Date().toLocaleDateString()}</p>
-              </div>
+            {/* Print/PDF read-only view (off-screen on screen, visible in print) */}
+            <div
+              ref={printRef}
+              className="absolute -left-[9999px] top-0 print:static print:left-auto print:top-auto"
+            >
+              {/* Moderate capture width for balanced density on A4 */}
+              <div className="w-[1600px] mx-auto">
+                {/* PDF Header Image */}
+                <img
+                  src="/images/Quotation-Paper-Invoice-Header.jpg"
+                  alt="Quotation Header"
+                  className="w-full mb-3"
+                  crossOrigin="anonymous"
+                />
+                <div className="text-center">
+                  <h2 className="text-sm font-bold text-[#2B3068]">Product Quote</h2>
+                  <p className="text-[10px] text-gray-600">{new Date().toLocaleDateString()}</p>
+                </div>
 
-              <Separator className="my-3" />
+                <Separator className="my-3" />
 
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
-                  <thead>
-                  <tr className="bg-[#2B3068] text-white">
-                    <th className="text-left p-2 border">Item</th>
-                    <th className="text-center p-2 border">Category</th>
-                    <th className="text-center p-2 border">Type</th>
-                    <th className="text-right p-2 border">Price (AED)</th>
-                  </tr>
-                  </thead>
-                  <tbody>
-                  {items.map((it) => (
-                    <tr key={it._id} className="border-b h-5">
-                      <td className="p-2 border align-middle">{it.name || "-"}</td>
-                      <td className="p-2 border align-middle text-center capitalize">{it.category}</td>
-                      <td className="p-2 border align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>
-                      <td className="p-2 border align-middle text-right">AED {Number(it.price || 0).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                  </tbody>
-                </table>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
+                    <thead>
+                      <tr className="bg-[#2B3068] text-white">
+                        <th className="text-center p-2 border w-12">S.No</th>
+                        <th className="text-left p-2 border">Item</th>
+                        <th className="text-center p-2 border">Category</th>
+                        <th className="text-center p-2 border">Type</th>
+                        <th className="text-right p-2 border">Price (AED)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((it, index) => (
+                        <tr key={it._id} className="border-b h-5">
+                          <td className="p-2 align-middle text-center w-12">{index + 1}</td>
+                          <td className="p-2 align-middle">{it.name || "-"}</td>
+                          <td className="p-2 align-middle text-center capitalize">{it.category}</td>
+                          <td className="p-2 align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>
+                          <td className="p-2 align-middle text-right">AED {Number(it.price || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
