@@ -75,11 +75,57 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
 
   // Stock assignment form state
   const [stockFormData, setStockFormData] = useState({
-    category: "gas" as "gas" | "cylinder",
+    category: "cylinder" as "cylinder",
     productId: "",
     quantity: 1,
     notes: "",
   })
+
+  // Autocomplete state for product search
+  const [productSearchTerm, setProductSearchTerm] = useState("")
+  const [showProductSuggestions, setShowProductSuggestions] = useState(false)
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
+  const [selectedProductName, setSelectedProductName] = useState("")
+
+  // Handle product search
+  const handleProductSearch = (searchTerm: string) => {
+    setProductSearchTerm(searchTerm)
+    
+    if (searchTerm.trim().length > 0) {
+      const filtered = products.filter(product => 
+        product.category === stockFormData.category &&
+        (product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+         (product.cylinderSize && product.cylinderSize.toLowerCase().includes(searchTerm.toLowerCase())))
+      ).slice(0, 5) // Limit to 5 suggestions
+      
+      setFilteredProducts(filtered)
+      setShowProductSuggestions(true)
+    } else {
+      setShowProductSuggestions(false)
+      setFilteredProducts([])
+    }
+  }
+
+  const handleProductSelect = (product: Product) => {
+    setStockFormData({ ...stockFormData, productId: product._id })
+    setSelectedProductName(product.name)
+    setProductSearchTerm(product.cylinderSize ? `${product.name} - ${product.cylinderSize.charAt(0).toUpperCase()}${product.cylinderSize.slice(1)}` : product.name)
+    setShowProductSuggestions(false)
+    setFilteredProducts([])
+  }
+
+  const handleProductInputBlur = () => {
+    // Delay hiding suggestions to allow click events
+    setTimeout(() => {
+      setShowProductSuggestions(false)
+    }, 200)
+  }
+
+  const handleProductInputFocus = () => {
+    if (productSearchTerm.trim().length > 0 && filteredProducts.length > 0) {
+      setShowProductSuggestions(true)
+    }
+  }
 
   useEffect(() => {
     fetchData()
@@ -331,11 +377,15 @@ setStockAssignments(stockData)
 
       // Reset form and close dialog
       setStockFormData({
-        category: "gas" as "gas" | "cylinder",
+        category: "cylinder" as "cylinder",
         productId: "",
         quantity: 1,
         notes: "",
       })
+      setProductSearchTerm("")
+      setSelectedProductName("")
+      setShowProductSuggestions(false)
+      setFilteredProducts([])
       setIsStockDialogOpen(false)
       setSelectedEmployee(null)
 
@@ -696,7 +746,7 @@ setStockAssignments(stockData)
               <Label htmlFor="category">Category *</Label>
               <Select
                 value={stockFormData.category}
-                onValueChange={(value: "gas" | "cylinder") => {
+                onValueChange={(value: "cylinder") => {
                   setStockFormData({ ...stockFormData, category: value, productId: "" })
                 }}
                 required
@@ -705,48 +755,53 @@ setStockAssignments(stockData)
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gas">Gas</SelectItem>
                   <SelectItem value="cylinder">Cylinder</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 relative">
               <Label htmlFor="product">Product *</Label>
-              <Select
-                value={stockFormData.productId}
-                onValueChange={(value) => setStockFormData({ ...stockFormData, productId: value })}
+              <Input
+                id="product"
+                placeholder={stockFormData.category ? "Type to search products..." : "Select category first"}
+                value={productSearchTerm}
+                onChange={(e) => handleProductSearch(e.target.value)}
+                onFocus={handleProductInputFocus}
+                onBlur={handleProductInputBlur}
                 required
                 disabled={!stockFormData.category}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={stockFormData.category ? "Select product" : "Select category first"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(() => {
-                    const filteredProducts = products.filter((product) => 
-                      product.category === stockFormData.category
-                    )
-                    
-
-                    
-                    return filteredProducts.map((product) => (
-                      <SelectItem key={product._id} value={product._id}>
-                        {product.category === 'cylinder'
-                          ? `${product.name} - ${(product.cylinderSize || '').charAt(0).toUpperCase()}${(product.cylinderSize || '').slice(1)} (Available: ${product.currentStock})`
-                          : `${product.name} (Available: ${product.currentStock})`}
-                      </SelectItem>
-                    ))
-                  })()}
-                  {products.filter((product) => 
-                    product.category === stockFormData.category
-                  ).length === 0 && stockFormData.category && (
-                    <div className="px-2 py-1.5 text-sm text-gray-500 text-center">
-                      No products available in {stockFormData.category} category
+                className="w-full"
+              />
+              {showProductSuggestions && filteredProducts.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                  {filteredProducts.map((product) => (
+                    <div
+                      key={product._id}
+                      className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                      onClick={() => handleProductSelect(product)}
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-medium text-gray-900">
+                          {product.category === 'cylinder'
+                            ? `${product.name} - ${(product.cylinderSize || '').charAt(0).toUpperCase()}${(product.cylinderSize || '').slice(1)}`
+                            : product.name}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          Available: {product.currentStock} | Cost: AED {product.costPrice}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </SelectContent>
-              </Select>
+                  ))}
+                </div>
+              )}
+              {showProductSuggestions && filteredProducts.length === 0 && productSearchTerm.trim().length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg">
+                  <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                    No products found matching "{productSearchTerm}"
+                  </div>
+                </div>
+              )}
             </div>
 
             {stockFormData.category === "cylinder" && stockFormData.productId && (
