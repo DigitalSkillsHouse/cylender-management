@@ -8,12 +8,12 @@
   "description": "Professional gas and cylinder management system",
   "icons": [
     {
-      "src": "/placeholder-logo.png",
+      "src": "/stg_LOGO.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/placeholder-logo.png",
+      "src": "/stg_LOGO.png",
       "sizes": "512x512",
       "type": "image/png"
     }
