@@ -79,13 +79,28 @@ export async function PATCH(request, { params }) {
     const updateData = {}
     
     if (status) {
-      updateData.inventoryStatus = status
       console.log("Updating inventory status to:", status)
       
-      // If inventory status is being set to "received", also update the main purchase order status
-      if (status === "received") {
+      // Check if this is an employee purchase order first
+      let isEmployeePurchaseCheck = false
+      let employeePurchaseOrder = await EmployeePurchaseOrder.findById(params.id)
+      if (employeePurchaseOrder) {
+        isEmployeePurchaseCheck = true
+      }
+      
+      if (status === "received" && isEmployeePurchaseCheck) {
+        // For employee purchases: Don't update inventoryStatus to "received"
+        // Instead, mark the purchase order as completed but keep inventory status as "pending"
+        // This prevents it from showing in "Received Inventory Items"
         updateData.status = "completed"
-        console.log("Also updating purchase order status to: completed")
+        console.log("Employee purchase order - updating status to completed but keeping inventory as pending")
+      } else {
+        // For admin purchases: Normal flow
+        updateData.inventoryStatus = status
+        if (status === "received") {
+          updateData.status = "completed"
+          console.log("Admin purchase order - updating both inventory status and purchase status")
+        }
       }
     }
     
@@ -204,30 +219,87 @@ export async function PATCH(request, { params }) {
     // Handle stock synchronization when inventory is received
     if (status === "received") {
       try {
-        console.log("Updating product stock for received inventory:", updatedOrder.product?._id || updatedOrder.productName)
+        console.log("Processing received inventory for:", updatedOrder.product?._id || updatedOrder.productName)
         
-        let product = null
-        
-        // First try to get product from the populated reference
-        if (updatedOrder.product && updatedOrder.product._id) {
-          product = await Product.findById(updatedOrder.product._id)
-        }
-        
-        // If not found, try to find by name (fallback)
-        if (!product && updatedOrder.productName) {
-          product = await Product.findOne({ name: updatedOrder.productName })
-        }
-        
-        if (product) {
-          const newStock = (product.currentStock || 0) + (updatedOrder.quantity || 0)
-          await Product.findByIdAndUpdate(product._id, { currentStock: newStock })
-          console.log(`Updated ${product.name} stock from ${product.currentStock} to ${newStock}`)
+        if (isEmployeePurchaseCheck && (updatedOrder.employee || employeePurchaseOrder)) {
+          // For employee purchases: Create stock assignment instead of updating main stock
+          const employeeId = updatedOrder.employee?._id || updatedOrder.employee || employeePurchaseOrder.employee
+          console.log("Creating stock assignment for employee:", employeeId)
+          
+          const StockAssignment = require("@/models/StockAssignment").default
+          
+          let product = null
+          
+          // Get product information
+          if (updatedOrder.product && updatedOrder.product._id) {
+            product = await Product.findById(updatedOrder.product._id)
+          } else if (updatedOrder.productName) {
+            product = await Product.findOne({ name: updatedOrder.productName })
+          }
+          
+          if (product && employeeId) {
+            // Create stock assignment for the employee
+            const stockAssignment = new StockAssignment({
+              employee: employeeId,
+              product: product._id,
+              quantity: updatedOrder.quantity || 0,
+              remainingQuantity: updatedOrder.quantity || 0,
+              assignedBy: user.id, // Admin who received the inventory
+              status: "assigned",
+              notes: `Auto-assigned from purchase order: ${updatedOrder.poNumber}`,
+              leastPrice: product.leastPrice || 0,
+              assignedDate: new Date()
+            })
+            
+            await stockAssignment.save()
+            console.log(`Created stock assignment for employee ${employeeId}: ${updatedOrder.quantity} units of ${product.name}`)
+            
+            // Create notification for employee
+            try {
+              const Notification = require("@/models/Notification").default
+              const notification = new Notification({
+                userId: employeeId,
+                type: "stock_assignment",
+                title: "New Stock Assignment",
+                message: `${product.name} has been assigned to your inventory. Quantity: ${updatedOrder.quantity}`,
+                isRead: false,
+                createdBy: user.id
+              })
+              await notification.save()
+              console.log("Created notification for employee stock assignment")
+            } catch (notificationError) {
+              console.warn("Failed to create notification:", notificationError.message)
+            }
+          } else {
+            console.warn("Product or employee not found for stock assignment. Product ID:", updatedOrder.product?._id, "Product Name:", updatedOrder.productName, "Employee ID:", employeeId)
+          }
         } else {
-          console.warn("Product not found for stock update. Product ID:", updatedOrder.product?._id, "Product Name:", updatedOrder.productName)
+          // For admin purchases: Update main product stock as before
+          console.log("Updating main product stock for admin purchase")
+          
+          let product = null
+          
+          // First try to get product from the populated reference
+          if (updatedOrder.product && updatedOrder.product._id) {
+            product = await Product.findById(updatedOrder.product._id)
+          }
+          
+          // If not found, try to find by name (fallback)
+          if (!product && updatedOrder.productName) {
+            product = await Product.findOne({ name: updatedOrder.productName })
+          }
+          
+          if (product) {
+            const newStock = (product.currentStock || 0) + (updatedOrder.quantity || 0)
+            await Product.findByIdAndUpdate(product._id, { currentStock: newStock })
+            console.log(`Updated ${product.name} stock from ${product.currentStock} to ${newStock}`)
+          } else {
+            console.warn("Product not found for stock update. Product ID:", updatedOrder.product?._id, "Product Name:", updatedOrder.productName)
+          }
         }
       } catch (stockError) {
-        console.error("Stock update error:", stockError)
-        // Don't fail the entire operation if stock update fails
+        console.error("Stock processing error:", stockError)
+        // Don't fail the entire operation if stock processing fails
       }
     }
 
