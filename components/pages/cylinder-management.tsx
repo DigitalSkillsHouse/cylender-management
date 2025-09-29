@@ -1861,7 +1861,13 @@ export function CylinderManagement() {
                               key={p._id}
                               className="p-2 hover:bg-gray-100 cursor-pointer"
                               onMouseDown={() => {
-                                setDraftItem(prev => ({ ...prev, productId: p._id, productName: p.name, amount: Number((p.leastPrice).toFixed(2)) }))
+                                setDraftItem(prev => ({ 
+                                  ...prev, 
+                                  productId: p._id, 
+                                  productName: p.name, 
+                                  cylinderSize: p.cylinderSize || '', 
+                                  amount: Number((p.leastPrice).toFixed(2)) 
+                                }))
                                 setDraftProductSearchTerm(p.name)
                                 setShowDraftProductSuggestions(false)
                               }}
@@ -1881,16 +1887,20 @@ export function CylinderManagement() {
                     <Label>Cylinder Size *</Label>
                     <Select
                       value={draftItem.cylinderSize}
+                      disabled={!!draftItem.productId} // Disable when product is selected
                       onValueChange={(value) => setDraftItem(prev => ({ ...prev, cylinderSize: value }))}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select size" />
+                      <SelectTrigger className={draftItem.productId ? "bg-gray-100" : ""}>
+                        <SelectValue placeholder={draftItem.productId ? "Auto-filled" : "Select size"} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="small">Small</SelectItem>
                         <SelectItem value="large">Large</SelectItem>
                       </SelectContent>
                     </Select>
+                    {draftItem.productId && (
+                      <p className="text-xs text-gray-500">Cylinder size automatically set from product</p>
+                    )}
                   </div>
 
                   {/* Quantity */}

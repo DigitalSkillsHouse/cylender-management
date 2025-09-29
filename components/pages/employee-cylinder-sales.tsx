@@ -1707,7 +1707,13 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                     key={p._id}
                     className="p-2 hover:bg-gray-100 cursor-pointer"
                     onMouseDown={() => {
-                      setDraftItem(prev => ({ ...prev, productId: p._id, productName: p.name, amount: Number(p.leastPrice.toFixed(2)) }))
+                      setDraftItem(prev => ({ 
+                        ...prev, 
+                        productId: p._id, 
+                        productName: p.name, 
+                        cylinderSize: p.cylinderType || '', 
+                        amount: Number(p.leastPrice.toFixed(2)) 
+                      }))
                       setDraftProductSearchTerm(p.name)
                       setShowDraftProductSuggestions(false)
                     }}
@@ -1725,15 +1731,22 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         {/* Cylinder Size */}
         <div className="space-y-2">
           <Label>Cylinder Size *</Label>
-          <Select value={draftItem.cylinderSize} onValueChange={(v) => setDraftItem(prev => ({ ...prev, cylinderSize: v }))}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select size" />
+          <Select
+            value={draftItem.cylinderSize}
+            disabled={!!draftItem.productId} // Disable when product is selected
+            onValueChange={(v) => setDraftItem(prev => ({ ...prev, cylinderSize: v }))}
+          >
+            <SelectTrigger className={draftItem.productId ? "bg-gray-100" : ""}>
+              <SelectValue placeholder={draftItem.productId ? "Auto-filled" : "Select size"} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="small">Small (5kg)</SelectItem>
               <SelectItem value="large">Large (45kg)</SelectItem>
             </SelectContent>
           </Select>
+          {draftItem.productId && (
+            <p className="text-xs text-gray-500">Cylinder size automatically set from product</p>
+          )}
         </div>
 
         {/* Quantity */}
