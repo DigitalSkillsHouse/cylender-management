@@ -173,6 +173,18 @@ export async function PATCH(request, { params }) {
 
     console.log("Successfully updated order:", updatedOrder._id)
 
+    // Ensure product is populated for stock update (fallback if populate failed)
+    if (updatedOrder.product && !updatedOrder.product.name && typeof updatedOrder.product === 'string') {
+      try {
+        const populatedProduct = await Product.findById(updatedOrder.product)
+        if (populatedProduct) {
+          updatedOrder.product = populatedProduct
+        }
+      } catch (populateError) {
+        console.warn("Manual product population failed:", populateError.message)
+      }
+    }
+
     // Transform back to inventory item format with safe property access
     const inventoryItem = {
       id: updatedOrder._id?.toString() || '',
@@ -190,18 +202,28 @@ export async function PATCH(request, { params }) {
     }
 
     // Handle stock synchronization when inventory is received
-    if (status === "received" && updatedOrder.productName) {
+    if (status === "received") {
       try {
-        console.log("Updating product stock for received inventory:", updatedOrder.productName)
+        console.log("Updating product stock for received inventory:", updatedOrder.product?._id || updatedOrder.productName)
         
-        // Find the product by name and update its stock
-        const product = await Product.findOne({ name: updatedOrder.productName })
+        let product = null
+        
+        // First try to get product from the populated reference
+        if (updatedOrder.product && updatedOrder.product._id) {
+          product = await Product.findById(updatedOrder.product._id)
+        }
+        
+        // If not found, try to find by name (fallback)
+        if (!product && updatedOrder.productName) {
+          product = await Product.findOne({ name: updatedOrder.productName })
+        }
+        
         if (product) {
           const newStock = (product.currentStock || 0) + (updatedOrder.quantity || 0)
           await Product.findByIdAndUpdate(product._id, { currentStock: newStock })
           console.log(`Updated ${product.name} stock from ${product.currentStock} to ${newStock}`)
         } else {
-          console.warn("Product not found for stock update:", updatedOrder.productName)
+          console.warn("Product not found for stock update. Product ID:", updatedOrder.product?._id, "Product Name:", updatedOrder.productName)
         }
       } catch (stockError) {
         console.error("Stock update error:", stockError)
