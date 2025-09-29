@@ -264,7 +264,6 @@ export function ProductManagement() {
                         step="0.01"
                         value={formData.costPrice}
                         onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
-                        required
                         className="h-11 sm:h-12 text-sm sm:text-base"
                       />
                     </div>
