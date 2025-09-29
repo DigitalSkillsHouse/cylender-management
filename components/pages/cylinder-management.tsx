@@ -31,6 +31,7 @@ interface CylinderTransaction {
     name: string
     phone: string
     address: string
+    trNumber?: string
   }
   supplier?: {
     _id: string
@@ -70,7 +71,6 @@ interface CylinderTransaction {
     productName: string
     cylinderSize: string
     quantity: number
-    amount: number
   }>
   // Optional link to a previous security deposit (used for return transactions)
   linkedDeposit?: any
@@ -82,6 +82,7 @@ interface Customer {
   phone: string
   address: string
   email?: string
+  trNumber?: string
 }
 
 interface Product {
@@ -1335,12 +1336,11 @@ export function CylinderManagement() {
       const items = hasItems
         ? itemsSrc.map((it: any) => {
             const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
-            const sizeLabel = it.cylinderSize ? ` (${it.cylinderSize})` : ''
             const qty = Number(it.quantity) || 0
             const rowTotal = Number(it.amount) || 0
             const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
             return {
-              product: { name: `${baseName}${sizeLabel}` },
+              product: { name: baseName },
               quantity: qty,
               price: unitPrice,
               total: rowTotal,
@@ -1348,7 +1348,7 @@ export function CylinderManagement() {
           })
         : [{
             product: {
-              name: `${transaction.product?.name || (transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1))}${transaction.cylinderSize ? ` (${transaction.cylinderSize})` : ''}`,
+              name: transaction.product?.name || (transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)),
             },
             quantity: Number(transaction.quantity) || 0,
             price: Number(transaction.amount) || 0,
@@ -1357,13 +1357,19 @@ export function CylinderManagement() {
 
       const totalAmount = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
 
+      // Enrich customer data with full customer object to get trNumber
+      const fullCustomer = transaction.customer?._id 
+        ? customers.find(c => c._id === transaction.customer?._id) 
+        : transaction.customer
+      
       const saleData = {
         _id: transaction._id,
         invoiceNumber: `CYL-${transaction._id.slice(-8).toUpperCase()}`,
         customer: {
-          name: transaction.customer?.name || "Unknown Customer",
-          phone: transaction.customer?.phone || "",
-          address: transaction.customer?.address || ""
+          name: fullCustomer?.name || transaction.customer?.name || "Unknown Customer",
+          phone: fullCustomer?.phone || transaction.customer?.phone || "",
+          address: fullCustomer?.address || transaction.customer?.address || "",
+          trNumber: fullCustomer?.trNumber || transaction.customer?.trNumber || ""
         },
         items,
         totalAmount,
@@ -1396,12 +1402,11 @@ export function CylinderManagement() {
       const items = hasItems
         ? itemsSrc.map((it: any) => {
             const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
-            const sizeLabel = it.cylinderSize ? ` (${it.cylinderSize})` : ''
             const qty = Number(it.quantity) || 0
             const rowTotal = Number(it.amount) || 0
             const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
             return {
-              product: { name: `${baseName}${sizeLabel}` },
+              product: { name: baseName },
               quantity: qty,
               price: unitPrice,
               total: rowTotal,
@@ -1409,7 +1414,7 @@ export function CylinderManagement() {
           })
         : [{
             product: {
-              name: `${pendingTransaction.product?.name || (pendingTransaction.type.charAt(0).toUpperCase() + pendingTransaction.type.slice(1))}${pendingTransaction.cylinderSize ? ` (${pendingTransaction.cylinderSize})` : ''}`,
+              name: pendingTransaction.product?.name || (pendingTransaction.type.charAt(0).toUpperCase() + pendingTransaction.type.slice(1)),
             },
             quantity: Number(pendingTransaction.quantity) || 0,
             price: Number(pendingTransaction.amount) || 0,
@@ -1418,13 +1423,19 @@ export function CylinderManagement() {
 
       const totalAmount = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
 
+      // Enrich customer data with full customer object to get trNumber
+      const fullCustomer = pendingTransaction.customer?._id 
+        ? customers.find(c => c._id === pendingTransaction.customer?._id) 
+        : pendingTransaction.customer
+      
       const saleData = {
         _id: pendingTransaction._id,
         invoiceNumber: `CYL-${pendingTransaction._id.slice(-8).toUpperCase()}`,
         customer: {
-          name: pendingTransaction.customer?.name || "Unknown Customer",
-          phone: pendingTransaction.customer?.phone || "",
-          address: pendingTransaction.customer?.address || ""
+          name: fullCustomer?.name || pendingTransaction.customer?.name || "Unknown Customer",
+          phone: fullCustomer?.phone || pendingTransaction.customer?.phone || "",
+          address: fullCustomer?.address || pendingTransaction.customer?.address || "",
+          trNumber: fullCustomer?.trNumber || pendingTransaction.customer?.trNumber || ""
         },
         items,
         totalAmount,

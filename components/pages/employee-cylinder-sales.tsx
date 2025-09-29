@@ -29,6 +29,7 @@ interface Customer {
   email: string
   phone: string
   address?: string
+  trNumber?: string
 }
 
 interface Supplier {
@@ -996,6 +997,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
               },
             ]
 
+        // Enrich customer data with full customer object to get trNumber
+        const fullCustomer = savedTx.customer?._id 
+          ? customers.find(c => c._id === savedTx.customer?._id) 
+          : savedTx.customer
+        
         const party = isRefill
           ? {
               name: savedTx.supplier?.companyName || 'Supplier',
@@ -1003,9 +1009,10 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
               address: '-',
             }
           : {
-              name: savedTx.customer?.name || 'Customer',
-              phone: savedTx.customer?.phone || '-',
-              address: savedTx.customer?.address || '-',
+              name: fullCustomer?.name || savedTx.customer?.name || 'Customer',
+              phone: fullCustomer?.phone || savedTx.customer?.phone || '-',
+              address: fullCustomer?.address || savedTx.customer?.address || '-',
+              trNumber: fullCustomer?.trNumber || savedTx.customer?.trNumber || '-',
             }
 
         const composed = {
@@ -1109,6 +1116,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     }
     // Build a safe party object for receipt/signature
     const isRefill = transaction.type === 'refill'
+    // Enrich customer data with full customer object to get trNumber
+    const fullCustomer = transaction.customer?._id 
+      ? customers.find(c => c._id === transaction.customer?._id) 
+      : transaction.customer
+    
     const party = isRefill
       ? {
           name: (transaction.supplier as any)?.companyName || 'Supplier',
@@ -1116,9 +1128,10 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           address: 'N/A',
         }
       : {
-          name: transaction.customer?.name || 'Customer',
-          phone: transaction.customer?.phone || 'N/A',
-          address: transaction.customer?.address || 'N/A',
+          name: fullCustomer?.name || transaction.customer?.name || 'Customer',
+          phone: fullCustomer?.phone || transaction.customer?.phone || 'N/A',
+          address: fullCustomer?.address || transaction.customer?.address || 'N/A',
+          trNumber: fullCustomer?.trNumber || transaction.customer?.trNumber || 'N/A',
         }
 
     const isMulti = Array.isArray((transaction as any).items) && (transaction as any).items.length > 0
@@ -1129,15 +1142,14 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       items: isMulti
         ? (transaction as any).items.map((it: any) => {
             const baseName = it.productName || it.productId?.name || (transaction as any).product?.name || 'Cylinder'
-            const sizeLabel = it.cylinderSize ? ` (${it.cylinderSize})` : ''
             return {
-              product: { name: `${baseName}${sizeLabel}` },
+              product: { name: baseName },
               quantity: it.quantity,
               price: it.amount / Math.max(it.quantity, 1)
             }
           })
         : (transaction.product ? [{
-            product: { name: `${transaction.product.name}${(transaction as any).cylinderSize ? ` (${(transaction as any).cylinderSize})` : ''}` },
+            product: { name: transaction.product.name },
             quantity: transaction.quantity,
             price: transaction.amount / Math.max(transaction.quantity, 1)
           }] : []),
