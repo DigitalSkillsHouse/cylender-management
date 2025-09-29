@@ -212,7 +212,7 @@ export function ProductManagement() {
                             }
                             // All other words (or first word without special pattern): just first letter
                             return word.charAt(0).toUpperCase()
-                          }).join('')}-1
+                          }).join('')}-001
                         </span>
                       ) : (
                         <span className="text-gray-400">N/A</span>

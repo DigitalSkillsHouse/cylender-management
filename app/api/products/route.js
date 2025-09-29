@@ -64,9 +64,10 @@ async function generateProductCode(productName) {
   
   console.log('Max sequence found:', maxSequence)
   
-  // Generate new product code
+  // Generate new product code with 3-digit sequence
   const newSequence = maxSequence + 1
-  const newProductCode = `${initials}-${newSequence}`
+  const paddedSequence = newSequence.toString().padStart(3, '0')
+  const newProductCode = `${initials}-${paddedSequence}`
   
   console.log('Generated product code:', newProductCode)
   
