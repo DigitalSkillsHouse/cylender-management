@@ -148,7 +148,9 @@ export const inactiveCustomersAPI = {
 // Reports API
 export const reportsAPI = {
   getRevenue: (params?: any) => api.get("/reports/revenue", { params }),
-  getLedger: (params?: any) => api.get("/reports/ledger", { params }),
+  getLedger: (params?: any) => api.get("/reports/ledger", { 
+    params: { ...params, _t: Date.now() } // Cache busting
+  }),
   getStats: () => api.get("/reports/stats"),
 }
 

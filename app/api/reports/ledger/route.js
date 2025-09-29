@@ -185,7 +185,9 @@ export async function GET(request) {
               quantity: transaction.quantity,
               amount: transaction.amount,
               status: transaction.status,
-              createdAt: transaction.createdAt
+              createdAt: transaction.createdAt,
+              invoiceNumber: transaction.invoiceNumber,
+              transactionId: transaction.transactionId
             }))
           };
         } catch (error) {

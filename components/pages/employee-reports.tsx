@@ -401,6 +401,175 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     closingEmpty?: number
     createdAt: string
   }
+  
+  // Download pending transactions PDF
+  const downloadPendingTransactionsPdf = () => {
+    // Filter customers with pending transactions
+    const pendingCustomers = customers.filter(customer => {
+      // Check if customer has any pending transactions
+      const hasPendingGasSales = customer.recentSales?.some((sale: any) => sale.paymentStatus === 'pending') || false;
+      const hasPendingCylinders = customer.recentCylinderTransactions?.some((transaction: any) => transaction.status === 'pending') || false;
+      return hasPendingGasSales || hasPendingCylinders;
+    });
+
+    if (pendingCustomers.length === 0) {
+      alert('No pending transactions found.');
+      return;
+    }
+
+    // Generate HTML content for PDF
+    let htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Employee Pending Transactions Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .header h1 { color: #2B3068; margin-bottom: 10px; }
+          .header p { color: #666; margin: 5px 0; }
+          .customer-section { margin-bottom: 30px; page-break-inside: avoid; }
+          .customer-header { background-color: #f8f9fa; padding: 10px; border-left: 4px solid #2B3068; margin-bottom: 15px; }
+          .customer-name { font-size: 16px; font-weight: bold; color: #2B3068; margin-bottom: 5px; }
+          .customer-info { font-size: 11px; color: #666; }
+          .transactions-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+          .transactions-table th { background-color: #f1f3f4; padding: 8px; text-align: left; border: 1px solid #ddd; font-size: 11px; }
+          .transactions-table td { padding: 8px; border: 1px solid #ddd; font-size: 11px; }
+          .transactions-table tr:nth-child(even) { background-color: #f9f9f9; }
+          .total-row { background-color: #e8f4fd; font-weight: bold; }
+          .total-amount { text-align: right; font-weight: bold; color: #2B3068; }
+          .no-transactions { color: #999; font-style: italic; padding: 20px; text-align: center; }
+          @media print { 
+            body { margin: 0; } 
+            .customer-section { page-break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Employee Pending Transactions Report</h1>
+          <p>Employee: ${user?.name || 'N/A'}</p>
+          <p>Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+          <p>Total Customers with Pending Transactions: ${pendingCustomers.length}</p>
+        </div>
+    `;
+
+    let grandTotal = 0;
+
+    pendingCustomers.forEach(customer => {
+      // Get pending gas sales
+      const pendingGasSales = customer.recentSales?.filter((sale: any) => sale.paymentStatus === 'pending') || [];
+      
+      // Get pending cylinder transactions
+      const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
+
+      // Calculate customer total
+      const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0);
+      const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + (Number(transaction.amount) || 0), 0);
+      const customerTotal = gasSalesTotal + cylindersTotal;
+      grandTotal += customerTotal;
+
+      htmlContent += `
+        <div class="customer-section">
+          <div class="customer-header">
+            <div class="customer-name">${customer.name}</div>
+            <div class="customer-info">
+              TR Number: ${customer.trNumber}
+            </div>
+          </div>
+      `;
+
+      if (pendingGasSales.length > 0 || pendingCylinders.length > 0) {
+        htmlContent += `
+          <table class="transactions-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Invoice Number</th>
+                <th>Reference Name</th>
+                <th>Amount (AED)</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        // Add gas sales
+        pendingGasSales.forEach((sale: any) => {
+          const date = new Date(sale.createdAt).toLocaleDateString();
+          const invoiceNumber = sale.invoiceNumber || 'N/A';
+          const createdBy = user?.name || 'Employee';
+          const referenceName = createdBy;
+          const amount = Number(sale.totalAmount) || 0;
+
+          htmlContent += `
+            <tr>
+              <td>${date}</td>
+              <td>${invoiceNumber}</td>
+              <td>${referenceName}</td>
+              <td>${formatCurrency(amount)}</td>
+            </tr>
+          `;
+        });
+
+        // Add cylinder transactions
+        pendingCylinders.forEach((transaction: any) => {
+          const date = new Date(transaction.createdAt).toLocaleDateString();
+          const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
+          const createdBy = user?.name || 'Employee';
+          const referenceName = createdBy;
+          const amount = Number(transaction.amount) || 0;
+
+          htmlContent += `
+            <tr>
+              <td>${date}</td>
+              <td>${invoiceNumber}</td>
+              <td>${referenceName}</td>
+              <td>${formatCurrency(amount)}</td>
+            </tr>
+          `;
+        });
+
+        htmlContent += `
+            <tr class="total-row">
+              <td colspan="3" class="total-amount">Customer Total:</td>
+              <td class="total-amount">${formatCurrency(customerTotal)}</td>
+            </tr>
+            </tbody>
+          </table>
+        `;
+      } else {
+        htmlContent += `<div class="no-transactions">No pending transactions found for this customer.</div>`;
+      }
+
+      htmlContent += `</div>`;
+    });
+
+    // Add grand total
+    htmlContent += `
+        <div style="margin-top: 30px; padding: 15px; background-color: #f8f9fa; border: 2px solid #2B3068; text-align: right;">
+          <h2 style="color: #2B3068; margin: 0;">Grand Total: ${formatCurrency(grandTotal)}</h2>
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Open PDF in new window for printing
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      printWindow.focus();
+      
+      // Auto-trigger print dialog after content loads
+      printWindow.onload = () => {
+        setTimeout(() => {
+          printWindow.print();
+        }, 500);
+      };
+    }
+  };
+
   // Download the grid view for a specific date as PDF
   const downloadDsrGridPdf = (date: string) => {
     try {
@@ -2162,6 +2331,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             <Button onClick={resetFilters} variant="outline">
               Reset
             </Button>
+            {filters.status === 'pending' && (
+              <Button onClick={downloadPendingTransactionsPdf} variant="outline" className="bg-red-50 hover:bg-red-100 text-red-700 border-red-200">
+                <FileText className="mr-2 h-4 w-4" />
+                Download Pendings
+              </Button>
+            )}
           </div>
 
           {/* Customer Ledger Table */}
@@ -2296,6 +2471,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                       amount: entry.totalAmount,
                                       paidAmount: entry.amountPaid || 0,
                                       status: entry.paymentStatus,
+                                      invoiceNumber: entry.invoiceNumber,
                                     })),
                                   // Add cylinder transactions (filter by status if needed)
                                   ...(customer.recentCylinderTransactions || [])
@@ -2313,6 +2489,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                       amount: transaction.amount,
                                       paidAmount: transaction.amount || 0,
                                       status: transaction.status,
+                                      invoiceNumber: transaction.invoiceNumber || transaction.transactionId || `CYL-${transaction._id?.toString().slice(-6)}`,
                                     }))
                                 ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -2321,6 +2498,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                     <TableHeader>
                                       <TableRow>
                                         <TableHead>Type</TableHead>
+                                        <TableHead>Invoice Number</TableHead>
                                         <TableHead>Date</TableHead>
                                         <TableHead>Description</TableHead>
                                         <TableHead>Total</TableHead>
@@ -2338,6 +2516,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                             >
                                               {transaction.displayType}
                                             </Badge>
+                                          </TableCell>
+                                          <TableCell className="font-mono text-sm">
+                                            {transaction.invoiceNumber || transaction.transactionId || 'N/A'}
                                           </TableCell>
                                           <TableCell>{formatDate(transaction.createdAt)}</TableCell>
                                           <TableCell>{transaction.description}</TableCell>
@@ -2437,6 +2618,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                     <TableHeader>
                                       <TableRow>
                                         <TableHead>Type</TableHead>
+                                        <TableHead>Invoice Number</TableHead>
                                         <TableHead>Date</TableHead>
                                         <TableHead>Cylinder Size</TableHead>
                                         <TableHead>Quantity</TableHead>
@@ -2453,6 +2635,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                               <Badge variant="outline" className="capitalize">
                                                 {transaction.type}
                                               </Badge>
+                                            </TableCell>
+                                            <TableCell className="font-mono text-sm">
+                                              {transaction.invoiceNumber || transaction.transactionId || `CYL-${transaction._id?.toString().slice(-6)}` || 'N/A'}
                                             </TableCell>
                                             <TableCell>{formatDate(transaction.createdAt)}</TableCell>
                                             <TableCell>{transaction.cylinderSize}</TableCell>
