@@ -172,14 +172,16 @@ export function CustomerManagement() {
     }
   }
 
-  // Filter customers based on search term
-  const filteredCustomers = customers.filter(customer => {
-    if (!searchTerm.trim()) return true
-    return customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           customer.trNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-           customer.phone.includes(searchTerm) ||
-           customer.email.toLowerCase().includes(searchTerm.toLowerCase())
-  })
+  // Filter customers based on search term and sort alphabetically by name
+  const filteredCustomers = customers
+    .filter(customer => {
+      if (!searchTerm.trim()) return true
+      return customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+             customer.trNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+             customer.phone.includes(searchTerm) ||
+             customer.email.toLowerCase().includes(searchTerm.toLowerCase())
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   if (loading) {
     return (
