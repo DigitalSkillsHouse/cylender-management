@@ -75,7 +75,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
 
   // Stock assignment form state
   const [stockFormData, setStockFormData] = useState({
-    category: "cylinder" as "cylinder",
+    category: "cylinder" as "gas" | "cylinder",
     productId: "",
     quantity: 1,
     notes: "",
@@ -746,7 +746,7 @@ setStockAssignments(stockData)
               <Label htmlFor="category">Category *</Label>
               <Select
                 value={stockFormData.category}
-                onValueChange={(value: "cylinder") => {
+                onValueChange={(value: "gas" | "cylinder") => {
                   setStockFormData({ ...stockFormData, category: value, productId: "" })
                 }}
                 required
@@ -755,6 +755,7 @@ setStockAssignments(stockData)
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="gas">Gas</SelectItem>
                   <SelectItem value="cylinder">Cylinder</SelectItem>
                 </SelectContent>
               </Select>
