@@ -22,7 +22,7 @@ export async function POST(request) {
     // Create view records for each customer
     const viewRecords = customerIds.map(customerId => ({
       customerId,
-      viewedBy: user.userId,
+      viewedBy: user.id,
       viewedAt: new Date(),
     }))
 

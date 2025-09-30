@@ -76,33 +76,33 @@ export async function GET() {
     // Check admin gas sales
     const recentAdminSales = await Sale.find({ 
       createdAt: { $gte: oneMonthAgo } 
-    }).select('customerId')
+    }).select('customer')
     recentAdminSales.forEach(sale => {
-      if (sale.customerId) activeCustomerIds.add(sale.customerId.toString())
+      if (sale.customer) activeCustomerIds.add(sale.customer.toString())
     })
 
     // Check employee gas sales
     const recentEmployeeSales = await EmployeeSale.find({ 
       createdAt: { $gte: oneMonthAgo } 
-    }).select('customerId')
+    }).select('customer')
     recentEmployeeSales.forEach(sale => {
-      if (sale.customerId) activeCustomerIds.add(sale.customerId.toString())
+      if (sale.customer) activeCustomerIds.add(sale.customer.toString())
     })
 
     // Check admin cylinder transactions
     const recentAdminCylinders = await CylinderTransaction.find({ 
       createdAt: { $gte: oneMonthAgo } 
-    }).select('customerId')
+    }).select('customer')
     recentAdminCylinders.forEach(transaction => {
-      if (transaction.customerId) activeCustomerIds.add(transaction.customerId.toString())
+      if (transaction.customer) activeCustomerIds.add(transaction.customer.toString())
     })
 
     // Check employee cylinder transactions
     const recentEmployeeCylinders = await EmployeeCylinderTransaction.find({ 
       createdAt: { $gte: oneMonthAgo } 
-    }).select('customerId')
+    }).select('customer')
     recentEmployeeCylinders.forEach(transaction => {
-      if (transaction.customerId) activeCustomerIds.add(transaction.customerId.toString())
+      if (transaction.customer) activeCustomerIds.add(transaction.customer.toString())
     })
 
     // Get customers who have been viewed in the last 30 days
