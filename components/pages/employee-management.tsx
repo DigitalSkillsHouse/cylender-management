@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
+import { useNotifications } from "@/hooks/useNotifications"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -61,7 +62,18 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   const [isProductListDialogOpen, setIsProductListDialogOpen] = useState(false)
   const [selectedEmployeeProducts, setSelectedEmployeeProducts] = useState<any[]>([])
   const [updateNotification, setUpdateNotification] = useState<{ message: string; visible: boolean; type: 'success' | 'warning' }>({ message: "", visible: false, type: 'success' })
-  const [adminNotifications, setAdminNotifications] = useState<any[]>([])
+  
+  // Use optimized notifications hook with 60-second polling
+  const { 
+    notifications: adminNotifications, 
+    unreadCount: unreadNotificationCount,
+    markAsRead 
+  } = useNotifications({
+    userId: user.id,
+    types: ['stock_returned', 'stock_rejected'],
+    unreadOnly: true,
+    pollInterval: 60000 // Poll every 60 seconds instead of 5
+  })
 
   // Form state
   const [formData, setFormData] = useState({
@@ -130,15 +142,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   useEffect(() => {
     fetchData()
     fetchStockAssignments()
-    fetchAdminNotifications()
-    
-    // Poll for notifications every 5 seconds
-    const notificationInterval = setInterval(() => {
-      checkForNewNotifications()
-      fetchAdminNotifications()
-    }, 5000)
-    
-    return () => clearInterval(notificationInterval)
+    // Note: Notifications are now handled by the useNotifications hook
   }, [])
 
   const fetchData = async () => {
@@ -176,47 +180,7 @@ setStockAssignments(stockData)
     }
   }
 
-  const fetchAdminNotifications = async () => {
-    try {
-      const response = await fetch(`/api/notifications?userId=${user.id}&type=stock_returned&unread=true`)
-      if (response.ok) {
-        const data = await response.json()
-        setAdminNotifications(data || [])
-      }
-    } catch (error) {
-      setAdminNotifications([])
-    }
-  }
-
-  const checkForNewNotifications = async () => {
-    try {
-      // Check for returned stock notifications
-      const respReturned = await fetch('/api/notifications?userId=' + user.id + '&type=stock_returned&unread=true')
-      if (respReturned.ok) {
-        const data = await respReturned.json()
-        if (data.length > 0) {
-          const latest = data[0]
-          showNotification(`Stock returned by ${latest.sender?.name || 'Employee'}: ${latest.message}`)
-          await fetch(`/api/notifications/${latest._id}/read`, { method: 'PUT' })
-          await fetchStockAssignments()
-        }
-      }
-
-      // Check for rejected stock notifications
-      const respRejected = await fetch('/api/notifications?userId=' + user.id + '&type=stock_rejected&unread=true')
-      if (respRejected.ok) {
-        const data = await respRejected.json()
-        if (data.length > 0) {
-          const latest = data[0]
-          showNotification(`Stock rejected by ${latest.sender?.name || 'Employee'}: ${latest.message}`)
-          await fetch(`/api/notifications/${latest._id}/read`, { method: 'PUT' })
-          await fetchStockAssignments()
-        }
-      }
-    } catch (error) {
-      
-    }
-  }
+  // Notification functions replaced by useNotifications hook
 
   const showNotification = (message: string) => {
     setNotification({ message, visible: true })

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useNotifications } from "@/hooks/useNotifications"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -16,9 +17,20 @@ interface EmployeeDashboardProps {
 export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardProps) {
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [assignedStock, setAssignedStock] = useState<any[]>([])
-  const [notifications, setNotifications] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState<{ message: string; visible: boolean }>({ message: "", visible: false })
+  
+  // Use optimized notifications hook with 60-second polling
+  const { 
+    notifications, 
+    unreadCount,
+    markAsRead 
+  } = useNotifications({
+    userId: user.id,
+    types: ['stock_assignment'],
+    unreadOnly: true,
+    pollInterval: 60000 // Poll every 60 seconds instead of 5
+  })
   const [salesData, setSalesData] = useState<any[]>([])
   const [cylinderTxns, setCylinderTxns] = useState<any[]>([])
   const [totalDebit, setTotalDebit] = useState(0)
@@ -27,13 +39,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
   useEffect(() => {
     if (user?.id) {
       fetchEmployeeData()
-      
-      // Poll for notifications every 5 seconds
-      const notificationInterval = setInterval(() => {
-        checkForNewNotifications()
-      }, 5000)
-      
-      return () => clearInterval(notificationInterval)
+      // Note: Notifications are now handled by the useNotifications hook
     }
   }, [user?.id])
 
@@ -55,8 +61,8 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       const stockData = Array.isArray(stockResponse.data) ? stockResponse.data : (stockResponse.data?.data || []);
       const employeeStock = stockData.filter((stock: any) => stock.employee?._id === user.id)
       setAssignedStock(employeeStock)
-      setNotifications(notificationsResponse.data || [])
-      if (setUnreadCount) setUnreadCount((notificationsResponse.data || []).filter((n: any) => !n.isRead).length)
+      // Notifications are now handled by useNotifications hook
+      if (setUnreadCount) setUnreadCount(unreadCount)
 
       // Fetch and process sales data
       const salesData = await salesResponse.json()
@@ -78,7 +84,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
     } catch (error) {
       console.error("Failed to fetch employee data:", error)
       setAssignedStock([])
-      setNotifications([])
+      // Notifications handled by useNotifications hook
       setSalesData([])
       setCylinderTxns([])
       setTotalDebit(0)
@@ -89,29 +95,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
     }
   }
 
-  const checkForNewNotifications = async () => {
-    try {
-      console.log('Checking for notifications for employee user:', user.id)
-      const response = await fetch('/api/notifications?userId=' + user.id + '&type=stock_assignment&unread=true')
-      if (response.ok) {
-        const data = await response.json()
-        console.log('Received notifications:', data)
-        if (data.length > 0) {
-          const latestNotification = data[0]
-          console.log('Showing notification for:', latestNotification)
-          showNotification(`New stock assignment: ${latestNotification.message}`)
-          // Mark notification as read
-          await fetch(`/api/notifications/${latestNotification._id}/read`, { method: 'PUT' })
-          // Refresh employee data to show updated assignments
-          await fetchEmployeeData()
-        }
-      } else {
-        console.error('Failed to fetch notifications, status:', response.status)
-      }
-    } catch (error) {
-      console.error('Failed to check notifications:', error)
-    }
-  }
+  // Notification checking replaced by useNotifications hook
 
   const showNotification = (message: string) => {
     setNotification({ message, visible: true })
