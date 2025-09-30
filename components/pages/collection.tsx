@@ -149,7 +149,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
       const name = String(c?.name || '').toLowerCase()
       const email = String(c?.email || '').toLowerCase()
       const phone = String(c?.phone || '').toLowerCase()
-      return name.includes(q) || email.includes(q) || phone.includes(q)
+      const serialNumber = String(c?.serialNumber || '').toLowerCase()
+      return name.includes(q) || email.includes(q) || phone.includes(q) || serialNumber.includes(q)
     }).slice(0, 6)
     setFilteredCustomers(filtered)
   }
@@ -410,7 +411,7 @@ setReceiptData({
           <CardTitle className="text-base sm:text-lg">Select Customer</CardTitle>
           <div className="relative w-full">
             <Input
-              placeholder="Search customer by name, phone, or email"
+              placeholder="Search customer by name, phone, email, or serial number"
               value={customerSearch}
               onChange={(e) => handleCustomerSearchChange(e.target.value)}
               onFocus={() => setShowCustomerSuggestions(true)}
@@ -425,7 +426,12 @@ setReceiptData({
                     onClick={() => handleCustomerSuggestionClick(c)}
                   >
                     <div className="font-medium">{c.name}</div>
-                    <div className="text-xs text-gray-600">{c.phone || '-'} {c.email ? `• ${c.email}` : ''}</div>
+                    <div className="text-xs text-gray-600">
+                      {c.serialNumber && <span className="text-blue-600 font-medium">{c.serialNumber}</span>}
+                      {c.serialNumber && (c.phone || c.email) && ' • '}
+                      {c.phone || '-'} 
+                      {c.email ? ` • ${c.email}` : ''}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -542,14 +548,12 @@ setReceiptData({
                           </td>
                           <td className="p-2 align-middle">
                             <div className="flex flex-col gap-1">
-                              {inv.items?.slice(0, 2).map((item, idx) => (
+                              {inv.items?.map((item, idx) => (
                                 <div key={idx} className="text-sm">
                                   {item.quantity} × {item.product.name} @ AED {item.price.toFixed(2)}
+                                  <span className="text-xs text-gray-500 ml-2">(Total: AED {item.total.toFixed(2)})</span>
                                 </div>
                               ))}
-                              {inv.items?.length > 2 && (
-                                <div className="text-xs text-gray-500">+{inv.items.length - 2} more items</div>
-                              )}
                               {!inv.items?.length && (
                                 <div className="text-xs text-gray-400">No items</div>
                               )}
