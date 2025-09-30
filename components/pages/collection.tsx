@@ -207,8 +207,22 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const handleSelect = (id: string, checked: boolean) => {
     setSelected((prev) => ({ ...prev, [id]: checked }))
     if (checked && !amounts[id]) {
-      const inv = invoices.find((i) => i._id === id)
-      if (inv) setAmounts((prev) => ({ ...prev, [id]: inv.balance.toString() }))
+      // Check if this is an item ID (format: invoiceId-itemIndex)
+      if (id.includes('-')) {
+        const [invoiceId, itemIndexStr] = id.split('-')
+        const itemIndex = parseInt(itemIndexStr)
+        const inv = invoices.find((i) => i._id === invoiceId)
+        if (inv && inv.items && inv.items[itemIndex]) {
+          const item = inv.items[itemIndex]
+          setAmounts((prev) => ({ ...prev, [id]: item.total.toString() }))
+        }
+      } else {
+        // This is an invoice ID
+        const inv = invoices.find((i) => i._id === id)
+        if (inv) {
+          setAmounts((prev) => ({ ...prev, [id]: inv.balance.toString() }))
+        }
+      }
     }
   }
 
@@ -449,7 +463,13 @@ setReceiptData({
               <div className="p-4 text-center text-gray-500">No pending invoices</div>
             )}
             {groupedByCustomer.map((group) => {
-              const allSelected = group.invoices.every((i) => selected[i._id]) && group.invoices.length > 0
+              const allSelected = group.invoices.every((inv) => {
+                if (inv.items && inv.items.length > 0) {
+                  return inv.items.every((item, itemIdx) => selected[`${inv._id}-${itemIdx}`])
+                } else {
+                  return selected[inv._id]
+                }
+              }) && group.invoices.length > 0
               const groupTotalBalance = group.invoices.reduce((s, inv) => s + (inv.balance || 0), 0)
               return (
                 <div key={group.key} className="border rounded-lg">
@@ -458,9 +478,19 @@ setReceiptData({
                       <Checkbox checked={allSelected} onCheckedChange={(v) => {
                         const checked = Boolean(v)
                         group.invoices.forEach((inv) => {
-                          handleSelect(inv._id, checked)
-                          if (checked && !amounts[inv._id]) {
-                            setAmounts((prev) => ({ ...prev, [inv._id]: inv.balance.toString() }))
+                          if (inv.items && inv.items.length > 0) {
+                            inv.items.forEach((item, itemIdx) => {
+                              const itemId = `${inv._id}-${itemIdx}`
+                              handleSelect(itemId, checked)
+                              if (checked && !amounts[itemId]) {
+                                setAmounts((prev) => ({ ...prev, [itemId]: item.total.toString() }))
+                              }
+                            })
+                          } else {
+                            handleSelect(inv._id, checked)
+                            if (checked && !amounts[inv._id]) {
+                              setAmounts((prev) => ({ ...prev, [inv._id]: inv.balance.toString() }))
+                            }
                           }
                         })
                       }} />
@@ -479,9 +509,19 @@ setReceiptData({
                         onClick={() => {
                           const setAll = !allSelected
                           group.invoices.forEach((inv) => {
-                            handleSelect(inv._id, setAll)
-                            if (setAll && !amounts[inv._id]) {
-                              setAmounts((prev) => ({ ...prev, [inv._id]: inv.balance.toString() }))
+                            if (inv.items && inv.items.length > 0) {
+                              inv.items.forEach((item, itemIdx) => {
+                                const itemId = `${inv._id}-${itemIdx}`
+                                handleSelect(itemId, setAll)
+                                if (setAll && !amounts[itemId]) {
+                                  setAmounts((prev) => ({ ...prev, [itemId]: item.total.toString() }))
+                                }
+                              })
+                            } else {
+                              handleSelect(inv._id, setAll)
+                              if (setAll && !amounts[inv._id]) {
+                                setAmounts((prev) => ({ ...prev, [inv._id]: inv.balance.toString() }))
+                              }
                             }
                           })
                         }}
@@ -525,63 +565,98 @@ setReceiptData({
                         <th className="p-2"></th>
                         <th className="text-left p-2">Invoice</th>
                         <th className="text-left p-2">Source</th>
-                        <th className="text-left p-2">Items</th>
-                        <th className="text-right p-2">Total (AED)</th>
-                        <th className="text-right p-2">Received (AED)</th>
-                        <th className="text-right p-2">Balance (AED)</th>
+                        <th className="text-left p-2">Product</th>
+                        <th className="text-center p-2">Qty</th>
+                        <th className="text-right p-2">Unit Price (AED)</th>
+                        <th className="text-right p-2">Item Total (AED)</th>
                         <th className="text-left p-2">Status</th>
                         <th className="text-left p-2">Date</th>
-                        <th className="text-right p-2">Collect</th>
+                        <th className="text-right p-2">Collect Amount</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {group.invoices.map((inv) => (
-                        <tr key={inv._id} className="border-b">
-                          <td className="p-2 align-middle">
-                            <Checkbox checked={!!selected[inv._id]} onCheckedChange={(v) => handleSelect(inv._id, Boolean(v))} />
-                          </td>
-                          <td className="p-2 align-middle font-medium">{inv.invoiceNumber}</td>
-                          <td className="p-2 align-middle">
-                            <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                              {inv.source}
-                            </Badge>
-                          </td>
-                          <td className="p-2 align-middle">
-                            <div className="flex flex-col gap-1">
-                              {inv.items?.map((item, idx) => (
-                                <div key={idx} className="text-sm">
-                                  {item.quantity} × {item.product.name} @ AED {item.price.toFixed(2)}
-                                  <span className="text-xs text-gray-500 ml-2">(Total: AED {item.total.toFixed(2)})</span>
-                                </div>
-                              ))}
-                              {!inv.items?.length && (
-                                <div className="text-xs text-gray-400">No items</div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="p-2 align-middle text-right">{inv.totalAmount.toFixed(2)}</td>
-                          <td className="p-2 align-middle text-right">{inv.receivedAmount.toFixed(2)}</td>
-                          <td className="p-2 align-middle text-right font-semibold">{inv.balance.toFixed(2)}</td>
-                          <td className="p-2 align-middle">
-                            <Badge className={inv.paymentStatus === 'pending' ? 'bg-yellow-500' : 'bg-green-600'}>
-                              {inv.paymentStatus}
-                            </Badge>
-                          </td>
-                          <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
-                          <td className="p-2 align-middle text-right">
-                            <Input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              className="w-32 ml-auto"
-                              placeholder={inv.balance.toFixed(2)}
-                              value={amounts[inv._id] || ''}
-                              onChange={(e) => setAmounts((prev) => ({ ...prev, [inv._id]: e.target.value }))}
-                              disabled={!selected[inv._id]}
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      {group.invoices.map((inv) => 
+                        inv.items && inv.items.length > 0 ? (
+                          inv.items.map((item, itemIdx) => {
+                            const itemId = `${inv._id}-${itemIdx}`
+                            return (
+                              <tr key={itemId} className="border-b hover:bg-gray-50">
+                                <td className="p-2 align-middle">
+                                  <Checkbox 
+                                    checked={!!selected[itemId]} 
+                                    onCheckedChange={(v) => handleSelect(itemId, Boolean(v))} 
+                                  />
+                                </td>
+                                <td className="p-2 align-middle font-medium">{inv.invoiceNumber}</td>
+                                <td className="p-2 align-middle">
+                                  <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
+                                    {inv.source}
+                                  </Badge>
+                                </td>
+                                <td className="p-2 align-middle">
+                                  <div className="font-medium">{item.product.name}</div>
+                                </td>
+                                <td className="p-2 align-middle text-center">{item.quantity}</td>
+                                <td className="p-2 align-middle text-right">{item.price.toFixed(2)}</td>
+                                <td className="p-2 align-middle text-right font-semibold">{item.total.toFixed(2)}</td>
+                                <td className="p-2 align-middle">
+                                  <Badge className={inv.paymentStatus === 'pending' ? 'bg-yellow-500' : 'bg-green-600'}>
+                                    {inv.paymentStatus}
+                                  </Badge>
+                                </td>
+                                <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
+                                <td className="p-2 align-middle text-right">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={item.total}
+                                    step="0.01"
+                                    className="w-32 ml-auto"
+                                    placeholder={item.total.toFixed(2)}
+                                    value={amounts[itemId] || ''}
+                                    onChange={(e) => setAmounts((prev) => ({ ...prev, [itemId]: e.target.value }))}
+                                    disabled={!selected[itemId]}
+                                  />
+                                </td>
+                              </tr>
+                            )
+                          })
+                        ) : (
+                          <tr key={inv._id} className="border-b">
+                            <td className="p-2 align-middle">
+                              <Checkbox 
+                                checked={!!selected[inv._id]} 
+                                onCheckedChange={(v) => handleSelect(inv._id, Boolean(v))} 
+                              />
+                            </td>
+                            <td className="p-2 align-middle font-medium">{inv.invoiceNumber}</td>
+                            <td className="p-2 align-middle">
+                              <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
+                                {inv.source}
+                              </Badge>
+                            </td>
+                            <td className="p-2 align-middle text-gray-400" colSpan={4}>No items</td>
+                            <td className="p-2 align-middle">
+                              <Badge className={inv.paymentStatus === 'pending' ? 'bg-yellow-500' : 'bg-green-600'}>
+                                {inv.paymentStatus}
+                              </Badge>
+                            </td>
+                            <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
+                            <td className="p-2 align-middle text-right">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                className="w-32 ml-auto"
+                                placeholder="0.00"
+                                value={amounts[inv._id] || ''}
+                                onChange={(e) => setAmounts((prev) => ({ ...prev, [inv._id]: e.target.value }))}
+                                disabled={!selected[inv._id]}
+                              />
+                            </td>
+                          </tr>
+                        )
+                      )}
                     </tbody>
                   </table>
                 </div>
