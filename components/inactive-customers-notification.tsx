@@ -160,12 +160,12 @@ export function InactiveCustomersNotification({
 
       {/* Modal Dialog */}
       <Dialog open={showModal} onOpenChange={setShowModal}>
-        <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] sm:max-h-[80vh] overflow-hidden">
-          <DialogHeader className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-t-lg p-4 sm:p-6 -m-4 sm:-m-6 mb-4">
+        <DialogContent className="w-[95vw] max-w-4xl h-[95vh] max-h-[95vh] sm:max-h-[85vh] flex flex-col overflow-hidden p-0">
+          <DialogHeader className="bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-t-lg p-3 sm:p-4 lg:p-6 flex-shrink-0">
             <div className="flex items-center justify-between">
-              <DialogTitle className="flex items-center gap-2 sm:gap-3 text-lg sm:text-xl font-bold">
+              <DialogTitle className="flex items-center gap-2 sm:gap-3 text-base sm:text-lg lg:text-xl font-bold">
                 <div className="p-1.5 sm:p-2 bg-white/20 rounded-lg">
-                  <Bell className="h-5 w-5 sm:h-6 sm:w-6" />
+                  <Bell className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6" />
                 </div>
                 <span className="hidden sm:inline">Inactive Customers Alert</span>
                 <span className="sm:hidden">Inactive Alert</span>
@@ -174,26 +174,26 @@ export function InactiveCustomersNotification({
                 variant="ghost"
                 size="sm"
                 onClick={() => setShowModal(false)}
-                className="text-white hover:bg-white/20 rounded-full p-2 min-h-[44px]"
+                className="text-white hover:bg-white/20 rounded-full p-2 min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px]"
               >
                 <X className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
-            <p className="text-white/90 mt-2">
+            <p className="text-white/90 mt-2 text-sm sm:text-base">
               {inactiveCustomersCount} customer{inactiveCustomersCount > 1 ? 's' : ''} haven't made any transactions in the last 30 days
             </p>
           </DialogHeader>
 
-          <div className="space-y-4 pb-4">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 space-y-4">
             {/* Summary Card */}
-            <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-lg p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-orange-100 rounded-lg">
-                  <Calendar className="h-5 w-5 text-orange-600" />
+            <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-lg p-3 sm:p-4">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="p-2 bg-orange-100 rounded-lg flex-shrink-0">
+                  <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" />
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-800">Customer Inactivity Alert</h3>
-                  <p className="text-sm text-gray-600">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-gray-800 text-sm sm:text-base">Customer Inactivity Alert</h3>
+                  <p className="text-xs sm:text-sm text-gray-600 mt-1">
                     These customers haven't made any gas sales or cylinder transactions since{' '}
                     <span className="font-medium">
                       {new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}
@@ -204,8 +204,8 @@ export function InactiveCustomersNotification({
             </div>
 
             {/* Customer List */}
-            <div className="max-h-96 overflow-y-auto">
-              <div className="grid gap-3 pb-4 sm:pb-6">
+            <div className="flex-1 overflow-y-auto">
+              <div className="grid gap-3">
                 {inactiveCustomers.filter(customer => !markedCustomers.has(customer._id)).length === 0 ? (
                   <div className="text-center py-8">
                     <div className="flex flex-col items-center gap-3">
@@ -229,10 +229,10 @@ export function InactiveCustomersNotification({
                   return (
                     <div
                       key={customer._id}
-                      className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 border rounded-lg transition-all duration-200 bg-white border-gray-200 hover:shadow-md"
+                      className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 p-3 sm:p-4 border rounded-lg transition-all duration-200 bg-white border-gray-200 hover:shadow-md"
                     >
                       {/* Mobile: Top row with checkmark, avatar, name, and badge */}
-                      <div className="flex items-center gap-3 w-full sm:flex-1">
+                      <div className="flex items-center gap-2 sm:gap-3 w-full sm:flex-1">
                         {/* Mark as Read Checkmark Icon */}
                         <div className="flex-shrink-0">
                           <Button
@@ -240,20 +240,20 @@ export function InactiveCustomersNotification({
                             disabled={isLoading}
                             variant="outline"
                             size="sm"
-                            className="w-8 h-8 sm:w-8 sm:h-8 p-0 rounded-full transition-all duration-200 bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700 min-h-[32px]"
+                            className="w-8 h-8 p-0 rounded-full transition-all duration-200 bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700 min-h-[32px] min-w-[32px] sm:min-h-[36px] sm:min-w-[36px]"
                             title="Mark as Read"
                           >
                             {isLoading ? (
                               <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-blue-600"></div>
                             ) : (
-                              "✓"
+                              <span className="text-xs sm:text-sm">✓</span>
                             )}
                           </Button>
                         </div>
 
                         <div className="flex-shrink-0">
-                          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
-                            <User className="h-5 w-5 sm:h-6 sm:w-6 text-gray-500" />
+                          <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
+                            <User className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-gray-500" />
                           </div>
                         </div>
                         
@@ -262,11 +262,11 @@ export function InactiveCustomersNotification({
                             <h4 className="font-medium truncate text-gray-900 text-sm sm:text-base">
                               {customer.name}
                             </h4>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 flex-shrink-0">
+                            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                              <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 flex-shrink-0 px-1.5 py-0.5">
                                 #{index + 1}
                               </Badge>
-                              <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200 text-xs sm:hidden flex-shrink-0">
+                              <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200 text-xs sm:hidden flex-shrink-0 px-1.5 py-0.5">
                                 30+ days
                               </Badge>
                             </div>
@@ -275,22 +275,22 @@ export function InactiveCustomersNotification({
 
                         {/* Desktop: 30+ days badge */}
                         <div className="hidden sm:flex flex-shrink-0">
-                          <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200">
+                          <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200 text-sm px-2 py-1">
                             30+ days
                           </Badge>
                         </div>
                       </div>
 
                       {/* Mobile: Bottom row with contact info */}
-                      <div className="flex flex-col gap-1 w-full sm:hidden pl-11">
+                      <div className="flex flex-col gap-1 w-full sm:hidden pl-10">
                         {customer.email && (
-                          <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <div className="flex items-center gap-1.5 text-xs text-gray-500">
                             <Mail className="h-3 w-3 flex-shrink-0" />
                             <span className="truncate">{customer.email}</span>
                           </div>
                         )}
                         {customer.phone && (
-                          <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <div className="flex items-center gap-1.5 text-xs text-gray-500">
                             <Phone className="h-3 w-3 flex-shrink-0" />
                             <span className="truncate">{customer.phone}</span>
                           </div>
@@ -298,15 +298,15 @@ export function InactiveCustomersNotification({
                       </div>
 
                       {/* Desktop: Contact info in same row */}
-                      <div className="hidden sm:flex flex-col gap-1 text-sm text-gray-500 min-w-0">
+                      <div className="hidden sm:flex flex-col gap-1 text-sm text-gray-500 min-w-0 max-w-xs">
                         {customer.email && (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <Mail className="h-3 w-3 flex-shrink-0" />
                             <span className="truncate">{customer.email}</span>
                           </div>
                         )}
                         {customer.phone && (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <Phone className="h-3 w-3 flex-shrink-0" />
                             <span className="truncate">{customer.phone}</span>
                           </div>
@@ -320,14 +320,14 @@ export function InactiveCustomersNotification({
 
             {/* Success Message */}
             {showSuccessMessage && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-green-100 rounded-lg">
-                    <CheckCircle className="h-5 w-5 text-green-600" />
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 sm:p-4">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="p-2 bg-green-100 rounded-lg flex-shrink-0">
+                    <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-green-800">Marked as Viewed!</h3>
-                    <p className="text-sm text-green-600">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-semibold text-green-800 text-sm sm:text-base">Marked as Viewed!</h3>
+                    <p className="text-xs sm:text-sm text-green-600 mt-1">
                       {inactiveCustomersCount} customer{inactiveCustomersCount > 1 ? 's' : ''} marked as viewed. 
                       They won't appear again until another month passes without transactions.
                     </p>
@@ -336,12 +336,15 @@ export function InactiveCustomersNotification({
               </div>
             )}
 
-            {/* Action Buttons */}
-            <div className="grid grid-cols-2 sm:flex sm:flex-row sm:justify-end gap-3 pt-4 mt-4 sm:mt-6 border-t">
+          </div>
+          
+          {/* Action Buttons - Fixed at bottom */}
+          <div className="flex-shrink-0 border-t bg-white p-3 sm:p-4 lg:p-6">
+            <div className="grid grid-cols-2 sm:flex sm:flex-row sm:justify-end gap-2 sm:gap-3">
               <Button
                 variant="outline"
                 onClick={() => setShowModal(false)}
-                className="px-3 sm:px-6 min-h-[44px] w-full sm:w-auto text-sm sm:text-base"
+                className="px-3 sm:px-6 min-h-[44px] w-full sm:w-auto text-sm sm:text-base order-2 sm:order-1"
                 disabled={isMarkingAsViewed}
               >
                 Close
@@ -350,7 +353,7 @@ export function InactiveCustomersNotification({
               <Button
                 onClick={handleMarkAsViewed}
                 disabled={isMarkingAsViewed || showSuccessMessage}
-                className="px-3 sm:px-6 min-h-[44px] w-full sm:w-auto bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 text-sm sm:text-base"
+                className="px-3 sm:px-6 min-h-[44px] w-full sm:w-auto bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 text-sm sm:text-base order-1 sm:order-2"
               >
                 {isMarkingAsViewed ? (
                   <>
