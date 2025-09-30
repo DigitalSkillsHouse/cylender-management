@@ -138,6 +138,29 @@ export async function PATCH(request, { params }) {
 
     console.log("Successfully updated item inventory status:", updatedOrder._id, "item", itemIndex, "to", status)
 
+    // Check if all items are received and update overall purchase order status
+    if (status === "received") {
+      try {
+        const allItemsReceived = updatedOrder.items.every(item => 
+          (item.inventoryStatus || "pending") === "received"
+        )
+        
+        if (allItemsReceived) {
+          console.log("All items received, updating purchase order status to completed")
+          await (isEmployeePurchase ? EmployeePurchaseOrder : PurchaseOrder)
+            .findByIdAndUpdate(
+              params.orderId,
+              { $set: { status: "completed" } },
+              { new: true }
+            )
+          console.log("Purchase order status updated to completed")
+        }
+      } catch (statusUpdateError) {
+        console.error("Failed to update purchase order status:", statusUpdateError)
+        // Don't fail the entire operation if status update fails
+      }
+    }
+
     // Handle stock synchronization when inventory is received
     if (status === "received") {
       try {

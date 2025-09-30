@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown } from "lucide-react"
+import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown, RefreshCw } from "lucide-react"
 import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 
 interface PurchaseOrder {
@@ -83,6 +83,17 @@ export function PurchaseManagement() {
 
   useEffect(() => {
     fetchData()
+  }, [])
+
+  // Add window focus listener to refresh data when user returns to the page
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log("Purchase Management page focused, refreshing data...")
+      fetchData()
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
   }, [])
 
   const fetchData = async () => {
@@ -440,17 +451,29 @@ export function PurchaseManagement() {
             <p className="text-white/80 text-sm sm:text-base lg:text-lg">Create and manage your purchase orders</p>
           </div>
 
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button
-                onClick={resetForm}
-                className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold px-4 sm:px-6 lg:px-8 py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg rounded-lg sm:rounded-xl shadow-lg transition-all duration-300 hover:scale-105 w-full sm:w-auto"
-              >
-                <Plus className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-                New Purchase Order
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto mx-auto">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 w-full sm:w-auto">
+            <Button
+              onClick={() => {
+                console.log("Manual refresh triggered")
+                fetchData()
+              }}
+              variant="outline"
+              className="bg-white/10 text-white border-white/20 hover:bg-white/20 font-semibold px-4 sm:px-6 py-2 sm:py-3 text-sm sm:text-base rounded-lg sm:rounded-xl transition-all duration-300 w-full sm:w-auto"
+            >
+              <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+              Refresh
+            </Button>
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  onClick={resetForm}
+                  className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold px-4 sm:px-6 lg:px-8 py-2 sm:py-3 lg:py-4 text-sm sm:text-base lg:text-lg rounded-lg sm:rounded-xl shadow-lg transition-all duration-300 hover:scale-105 w-full sm:w-auto"
+                >
+                  <Plus className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+                  New Purchase Order
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto mx-auto">
               <DialogHeader className="pb-4 sm:pb-6">
                 <DialogTitle className="text-xl sm:text-2xl font-bold text-[#2B3068] flex items-center gap-2">
                   <ShoppingCart className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -785,8 +808,9 @@ export function PurchaseManagement() {
                   )}
                 </Button>
               </form>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </div>
 
