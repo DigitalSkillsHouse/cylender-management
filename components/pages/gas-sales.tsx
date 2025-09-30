@@ -1749,7 +1749,7 @@ export function GasSales() {
               </TableHeader>
               <TableBody>
                 {paginatedGroups.map((group: any) => {
-                  const visibleItems = group.items.slice(0, 2)
+                  const visibleItems = group.items.slice(0, 1)
                   const remaining = Math.max(0, group.items.length - visibleItems.length)
                   return (
                     <Fragment key={group.key}>

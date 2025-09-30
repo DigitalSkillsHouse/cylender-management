@@ -1125,7 +1125,7 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
               ) : (
                 paginatedGroups.map((group) => {
                   const isExpanded = !!expandedGroups[group.key]
-                  const showItems = group.items.slice(0, 2)
+                  const showItems = group.items.slice(0, 1)
                   const remaining = group.items.length - showItems.length
                   const refSale = group.referenceSale
                   return (
