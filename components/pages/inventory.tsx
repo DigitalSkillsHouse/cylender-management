@@ -234,6 +234,12 @@ export function Inventory() {
     try {
       console.log("Updating inventory status to received for ID:", id)
       
+      // Check if this is a grouped item (comma-separated IDs)
+      if (id.includes(',')) {
+        await handleReceiveGroupedInventory(id)
+        return
+      }
+      
       // Find the inventory item to get the original order ID and item index
       const inventoryItem = inventory.find(item => item.id === id)
       if (!inventoryItem) {
@@ -278,6 +284,82 @@ export function Inventory() {
     } catch (error: any) {
       console.error("Failed to update inventory status:", error)
       setError(`Failed to update inventory: ${error.message}`)
+    }
+  }
+
+  const handleReceiveGroupedInventory = async (groupedId: string) => {
+    try {
+      console.log("Updating grouped inventory status to received for IDs:", groupedId)
+      
+      // Split the grouped ID to get individual item IDs
+      const individualIds = groupedId.split(',')
+      let successCount = 0
+      let failureCount = 0
+      
+      // Process each item individually
+      for (const itemId of individualIds) {
+        try {
+          // Find the inventory item to get the original order ID and item index
+          const inventoryItem = inventory.find(item => item.id === itemId.trim())
+          if (!inventoryItem) {
+            console.warn(`Inventory item not found for ID: ${itemId}`)
+            failureCount++
+            continue
+          }
+          
+          const orderIdToUpdate = inventoryItem.originalOrderId || itemId
+          const itemIndex = inventoryItem.itemIndex
+          
+          console.log(`Processing item ${itemId}: order ID ${orderIdToUpdate}, item index ${itemIndex}`)
+          
+          // Use the new item-level API if we have an item index, otherwise fall back to old API
+          let response
+          if (itemIndex !== undefined && itemIndex >= 0) {
+            // Use new item-level API
+            response = await fetch(`/api/inventory/item/${orderIdToUpdate}/${itemIndex}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ status: 'received' })
+            })
+            response = await response.json()
+          } else {
+            // Fall back to old API for backward compatibility
+            response = await inventoryAPI.receiveInventory(orderIdToUpdate)
+            response = response.data
+          }
+          
+          if (response.success) {
+            successCount++
+            console.log(`Successfully updated item ${itemId}`)
+          } else {
+            failureCount++
+            console.error(`Failed to update item ${itemId}:`, response)
+          }
+        } catch (itemError) {
+          failureCount++
+          console.error(`Error updating item ${itemId}:`, itemError)
+        }
+      }
+      
+      // Show results and refresh data
+      if (successCount > 0) {
+        console.log(`Successfully updated ${successCount} items`)
+        await fetchInventoryData()
+      }
+      
+      if (failureCount > 0) {
+        setError(`Failed to update ${failureCount} out of ${individualIds.length} items`)
+      }
+      
+      if (successCount === individualIds.length) {
+        console.log("All items in group successfully updated")
+      }
+      
+    } catch (error: any) {
+      console.error("Failed to update grouped inventory:", error)
+      setError(`Failed to update grouped inventory: ${error.message}`)
     }
   }
 
@@ -390,8 +472,64 @@ export function Inventory() {
     return { stock, color }
   }
 
-  const pendingItems = inventory.filter((item) => item.status === "pending")
+  const pendingItemsRaw = inventory.filter((item) => item.status === "pending")
   const receivedItemsRaw = inventory.filter((item) => item.status === "received")
+
+  // Aggregate pending items by invoice number and supplier for cleaner display
+  const aggregatePending = (items: InventoryItem[]) => {
+    const map = new Map<string, any>()
+    items.forEach((it) => {
+      // Create a key based on invoice number and supplier to group items from same purchase order
+      const key = `${it.poNumber}|${it.supplierName}`
+      const curr = map.get(key) || {
+        idList: [] as string[],
+        poNumber: it.poNumber,
+        supplierName: it.supplierName,
+        purchaseDate: it.purchaseDate,
+        quantity: 0,
+        totalAmount: 0,
+        items: [] as InventoryItem[],
+        isEmployeePurchase: it.isEmployeePurchase,
+        employeeName: it.employeeName || "",
+      }
+      curr.idList.push(it.id)
+      curr.quantity += Number(it.quantity) || 0
+      curr.totalAmount += Number(it.totalAmount) || 0
+      curr.items.push(it)
+      // Keep employee info if any item is from employee purchase
+      if (it.isEmployeePurchase) {
+        curr.isEmployeePurchase = true
+        curr.employeeName = it.employeeName || curr.employeeName
+      }
+      map.set(key, curr)
+    })
+    return Array.from(map.values()).map((grp) => {
+      // For display, show the first product name if single item, or "Multiple Items" if multiple
+      const uniqueProducts = new Set(grp.items.map((item: InventoryItem) => item.productName))
+      const productName = uniqueProducts.size === 1 
+        ? Array.from(uniqueProducts)[0] 
+        : `Multiple Items (${grp.items.length})`
+      
+      const unitPrice = grp.quantity ? grp.totalAmount / grp.quantity : 0
+      
+      return {
+        id: grp.idList.join(","),
+        poNumber: grp.poNumber,
+        productName: productName,
+        supplierName: grp.supplierName,
+        purchaseDate: grp.purchaseDate,
+        quantity: grp.quantity,
+        unitPrice,
+        totalAmount: grp.totalAmount,
+        status: "pending" as const,
+        purchaseType: grp.items.length === 1 ? grp.items[0].purchaseType : "multiple",
+        isEmployeePurchase: grp.isEmployeePurchase,
+        employeeName: grp.employeeName,
+        groupedItems: grp.items, // Store individual items for expandable view
+      } as InventoryItem & { groupedItems: InventoryItem[] }
+    })
+  }
+  const pendingItems = aggregatePending(pendingItemsRaw)
 
   // Aggregate received items by invoice number and supplier
   const aggregateReceived = (items: InventoryItem[]) => {
@@ -541,7 +679,14 @@ export function Inventory() {
                       <TableRow key={item.id} className={`hover:bg-gray-50 transition-colors border-b border-gray-100 ${item.isEmployeePurchase ? 'bg-blue-50/30' : ''}`}>
                         <TableCell className="font-semibold text-[#2B3068] p-4">
                           <div className="flex items-center gap-2">
-                            {item.poNumber}
+                            <div className="flex flex-col">
+                              <span>{item.poNumber}</span>
+                              {item.groupedItems && item.groupedItems.length > 1 && (
+                                <span className="text-xs text-gray-500">
+                                  {item.groupedItems.length} items grouped
+                                </span>
+                              )}
+                            </div>
                             {item.isEmployeePurchase && (
                               <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
                                 Employee
@@ -561,9 +706,13 @@ export function Inventory() {
                           )}
                         </TableCell>
                         <TableCell className="p-4">
-                          <Badge variant={item.purchaseType === "gas" ? "default" : "secondary"}>
-                            {item.purchaseType}
-                          </Badge>
+                          {item.purchaseType === "multiple" ? (
+                            <Badge variant="secondary">multiple</Badge>
+                          ) : (
+                            <Badge variant={item.purchaseType === "gas" ? "default" : "secondary"}>
+                              {item.purchaseType}
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="p-4">{item.quantity}</TableCell>
                         <TableCell className="p-4">AED {item.unitPrice.toFixed(2)}</TableCell>
@@ -577,6 +726,17 @@ export function Inventory() {
                               className="hover:opacity-90 text-white min-h-[36px]"
                             >
                               Mark Received
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              style={{ borderColor: "#2B3068", color: "#2B3068" }}
+                              className="hover:bg-slate-50 min-h-[36px]"
+                              onClick={() => openGroupDialog(item, "edit")}
+                              aria-label="Expand"
+                              title="Expand"
+                            >
+                              <ChevronDown className="w-4 h-4" />
                             </Button>
                             <Button
                               size="sm"
@@ -821,7 +981,10 @@ export function Inventory() {
         <DialogContent className="w-[95vw] max-w-[720px] max-h-[90vh] overflow-y-auto mx-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl" style={{ color: "#2B3068" }}>
-              {groupDialogMode === "edit" ? "Manage Received Entries" : "Delete Received Entries"}
+              {groupDialogMode === "edit" 
+                ? `Manage ${groupItems.length > 0 && groupItems[0].status === "pending" ? "Pending" : "Received"} Entries`
+                : `Delete ${groupItems.length > 0 && groupItems[0].status === "pending" ? "Pending" : "Received"} Entries`
+              }
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
@@ -875,37 +1038,82 @@ export function Inventory() {
                         <TableCell className="p-3 font-semibold">AED {gi.totalAmount.toFixed(2)}</TableCell>
                         <TableCell className="p-3">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              style={{ borderColor: "#2B3068", color: "#2B3068" }}
-                              className="hover:bg-slate-50"
-                              onClick={() => {
-                                setIsGroupDialogOpen(false)
-                                handleEditInventory(gi)
-                              }}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              style={{ borderColor: "#dc2626", color: "#dc2626" }}
-                              className="hover:bg-red-50"
-                              onClick={() => {
-                                setIsGroupDialogOpen(false)
-                                setDeleteTarget(gi)
-                                setIsDeleteDialogOpen(true)
-                              }}
-                            >
-                              Delete
-                            </Button>
+                            {gi.status === "pending" ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setIsGroupDialogOpen(false)
+                                    handleReceiveInventory(gi.id)
+                                  }}
+                                  style={{ backgroundColor: "#2B3068" }}
+                                  className="hover:opacity-90 text-white"
+                                >
+                                  Mark Received
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  style={{ borderColor: "#2B3068", color: "#2B3068" }}
+                                  className="hover:bg-slate-50"
+                                  onClick={() => {
+                                    setIsGroupDialogOpen(false)
+                                    handleEditInventory(gi)
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  style={{ borderColor: "#2B3068", color: "#2B3068" }}
+                                  className="hover:bg-slate-50"
+                                  onClick={() => {
+                                    setIsGroupDialogOpen(false)
+                                    handleEditInventory(gi)
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  style={{ borderColor: "#dc2626", color: "#dc2626" }}
+                                  className="hover:bg-red-50"
+                                  onClick={() => {
+                                    setIsGroupDialogOpen(false)
+                                    setDeleteTarget(gi)
+                                    setIsDeleteDialogOpen(true)
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+            {groupDialogMode === "edit" && groupItems.length > 1 && groupItems[0]?.status === "pending" && (
+              <div className="flex justify-end">
+                <Button 
+                  style={{ backgroundColor: "#2B3068" }}
+                  className="hover:opacity-90 text-white"
+                  onClick={async () => {
+                    setIsGroupDialogOpen(false)
+                    const groupedIds = groupItems.map(item => item.id).join(',')
+                    await handleReceiveGroupedInventory(groupedIds)
+                  }}
+                >
+                  Mark All Received
+                </Button>
               </div>
             )}
             {groupDialogMode === "delete" && groupItems.length > 1 && (
