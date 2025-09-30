@@ -64,14 +64,44 @@ export function ProductManagement() {
     setSubmitting(true)
 
     try {
+      // Validate required fields
+      if (!formData.name.trim()) {
+        alert("Product name is required")
+        return
+      }
+      
+      if (!formData.leastPrice.trim()) {
+        alert("Least price is required")
+        return
+      }
+      
+      // Parse and validate prices
+      const costPrice = formData.costPrice.trim() ? Number.parseFloat(formData.costPrice) : 0
+      const leastPrice = Number.parseFloat(formData.leastPrice)
+      
+      if (isNaN(leastPrice) || leastPrice < 0) {
+        alert("Please enter a valid least price")
+        return
+      }
+      
+      if (formData.costPrice.trim() && (isNaN(costPrice) || costPrice < 0)) {
+        alert("Please enter a valid cost price")
+        return
+      }
+
+      // Validate product code
+      if (!formData.productCode.trim()) {
+        alert("Product code is required. Click 'Auto-Generate' to create one.")
+        return
+      }
+
       const productData = {
         name: formData.name,
-        // Only include productCode when editing, let backend generate it for new products
-        ...(editingProduct ? { productCode: formData.productCode } : {}),
+        productCode: formData.productCode,
         category: formData.category,
         cylinderSize: formData.category === "cylinder" ? formData.cylinderSize : undefined,
-        costPrice: Number.parseFloat(formData.costPrice),
-        leastPrice: Number.parseFloat(formData.leastPrice),
+        costPrice: costPrice,
+        leastPrice: leastPrice,
         // Only set currentStock to 0 for new products, not when updating existing ones
         ...(editingProduct ? {} : { currentStock: 0 }),
       }
@@ -90,6 +120,47 @@ export function ProductManagement() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const generateProductCode = () => {
+    if (!formData.name.trim()) {
+      alert("Please enter a product name first")
+      return
+    }
+
+    // Generate prefix from product name
+    const prefix = formData.name.trim().split(/\s+/).map((word, index) => {
+      const upperWord = word.toUpperCase()
+      if (index === 0) {
+        // First word: apply special abbreviations
+        if (upperWord.startsWith('CYL')) return 'CY'
+        if (upperWord.startsWith('GAS')) return 'GA'
+        if (upperWord.startsWith('OXY')) return 'OX'
+      }
+      // All other words (or first word without special pattern): just first letter
+      return word.charAt(0).toUpperCase()
+    }).join('')
+
+    // Find ALL existing product numbers across all prefixes to determine next number
+    const existingNumbers = products
+      .map(p => p.productCode)
+      .filter(code => code.includes('-'))
+      .map(code => {
+        const parts = code.split('-')
+        if (parts.length === 2) {
+          const num = parseInt(parts[1])
+          return isNaN(num) ? 0 : num
+        }
+        return 0
+      })
+      .filter(num => num > 0) // Only valid numbers
+
+    // Find the next available number across all products
+    const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1
+    const paddedNumber = nextNumber.toString().padStart(3, '0')
+    
+    const newProductCode = `${prefix}-${paddedNumber}`
+    setFormData({ ...formData, productCode: newProductCode })
   }
 
   const resetForm = () => {
@@ -191,7 +262,43 @@ export function ProductManagement() {
                     <Input
                       id="name"
                       value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, name: e.target.value })
+                        // Auto-generate product code for new products when name changes
+                        if (!editingProduct && e.target.value.trim()) {
+                          setTimeout(() => {
+                            // Use setTimeout to ensure the state is updated first
+                            const prefix = e.target.value.trim().split(/\s+/).map((word, index) => {
+                              const upperWord = word.toUpperCase()
+                              if (index === 0) {
+                                if (upperWord.startsWith('CYL')) return 'CY'
+                                if (upperWord.startsWith('GAS')) return 'GA'
+                                if (upperWord.startsWith('OXY')) return 'OX'
+                              }
+                              return word.charAt(0).toUpperCase()
+                            }).join('')
+
+                            const existingNumbers = products
+                              .map(p => p.productCode)
+                              .filter(code => code.includes('-'))
+                              .map(code => {
+                                const parts = code.split('-')
+                                if (parts.length === 2) {
+                                  const num = parseInt(parts[1])
+                                  return isNaN(num) ? 0 : num
+                                }
+                                return 0
+                              })
+                              .filter(num => num > 0) // Only valid numbers
+
+                            const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1
+                            const paddedNumber = nextNumber.toString().padStart(3, '0')
+                            const newProductCode = `${prefix}-${paddedNumber}`
+                            
+                            setFormData(prev => ({ ...prev, productCode: newProductCode }))
+                          }, 100)
+                        }
+                      }}
                       required
                       className="h-11 sm:h-12 text-sm sm:text-base"
                     />
@@ -199,26 +306,25 @@ export function ProductManagement() {
 
                   <div className="space-y-2">
                     <Label htmlFor="productCode" className="text-sm font-medium">Product Code</Label>
-                    <div className="flex items-center h-11 sm:h-12 px-3 bg-gray-50 border border-gray-200 rounded-md text-sm sm:text-base text-gray-600">
-                      {formData.name ? (
-                        <span className="font-mono">
-                          {formData.name.trim().split(/\s+/).map((word, index) => {
-                            const upperWord = word.toUpperCase()
-                            if (index === 0) {
-                              // First word: apply special abbreviations
-                              if (upperWord.startsWith('CYL')) return 'CY'
-                              if (upperWord.startsWith('GAS')) return 'GA'
-                              if (upperWord.startsWith('OXY')) return 'OX'
-                            }
-                            // All other words (or first word without special pattern): just first letter
-                            return word.charAt(0).toUpperCase()
-                          }).join('')}-001
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">N/A</span>
-                      )}
+                    <Input
+                      id="productCode"
+                      value={formData.productCode}
+                      onChange={(e) => setFormData({ ...formData, productCode: e.target.value })}
+                      placeholder="Auto-generated or enter custom code"
+                      className="h-11 sm:h-12 text-sm sm:text-base font-mono"
+                    />
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-500">Editable product code</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => generateProductCode()}
+                        className="text-xs h-7"
+                      >
+                        Auto-Generate
+                      </Button>
                     </div>
-                    <p className="text-xs text-gray-500">Auto-generated from product name (first letters + sequential number)</p>
                   </div>
 
                   <div className="space-y-2">
@@ -257,13 +363,14 @@ export function ProductManagement() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="costPrice" className="text-sm font-medium">Cost Price (AED)</Label>
+                      <Label htmlFor="costPrice" className="text-sm font-medium">Cost Price (AED) <span className="text-gray-500 font-normal">(Optional)</span></Label>
                       <Input
                         id="costPrice"
                         type="number"
                         step="0.01"
                         value={formData.costPrice}
                         onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
+                        placeholder="0.00"
                         className="h-11 sm:h-12 text-sm sm:text-base"
                       />
                     </div>
