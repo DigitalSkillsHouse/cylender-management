@@ -43,6 +43,11 @@ const purchaseOrderSchema = new mongoose.Schema({
       type: Number,
       required: true,
       min: 0
+    },
+    inventoryStatus: {
+      type: String,
+      enum: ['pending', 'received'],
+      default: 'pending'
     }
   }],
   totalAmount: {

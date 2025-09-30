@@ -27,6 +27,8 @@ interface InventoryItem {
   isEmployeePurchase?: boolean
   employeeName?: string
   groupedItems?: InventoryItem[]
+  originalOrderId?: string
+  itemIndex?: number
 }
 
 interface Product {
@@ -112,25 +114,8 @@ export function Inventory() {
       )
 
       const inventoryItems = Array.isArray(allPurchaseOrders)
-        ? allPurchaseOrders.map((order: any, idx: number) => {
-            const productRef = order.product ?? order.productId
+        ? allPurchaseOrders.flatMap((order: any, idx: number) => {
             const supplierRef = order.supplier ?? order.supplierId ?? order.vendor
-
-            // Resolve product name from populated object, ID lookup, or fallback fields
-            let resolvedProductName = 'Unknown Product'
-            if (productRef && typeof productRef === 'object') {
-              resolvedProductName = productRef.name || productRef.title || order.productName || resolvedProductName
-            } else if (typeof productRef === 'string') {
-              const p = productsMap.get(productRef)
-              if (p) resolvedProductName = p.name || p.title || resolvedProductName
-              else resolvedProductName = order.productName || resolvedProductName
-            } else {
-              resolvedProductName = order.productName || resolvedProductName
-            }
-            
-            if (resolvedProductName === 'Unknown Product' && typeof productRef === 'string') {
-              resolvedProductName = productRef
-            }
 
             // Resolve supplier name from populated object, ID lookup, or fallback fields
             let resolvedSupplierName = 'Unknown Supplier'
@@ -158,38 +143,64 @@ export function Inventory() {
               }
             }
 
-            // Debug when names cannot be resolved
-            if (resolvedSupplierName === 'Unknown Supplier') {
-              console.debug('[Inventory] Could not resolve supplier name for PO', order.poNumber || order._id, {
-                supplierRef,
-                orderSupplier: order.supplier,
-                supplierId: typeof supplierRef === 'string' ? supplierRef : supplierRef?._id,
-                suppliersSample: suppliersData?.slice?.(0, 1),
-              })
-            }
-            if (resolvedProductName === 'Unknown Product' && idx < 3) {
-              console.debug('[Inventory] Could not resolve product name for PO', order.poNumber || order._id, {
-                productRef,
-                orderProduct: order.product,
-                productId: typeof productRef === 'string' ? productRef : productRef?._id,
-                productsSample: productsData?.slice?.(0, 1),
-              })
-            }
+            // Handle both old single-item structure and new multi-item structure
+            const items = order.items && Array.isArray(order.items) ? order.items : [order]
+            
+            return items.map((item: any, itemIndex: number) => {
+              const productRef = item.product ?? item.productId ?? order.product ?? order.productId
 
-            return {
-              id: order._id,
-              poNumber: order.poNumber || `PO-${order._id?.slice(-6) || 'UNKNOWN'}`,
-              productName: resolvedProductName,
-              supplierName: resolvedSupplierName,
-              purchaseDate: order.purchaseDate || order.createdAt,
-              quantity: order.quantity || 0,
-              unitPrice: order.unitPrice || 0,
-              totalAmount: order.totalAmount || 0,
-              status: order.inventoryStatus || 'pending',
-              purchaseType: order.purchaseType || 'gas',
-              isEmployeePurchase: order.isEmployeePurchase || false,
-              employeeName: employeeName
-            } as InventoryItem
+              // Resolve product name from populated object, ID lookup, or fallback fields
+              let resolvedProductName = 'Unknown Product'
+              if (productRef && typeof productRef === 'object') {
+                resolvedProductName = productRef.name || productRef.title || item.productName || order.productName || resolvedProductName
+              } else if (typeof productRef === 'string') {
+                const p = productsMap.get(productRef)
+                if (p) resolvedProductName = p.name || p.title || resolvedProductName
+                else resolvedProductName = item.productName || order.productName || resolvedProductName
+              } else {
+                resolvedProductName = item.productName || order.productName || resolvedProductName
+              }
+              
+              if (resolvedProductName === 'Unknown Product' && typeof productRef === 'string') {
+                resolvedProductName = productRef
+              }
+
+              // Debug when names cannot be resolved
+              if (resolvedSupplierName === 'Unknown Supplier') {
+                console.debug('[Inventory] Could not resolve supplier name for PO', order.poNumber || order._id, {
+                  supplierRef,
+                  orderSupplier: order.supplier,
+                  supplierId: typeof supplierRef === 'string' ? supplierRef : supplierRef?._id,
+                  suppliersSample: suppliersData?.slice?.(0, 1),
+                })
+              }
+              if (resolvedProductName === 'Unknown Product' && idx < 3) {
+                console.debug('[Inventory] Could not resolve product name for PO', order.poNumber || order._id, {
+                  productRef,
+                  orderProduct: order.product,
+                  itemProduct: item.product,
+                  productId: typeof productRef === 'string' ? productRef : productRef?._id,
+                  productsSample: productsData?.slice?.(0, 1),
+                })
+              }
+
+              return {
+                id: `${order._id}-${itemIndex}`, // Unique ID for each item
+                poNumber: order.poNumber || `PO-${order._id?.slice(-6) || 'UNKNOWN'}`,
+                productName: resolvedProductName,
+                supplierName: resolvedSupplierName,
+                purchaseDate: order.purchaseDate || order.createdAt,
+                quantity: item.quantity || order.quantity || 0,
+                unitPrice: item.unitPrice || order.unitPrice || 0,
+                totalAmount: item.itemTotal || item.totalAmount || order.totalAmount || 0,
+                status: item.inventoryStatus || order.inventoryStatus || 'pending',
+                purchaseType: item.purchaseType || order.purchaseType || 'gas',
+                isEmployeePurchase: order.isEmployeePurchase || false,
+                employeeName: employeeName,
+                originalOrderId: order._id, // Keep reference to original order for updates
+                itemIndex: itemIndex // Keep track of item index for individual updates
+              } as InventoryItem
+            })
           })
         : []
 
@@ -210,11 +221,39 @@ export function Inventory() {
     try {
       console.log("Updating inventory status to received for ID:", id)
       
-      // Update status in database - the API will handle stock synchronization automatically
-      const response = await inventoryAPI.receiveInventory(id)
+      // Find the inventory item to get the original order ID and item index
+      const inventoryItem = inventory.find(item => item.id === id)
+      if (!inventoryItem) {
+        setError("Inventory item not found")
+        return
+      }
+      
+      const orderIdToUpdate = inventoryItem.originalOrderId || id
+      const itemIndex = inventoryItem.itemIndex
+      
+      console.log("Using order ID for update:", orderIdToUpdate, "Item index:", itemIndex)
+      
+      // Use the new item-level API if we have an item index, otherwise fall back to old API
+      let response
+      if (itemIndex !== undefined && itemIndex >= 0) {
+        // Use new item-level API
+        response = await fetch(`/api/inventory/item/${orderIdToUpdate}/${itemIndex}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ status: 'received' })
+        })
+        response = await response.json()
+      } else {
+        // Fall back to old API for backward compatibility
+        response = await inventoryAPI.receiveInventory(orderIdToUpdate)
+        response = response.data
+      }
+      
       console.log("Inventory update response:", response)
       
-      if (response.data.success) {
+      if (response.success) {
         // Refresh inventory data to get updated values from database
         await fetchInventoryData()
       } else {
@@ -239,8 +278,15 @@ export function Inventory() {
   const handleDeleteReceived = async (id: string) => {
     try {
       setError("")
+      
+      // Find the inventory item to get the original order ID
+      const inventoryItem = inventory.find(item => item.id === id)
+      const orderIdToDelete = inventoryItem?.originalOrderId || id
+      
+      console.log("Deleting order ID:", orderIdToDelete)
+      
       // Delete the underlying purchase order record which we map as received inventory
-      const res = await purchaseOrdersAPI.delete(id)
+      const res = await purchaseOrdersAPI.delete(orderIdToDelete)
       if (res.status >= 200 && res.status < 300) {
         await fetchInventoryData()
         setIsDeleteDialogOpen(false)
@@ -331,46 +377,57 @@ export function Inventory() {
   const pendingItems = inventory.filter((item) => item.status === "pending")
   const receivedItemsRaw = inventory.filter((item) => item.status === "received")
 
-  // Aggregate received items by product, supplier, and type (not by INV number)
+  // Aggregate received items by invoice number and supplier
   const aggregateReceived = (items: InventoryItem[]) => {
     const map = new Map<string, any>()
     items.forEach((it) => {
-      // Create a key based on product, supplier, and type to group similar items
-      const key = `${it.productName}|${it.supplierName}|${it.purchaseType}`
+      // Create a key based on invoice number and supplier to group items from same purchase order
+      const key = `${it.poNumber}|${it.supplierName}`
       const curr = map.get(key) || {
         idList: [] as string[],
-        poNumbers: new Set<string>(),
-        productName: it.productName,
+        poNumber: it.poNumber,
         supplierName: it.supplierName,
-        purchaseType: it.purchaseType,
+        purchaseDate: it.purchaseDate,
         quantity: 0,
         totalAmount: 0,
         items: [] as InventoryItem[],
+        isEmployeePurchase: it.isEmployeePurchase,
+        employeeName: it.employeeName || "",
       }
       curr.idList.push(it.id)
-      curr.poNumbers.add(it.poNumber)
       curr.quantity += Number(it.quantity) || 0
       curr.totalAmount += Number(it.totalAmount) || 0
       curr.items.push(it)
+      // Keep employee info if any item is from employee purchase
+      if (it.isEmployeePurchase) {
+        curr.isEmployeePurchase = true
+        curr.employeeName = it.employeeName || curr.employeeName
+      }
       map.set(key, curr)
     })
     return Array.from(map.values()).map((grp) => {
+      // For display, show the first product name if single item, or "Multiple Items" if multiple
+      const uniqueProducts = new Set(grp.items.map((item: InventoryItem) => item.productName))
+      const productName = uniqueProducts.size === 1 
+        ? Array.from(uniqueProducts)[0] 
+        : `Multiple Items (${grp.items.length})`
+      
       const unitPrice = grp.quantity ? grp.totalAmount / grp.quantity : 0
-      const poNumbersArray = Array.from(grp.poNumbers)
+      
       return {
         id: grp.idList.join(","),
-        poNumber: poNumbersArray.length === 1 ? poNumbersArray[0] : `Multiple (${poNumbersArray.length})`,
-        productName: grp.productName,
+        poNumber: grp.poNumber,
+        productName: productName,
         supplierName: grp.supplierName,
-        purchaseDate: "",
+        purchaseDate: grp.purchaseDate,
         quantity: grp.quantity,
         unitPrice,
         totalAmount: grp.totalAmount,
         status: "received" as const,
-        purchaseType: grp.purchaseType,
-        isEmployeePurchase: grp.items.some((item: InventoryItem) => item.isEmployeePurchase),
-        employeeName: grp.items.find((item: InventoryItem) => item.employeeName)?.employeeName || "",
-        groupedItems: grp.items, // Store individual items for dropdown
+        purchaseType: grp.items.length === 1 ? grp.items[0].purchaseType : "multiple",
+        isEmployeePurchase: grp.isEmployeePurchase,
+        employeeName: grp.employeeName,
+        groupedItems: grp.items, // Store individual items for expandable view
       } as InventoryItem & { groupedItems: InventoryItem[] }
     })
   }
