@@ -106,20 +106,41 @@ export function CollectionPage({ user }: CollectionPageProps) {
     }
   }
 
-  const fetchData = async (customerId?: string) => {
+  const fetchData = async (customerId?: string, forceRefresh = false) => {
     setLoading(true)
     try {
       if (!customerId) {
         // No customer selected: clear invoices
         setInvoices([])
       } else {
-        // Load pending invoices only for the selected customer
-        const res = await fetch(`/api/collections?customerId=${customerId}`)
-        const data = await res.json().catch(() => ({}))
+        // Load pending invoices only for the selected customer with cache busting
+        const timestamp = forceRefresh ? `&_t=${Date.now()}` : ''
+        const res = await fetch(`/api/collections?customerId=${customerId}${timestamp}`, {
+          method: 'GET',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        })
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+        }
+        
+        const data = await res.json()
+        console.log('Collections API Response:', data) // Debug logging
+        
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch pending invoices')
+        }
+        
         const arr: PendingInvoice[] = Array.isArray(data?.data) ? data.data : []
+        console.log(`Found ${arr.length} pending invoices for customer ${customerId}`) // Debug logging
         setInvoices(arr)
       }
     } catch (e: any) {
+      console.error('fetchData error:', e) // Debug logging
       toast({ title: "Failed to load pending invoices", description: e?.message || "", variant: "destructive" })
       setInvoices([])
     } finally {
@@ -131,10 +152,23 @@ export function CollectionPage({ user }: CollectionPageProps) {
     fetchCustomers()
   }, [])
 
+  // Add window focus listener to refresh data when user returns from other pages
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log("Collection page focused, refreshing data...")
+      if (selectedCustomer?._id) {
+        fetchData(selectedCustomer._id, true) // Force refresh on focus
+      }
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [selectedCustomer?._id])
+
   // When customer is selected, load their pending invoices
   useEffect(() => {
     if (selectedCustomer?._id) {
-      fetchData(selectedCustomer._id)
+      fetchData(selectedCustomer._id, true) // Force refresh when customer changes
     } else {
       setInvoices([])
     }
@@ -260,6 +294,10 @@ export function CollectionPage({ user }: CollectionPageProps) {
   }
 
   const handleReceiveAmountClick = () => {
+    console.log('handleReceiveAmountClick called')
+    console.log('Current selected state:', selected)
+    console.log('Current amounts state:', amounts)
+    
     // Collect all selected items from all customer groups
     const selectedItems: Array<{
       invoice: PendingInvoice,
@@ -292,6 +330,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
         }
       }
     })
+    
+    console.log('Collected selectedItems:', selectedItems)
     
     if (!selectedItems.length) {
       toast({ title: "No items selected", variant: "destructive" })
@@ -331,6 +371,9 @@ export function CollectionPage({ user }: CollectionPageProps) {
   
   const submitPaymentCollection = async () => {
     const add = Number.parseFloat(paymentDialog.inputAmount || '0')
+    console.log('submitPaymentCollection called with amount:', add)
+    console.log('paymentDialog.selectedItems:', paymentDialog.selectedItems)
+    
     if (!Number.isFinite(add) || add <= 0) {
       toast({ title: 'Enter a valid amount > 0', variant: 'destructive' })
       return
@@ -352,16 +395,39 @@ export function CollectionPage({ user }: CollectionPageProps) {
       return
     }
     
-    // Create payments array for API
-    const payments = paymentDialog.selectedInvoices.map((inv) => {
-      const invoiceAmount = Number(amounts[inv._id]) || inv.balance
-      const proportionalAmount = (invoiceAmount / paymentDialog.totalAmount) * add
-      return {
-        model: inv.model,
-        id: inv._id,
-        amount: proportionalAmount
+    // Create payments array for API using selected items
+    const payments: Array<{ model: string; id: string; amount: number }> = []
+    
+    // Group selected items by invoice to create payment entries
+    const invoicePayments = new Map<string, number>()
+    
+    paymentDialog.selectedItems.forEach(selectedItem => {
+      const invoiceId = selectedItem.invoice._id
+      const itemAmount = selectedItem.amount
+      const proportionalAmount = (itemAmount / paymentDialog.totalAmount) * add
+      
+      // Accumulate amounts for the same invoice
+      invoicePayments.set(invoiceId, (invoicePayments.get(invoiceId) || 0) + proportionalAmount)
+    })
+    
+    // Convert to payments array
+    invoicePayments.forEach((amount, invoiceId) => {
+      const invoice = paymentDialog.selectedItems.find(item => item.invoice._id === invoiceId)?.invoice
+      if (invoice && amount > 0) {
+        payments.push({
+          model: invoice.model,
+          id: invoiceId,
+          amount: amount
+        })
       }
-    }).filter(p => p.amount > 0)
+    })
+    
+    console.log('Generated payments array:', payments)
+    
+    if (payments.length === 0) {
+      toast({ title: 'No valid payments to process', variant: 'destructive' })
+      return
+    }
     
     // Cache the payments and payment details for signature
     setPendingPaymentsCache(payments)
@@ -479,7 +545,7 @@ setReceiptData({
             <p className="text-white/80 text-sm">Search a customer to view and collect their pending invoices</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => fetchData(selectedCustomer?._id)} disabled={loading}>
+            <Button variant="secondary" onClick={() => fetchData(selectedCustomer?._id, true)} disabled={loading}>
               <RefreshCcw className="w-4 h-4 mr-2" /> Refresh
             </Button>
           </div>
