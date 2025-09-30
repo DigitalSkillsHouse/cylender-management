@@ -524,7 +524,7 @@ setReceiptData({
           )}
           {selectedCustomer && (
           <>
-          <div className="overflow-x-auto space-y-6">
+          <div className="space-y-6">
             {groupedByCustomer.length === 0 && (
               <div className="p-4 text-center text-gray-500">No pending invoices</div>
             )}
@@ -539,8 +539,9 @@ setReceiptData({
               const groupTotalBalance = group.invoices.reduce((s, inv) => s + (inv.balance || 0), 0)
               return (
                 <div key={group.key} className="border rounded-lg">
-                  <div className="flex items-center justify-between p-3 bg-gray-50 border-b rounded-t-lg">
-                    <div className="flex items-center gap-3">
+                  {/* Fixed Customer Header - Does not scroll */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-gray-50 border-b rounded-t-lg gap-3">
+                    <div className="flex items-center gap-3 flex-1">
                       <Checkbox checked={allSelected} onCheckedChange={(v) => {
                         const checked = Boolean(v)
                         group.invoices.forEach((inv) => {
@@ -560,15 +561,15 @@ setReceiptData({
                           }
                         })
                       }} />
-                      <div>
-                        <div className="font-semibold">{group.name}</div>
+                      <div className="flex-1">
+                        <div className="font-semibold text-sm sm:text-base">{group.name}</div>
                         {group.phone && (
-                          <div className="text-xs text-gray-600">{group.phone}</div>
+                          <div className="text-xs sm:text-sm text-gray-600">{group.phone}</div>
                         )}
-                        <div className="text-xs text-gray-600">Pending invoices: {group.invoices.length} • Total balance: AED {groupTotalBalance.toFixed(2)}</div>
+                        <div className="text-xs sm:text-sm text-gray-600">Pending invoices: {group.invoices.length} • Total balance: AED {groupTotalBalance.toFixed(2)}</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                       <Button
                         variant="outline"
                         size="sm"
@@ -666,7 +667,9 @@ setReceiptData({
                       </Button>
                     </div>
                   </div>
-                  <table className="w-full text-sm">
+                  {/* Scrollable Table Section - Only this part scrolls */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[600px] text-sm">
                     <thead>
                       <tr className="bg-gray-100">
                         <th className="p-2"></th>
@@ -765,7 +768,8 @@ setReceiptData({
                         )
                       )}
                     </tbody>
-                  </table>
+                    </table>
+                  </div>
                 </div>
               )
             })}
