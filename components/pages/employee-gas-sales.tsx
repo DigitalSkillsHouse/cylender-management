@@ -59,6 +59,7 @@ interface Sale {
 interface Customer {
   _id: string
   name: string
+  serialNumber?: string
   phone?: string
   email?: string
   address?: string
@@ -354,6 +355,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       const filtered = customers.filter(
         (customer) =>
           customer.name.toLowerCase().includes(value.toLowerCase()) ||
+          (customer.serialNumber && customer.serialNumber.toLowerCase().includes(value.toLowerCase())) ||
           (customer.phone && customer.phone.includes(value)) ||
           (customer.email && customer.email.toLowerCase().includes(value.toLowerCase()))
       )

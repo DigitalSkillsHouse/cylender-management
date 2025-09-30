@@ -79,6 +79,7 @@ interface CylinderTransaction {
 interface Customer {
   _id: string
   name: string
+  serialNumber?: string
   phone: string
   address: string
   email?: string
@@ -1462,11 +1463,28 @@ export function CylinderManagement() {
     setCustomerSearchTerm(value)
     
     if (value.trim().length > 0) {
-      const filtered = customers.filter(customer => 
-        customer.name.toLowerCase().includes(value.toLowerCase()) ||
-        customer.phone.includes(value) ||
-        (customer.email && customer.email.toLowerCase().includes(value.toLowerCase()))
-      ).slice(0, 5) // Limit to 5 suggestions
+      // Debug: Log search details
+      console.log("Cylinder Management - Searching for:", value)
+      console.log("Total customers:", customers.length)
+      console.log("Sample customer:", customers[0])
+      
+      const filtered = customers.filter(customer => {
+        const nameMatch = customer.name.toLowerCase().includes(value.toLowerCase())
+        const serialMatch = customer.serialNumber && customer.serialNumber.toLowerCase().includes(value.toLowerCase())
+        const phoneMatch = customer.phone.includes(value)
+        const emailMatch = customer.email && customer.email.toLowerCase().includes(value.toLowerCase())
+        
+        const isMatch = nameMatch || serialMatch || phoneMatch || emailMatch
+        
+        // Debug: Log each customer's match details
+        if (serialMatch) {
+          console.log("Cylinder Management - Serial number match found:", customer.name, customer.serialNumber)
+        }
+        
+        return isMatch
+      }).slice(0, 5) // Limit to 5 suggestions
+      
+      console.log("Cylinder Management - Filtered results:", filtered.length)
       
       setFilteredCustomerSuggestions(filtered)
       setShowCustomerSuggestions(true)
@@ -1792,7 +1810,7 @@ export function CylinderManagement() {
                     <Label htmlFor="customer">Customer *</Label>
                     <Input
                       id="customer"
-                      placeholder="Search by name, phone, or email..."
+                      placeholder="Search by name, serial number, phone, or email..."
                       value={customerSearchTerm}
                       onChange={(e) => handleCustomerSearchChange(e.target.value)}
                       onFocus={handleCustomerInputFocus}
@@ -1809,7 +1827,14 @@ export function CylinderManagement() {
                             onClick={() => handleCustomerSuggestionClick(customer)}
                           >
                             <div className="flex flex-col">
-                              <span className="font-medium text-gray-900">{customer.name}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-900">{customer.name}</span>
+                                {customer.serialNumber && (
+                                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                                    {customer.serialNumber}
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
                                 <span>Phone: {customer.phone}</span>
                                 {customer.email && <span>Email: {customer.email}</span>}

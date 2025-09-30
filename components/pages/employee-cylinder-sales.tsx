@@ -26,6 +26,7 @@ interface EmployeeCylinderSalesProps {
 interface Customer {
   _id: string
   name: string
+  serialNumber?: string
   email: string
   phone: string
   address?: string
@@ -706,11 +707,29 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const handleCustomerSearchChange = (value: string) => {
     setCustomerSearch(value)
     if (value.trim()) {
-      const filtered = customers.filter(customer =>
-        customer.name.toLowerCase().includes(value.toLowerCase()) ||
-        customer.email.toLowerCase().includes(value.toLowerCase()) ||
-        customer.phone.includes(value)
-      ).slice(0, 5)
+      // Debug: Log search details
+      console.log("Employee Cylinder Sales - Searching for:", value)
+      console.log("Total customers:", customers.length)
+      console.log("Sample customer:", customers[0])
+      
+      const filtered = customers.filter(customer => {
+        const nameMatch = customer.name.toLowerCase().includes(value.toLowerCase())
+        const serialMatch = customer.serialNumber && customer.serialNumber.toLowerCase().includes(value.toLowerCase())
+        const emailMatch = customer.email.toLowerCase().includes(value.toLowerCase())
+        const phoneMatch = customer.phone.includes(value)
+        
+        const isMatch = nameMatch || serialMatch || emailMatch || phoneMatch
+        
+        // Debug: Log each customer's match details
+        if (serialMatch) {
+          console.log("Employee Cylinder Sales - Serial number match found:", customer.name, customer.serialNumber)
+        }
+        
+        return isMatch
+      }).slice(0, 5)
+      
+      console.log("Employee Cylinder Sales - Filtered results:", filtered.length)
+      
       setFilteredCustomers(filtered)
       setShowCustomerSuggestions(true)
     } else {
@@ -1654,7 +1673,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           onChange={(e) => handleCustomerSearchChange(e.target.value)}
           onFocus={handleCustomerInputFocus}
           onBlur={handleCustomerInputBlur}
-          placeholder="Search for a customer..."
+          placeholder="Search by name, serial number, phone, or email..."
           autoComplete="off"
         />
         {showCustomerSuggestions && filteredCustomers.length > 0 && (
@@ -1665,7 +1684,15 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                 className="p-2 hover:bg-gray-100 cursor-pointer"
                 onMouseDown={() => handleCustomerSuggestionClick(customer)}
               >
-                {customer.name} ({customer.phone})
+                <div className="flex items-center gap-2">
+                  <span>{customer.name}</span>
+                  {customer.serialNumber && (
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                      {customer.serialNumber}
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm text-gray-500">({customer.phone})</div>
               </li>
             ))}
           </ul>

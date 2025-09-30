@@ -14,6 +14,7 @@ import { customersAPI } from "@/lib/api"
 interface Customer {
   _id: string
   name: string
+  serialNumber: string
   trNumber: string
   phone: string
   email: string
@@ -35,6 +36,7 @@ export function CustomerManagement() {
   
   const [formData, setFormData] = useState({
     name: "",
+    serialNumber: "",
     trNumber: "",
     phone: "",
     email: "",
@@ -44,6 +46,26 @@ export function CustomerManagement() {
   useEffect(() => {
     fetchCustomers()
   }, [])
+
+  // Generate next serial number
+  const generateNextSerialNumber = () => {
+    if (customers.length === 0) {
+      return "CU-0001"
+    }
+    
+    // Find the highest existing serial number
+    const serialNumbers = customers
+      .map(customer => customer.serialNumber)
+      .filter(serial => serial && serial.startsWith("CU-"))
+      .map(serial => {
+        const num = parseInt(serial.replace("CU-", ""))
+        return isNaN(num) ? 0 : num
+      })
+    
+    const maxNumber = Math.max(0, ...serialNumbers)
+    const nextNumber = maxNumber + 1
+    return `CU-${nextNumber.toString().padStart(4, '0')}`
+  }
 
   const fetchCustomers = async () => {
     try {
@@ -101,6 +123,7 @@ export function CustomerManagement() {
   const resetForm = () => {
     setFormData({
       name: "",
+      serialNumber: generateNextSerialNumber(),
       trNumber: "",
       phone: "",
       email: "",
@@ -114,6 +137,7 @@ export function CustomerManagement() {
     setEditingCustomer(customer)
     setFormData({
       name: customer.name,
+      serialNumber: customer.serialNumber || generateNextSerialNumber(),
       trNumber: customer.trNumber,
       phone: customer.phone,
       email: customer.email,
@@ -249,6 +273,20 @@ export function CustomerManagement() {
                       placeholder="Enter customer name"
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      required
+                      className="h-11 sm:h-12 border-gray-300 focus:border-[#2B3068] focus:ring-[#2B3068] text-sm sm:text-base"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="serialNumber" className="text-sm font-medium text-gray-700">
+                      Serial Number *
+                    </Label>
+                    <Input
+                      id="serialNumber"
+                      type="text"
+                      placeholder="Enter serial number"
+                      value={formData.serialNumber}
+                      onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
                       required
                       className="h-11 sm:h-12 border-gray-300 focus:border-[#2B3068] focus:ring-[#2B3068] text-sm sm:text-base"
                     />
@@ -396,6 +434,7 @@ export function CustomerManagement() {
               <TableHeader>
                 <TableRow className="bg-gray-50 border-b-2 border-gray-200">
                   <TableHead className="font-bold text-gray-700 p-4">Name</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-4">Serial Number</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">TR Number</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Phone</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Email</TableHead>
@@ -407,6 +446,7 @@ export function CustomerManagement() {
                 {Array.isArray(filteredCustomers) && filteredCustomers.map((customer) => (
                   <TableRow key={customer._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
                     <TableCell className="font-semibold text-[#2B3068] p-4">{customer.name}</TableCell>
+                    <TableCell className="p-4 font-medium text-blue-600">{customer.serialNumber || 'N/A'}</TableCell>
                     <TableCell className="p-4">{customer.trNumber}</TableCell>
                     <TableCell className="p-4">{customer.phone}</TableCell>
                     <TableCell className="p-4">{customer.email}</TableCell>

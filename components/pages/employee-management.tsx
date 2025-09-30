@@ -181,6 +181,7 @@ setStockAssignments(stockData)
   }
 
   // Notification functions replaced by useNotifications hook
+  // All old fetchAdminNotifications and checkForNewNotifications functions removed
 
   const showNotification = (message: string) => {
     setNotification({ message, visible: true })

@@ -6,6 +6,12 @@ const CustomerSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    serialNumber: {
+      type: String,
+      required: true,
+      unique: true,
+      default: "CU-0001",
+    },
     trNumber: {
       type: String,
       required: false,
