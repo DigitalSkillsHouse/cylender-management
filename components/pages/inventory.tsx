@@ -184,6 +184,19 @@ export function Inventory() {
                 })
               }
 
+              // Determine status with debugging
+              const itemStatus = item.inventoryStatus || order.inventoryStatus || 'pending'
+              
+              // Debug logging for status determination
+              if (itemIndex === 0 && idx < 3) {
+                console.log(`[Inventory Debug] Order ${order.poNumber || order._id?.slice(-6)}, Item ${itemIndex}:`, {
+                  itemInventoryStatus: item.inventoryStatus,
+                  orderInventoryStatus: order.inventoryStatus,
+                  finalStatus: itemStatus,
+                  productName: resolvedProductName
+                })
+              }
+
               return {
                 id: `${order._id}-${itemIndex}`, // Unique ID for each item
                 poNumber: order.poNumber || `PO-${order._id?.slice(-6) || 'UNKNOWN'}`,
@@ -193,7 +206,7 @@ export function Inventory() {
                 quantity: item.quantity || order.quantity || 0,
                 unitPrice: item.unitPrice || order.unitPrice || 0,
                 totalAmount: item.itemTotal || item.totalAmount || order.totalAmount || 0,
-                status: item.inventoryStatus || order.inventoryStatus || 'pending',
+                status: itemStatus,
                 purchaseType: item.purchaseType || order.purchaseType || 'gas',
                 isEmployeePurchase: order.isEmployeePurchase || false,
                 employeeName: employeeName,
@@ -254,10 +267,13 @@ export function Inventory() {
       console.log("Inventory update response:", response)
       
       if (response.success) {
+        console.log("Update successful, refreshing inventory data...")
         // Refresh inventory data to get updated values from database
         await fetchInventoryData()
+        console.log("Inventory data refreshed")
       } else {
         setError("Failed to update inventory status")
+        console.error("Update failed:", response)
       }
     } catch (error: any) {
       console.error("Failed to update inventory status:", error)

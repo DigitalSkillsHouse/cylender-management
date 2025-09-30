@@ -278,23 +278,44 @@ export async function PATCH(request, { params }) {
           console.log("Updating main product stock for admin purchase")
           
           let product = null
+          let productName = null
           
           // First try to get product from the populated reference
           if (updatedOrder.product && updatedOrder.product._id) {
             product = await Product.findById(updatedOrder.product._id)
+            productName = product?.name
           }
           
-          // If not found, try to find by name (fallback)
-          if (!product && updatedOrder.productName) {
-            product = await Product.findOne({ name: updatedOrder.productName })
+          // Get product name from populated data or fallback
+          if (updatedOrder.product && updatedOrder.product.name) {
+            productName = updatedOrder.product.name
+          } else if (updatedOrder.productName) {
+            productName = updatedOrder.productName
+          }
+          
+          // If not found, try to find by name and product code
+          if (!product && productName) {
+            // Try to find by name and product code if available
+            if (updatedOrder.product && updatedOrder.product.productCode) {
+              product = await Product.findOne({ 
+                name: productName, 
+                productCode: updatedOrder.product.productCode 
+              })
+              console.log("Found product by name and code:", productName, updatedOrder.product.productCode)
+            } else {
+              // Fallback to just name
+              product = await Product.findOne({ name: productName })
+              console.log("Found product by name only:", productName)
+            }
           }
           
           if (product) {
-            const newStock = (product.currentStock || 0) + (updatedOrder.quantity || 0)
+            const oldStock = product.currentStock || 0
+            const newStock = oldStock + (updatedOrder.quantity || 0)
             await Product.findByIdAndUpdate(product._id, { currentStock: newStock })
-            console.log(`Updated ${product.name} stock from ${product.currentStock} to ${newStock}`)
+            console.log(`Updated ${product.name} (Code: ${product.productCode || 'N/A'}) stock from ${oldStock} to ${newStock}`)
           } else {
-            console.warn("Product not found for stock update. Product ID:", updatedOrder.product?._id, "Product Name:", updatedOrder.productName)
+            console.warn("Product not found for stock update. Product Name:", productName, "Product ID:", updatedOrder.product?._id)
           }
         }
       } catch (stockError) {
