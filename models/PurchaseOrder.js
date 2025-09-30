@@ -6,38 +6,45 @@ const purchaseOrderSchema = new mongoose.Schema({
     ref: 'Supplier',
     required: true
   },
-  product: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Product',
-    required: true
-  },
   purchaseDate: {
     type: Date,
     required: true
   },
-  purchaseType: {
-    type: String,
-    enum: ['gas', 'cylinder'],
-    required: true
-  },
-  cylinderSize: {
-    type: String,
-    enum: ['5kg', '10kg', '15kg', '20kg', '25kg', '45kg'],
-    required: function () {
-      return this.purchaseType === 'cylinder'
+  items: [{
+    product: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
+      required: true
     },
-  },
-  quantity: {
-    type: Number,
-    required: true,
-    min: 1
-  },
-  unitPrice: {
-    type: Number,
-    required: false,
-    min: 0,
-    default: 0
-  },
+    purchaseType: {
+      type: String,
+      enum: ['gas', 'cylinder'],
+      required: true
+    },
+    cylinderSize: {
+      type: String,
+      enum: ['5kg', '10kg', '15kg', '20kg', '25kg', '45kg'],
+      required: function () {
+        return this.purchaseType === 'cylinder'
+      },
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1
+    },
+    unitPrice: {
+      type: Number,
+      required: false,
+      min: 0,
+      default: 0
+    },
+    itemTotal: {
+      type: Number,
+      required: true,
+      min: 0
+    }
+  }],
   totalAmount: {
     type: Number,
     required: true,

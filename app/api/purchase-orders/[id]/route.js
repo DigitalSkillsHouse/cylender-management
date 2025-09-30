@@ -17,7 +17,7 @@ export async function GET(request, { params }) {
     
     const purchaseOrder = await PurchaseOrder.findById(params.id)
       .populate('supplier', 'companyName')
-      .populate('product', 'name')
+      .populate('items.product', 'name')
     
     if (!purchaseOrder) {
       return NextResponse.json({ error: "Purchase order not found" }, { status: 404 })
@@ -33,101 +33,146 @@ export async function GET(request, { params }) {
 // PUT - Update purchase order
 export async function PUT(request, { params }) {
   try {
+    console.log("PUT /api/purchase-orders/[id] - Starting request")
+    
     // Verify authentication
     const user = await verifyToken(request)
     if (!user) {
+      console.log("Authentication failed")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    console.log("User authenticated:", user.role)
 
     await dbConnect()
+    console.log("Database connected")
     
     const body = await request.json()
+    console.log("Request body:", JSON.stringify(body, null, 2))
+    
     const {
       supplier,
-      product,
       purchaseDate,
-      purchaseType,
-      cylinderSize,
-      quantity,
-      unitPrice,
-      totalAmount,
+      items,
       notes,
       status
     } = body
 
-    // Validate required fields (unitPrice/total optional)
-    if (!supplier || !product || !purchaseDate || !purchaseType || !quantity) {
+    // Validate required fields
+    if (!supplier || !purchaseDate || !items || !Array.isArray(items) || items.length === 0) {
+      console.log("Missing required fields:", { supplier, purchaseDate, items: items?.length })
       return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      )
-    }
-    if (purchaseType === 'cylinder' && !cylinderSize) {
-      return NextResponse.json(
-        { error: "cylinderSize is required for cylinder purchases" },
+        { error: "Missing required fields. Supplier, purchase date, and items array are required." },
         { status: 400 }
       )
     }
 
-    const qtyNum = Number(quantity)
-    const unitPriceNum = (unitPrice !== undefined && unitPrice !== null && unitPrice !== "") ? Number(unitPrice) : 0
-    const computedTotal = (totalAmount !== undefined && totalAmount !== null && totalAmount !== "")
-      ? Number(totalAmount)
-      : (qtyNum * unitPriceNum)
+    // Validate and process each item
+    const processedItems = []
+    let totalOrderAmount = 0
 
-    // Determine effective cylinder size (normalize legacy values and infer from product if missing)
-    let effectiveCylinderSize = cylinderSize
-    if (purchaseType === 'cylinder') {
-      if (!effectiveCylinderSize) {
-        const prod = await Product.findById(product)
-        if (prod && prod.cylinderSize) {
-          effectiveCylinderSize = prod.cylinderSize === 'large' ? '45kg' : '5kg'
-        }
-      }
-      if (effectiveCylinderSize === 'large') effectiveCylinderSize = '45kg'
-      if (effectiveCylinderSize === 'small') effectiveCylinderSize = '5kg'
-      if (!effectiveCylinderSize) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      console.log(`Processing item ${i + 1}:`, item)
+
+      // Validate item fields
+      if (!item.productId || !item.purchaseType || !item.quantity) {
         return NextResponse.json(
-          { error: "cylinderSize is required for cylinder purchases" },
+          { error: `Item ${i + 1}: Missing required fields (productId, purchaseType, quantity)` },
           { status: 400 }
         )
       }
-    }
 
-    const updateDoc = {
-      $set: {
-        supplier,
-        product,
-        purchaseDate,
-        purchaseType,
+      let effectiveCylinderSize = item.cylinderSize
+      if (item.purchaseType === 'cylinder' && !effectiveCylinderSize) {
+        console.log(`Item ${i + 1}: Cylinder purchase without size, looking up product:`, item.productId)
+        try {
+          const prod = await Product.findById(item.productId)
+          console.log("Found product:", prod)
+          if (prod && prod.cylinderSize) {
+            effectiveCylinderSize = prod.cylinderSize === 'large' ? '45kg' : '5kg'
+            console.log("Inferred cylinder size:", effectiveCylinderSize)
+          } else {
+            return NextResponse.json(
+              { error: `Item ${i + 1}: cylinderSize is required for cylinder purchases` },
+              { status: 400 }
+            )
+          }
+        } catch (productError) {
+          console.error("Error fetching product:", productError)
+          return NextResponse.json(
+            { error: `Item ${i + 1}: Failed to validate product details` },
+            { status: 500 }
+          )
+        }
+      }
+
+      // Normalize legacy values if client provided them directly
+      if (item.purchaseType === 'cylinder' && effectiveCylinderSize) {
+        if (effectiveCylinderSize === 'large') effectiveCylinderSize = '45kg'
+        if (effectiveCylinderSize === 'small') effectiveCylinderSize = '5kg'
+      }
+
+      const qtyNum = Number(item.quantity)
+      const unitPriceNum = (item.unitPrice !== undefined && item.unitPrice !== null && item.unitPrice !== "") ? Number(item.unitPrice) : 0
+      const itemTotal = qtyNum * unitPriceNum
+
+      const processedItem = {
+        product: item.productId,
+        purchaseType: item.purchaseType,
+        ...(item.purchaseType === 'cylinder' ? { cylinderSize: effectiveCylinderSize } : {}),
         quantity: qtyNum,
         unitPrice: unitPriceNum,
-        totalAmount: computedTotal,
-        notes: notes || "",
-        status: status || "pending",
-      },
+        itemTotal: itemTotal
+      }
+
+      processedItems.push(processedItem)
+      totalOrderAmount += itemTotal
     }
-    if (purchaseType === 'cylinder') {
-      updateDoc.$set.cylinderSize = effectiveCylinderSize
-    } else {
-      updateDoc.$unset = { cylinderSize: 1 }
-    }
+
+    console.log("Updating purchase order with data:", {
+      supplier,
+      purchaseDate,
+      items: processedItems,
+      totalAmount: totalOrderAmount,
+      notes: notes || "",
+      status: status || "pending"
+    })
 
     const purchaseOrder = await PurchaseOrder.findByIdAndUpdate(
       params.id,
-      updateDoc,
+      {
+        supplier,
+        purchaseDate,
+        items: processedItems,
+        totalAmount: totalOrderAmount,
+        notes: notes || "",
+        status: status || "pending"
+      },
       { new: true }
     ).populate('supplier', 'companyName')
-     .populate('product', 'name')
+     .populate('items.product', 'name')
     
     if (!purchaseOrder) {
       return NextResponse.json({ error: "Purchase order not found" }, { status: 404 })
     }
     
+    console.log("Purchase order updated successfully")
     return NextResponse.json({ data: purchaseOrder })
   } catch (error) {
     console.error("Error updating purchase order:", error)
-    return NextResponse.json({ error: "Failed to update purchase order" }, { status: 500 })
+    console.error("Error stack:", error.stack)
+    
+    // Provide more specific error messages
+    let errorMessage = "Failed to update purchase order"
+    if (error.name === 'ValidationError') {
+      errorMessage = `Validation error: ${error.message}`
+    }
+    
+    return NextResponse.json({ 
+      error: errorMessage, 
+      details: error.message,
+      validationErrors: error.errors 
+    }, { status: 500 })
   }
 }
 

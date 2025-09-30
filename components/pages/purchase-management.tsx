@@ -17,12 +17,16 @@ import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 interface PurchaseOrder {
   _id: string
   supplier: { _id: string; companyName: string }
-  product: { _id: string; name: string }
+  items: Array<{
+    _id?: string
+    product: { _id: string; name: string }
+    purchaseType: "gas" | "cylinder"
+    cylinderSize?: string
+    quantity: number
+    unitPrice: number
+    itemTotal: number
+  }>
   purchaseDate: string
-  purchaseType: "gas" | "cylinder"
-  cylinderSize?: string
-  quantity: number
-  unitPrice: number
   totalAmount: number
   notes: string
   status: "pending" | "completed" | "cancelled"
@@ -171,46 +175,47 @@ export function PurchaseManagement() {
         }
       }
 
-      // For editing existing orders (single item), handle as before
+      // For editing existing orders, handle with new multi-item structure
       if (editingOrder) {
-        const item = formData.items[0]
         const purchaseData = {
           supplier: formData.supplierId,
-          product: item.productId,
           purchaseDate: formData.purchaseDate,
-          purchaseType: item.purchaseType,
-          ...(item.purchaseType === 'cylinder' ? { cylinderSize: item.cylinderSize || '' } : {}),
-          quantity: Number.parseInt(item.quantity),
-          ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
-          // totalAmount computed server-side when not provided
+          items: formData.items.map(item => ({
+            productId: item.productId,
+            purchaseType: item.purchaseType,
+            ...(item.purchaseType === 'cylinder' ? { cylinderSize: item.cylinderSize || '' } : {}),
+            quantity: item.quantity,
+            unitPrice: item.unitPrice || 0,
+          })),
           notes: formData.notes,
           invoiceNumber: formData.invoiceNumber.trim(),
         }
         await purchaseOrdersAPI.update(editingOrder._id, purchaseData)
       } else {
-        // For new orders, create multiple purchase orders (one per item)
-        for (const item of formData.items) {
-          const purchaseData = {
-            supplier: formData.supplierId,
-            product: item.productId,
-            purchaseDate: formData.purchaseDate,
+        // For new orders, create single purchase order with multiple items
+        const purchaseData = {
+          supplier: formData.supplierId,
+          purchaseDate: formData.purchaseDate,
+          items: formData.items.map(item => ({
+            productId: item.productId,
             purchaseType: item.purchaseType,
             ...(item.purchaseType === 'cylinder' ? { cylinderSize: item.cylinderSize || '' } : {}),
-            quantity: Number.parseInt(item.quantity),
-            ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
-            // totalAmount computed server-side when not provided
-            notes: formData.notes,
-            invoiceNumber: formData.invoiceNumber.trim(),
-          }
-          await purchaseOrdersAPI.create(purchaseData)
+            quantity: item.quantity,
+            unitPrice: item.unitPrice || 0,
+          })),
+          notes: formData.notes,
+          invoiceNumber: formData.invoiceNumber.trim(),
         }
+        await purchaseOrdersAPI.create(purchaseData)
       }
 
       await fetchData()
       resetForm()
       setIsDialogOpen(false)
     } catch (error: any) {
-      setError(error.response?.data?.error || "Failed to save purchase order")
+      console.error("Purchase order creation error:", error)
+      const errorMessage = error.response?.data?.error || error.message || "Failed to save purchase order"
+      setError(errorMessage)
     } finally {
       setSubmitting(false)
     }
@@ -238,27 +243,30 @@ export function PurchaseManagement() {
       supplierId: order.supplier._id,
       purchaseDate: order.purchaseDate.split("T")[0],
       invoiceNumber: order.poNumber || "",
-      items: [{
-        purchaseType: order.purchaseType,
-        productId: order.product._id,
-        quantity: order.quantity.toString(),
-        unitPrice: order.unitPrice.toString(),
-        cylinderSize: order.purchaseType === 'cylinder' ? (order.cylinderSize || '') : '',
-      }],
+      items: order.items.map(item => ({
+        purchaseType: item.purchaseType,
+        productId: item.product._id,
+        quantity: item.quantity.toString(),
+        unitPrice: item.unitPrice.toString(),
+        cylinderSize: item.purchaseType === 'cylinder' ? (item.cylinderSize || '') : '',
+      })),
       notes: order.notes || "",
     })
-    // Initialize current item inputs for edit mode of single existing order
-    const pName = products.find(p => p._id === order.product._id)?.name || ""
-    setCurrentItem({
-      purchaseType: order.purchaseType,
-      productId: order.product._id,
-      quantity: order.quantity.toString(),
-      unitPrice: order.unitPrice.toString(),
-      cylinderSize: order.cylinderSize || "",
-    })
-    setProductSearchTerm(pName)
+    // Initialize current item inputs for edit mode - use first item
+    const firstItem = order.items[0]
+    if (firstItem) {
+      const pName = products.find(p => p._id === firstItem.product._id)?.name || ""
+      setCurrentItem({
+        purchaseType: firstItem.purchaseType,
+        productId: firstItem.product._id,
+        quantity: firstItem.quantity.toString(),
+        unitPrice: firstItem.unitPrice.toString(),
+        cylinderSize: firstItem.cylinderSize || "",
+      })
+      setProductSearchTerm(pName)
+    }
     setShowProductSuggestions(false)
-    setEditingItemIndex(0)
+    setEditingItemIndex(null)
     setIsDialogOpen(true)
   }
 
@@ -359,12 +367,12 @@ export function PurchaseManagement() {
     const q = searchTerm.trim().toLowerCase()
     if (!q) return true
     const supplierName = o.supplier?.companyName
-    const productName = o.product?.name
+    const productNames = o.items?.map(item => item.product?.name).join(" ") || ""
     const dateStr = o.purchaseDate ? new Date(o.purchaseDate).toLocaleDateString() : ""
     return (
       norm(o.poNumber).includes(q) ||
       norm(supplierName).includes(q) ||
-      norm(productName).includes(q) ||
+      norm(productNames).includes(q) ||
       norm(o.status).includes(q) ||
       norm(dateStr).includes(q)
     )
@@ -382,28 +390,17 @@ export function PurchaseManagement() {
   }
 
   const groupedByInvoice: InvoiceGroup[] = (() => {
-    const map: Record<string, InvoiceGroup> = {}
-    for (const o of filteredOrders) {
-      const key = o.poNumber || `N/A-${o._id}`
-      if (!map[key]) {
-        map[key] = {
-          key,
-          invoice: o.poNumber || "N/A",
-          supplierName: o.supplier?.companyName || "Unknown Supplier",
-          date: o.purchaseDate || "",
-          status: o.status,
-          totalAmount: 0,
-          items: [],
-        }
-      }
-      map[key].items.push(o)
-      const itemTotal = typeof o.totalAmount === "number" && !Number.isNaN(o.totalAmount)
-        ? o.totalAmount
-        : (o.quantity || 0) * (o.unitPrice || 0)
-      map[key].totalAmount += itemTotal
-    }
-    // Keep order roughly by latest date desc
-    return Object.values(map).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    // With the new structure, each purchase order already contains multiple items
+    // So we just need to map them to the display format
+    return filteredOrders.map(order => ({
+      key: order._id,
+      invoice: order.poNumber || "N/A",
+      supplierName: order.supplier?.companyName || "Unknown Supplier",
+      date: order.purchaseDate || "",
+      status: order.status,
+      totalAmount: order.totalAmount || 0,
+      items: [order], // Keep as array for compatibility with existing display logic
+    })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   })()
 
   const toggleGroup = (key: string) => {
@@ -849,7 +846,7 @@ export function PurchaseManagement() {
                       <TableCell className="font-semibold text-[#2B3068] p-2 sm:p-4 text-xs sm:text-sm">{group.invoice}</TableCell>
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm max-w-[160px] truncate">{group.supplierName}</TableCell>
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">{group.date ? new Date(group.date).toLocaleDateString() : "N/A"}</TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">{group.items.length}</TableCell>
+                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">{group.items[0]?.items?.length || 0}</TableCell>
                       <TableCell className="p-2 sm:p-4 font-semibold text-xs sm:text-sm">AED {group.totalAmount.toFixed(2)}</TableCell>
                       <TableCell className="p-2 sm:p-4">
                         <Badge
@@ -894,56 +891,58 @@ export function PurchaseManagement() {
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                  {group.items.map((order) => (
-                                    <TableRow key={order._id} className="border-b">
-                                      <TableCell className="text-xs sm:text-sm max-w-[220px] truncate">{order.product?.name || "Unknown Product"}</TableCell>
-                                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{order.purchaseType}</TableCell>
-                                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{order.purchaseType === 'cylinder' && order.cylinderSize ? displayCylinderSize(order.cylinderSize) : '-'}</TableCell>
-                                      <TableCell className="text-xs sm:text-sm">{order.quantity || 0}</TableCell>
-                                      <TableCell className="font-semibold text-xs sm:text-sm">AED {order.unitPrice?.toFixed(2) || "0.00"}</TableCell>
-                                      <TableCell className="font-semibold text-xs sm:text-sm">AED {order.totalAmount?.toFixed(2) || ((order.quantity || 0) * (order.unitPrice || 0)).toFixed(2)}</TableCell>
+                                  {group.items[0]?.items?.map((item, itemIndex) => (
+                                    <TableRow key={`${group.items[0]._id}-${itemIndex}`} className="border-b">
+                                      <TableCell className="text-xs sm:text-sm max-w-[220px] truncate">{item.product?.name || "Unknown Product"}</TableCell>
+                                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.purchaseType}</TableCell>
+                                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.purchaseType === 'cylinder' && item.cylinderSize ? displayCylinderSize(item.cylinderSize) : '-'}</TableCell>
+                                      <TableCell className="text-xs sm:text-sm">{item.quantity || 0}</TableCell>
+                                      <TableCell className="font-semibold text-xs sm:text-sm">AED {item.unitPrice?.toFixed(2) || "0.00"}</TableCell>
+                                      <TableCell className="font-semibold text-xs sm:text-sm">AED {item.itemTotal?.toFixed(2) || ((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2)}</TableCell>
                                       <TableCell className="text-xs sm:text-sm">
                                         <Badge
                                           variant={
-                                            order.status === "completed"
+                                            group.items[0].status === "completed"
                                               ? "default"
-                                              : order.status === "pending"
+                                              : group.items[0].status === "pending"
                                                 ? "secondary"
                                                 : "destructive"
                                           }
                                           className={`${
-                                            order.status === "completed"
+                                            group.items[0].status === "completed"
                                               ? "bg-green-600"
-                                              : order.status === "pending"
+                                              : group.items[0].status === "pending"
                                                 ? "bg-yellow-100"
                                                 : "bg-red-100"
                                           } text-white font-medium px-2 py-1 rounded-full text-xs`}
                                         >
-                                          {order.status}
+                                          {group.items[0].status}
                                         </Badge>
                                       </TableCell>
                                       <TableCell>
-                                        <div className="flex space-x-1 sm:space-x-2">
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => handleEdit(order)}
-                                            className="border-[#2B3068] text-[#2B3068] hover:bg-[#2B3068] hover:text-white transition-colors p-1 sm:p-2"
-                                          >
-                                            <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
-                                          </Button>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => handleDelete(order._id)}
-                                            className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors p-1 sm:p-2"
-                                          >
-                                            <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                                          </Button>
-                                        </div>
+                                        {itemIndex === 0 && (
+                                          <div className="flex space-x-1 sm:space-x-2">
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => handleEdit(group.items[0])}
+                                              className="border-[#2B3068] text-[#2B3068] hover:bg-[#2B3068] hover:text-white transition-colors p-1 sm:p-2"
+                                            >
+                                              <Edit className="w-3 h-3 sm:w-4 sm:h-4" />
+                                            </Button>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => handleDelete(group.items[0]._id)}
+                                              className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors p-1 sm:p-2"
+                                            >
+                                              <Trash2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                                            </Button>
+                                          </div>
+                                        )}
                                       </TableCell>
                                     </TableRow>
-                                  ))}
+                                  )) || []}
                                 </TableBody>
                               </Table>
                             </div>

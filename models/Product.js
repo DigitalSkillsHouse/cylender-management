@@ -8,8 +8,9 @@ const ProductSchema = new mongoose.Schema(
     },
     productCode: {
       type: String,
-      required: true,
+      required: false,
       unique: true,
+      sparse: true, // Allows multiple null values
     },
     category: {
       type: String,
