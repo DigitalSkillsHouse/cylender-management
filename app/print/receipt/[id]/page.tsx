@@ -12,6 +12,7 @@ interface Sale {
     name: string;
     phone: string;
     address: string;
+    trNumber?: string;
   };
   items: Array<{
     product: {
@@ -122,8 +123,8 @@ const ReceiptPrintPage = () => {
             <h2 className="font-bold text-lg text-[#2B3068] mb-2">Customer Information</h2>
             <div className="space-y-1 text-sm text-gray-700">
               <div><strong>Name:</strong> {sale.customer.name}</div>
-              <div><strong>Phone:</strong> {sale.customer.phone}</div>
-              <div><strong>Address:</strong> {sale.customer.address}</div>
+              <div><strong>TR Number:</strong> {sale.customer.trNumber || '-'}</div>
+              <div><strong>Address:</strong> {sale.customer.address || '-'}</div>
             </div>
           </div>
           <div>
@@ -131,7 +132,6 @@ const ReceiptPrintPage = () => {
             <div className="space-y-1 text-sm text-gray-700">
               <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
               <div><strong>Date:</strong> {new Date(sale.createdAt).toLocaleDateString()}</div>
-              <div><strong>Time:</strong> {new Date(sale.createdAt).toLocaleTimeString()}</div>
               <div>
                 <strong>Payment Method:</strong> {(
                   sale?.paymentMethod
@@ -147,7 +147,6 @@ const ReceiptPrintPage = () => {
         </section>
 
         <section>
-          <h2 className="font-bold text-lg text-[#2B3068] mb-3">Purchased Items</h2>
           <table className="w-full border-collapse text-[11px] leading-tight">
             <thead>
               <tr className="bg-[#2B3068] text-white">

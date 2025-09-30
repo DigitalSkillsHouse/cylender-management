@@ -234,7 +234,6 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
 
           {/* Items */}
           <div>
-            <h3 className="font-semibold text-[#2B3068] mb-3">Items</h3>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
                 <thead>
