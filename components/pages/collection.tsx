@@ -86,7 +86,13 @@ export function CollectionPage({ user }: CollectionPageProps) {
     bankName: '',
     chequeNumber: '',
     inputAmount: '',
-    selectedInvoices: [] as PendingInvoice[]
+    selectedInvoices: [] as PendingInvoice[],
+    selectedItems: [] as Array<{
+      invoice: PendingInvoice,
+      item: PendingInvoiceItem,
+      itemId: string,
+      amount: number
+    }>
   })
 
   const fetchCustomers = async () => {
@@ -180,17 +186,44 @@ export function CollectionPage({ user }: CollectionPageProps) {
     return Object.values(groups).sort((a, b) => a.name.localeCompare(b.name))
   }, [filtered])
 
-  const totalSelected = useMemo(() => filtered.filter((i) => selected[i._id]).length, [filtered, selected])
+  const totalSelected = useMemo(() => {
+    let count = 0
+    filtered.forEach((inv) => {
+      if (inv.items && inv.items.length > 0) {
+        inv.items.forEach((item, itemIdx) => {
+          if (selected[`${inv._id}-${itemIdx}`]) count++
+        })
+      } else if (selected[inv._id]) {
+        count++
+      }
+    })
+    return count
+  }, [filtered, selected])
 
-  const totalToCollect = useMemo(() =>
-    filtered.reduce((sum, inv) => {
-      if (!selected[inv._id]) return sum
-      const raw = amounts[inv._id]
-      const val = Number(raw)
-      if (!isFinite(val) || val <= 0) return sum
-      return sum + Math.min(val, inv.balance)
-    }, 0),
-  [filtered, selected, amounts])
+  const totalToCollect = useMemo(() => {
+    let total = 0
+    filtered.forEach((inv) => {
+      if (inv.items && inv.items.length > 0) {
+        inv.items.forEach((item, itemIdx) => {
+          const itemId = `${inv._id}-${itemIdx}`
+          if (selected[itemId]) {
+            const raw = amounts[itemId]
+            const val = Number(raw)
+            if (isFinite(val) && val > 0) {
+              total += Math.min(val, item.total)
+            }
+          }
+        })
+      } else if (selected[inv._id]) {
+        const raw = amounts[inv._id]
+        const val = Number(raw)
+        if (isFinite(val) && val > 0) {
+          total += Math.min(val, inv.balance)
+        }
+      }
+    })
+    return total
+  }, [filtered, selected, amounts])
 
   const setSelectAll = (checked: boolean) => {
     const copy: Record<string, boolean> = { ...selected }
@@ -227,15 +260,46 @@ export function CollectionPage({ user }: CollectionPageProps) {
   }
 
   const handleReceiveAmountClick = () => {
-    const selectedInvoices = filtered.filter((i) => selected[i._id])
+    // Collect all selected items from all customer groups
+    const selectedItems: Array<{
+      invoice: PendingInvoice,
+      item: PendingInvoiceItem,
+      itemId: string,
+      amount: number
+    }> = []
     
-    if (!selectedInvoices.length) {
-      toast({ title: "No invoices selected", variant: "destructive" })
+    filtered.forEach((inv) => {
+      if (inv.items && inv.items.length > 0) {
+        inv.items.forEach((item, itemIdx) => {
+          const itemId = `${inv._id}-${itemIdx}`
+          if (selected[itemId]) {
+            const amount = parseFloat(amounts[itemId] || '0')
+            if (amount > 0) {
+              selectedItems.push({ invoice: inv, item, itemId, amount })
+            }
+          }
+        })
+      } else if (selected[inv._id]) {
+        // Handle invoices without items (fallback)
+        const amount = parseFloat(amounts[inv._id] || '0')
+        if (amount > 0) {
+          selectedItems.push({ 
+            invoice: inv, 
+            item: { product: { name: 'No items' }, quantity: 0, price: 0, total: inv.balance }, 
+            itemId: inv._id, 
+            amount 
+          })
+        }
+      }
+    })
+    
+    if (!selectedItems.length) {
+      toast({ title: "No items selected", variant: "destructive" })
       return
     }
     
-    const totalAmount = selectedInvoices.reduce((sum, inv) => sum + inv.balance, 0)
-    const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
+    const totalAmount = selectedItems.reduce((sum, item) => sum + item.amount, 0)
+    const currentReceived = selectedItems.reduce((sum, item) => sum + item.invoice.receivedAmount, 0)
     
     // Open payment collection dialog
     setPaymentDialog({
@@ -246,7 +310,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
       bankName: '',
       chequeNumber: '',
       inputAmount: '',
-      selectedInvoices
+      selectedInvoices: selectedItems.map(item => item.invoice), // Keep for compatibility
+      selectedItems // Add selected items for detailed processing
     })
   }
   
@@ -259,7 +324,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
       bankName: '',
       chequeNumber: '',
       inputAmount: '',
-      selectedInvoices: []
+      selectedInvoices: [],
+      selectedItems: []
     })
   }
   
@@ -531,17 +597,48 @@ setReceiptData({
                       <Button
                         size="sm"
                         onClick={() => {
-                          const selectedInvoices = group.invoices.filter((i) => selected[i._id])
+                          // Collect all selected items from this customer group
+                          const selectedItems: Array<{
+                            invoice: PendingInvoice,
+                            item: PendingInvoiceItem,
+                            itemId: string,
+                            amount: number
+                          }> = []
                           
-                          if (!selectedInvoices.length) {
-                            toast({ title: 'No invoices selected in this customer group', variant: 'destructive' })
+                          group.invoices.forEach((inv) => {
+                            if (inv.items && inv.items.length > 0) {
+                              inv.items.forEach((item, itemIdx) => {
+                                const itemId = `${inv._id}-${itemIdx}`
+                                if (selected[itemId]) {
+                                  const amount = parseFloat(amounts[itemId] || '0')
+                                  if (amount > 0) {
+                                    selectedItems.push({ invoice: inv, item, itemId, amount })
+                                  }
+                                }
+                              })
+                            } else if (selected[inv._id]) {
+                              // Handle invoices without items (fallback)
+                              const amount = parseFloat(amounts[inv._id] || '0')
+                              if (amount > 0) {
+                                selectedItems.push({ 
+                                  invoice: inv, 
+                                  item: { product: { name: 'No items' }, quantity: 0, price: 0, total: inv.balance }, 
+                                  itemId: inv._id, 
+                                  amount 
+                                })
+                              }
+                            }
+                          })
+                          
+                          if (!selectedItems.length) {
+                            toast({ title: 'No items selected in this customer group', variant: 'destructive' })
                             return
                           }
                           
-                          const totalAmount = selectedInvoices.reduce((sum, inv) => sum + inv.balance, 0)
-                          const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
+                          const totalAmount = selectedItems.reduce((sum, item) => sum + item.amount, 0)
+                          const currentReceived = selectedItems.reduce((sum, item) => sum + item.invoice.receivedAmount, 0)
                           
-                          // Open payment collection dialog
+                          // Open payment collection dialog with selected items
                           setPaymentDialog({
                             open: true,
                             totalAmount,
@@ -550,10 +647,20 @@ setReceiptData({
                             bankName: '',
                             chequeNumber: '',
                             inputAmount: '',
-                            selectedInvoices
+                            selectedInvoices: selectedItems.map(item => item.invoice), // Keep for compatibility
+                            selectedItems // Add selected items for detailed processing
                           })
                         }}
-                        disabled={group.invoices.every((i) => !selected[i._id])}
+                        disabled={(() => {
+                          // Check if any items are selected in this group
+                          return group.invoices.every((inv) => {
+                            if (inv.items && inv.items.length > 0) {
+                              return inv.items.every((item, itemIdx) => !selected[`${inv._id}-${itemIdx}`])
+                            } else {
+                              return !selected[inv._id]
+                            }
+                          })
+                        })()}
                       >
                         Receive Amount
                       </Button>

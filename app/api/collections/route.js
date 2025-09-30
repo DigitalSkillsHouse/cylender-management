@@ -2,6 +2,8 @@ import dbConnect from "@/lib/mongodb"
 import { NextResponse } from "next/server"
 import Sale from "@/models/Sale"
 import EmployeeSale from "@/models/EmployeeSale"
+import CylinderTransaction from "@/models/Cylinder"
+import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction"
 
 // GET: list all pending invoices across admin and employee sales
 export async function GET(request) {
@@ -12,12 +14,33 @@ export async function GET(request) {
     const customerId = searchParams.get("customerId")
     const employeeId = searchParams.get("employeeId") // optional filter
 
-    // Build queries: pending means receivedAmount < totalAmount OR paymentStatus !== cleared
+    // Build queries: pending means receivedAmount < totalAmount AND paymentStatus !== "cleared"
     const pendingQuery = {
-      $expr: { $lt: [ { $ifNull: ["$receivedAmount", 0] }, { $ifNull: ["$totalAmount", 0] } ] },
+      $and: [
+        { $expr: { $lt: [ { $ifNull: ["$receivedAmount", 0] }, { $ifNull: ["$totalAmount", 0] } ] } },
+        { paymentStatus: { $ne: "cleared" } }
+      ]
     }
 
-    const [adminSales, employeeSales] = await Promise.all([
+    // Build cylinder pending query (for cylinder transactions, we check if balance > 0 AND status !== "cleared")
+    const cylinderPendingQuery = {
+      $and: [
+        { 
+          $expr: { 
+            $gt: [ 
+              { $subtract: [
+                { $ifNull: ["$amount", 0] }, 
+                { $ifNull: ["$receivedAmount", 0] }
+              ]}, 
+              0 
+            ] 
+          }
+        },
+        { status: { $ne: "cleared" } }
+      ]
+    }
+
+    const [adminSales, employeeSales, adminCylinders, employeeCylinders] = await Promise.all([
       Sale.find(customerId ? { ...pendingQuery, customer: customerId } : pendingQuery)
         .populate("customer", "name phone")
         .populate("items.product", "name")
@@ -30,6 +53,19 @@ export async function GET(request) {
         .populate("customer", "name phone")
         .populate("employee", "name email")
         .populate("items.product", "name")
+        .lean(),
+      CylinderTransaction.find(customerId ? { ...cylinderPendingQuery, customer: customerId } : cylinderPendingQuery)
+        .populate("customer", "name phone")
+        .populate("product", "name")
+        .lean(),
+      EmployeeCylinderTransaction.find({
+          ...(customerId ? { customer: customerId } : {}),
+          ...(employeeId ? { employee: employeeId } : {}),
+          ...cylinderPendingQuery,
+        })
+        .populate("customer", "name phone")
+        .populate("employee", "name email")
+        .populate("product", "name")
         .lean(),
     ])
 
@@ -73,9 +109,51 @@ export async function GET(request) {
       createdAt: s.createdAt,
     })
 
+    const mapCylinder = (c) => ({
+      _id: c._id,
+      model: "CylinderTransaction",
+      source: "admin",
+      invoiceNumber: c.invoiceNumber || `CYL-${c._id.toString().slice(-6)}`,
+      customer: c.customer ? { _id: c.customer._id, name: c.customer.name, phone: c.customer.phone } : null,
+      employee: null,
+      items: [{
+        product: c.product ? { name: c.product.name } : { name: 'Unknown Product' },
+        quantity: c.quantity || 1,
+        price: c.amount || 0,
+        total: c.amount || 0
+      }],
+      totalAmount: Number(c.amount || 0),
+      receivedAmount: Number(c.receivedAmount || 0),
+      balance: Math.max(0, Number(c.amount || 0) - Number(c.receivedAmount || 0)),
+      paymentStatus: c.status || 'pending',
+      createdAt: c.createdAt,
+    })
+
+    const mapEmpCylinder = (c) => ({
+      _id: c._id,
+      model: "EmployeeCylinderTransaction",
+      source: "employee",
+      invoiceNumber: c.invoiceNumber || `EMP-CYL-${c._id.toString().slice(-6)}`,
+      customer: c.customer ? { _id: c.customer._id, name: c.customer.name, phone: c.customer.phone } : null,
+      employee: c.employee ? { _id: c.employee._id, name: c.employee.name, email: c.employee.email } : null,
+      items: [{
+        product: c.product ? { name: c.product.name } : { name: 'Unknown Product' },
+        quantity: c.quantity || 1,
+        price: c.amount || 0,
+        total: c.amount || 0
+      }],
+      totalAmount: Number(c.amount || 0),
+      receivedAmount: Number(c.receivedAmount || 0),
+      balance: Math.max(0, Number(c.amount || 0) - Number(c.receivedAmount || 0)),
+      paymentStatus: c.status || 'pending',
+      createdAt: c.createdAt,
+    })
+
     const data = [
       ...adminSales.map(mapSale),
       ...employeeSales.map(mapEmpSale),
+      ...adminCylinders.map(mapCylinder),
+      ...employeeCylinders.map(mapEmpCylinder),
     ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 
     return NextResponse.json({ success: true, data })
@@ -136,6 +214,36 @@ export async function POST(request) {
         sale.paymentStatus = sale.receivedAmount >= total ? "cleared" : "pending"
         await sale.save()
         results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
+      } else if (model === "CylinderTransaction") {
+        const cylinder = await CylinderTransaction.findById(id)
+        if (!cylinder) continue
+        const currentReceived = Number(cylinder.receivedAmount || 0)
+        const total = Number(cylinder.amount || 0)
+        const balance = Math.max(0, total - currentReceived)
+        const apply = Math.min(balance, amount)
+        if (apply <= 0) {
+          results.push({ id, model, applied: 0, status: cylinder.status })
+          continue
+        }
+        cylinder.receivedAmount = currentReceived + apply
+        cylinder.status = cylinder.receivedAmount >= total ? "cleared" : "pending"
+        await cylinder.save()
+        results.push({ id, model, applied: apply, newReceivedAmount: cylinder.receivedAmount, newStatus: cylinder.status })
+      } else if (model === "EmployeeCylinderTransaction") {
+        const cylinder = await EmployeeCylinderTransaction.findById(id)
+        if (!cylinder) continue
+        const currentReceived = Number(cylinder.receivedAmount || 0)
+        const total = Number(cylinder.amount || 0)
+        const balance = Math.max(0, total - currentReceived)
+        const apply = Math.min(balance, amount)
+        if (apply <= 0) {
+          results.push({ id, model, applied: 0, status: cylinder.status })
+          continue
+        }
+        cylinder.receivedAmount = currentReceived + apply
+        cylinder.status = cylinder.receivedAmount >= total ? "cleared" : "pending"
+        await cylinder.save()
+        results.push({ id, model, applied: apply, newReceivedAmount: cylinder.receivedAmount, newStatus: cylinder.status })
       }
     }
 
