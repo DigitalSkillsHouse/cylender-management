@@ -104,19 +104,24 @@ export async function GET(request) {
           );
 
           // Check transaction statuses for more accurate status determination
-          const pendingTransactions = cylinderTransactions.filter(t => t.status === 'pending').length;
-          const clearedTransactions = cylinderTransactions.filter(t => t.status === 'cleared').length;
-          const overdueTransactions = cylinderTransactions.filter(t => t.status === 'overdue').length;
+          const pendingCylinderTransactions = cylinderTransactions.filter(t => t.status === 'pending').length;
+          const clearedCylinderTransactions = cylinderTransactions.filter(t => t.status === 'cleared').length;
+          const overdueCylinderTransactions = cylinderTransactions.filter(t => t.status === 'overdue').length;
           
-          // Determine overall status with improved logic
+          // Check gas sales payment statuses
+          const pendingSales = sales.filter(s => s.paymentStatus === 'pending' || (s.totalAmount > (s.receivedAmount || 0))).length;
+          const clearedSales = sales.filter(s => s.paymentStatus === 'cleared' || (s.totalAmount <= (s.receivedAmount || 0))).length;
+          const overdueSales = sales.filter(s => s.paymentStatus === 'overdue').length;
+          
+          // Determine overall status with improved logic considering both sales and cylinder transactions
           let overallStatus = 'cleared';
           
           // Priority: overdue > pending > cleared
-          if (overdueTransactions > 0 || balance < -100) { // Significant negative balance
+          if (overdueCylinderTransactions > 0 || overdueSales > 0 || balance < -100) { // Significant negative balance
             overallStatus = 'overdue';
-          } else if (pendingTransactions > 0 || balance > 0) {
+          } else if (pendingCylinderTransactions > 0 || pendingSales > 0) {
             overallStatus = 'pending';
-          } else if (clearedTransactions > 0 || balance === 0) {
+          } else if (clearedCylinderTransactions > 0 || clearedSales > 0 || (sales.length === 0 && cylinderTransactions.length === 0)) {
             overallStatus = 'cleared';
           }
 
@@ -125,12 +130,13 @@ export async function GET(request) {
           if (status && status !== 'all') {
             // Check if customer matches the status filter in multiple ways:
             // 1. Overall customer status matches
-            // 2. Has transactions with the requested status
-            // 3. Has sales/transactions that could be relevant to the status
-            const hasMatchingTransactionStatus = cylinderTransactions.some(t => t.status === status);
+            // 2. Has cylinder transactions with the requested status
+            // 3. Has gas sales with the requested status
+            const hasMatchingCylinderStatus = cylinderTransactions.some(t => t.status === status);
+            const hasMatchingSalesStatus = sales.some(s => s.paymentStatus === status);
             const matchesOverallStatus = overallStatus === status;
             
-            shouldInclude = matchesOverallStatus || hasMatchingTransactionStatus;
+            shouldInclude = matchesOverallStatus || hasMatchingCylinderStatus || hasMatchingSalesStatus;
           }
 
           if (!shouldInclude) {
