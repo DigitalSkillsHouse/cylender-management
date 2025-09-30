@@ -67,6 +67,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const [customers, setCustomers] = useState<CustomerLedgerData[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set())
+  const [filtersApplied, setFiltersApplied] = useState(false)
   // Hold raw employee datasets for gas sales and cylinder transactions
   const [employeeSales, setEmployeeSales] = useState<any[]>([])
   const [employeeCylinders, setEmployeeCylinders] = useState<any[]>([])
@@ -1547,18 +1548,23 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     fetchReportsData()
   }, [user?.id])
 
-  const fetchReportsData = async () => {
+  const fetchReportsData = async (loadCustomers = false) => {
     try {
       if (!user?.id) return
       setLoading(true)
 
-      // Fetch employee-scoped gas sales, cylinder transactions, stock assignments, and admin sales
-      const [salesRes, cylRes, assignRes, adminSalesRes] = await Promise.all([
+      // Always fetch employee-scoped gas sales, cylinder transactions, and stock assignments
+      const [salesRes, cylRes, assignRes] = await Promise.all([
         fetch(`/api/employee-sales?employeeId=${user.id}`, { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => ([])),
         fetch(`/api/employee-cylinders?employeeId=${user.id}`, { cache: "no-store" }).then(r => r.ok ? r.json() : []).catch(() => ([])),
         fetch(`/api/stock-assignments?employeeId=${user.id}&status=assigned`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => ([])),
-        fetch(`/api/sales`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => ([])),
       ])
+
+      // Only fetch admin sales if we need to load customer data
+      let adminSalesRes = []
+      if (loadCustomers) {
+        adminSalesRes = await fetch(`/api/sales`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => ([]))
+      }
 
       const sales: any[] = Array.isArray(salesRes)
         ? salesRes
@@ -1620,10 +1626,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       })
       setAssignedProducts(assigned)
 
-      // Derive a minimal customer ledger from employee data
-      const byCustomer = new Map<string, CustomerLedgerData>()
-      const getKey = (obj: any) => String(obj?.customer?._id || obj?.customerId || obj?.customerName || "unknown")
-      const getName = (obj: any) => String(obj?.customer?.name || obj?.customerName || "Unknown")
+      // Only build customer ledger if requested
+      if (loadCustomers) {
+        // Derive a minimal customer ledger from employee data
+        const byCustomer = new Map<string, CustomerLedgerData>()
+        const getKey = (obj: any) => String(obj?.customer?._id || obj?.customerId || obj?.customerName || "unknown")
+        const getName = (obj: any) => String(obj?.customer?.name || obj?.customerName || "Unknown")
 
       // Employee sales into ledger (tag source)
       sales.forEach(s => {
@@ -1741,10 +1749,13 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         byCustomer.set(key, item)
       })
 
-      setCustomers(Array.from(byCustomer.values()))
+        setCustomers(Array.from(byCustomer.values()))
+      }
     } catch (error) {
       console.error("Failed to fetch employee report data:", error)
-      setCustomers([])
+      if (loadCustomers) {
+        setCustomers([])
+      }
       setStats(prev => ({ ...prev, totalRevenue: 0, gasSales: 0, cylinderRefills: 0, totalCustomers: 0, totalCombinedRevenue: 0 }))
     } finally {
       setLoading(false)
@@ -1752,8 +1763,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   }
 
   const handleFilter = async () => {
-    setLoading(true);
-    await fetchReportsData();
+    setFiltersApplied(true);
+    await fetchReportsData(true);
   };
 
   // Autocomplete functionality
@@ -1844,8 +1855,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       startDate: "",
       endDate: "",
     })
-    // Trigger refetch with cleared filters
-    setTimeout(() => fetchReportsData(), 100)
+    setFiltersApplied(false);
+    setCustomers([]);
+    setExpandedCustomers(new Set());
   }
 
   const handleReceiptClick = (customer: CustomerLedgerData) => {
@@ -2340,22 +2352,41 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           </div>
 
           {/* Customer Ledger Table */}
-          <div className="border rounded-lg">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead></TableHead>
-                  <TableHead>Customer Name</TableHead>
-                  <TableHead>TR Number</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Total Paid Amount</TableHead>
-                  <TableHead>Total Sales</TableHead>
-                  <TableHead>Cylinder Transactions</TableHead>
-                  <TableHead>Last Activity</TableHead>
-                  <TableHead>Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          {!filtersApplied ? (
+            <div className="text-center py-12 bg-gray-50 border rounded-lg">
+              <div className="flex flex-col items-center space-y-4">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                  <ListChecks className="w-8 h-8 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Data to Display</h3>
+                  <p className="text-gray-600 max-w-md">
+                    Please apply filters above to view customer ledger data. You can filter by customer name, status, or date range.
+                  </p>
+                </div>
+                <Button onClick={() => { setFiltersApplied(true); fetchReportsData(true); }} style={{ backgroundColor: "#2B3068" }}>
+                  <Eye className="w-4 h-4 mr-2" />
+                  Load All Customers
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="border rounded-lg">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead></TableHead>
+                    <TableHead>Customer Name</TableHead>
+                    <TableHead>TR Number</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Total Paid Amount</TableHead>
+                    <TableHead>Total Sales</TableHead>
+                    <TableHead>Cylinder Transactions</TableHead>
+                    <TableHead>Last Activity</TableHead>
+                    <TableHead>Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                 {customers
                   .filter((customer) => {
                     // Filter by status
@@ -2774,16 +2805,17 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                     )}
                   </React.Fragment>
                 ))}
-                {customers.length === 0 && !loading && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-gray-500">
-                      No customers found matching the current filters.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  {customers.length === 0 && !loading && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                        No customers found matching the current filters.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -67,6 +67,13 @@ export function Reports() {
   const [customers, setCustomers] = useState<CustomerLedgerData[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set())
+  const [filtersApplied, setFiltersApplied] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [filteredSuggestions, setFilteredSuggestions] = useState<CustomerLedgerData[]>([])
+  const [showSignatureDialog, setShowSignatureDialog] = useState(false)
+  const [pendingCustomer, setPendingCustomer] = useState<CustomerLedgerData | null>(null)
+  const [customerSignature, setCustomerSignature] = useState<string>("")
+  const [receiptDialogData, setReceiptDialogData] = useState<any>(null)
   // Receive Amount dialog state for gas sales and cylinders
   const [receiveDialog, setReceiveDialog] = useState<{
     open: boolean
@@ -1487,16 +1494,6 @@ export function Reports() {
     saveDsrLocal([])
   }
 
-  
-  // Autocomplete functionality state
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const [filteredSuggestions, setFilteredSuggestions] = useState<CustomerLedgerData[]>([])
-
-  // Receipt and signature functionality state
-  const [showSignatureDialog, setShowSignatureDialog] = useState(false)
-  const [pendingCustomer, setPendingCustomer] = useState<CustomerLedgerData | null>(null)
-  const [customerSignature, setCustomerSignature] = useState<string>("")
-  const [receiptDialogData, setReceiptDialogData] = useState<any>(null)
 
   // Signature dialog handlers
   const handleSignatureCancel = () => {
@@ -1654,13 +1651,11 @@ export function Reports() {
     fetchReportsData()
   }, [])
 
-  const fetchReportsData = async () => {
+  const fetchReportsData = async (loadCustomers = false) => {
     try {
       setLoading(true);
-      const [statsResponse, ledgerResponse] = await Promise.all([
-        reportsAPI.getStats(),
-        reportsAPI.getLedger()
-      ]);
+      // Always fetch stats
+      const statsResponse = await reportsAPI.getStats();
 
       if (statsResponse.data?.success) {
         const statsData = statsResponse.data.data;
@@ -1677,10 +1672,14 @@ export function Reports() {
         });
       }
 
-      if (ledgerResponse.data?.success && Array.isArray(ledgerResponse.data.data)) {
-        setCustomers(ledgerResponse.data.data);
-      } else {
-        setCustomers([]);
+      // Only fetch customer data if requested
+      if (loadCustomers) {
+        const ledgerResponse = await reportsAPI.getLedger();
+        if (ledgerResponse.data?.success && Array.isArray(ledgerResponse.data.data)) {
+          setCustomers(ledgerResponse.data.data);
+        } else {
+          setCustomers([]);
+        }
       }
 
     } catch (error) {
@@ -1689,15 +1688,17 @@ export function Reports() {
         totalCustomers: 0, totalCombinedRevenue: 0, pendingCustomers: 0, 
         overdueCustomers: 0, clearedCustomers: 0
       });
-      setCustomers([]);
+      if (loadCustomers) {
+        setCustomers([]);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleFilter = async () => {
-    setLoading(true);
-    await fetchReportsData();
+    setFiltersApplied(true);
+    await fetchReportsData(true);
   };
 
   // Autocomplete functionality
@@ -1788,8 +1789,9 @@ export function Reports() {
       startDate: "",
       endDate: "",
     })
-    // Trigger refetch with cleared filters
-    setTimeout(() => fetchReportsData(), 100)
+    setFiltersApplied(false);
+    setCustomers([]);
+    setExpandedCustomers(new Set());
   }
 
   const handleReceiptClick = (customer: CustomerLedgerData) => {
@@ -2360,22 +2362,41 @@ export function Reports() {
           </div>
 
           {/* Customer Ledger Table */}
-          <div className="border rounded-lg">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead></TableHead>
-                  <TableHead>Customer Name</TableHead>
-                  <TableHead>TR Number</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Total Paid Amount</TableHead>
-                  <TableHead>Total Sales</TableHead>
-                  <TableHead>Cylinder Transactions</TableHead>
-                  <TableHead>Last Activity</TableHead>
-                  <TableHead>Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+          {!filtersApplied ? (
+            <div className="text-center py-12 bg-gray-50 border rounded-lg">
+              <div className="flex flex-col items-center space-y-4">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                  <ListChecks className="w-8 h-8 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Data to Display</h3>
+                  <p className="text-gray-600 max-w-md">
+                    Please apply filters above to view customer ledger data. You can filter by customer name, status, or date range.
+                  </p>
+                </div>
+                <Button onClick={() => { setFiltersApplied(true); fetchReportsData(true); }} style={{ backgroundColor: "#2B3068" }}>
+                  <Eye className="w-4 h-4 mr-2" />
+                  Load All Customers
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="border rounded-lg">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead></TableHead>
+                    <TableHead>Customer Name</TableHead>
+                    <TableHead>TR Number</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Total Paid Amount</TableHead>
+                    <TableHead>Total Sales</TableHead>
+                    <TableHead>Cylinder Transactions</TableHead>
+                    <TableHead>Last Activity</TableHead>
+                    <TableHead>Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                 {customers
                   .filter((customer) => {
                     // Filter by status
@@ -2877,16 +2898,17 @@ export function Reports() {
                     )}
                   </React.Fragment>
                 ))}
-                {customers.length === 0 && !loading && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-gray-500">
-                      No customers found matching the current filters.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  {customers.length === 0 && !loading && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                        No customers found matching the current filters.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
