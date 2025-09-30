@@ -707,28 +707,12 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const handleCustomerSearchChange = (value: string) => {
     setCustomerSearch(value)
     if (value.trim()) {
-      // Debug: Log search details
-      console.log("Employee Cylinder Sales - Searching for:", value)
-      console.log("Total customers:", customers.length)
-      console.log("Sample customer:", customers[0])
-      
-      const filtered = customers.filter(customer => {
-        const nameMatch = customer.name.toLowerCase().includes(value.toLowerCase())
-        const serialMatch = customer.serialNumber && customer.serialNumber.toLowerCase().includes(value.toLowerCase())
-        const emailMatch = customer.email.toLowerCase().includes(value.toLowerCase())
-        const phoneMatch = customer.phone.includes(value)
-        
-        const isMatch = nameMatch || serialMatch || emailMatch || phoneMatch
-        
-        // Debug: Log each customer's match details
-        if (serialMatch) {
-          console.log("Employee Cylinder Sales - Serial number match found:", customer.name, customer.serialNumber)
-        }
-        
-        return isMatch
-      }).slice(0, 5)
-      
-      console.log("Employee Cylinder Sales - Filtered results:", filtered.length)
+      const filtered = customers.filter(customer =>
+        customer.name.toLowerCase().includes(value.toLowerCase()) ||
+        (customer.serialNumber && customer.serialNumber.toLowerCase().includes(value.toLowerCase())) ||
+        customer.email.toLowerCase().includes(value.toLowerCase()) ||
+        customer.phone.includes(value)
+      ).slice(0, 5)
       
       setFilteredCustomers(filtered)
       setShowCustomerSuggestions(true)

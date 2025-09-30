@@ -1463,28 +1463,12 @@ export function CylinderManagement() {
     setCustomerSearchTerm(value)
     
     if (value.trim().length > 0) {
-      // Debug: Log search details
-      console.log("Cylinder Management - Searching for:", value)
-      console.log("Total customers:", customers.length)
-      console.log("Sample customer:", customers[0])
-      
-      const filtered = customers.filter(customer => {
-        const nameMatch = customer.name.toLowerCase().includes(value.toLowerCase())
-        const serialMatch = customer.serialNumber && customer.serialNumber.toLowerCase().includes(value.toLowerCase())
-        const phoneMatch = customer.phone.includes(value)
-        const emailMatch = customer.email && customer.email.toLowerCase().includes(value.toLowerCase())
-        
-        const isMatch = nameMatch || serialMatch || phoneMatch || emailMatch
-        
-        // Debug: Log each customer's match details
-        if (serialMatch) {
-          console.log("Cylinder Management - Serial number match found:", customer.name, customer.serialNumber)
-        }
-        
-        return isMatch
-      }).slice(0, 5) // Limit to 5 suggestions
-      
-      console.log("Cylinder Management - Filtered results:", filtered.length)
+      const filtered = customers.filter(customer => 
+        customer.name.toLowerCase().includes(value.toLowerCase()) ||
+        (customer.serialNumber && customer.serialNumber.toLowerCase().includes(value.toLowerCase())) ||
+        customer.phone.includes(value) ||
+        (customer.email && customer.email.toLowerCase().includes(value.toLowerCase()))
+      ).slice(0, 5) // Limit to 5 suggestions
       
       setFilteredCustomerSuggestions(filtered)
       setShowCustomerSuggestions(true)
