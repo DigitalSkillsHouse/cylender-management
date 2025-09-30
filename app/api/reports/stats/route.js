@@ -1,7 +1,9 @@
 import dbConnect from "@/lib/mongodb";
 import Customer from "@/models/Customer";
 import Sale from "@/models/Sale";
+import EmployeeSale from "@/models/EmployeeSale";
 import CylinderTransaction from "@/models/Cylinder";
+import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
 import User from "@/models/User";
 import Product from "@/models/Product";
 import { NextResponse } from "next/server";
@@ -10,52 +12,63 @@ export async function GET() {
   try {
     await dbConnect();
 
-    // Get all basic counts
+    // Get all basic counts and transaction data
     const [
       totalCustomers,
       totalEmployees,
       totalProducts,
-      sales,
-      cylinderTransactions
+      adminSales,
+      employeeSales,
+      adminCylinderTransactions,
+      employeeCylinderTransactions
     ] = await Promise.all([
       Customer.countDocuments(),
       User.countDocuments({ role: 'employee' }),
       Product.countDocuments(),
       Sale.find({}).populate('items.product').lean(),
-      CylinderTransaction.find({}).lean()
+      EmployeeSale.find({}).populate('items.product').lean(),
+      CylinderTransaction.find({}).lean(),
+      EmployeeCylinderTransaction.find({}).lean()
     ]);
 
-    // Calculate revenue from sales
-    const totalRevenue = sales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
-    const totalPaid = sales.reduce((sum, sale) => sum + (sale.amountPaid || 0), 0);
-    const totalPending = totalRevenue - totalPaid;
+    // Combine all sales for calculations
+    const allSales = [...adminSales, ...employeeSales];
+    const allCylinderTransactions = [...adminCylinderTransactions, ...employeeCylinderTransactions];
 
-    // Calculate gas sales (sales with gas products)
-    const gasSales = sales.filter(sale => 
-      sale.items && sale.items.some(item => 
-        item.product && item.product.category === 'gas'
-      )
-    ).length;
+    // Calculate revenue from all sales (admin + employee)
+    const adminSalesRevenue = adminSales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
+    const employeeSalesRevenue = employeeSales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
+    const totalSalesRevenue = adminSalesRevenue + employeeSalesRevenue;
 
-    // Calculate cylinder statistics
-    const cylinderRefills = cylinderTransactions.filter(t => t.type === 'refill').length;
-    const cylinderDeposits = cylinderTransactions.filter(t => t.type === 'deposit').length;
-    const cylinderReturns = cylinderTransactions.filter(t => t.type === 'return').length;
-
-    // Calculate cylinder revenue (only from deposits)
-    const cylinderRevenue = cylinderTransactions
+    // Calculate cylinder revenue (deposits from admin + employee)
+    const adminCylinderRevenue = adminCylinderTransactions
       .filter(t => t.type === 'deposit')
       .reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
+    const employeeCylinderRevenue = employeeCylinderTransactions
+      .filter(t => t.type === 'deposit')
+      .reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
+    const totalCylinderRevenue = adminCylinderRevenue + employeeCylinderRevenue;
+
+    // Total combined revenue
+    const totalRevenue = totalSalesRevenue + totalCylinderRevenue;
+
+    // Calculate gas sales count (number of gas sales transactions)
+    const gasSales = allSales.length;
+
+    // Calculate cylinder statistics
+    const cylinderRefills = allCylinderTransactions.filter(t => t.type === 'refill').length;
+    const cylinderDeposits = allCylinderTransactions.filter(t => t.type === 'deposit').length;
+    const cylinderReturns = allCylinderTransactions.filter(t => t.type === 'return').length;
 
 
     // Get recent activity (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     
-    const recentSales = sales.filter(sale => 
+    const recentSales = allSales.filter(sale => 
       new Date(sale.createdAt) > thirtyDaysAgo
     ).length;
     
-    const recentCylinderTransactions = cylinderTransactions.filter(transaction => 
+    const recentCylinderTransactions = allCylinderTransactions.filter(transaction => 
       new Date(transaction.createdAt) > thirtyDaysAgo
     ).length;
 
@@ -72,12 +85,12 @@ export async function GET() {
       monthEnd.setDate(0);
       monthEnd.setHours(23, 59, 59, 999);
 
-      const monthSales = sales.filter(sale => {
+      const monthSales = allSales.filter(sale => {
         const saleDate = new Date(sale.createdAt);
         return saleDate >= monthStart && saleDate <= monthEnd;
       });
 
-      const monthCylinderTransactions = cylinderTransactions.filter(transaction => {
+      const monthCylinderTransactions = allCylinderTransactions.filter(transaction => {
         const transactionDate = new Date(transaction.createdAt);
         return transactionDate >= monthStart && transactionDate <= monthEnd;
       });
@@ -174,27 +187,92 @@ export async function GET() {
       }
     ]);
 
+    // Calculate customer status breakdown based on actual transaction payment status
+    const allCustomers = await Customer.find({}).lean();
+    let pendingCustomersCount = 0;
+    let clearedCustomersCount = 0;
+    let overdueCustomersCount = 0;
+
+    for (const customer of allCustomers) {
+      // Get all transactions for this customer
+      const customerAdminSales = adminSales.filter(sale => sale.customer?.toString() === customer._id.toString());
+      const customerEmployeeSales = employeeSales.filter(sale => sale.customer?.toString() === customer._id.toString());
+      const customerAdminCylinders = adminCylinderTransactions.filter(txn => txn.customer?.toString() === customer._id.toString());
+      const customerEmployeeCylinders = employeeCylinderTransactions.filter(txn => txn.customer?.toString() === customer._id.toString());
+
+      const allCustomerTransactions = [
+        ...customerAdminSales,
+        ...customerEmployeeSales,
+        ...customerAdminCylinders,
+        ...customerEmployeeCylinders
+      ];
+
+      if (allCustomerTransactions.length === 0) {
+        // Customer with no transactions - consider as cleared
+        clearedCustomersCount++;
+        continue;
+      }
+
+      // Check if customer has any pending transactions
+      const hasPendingTransactions = allCustomerTransactions.some(txn => {
+        // For sales, check paymentStatus
+        if (txn.paymentStatus) {
+          return txn.paymentStatus === 'pending' || txn.paymentStatus === 'overdue';
+        }
+        // For cylinder transactions, check status
+        if (txn.status) {
+          return txn.status === 'pending' || txn.status === 'overdue';
+        }
+        // Default to pending if no status field
+        return true;
+      });
+
+      const hasOverdueTransactions = allCustomerTransactions.some(txn => {
+        if (txn.paymentStatus) {
+          return txn.paymentStatus === 'overdue';
+        }
+        if (txn.status) {
+          return txn.status === 'overdue';
+        }
+        return false;
+      });
+
+      if (hasOverdueTransactions) {
+        overdueCustomersCount++;
+      } else if (hasPendingTransactions) {
+        pendingCustomersCount++;
+      } else {
+        clearedCustomersCount++;
+      }
+    }
+
+    console.log('Customer status breakdown:', {
+      total: allCustomers.length,
+      pending: pendingCustomersCount,
+      cleared: clearedCustomersCount,
+      overdue: overdueCustomersCount
+    });
+
     // Ensure all values are numbers and not null/undefined
     const stats = {
       // Basic counts
       totalCustomers: Number(totalCustomers) || 0,
       totalEmployees: Number(totalEmployees) || 0,
       totalProducts: Number(totalProducts) || 0,
-      totalSales: Number(sales.length) || 0,
+      totalSales: Number(allSales.length) || 0,
       
       // Financial data
       totalRevenue: Number(totalRevenue) || 0,
-      totalPaid: Number(totalPaid) || 0,
-      totalPending: Number(totalPending) || 0,
-      cylinderRevenue: Number(cylinderRevenue) || 0,
-      totalCombinedRevenue: Number(totalRevenue + cylinderRevenue) || 0,
+      totalSalesRevenue: Number(totalSalesRevenue) || 0,
+      cylinderRevenue: Number(totalCylinderRevenue) || 0,
+      totalCombinedRevenue: Number(totalRevenue) || 0,
       
       // Activity data
       gasSales: Number(gasSales) || 0,
       cylinderRefills: Number(cylinderRefills) || 0,
       cylinderDeposits: Number(cylinderDeposits) || 0,
       cylinderReturns: Number(cylinderReturns) || 0,
-      totalCylinderTransactions: Number(cylinderTransactions.length) || 0,
+      totalCylinderTransactions: Number(allCylinderTransactions.length) || 0,
       
       // Recent activity
       recentSales: Number(recentSales) || 0,
@@ -205,13 +283,13 @@ export async function GET() {
       topCustomers: customerStats || [],
       
       // Additional metrics
-      averageSaleAmount: sales.length > 0 ? Number(totalRevenue / sales.length) || 0 : 0,
-      averageCylinderAmount: cylinderTransactions.length > 0 ? Number(cylinderRevenue / cylinderTransactions.length) || 0 : 0,
+      averageSaleAmount: allSales.length > 0 ? Number(totalSalesRevenue / allSales.length) || 0 : 0,
+      averageCylinderAmount: allCylinderTransactions.length > 0 ? Number(totalCylinderRevenue / allCylinderTransactions.length) || 0 : 0,
       
-      // Status breakdown
-      pendingCustomers: Number(await Customer.countDocuments({ balance: { $gt: 0 } })) || 0,
-      overdueCustomers: Number(await Customer.countDocuments({ balance: { $lt: 0 } })) || 0,
-      clearedCustomers: Number(await Customer.countDocuments({ balance: 0 })) || 0
+      // Status breakdown - based on actual transaction payment status
+      pendingCustomers: Number(pendingCustomersCount) || 0,
+      overdueCustomers: Number(overdueCustomersCount) || 0,
+      clearedCustomers: Number(clearedCustomersCount) || 0
     };
 
     console.log('Reports stats response:', stats);
