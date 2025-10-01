@@ -53,16 +53,23 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
     const pageParam = urlParams.get('page')
     if (pageParam) {
       setCurrentPage(pageParam)
+    } else {
+      // If no page parameter, default to appropriate dashboard based on user role
+      setCurrentPage(user.role === 'admin' ? 'dashboard' : 'employee-dashboard')
     }
     setMounted(true)
-  }, [])
+  }, [user.role])
 
   // Update URL when page changes
   useEffect(() => {
-    if (mounted && currentPage !== 'dashboard') {
+    if (mounted) {
       const url = new URL(window.location.href)
+      
+      // Always set the page parameter to maintain state on refresh
       url.searchParams.set('page', currentPage)
-      window.history.pushState({}, '', url)
+      
+      // Use replaceState instead of pushState to avoid creating browser history entries
+      window.history.replaceState({}, '', url)
     }
   }, [currentPage, mounted])
 

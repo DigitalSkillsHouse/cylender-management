@@ -26,13 +26,30 @@ export default function Home() {
 
   const checkAuthStatus = async () => {
     try {
-      // Check if user data exists in sessionStorage
+      // Check if user data exists in sessionStorage first
       const savedUser = sessionStorage.getItem("user")
       if (savedUser) {
         setUser(JSON.parse(savedUser))
+        setLoading(false)
+        return
+      }
+
+      // If no sessionStorage, try to validate with server using cookie
+      const response = await fetch('/api/auth/validate', {
+        method: 'GET',
+        credentials: 'include', // Include cookies
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.user) {
+          setUser(data.user)
+          // Save to sessionStorage for faster subsequent loads
+          sessionStorage.setItem("user", JSON.stringify(data.user))
+        }
       }
     } catch (error) {
-      console.log("No saved user session")
+      console.log("No valid user session")
     } finally {
       setLoading(false)
     }
