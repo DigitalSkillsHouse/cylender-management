@@ -27,6 +27,7 @@ interface InventoryItem {
   purchaseType: "gas" | "cylinder" | "multiple"
   isEmployeePurchase?: boolean
   employeeName?: string
+  employeeId?: string // Track which employee owns this purchase
   groupedItems?: InventoryItem[]
   originalOrderId?: string
   itemIndex?: number
@@ -76,9 +77,10 @@ export function Inventory() {
       setError("")
       
       // Fetch both admin and employee purchase orders in parallel
+      // For inventory page (admin view), get all employee purchase orders without filtering
       const [purchaseOrdersRes, employeePurchaseOrdersRes, productsRes, suppliersRes] = await Promise.all([
         purchaseOrdersAPI.getAll(),
-        employeePurchaseOrdersAPI.getAll(),
+        employeePurchaseOrdersAPI.getAll(), // Admin inventory page shows all employee orders
         productsAPI.getAll(),
         suppliersAPI.getAll()
       ])
@@ -223,6 +225,7 @@ export function Inventory() {
                 purchaseType: item.purchaseType || order.purchaseType || 'gas',
                 isEmployeePurchase: order.isEmployeePurchase || false,
                 employeeName: employeeName,
+                employeeId: order.isEmployeePurchase ? (order.employee?._id || order.employee) : null, // Track employee ID
                 originalOrderId: order._id, // Keep reference to original order for updates
                 itemIndex: itemIndex // Keep track of item index for individual updates
               } as InventoryItem

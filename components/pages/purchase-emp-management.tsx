@@ -101,13 +101,38 @@ export function PurchaseManagement() {
       
       // Try to fetch employee purchase orders separately (requires auth)
       try {
-        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll()
+        // Force API to return only the authenticated employee's orders
+        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll({ meOnly: true })
         
         // The API response structure is: response.data.data (nested)
         const ordersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
         
         // Ensure it's always an array
-        const finalData = Array.isArray(ordersData) ? ordersData : []
+        let finalData = Array.isArray(ordersData) ? ordersData : []
+        
+        // Client-side safety filter: If we somehow got other employees' orders, filter them out
+        // This is a belt-and-suspenders approach in case the API filter fails
+        try {
+          // Get current user info from localStorage or other source if available
+          const userInfo = typeof window !== 'undefined' ? localStorage.getItem('user') : null
+          if (userInfo) {
+            const currentUser = JSON.parse(userInfo)
+            if (currentUser?.id) {
+              const beforeCount = finalData.length
+              finalData = finalData.filter((order: any) => {
+                const orderEmployeeId = order.employee?._id || order.employee
+                return orderEmployeeId === currentUser.id
+              })
+              const afterCount = finalData.length
+              if (beforeCount !== afterCount) {
+                console.warn(`Filtered out ${beforeCount - afterCount} orders that don't belong to current employee`)
+              }
+            }
+          }
+        } catch (filterError) {
+          console.warn('Client-side order filtering failed:', filterError)
+          // Continue with original data if filtering fails
+        }
         
         setPurchaseOrders(finalData)
       } catch (purchaseError: any) {

@@ -56,7 +56,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
         notificationsAPI.getAll(user.id),
         fetch(`/api/employee-sales?employeeId=${user.id}`),
         fetch(`/api/employee-cylinders?employeeId=${user.id}`),
-        fetch(`/api/employee-purchase-orders`),
+        fetch(`/api/employee-purchase-orders?me=true`),
       ])
 
       // Filter stock assignments for current employee

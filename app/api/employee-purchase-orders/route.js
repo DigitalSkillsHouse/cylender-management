@@ -16,9 +16,29 @@ export async function GET(request) {
 
     await dbConnect()
     
-    // For employees, only show their own purchase orders
-    // For admins, show all employee purchase orders
-    const filter = user.role === 'employee' ? { employee: user.id } : {}
+    // URL params to optionally force "my orders only"
+    const url = new URL(request.url)
+    const meParam = (url.searchParams.get('me') || '').toString().toLowerCase()
+    const meOnly = meParam === '1' || meParam === 'true'
+
+    // Normalize role to avoid case mismatches
+    const role = String(user.role || '').trim().toLowerCase()
+    // For employees, ALWAYS show only their own purchase orders
+    // For admins, show all unless explicitly forced to "meOnly"
+    let filter = {}
+    if (role === 'employee') {
+      // Employees can ONLY see their own orders, no exceptions
+      filter = { employee: user.id }
+      console.log(`Employee ${user.email} requesting their own orders only. Filter:`, filter)
+    } else if (meOnly) {
+      // Admin requesting only their own orders (if any)
+      filter = { employee: user.id }
+      console.log(`Admin ${user.email} requesting meOnly. Filter:`, filter)
+    } else {
+      // Admin requesting all employee orders
+      filter = {}
+      console.log(`Admin ${user.email} requesting all employee orders. No filter applied.`)
+    }
     
     const purchaseOrders = await EmployeePurchaseOrder.find(filter)
       .populate('supplier', 'companyName')

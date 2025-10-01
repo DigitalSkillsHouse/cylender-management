@@ -61,7 +61,16 @@ export async function PATCH(request, { params }) {
         
         if (updatedOrder) {
           isEmployeePurchase = true
-          console.log("Found employee purchase order:", updatedOrder._id, "Employee:", updatedOrder.employee?.name)
+          console.log("Found employee purchase order:", updatedOrder._id, "Employee:", updatedOrder.employee?.name || updatedOrder.employee?.email)
+          
+          // Additional security: Ensure only admin can update employee purchase orders
+          // or employees can only update their own orders
+          if (user.role === 'employee' && updatedOrder.employee._id.toString() !== user.id) {
+            return NextResponse.json(
+              { success: false, error: "Access denied: You can only update your own purchase orders" },
+              { status: 403 }
+            )
+          }
         } else {
           console.log("Employee purchase order not found")
         }
