@@ -334,42 +334,77 @@ export async function PATCH(request, { params }) {
             }
             
             if (product && employeeId) {
-              // Create stock assignment for the employee
-              const stockAssignment = new StockAssignment({
+              // Check for existing received stock assignment with same product
+              const existingAssignment = await StockAssignment.findOne({
                 employee: employeeId,
                 product: product._id,
-                quantity: item.quantity || 0,
-                remainingQuantity: item.quantity || 0,
-                assignedBy: user.id, // Employee who received the inventory
-                status: "received", // Directly set to received since employee is receiving it
-                notes: `Received from approved purchase order: ${updatedOrder.poNumber}`,
-                leastPrice: product.leastPrice || 0,
-                assignedDate: new Date(),
-                receivedDate: new Date()
+                status: "received"
               })
               
-              await stockAssignment.save()
-              console.log(`✅ Created stock assignment for employee ${employeeId}: ${item.quantity} units of ${product.name}`)
-              console.log("Stock assignment details:", {
-                id: stockAssignment._id,
-                employee: employeeId,
-                product: product._id,
-                productName: product.name,
-                quantity: item.quantity,
-                status: stockAssignment.status,
-                assignedBy: user.id
-              })
+              if (existingAssignment) {
+                // Update existing assignment - add quantities
+                const newQuantity = existingAssignment.quantity + (item.quantity || 0)
+                const newRemainingQuantity = existingAssignment.remainingQuantity + (item.quantity || 0)
+                
+                await StockAssignment.findByIdAndUpdate(existingAssignment._id, {
+                  quantity: newQuantity,
+                  remainingQuantity: newRemainingQuantity,
+                  notes: `${existingAssignment.notes || ''}\nAdded from purchase order: ${updatedOrder.poNumber} (Qty: ${item.quantity})`,
+                  receivedDate: new Date() // Update received date to latest
+                })
+                
+                console.log(`✅ Updated existing stock assignment for employee ${employeeId}: ${product.name}`)
+                console.log("Updated assignment details:", {
+                  id: existingAssignment._id,
+                  employee: employeeId,
+                  product: product._id,
+                  productName: product.name,
+                  oldQuantity: existingAssignment.quantity,
+                  newQuantity: newQuantity,
+                  addedQuantity: item.quantity
+                })
+              } else {
+                // Create new stock assignment for the employee
+                const stockAssignment = new StockAssignment({
+                  employee: employeeId,
+                  product: product._id,
+                  quantity: item.quantity || 0,
+                  remainingQuantity: item.quantity || 0,
+                  assignedBy: employeeId, // Set to employee ID since they're receiving it themselves
+                  status: "received", // Directly set to received since employee is receiving it
+                  notes: `Received from approved purchase order: ${updatedOrder.poNumber}`,
+                  leastPrice: product.leastPrice || 0,
+                  assignedDate: new Date(),
+                  receivedDate: new Date()
+                })
+                
+                await stockAssignment.save()
+                console.log(`✅ Created new stock assignment for employee ${employeeId}: ${item.quantity} units of ${product.name}`)
+                console.log("New assignment details:", {
+                  id: stockAssignment._id,
+                  employee: employeeId,
+                  product: product._id,
+                  productName: product.name,
+                  quantity: item.quantity,
+                  status: stockAssignment.status,
+                  assignedBy: employeeId
+                })
+              }
               
               // Create notification for employee
               try {
                 const Notification = require("@/models/Notification").default
+                const notificationMessage = existingAssignment 
+                  ? `${product.name} stock updated in your inventory. Added quantity: ${item.quantity}`
+                  : `${product.name} has been added to your inventory. Quantity: ${item.quantity}`
+                
                 const notification = new Notification({
                   userId: employeeId,
                   type: "stock_assignment",
-                  title: "Stock Received",
-                  message: `${product.name} has been added to your inventory. Quantity: ${item.quantity}`,
+                  title: existingAssignment ? "Stock Updated" : "Stock Received",
+                  message: notificationMessage,
                   isRead: false,
-                  createdBy: user.id
+                  createdBy: employeeId
                 })
                 await notification.save()
                 console.log("Created notification for employee stock assignment")

@@ -63,12 +63,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       const stockData = Array.isArray(stockResponse.data) ? stockResponse.data : (stockResponse.data?.data || []);
       const employeeStock = stockData.filter((stock: any) => stock.employee?._id === user.id)
       
-      console.log("Stock assignments fetched:", {
-        totalStockData: stockData.length,
-        employeeStock: employeeStock.length,
-        employeeId: user.id,
-        stockStatuses: employeeStock.map((s: any) => ({ id: s._id, status: s.status, product: s.product?.name }))
-      })
+      console.log("Stock assignments fetched:", employeeStock.length, "assignments for employee")
       
       setAssignedStock(employeeStock)
       // Notifications are now handled by useNotifications hook
@@ -132,6 +127,13 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
 
   const handleReceiveInventory = async (purchaseOrderId: string) => {
     try {
+      console.log("Receiving inventory item:", purchaseOrderId)
+      
+      // Immediately remove from pending inventory optimistically
+      setPendingInventory(prevInventory => 
+        prevInventory.filter(item => item._id !== purchaseOrderId)
+      )
+      
       // Call the inventory API to mark as received (itemIndex 0 for employee orders)
       const response = await fetch(`/api/inventory/item/${purchaseOrderId}/0`, {
         method: 'PATCH',
@@ -146,19 +148,23 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       if (result.success) {
         console.log("Inventory item received successfully, refreshing data...")
         
-        // Refresh the employee data to update the pending inventory
+        // Force refresh all data
         await fetchEmployeeData()
         
         console.log("Data refreshed after receiving inventory item")
         
         // Show success notification
         setNotification({ 
-          message: "Inventory item received successfully!", 
+          message: "Inventory item received successfully! Check your received stock section.", 
           visible: true 
         })
-        setTimeout(() => setNotification({ message: "", visible: false }), 3000)
+        setTimeout(() => setNotification({ message: "", visible: false }), 4000)
       } else {
         console.error("Failed to receive inventory:", result.error)
+        
+        // Revert optimistic update on error
+        await fetchEmployeeData()
+        
         setNotification({ 
           message: `Failed to receive inventory: ${result.error}`, 
           visible: true 
@@ -167,6 +173,10 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       }
     } catch (error) {
       console.error("Error receiving inventory:", error)
+      
+      // Revert optimistic update on error
+      await fetchEmployeeData()
+      
       setNotification({ 
         message: "Error receiving inventory. Please try again.", 
         visible: true 
@@ -186,10 +196,56 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
 
   const handleReceiveStock = async (assignmentId: string) => {
     try {
+      console.log("Receiving stock assignment:", assignmentId)
+      
+      // Immediately update the UI optimistically
+      setAssignedStock(prevStock => 
+        prevStock.map(stock => 
+          stock._id === assignmentId 
+            ? { ...stock, status: "received", receivedDate: new Date() }
+            : stock
+        )
+      )
+      
+      // Call the API
       await stockAPI.receive(assignmentId)
-      fetchEmployeeData() // Refresh data
+      
+      console.log("Stock assignment received successfully, refreshing data...")
+      
+      // Force refresh the stock assignments data
+      const stockResponse = await stockAPI.getAll()
+      const stockData = Array.isArray(stockResponse.data) ? stockResponse.data : (stockResponse.data?.data || []);
+      const employeeStock = stockData.filter((stock: any) => stock.employee?._id === user.id)
+      
+      console.log("Fresh stock data fetched:", {
+        totalStock: stockData.length,
+        employeeStock: employeeStock.length,
+        receivedCount: employeeStock.filter((s: any) => s.status === "received").length,
+        pendingCount: employeeStock.filter((s: any) => s.status === "assigned").length
+      })
+      
+      // Update the state with fresh data
+      setAssignedStock(employeeStock)
+      
+      console.log("Data refreshed after receiving stock assignment")
+      
+      // Show success notification
+      setNotification({ 
+        message: "Stock assignment received successfully! Check your received stock section.", 
+        visible: true 
+      })
+      setTimeout(() => setNotification({ message: "", visible: false }), 4000)
     } catch (error) {
       console.error("Failed to receive stock:", error)
+      
+      // Revert the optimistic update on error
+      await fetchEmployeeData()
+      
+      setNotification({ 
+        message: "Failed to receive stock assignment. Please try again.", 
+        visible: true 
+      })
+      setTimeout(() => setNotification({ message: "", visible: false }), 5000)
     }
   }
 
@@ -224,7 +280,23 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
     pendingStock: pendingStock.length,
     receivedStock: receivedStock.length,
     returnedStock: returnedStock.length,
-    allStatuses: assignedStock.map((s: any) => s.status)
+    allStatuses: assignedStock.map((s: any) => s.status),
+    pendingStockDetails: pendingStock.map((s: any) => ({
+      id: s._id,
+      product: s.product?.name,
+      productCode: s.product?.productCode,
+      status: s.status,
+      assignedDate: s.assignedDate
+    })),
+    receivedStockDetails: receivedStock.map((s: any) => ({
+      id: s._id,
+      product: s.product?.name,
+      productCode: s.product?.productCode,
+      quantity: s.quantity,
+      remainingQuantity: s.remainingQuantity,
+      receivedDate: s.receivedDate,
+      status: s.status
+    }))
   })
 
   // Helpers to compute employee usage per product - defined before use
