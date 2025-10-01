@@ -207,7 +207,56 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
   const receivedStock = assignedStock.filter((stock: any) => stock.status === "received")
   const returnedStock = assignedStock.filter((stock: any) => stock.status === "returned")
 
-  // Define getAvailableForStock function before using it
+  // Helpers to compute employee usage per product - defined before use
+  const usageByProductFromGas = (productId: string) => {
+    try {
+      return salesData.reduce((sum: number, sale: any) => {
+        const items = Array.isArray(sale.items) ? sale.items : []
+        const used = items.reduce((s: number, it: any) => {
+          const isGas = it?.product?.category === 'gas'
+          const matches = it?.product?._id === productId
+          return s + (isGas && matches ? (Number(it.quantity) || 0) : 0)
+        }, 0)
+        return sum + used
+      }, 0)
+    } catch {
+      return 0
+    }
+  }
+
+  const usageByProductFromCylinders = (productId: string, size?: string) => {
+    try {
+      return cylinderTxns.reduce((sum: number, t: any) => {
+        if (t?.product?._id !== productId) return sum
+        if (size && t?.cylinderSize && t.cylinderSize !== size) return sum
+        // Decrease for deposits (given out), increase back for returns
+        if (t.type === 'deposit') return sum + (Number(t.quantity) || 0)
+        if (t.type === 'return') return sum - (Number(t.quantity) || 0)
+        return sum
+      }, 0)
+    } catch {
+      return 0
+    }
+  }
+
+  const usageByProductFromCylinderSales = (productId: string, size?: string) => {
+    try {
+      return salesData.reduce((sum: number, sale: any) => {
+        const items = Array.isArray(sale.items) ? sale.items : []
+        const used = items.reduce((s: number, it: any) => {
+          const isCylinder = it?.product?.category === 'cylinder'
+          const matchesProduct = it?.product?._id === productId
+          const matchesSize = size ? (it?.product?.cylinderType ? it.product.cylinderType === size : true) : true
+          return s + (isCylinder && matchesProduct && matchesSize ? (Number(it.quantity) || 0) : 0)
+        }, 0)
+        return sum + used
+      }, 0)
+    } catch {
+      return 0
+    }
+  }
+
+  // Define getAvailableForStock function after helper functions
   const getAvailableForStock = (stock: any) => {
     const baseQty = Number(stock.quantity) || 0
     const productId = stock.product?._id
@@ -274,55 +323,6 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
   const totalRemainingQuantity = receivedStock.reduce((sum, stock) => sum + (stock.remainingQuantity || stock.quantity || 0), 0)
   
   const totalReturnedQuantity = returnedStock.reduce((sum, stock) => sum + (stock.quantity || 0), 0)
-
-  // Helpers to compute employee usage per product
-  const usageByProductFromGas = (productId: string) => {
-    try {
-      return salesData.reduce((sum: number, sale: any) => {
-        const items = Array.isArray(sale.items) ? sale.items : []
-        const used = items.reduce((s: number, it: any) => {
-          const isGas = it?.product?.category === 'gas'
-          const matches = it?.product?._id === productId
-          return s + (isGas && matches ? (Number(it.quantity) || 0) : 0)
-        }, 0)
-        return sum + used
-      }, 0)
-    } catch {
-      return 0
-    }
-  }
-
-  const usageByProductFromCylinders = (productId: string, size?: string) => {
-    try {
-      return cylinderTxns.reduce((sum: number, t: any) => {
-        if (t?.product?._id !== productId) return sum
-        if (size && t?.cylinderSize && t.cylinderSize !== size) return sum
-        // Decrease for deposits (given out), increase back for returns
-        if (t.type === 'deposit') return sum + (Number(t.quantity) || 0)
-        if (t.type === 'return') return sum - (Number(t.quantity) || 0)
-        return sum
-      }, 0)
-    } catch {
-      return 0
-    }
-  }
-
-  const usageByProductFromCylinderSales = (productId: string, size?: string) => {
-    try {
-      return salesData.reduce((sum: number, sale: any) => {
-        const items = Array.isArray(sale.items) ? sale.items : []
-        const used = items.reduce((s: number, it: any) => {
-          const isCylinder = it?.product?.category === 'cylinder'
-          const matchesProduct = it?.product?._id === productId
-          const matchesSize = size ? (it?.product?.cylinderType ? it.product.cylinderType === size : true) : true
-          return s + (isCylinder && matchesProduct && matchesSize ? (Number(it.quantity) || 0) : 0)
-        }, 0)
-        return sum + used
-      }, 0)
-    } catch {
-      return 0
-    }
-  }
 
   if (loading) {
     return (

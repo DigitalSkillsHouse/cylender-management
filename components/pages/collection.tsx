@@ -223,13 +223,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const totalSelected = useMemo(() => {
     let count = 0
     filtered.forEach((inv) => {
-      if (inv.items && inv.items.length > 0) {
-        inv.items.forEach((item, itemIdx) => {
-          if (selected[`${inv._id}-${itemIdx}`]) count++
-        })
-      } else if (selected[inv._id]) {
-        count++
-      }
+      if (selected[inv._id]) count++
     })
     return count
   }, [filtered, selected])
@@ -237,18 +231,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const totalToCollect = useMemo(() => {
     let total = 0
     filtered.forEach((inv) => {
-      if (inv.items && inv.items.length > 0) {
-        inv.items.forEach((item, itemIdx) => {
-          const itemId = `${inv._id}-${itemIdx}`
-          if (selected[itemId]) {
-            const raw = amounts[itemId]
-            const val = Number(raw)
-            if (isFinite(val) && val > 0) {
-              total += Math.min(val, item.total)
-            }
-          }
-        })
-      } else if (selected[inv._id]) {
+      if (selected[inv._id]) {
         const raw = amounts[inv._id]
         const val = Number(raw)
         if (isFinite(val) && val > 0) {
@@ -274,21 +257,10 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const handleSelect = (id: string, checked: boolean) => {
     setSelected((prev) => ({ ...prev, [id]: checked }))
     if (checked && !amounts[id]) {
-      // Check if this is an item ID (format: invoiceId-itemIndex)
-      if (id.includes('-')) {
-        const [invoiceId, itemIndexStr] = id.split('-')
-        const itemIndex = parseInt(itemIndexStr)
-        const inv = invoices.find((i) => i._id === invoiceId)
-        if (inv && inv.items && inv.items[itemIndex]) {
-          const item = inv.items[itemIndex]
-          setAmounts((prev) => ({ ...prev, [id]: item.total.toString() }))
-        }
-      } else {
-        // This is an invoice ID
-        const inv = invoices.find((i) => i._id === id)
-        if (inv) {
-          setAmounts((prev) => ({ ...prev, [id]: inv.balance.toString() }))
-        }
+      // This is an invoice ID - prefill with full balance
+      const inv = invoices.find((i) => i._id === id)
+      if (inv) {
+        setAmounts((prev) => ({ ...prev, [id]: inv.balance.toString() }))
       }
     }
   }
@@ -298,7 +270,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
     console.log('Current selected state:', selected)
     console.log('Current amounts state:', amounts)
     
-    // Collect all selected items from all customer groups
+    // Collect all selected invoices
+    const selectedInvoices: PendingInvoice[] = []
     const selectedItems: Array<{
       invoice: PendingInvoice,
       item: PendingInvoiceItem,
@@ -307,23 +280,14 @@ export function CollectionPage({ user }: CollectionPageProps) {
     }> = []
     
     filtered.forEach((inv) => {
-      if (inv.items && inv.items.length > 0) {
-        inv.items.forEach((item, itemIdx) => {
-          const itemId = `${inv._id}-${itemIdx}`
-          if (selected[itemId]) {
-            const amount = parseFloat(amounts[itemId] || '0')
-            if (amount > 0) {
-              selectedItems.push({ invoice: inv, item, itemId, amount })
-            }
-          }
-        })
-      } else if (selected[inv._id]) {
-        // Handle invoices without items (fallback)
+      if (selected[inv._id]) {
         const amount = parseFloat(amounts[inv._id] || '0')
         if (amount > 0) {
+          selectedInvoices.push(inv)
+          // Create a single item representing the entire invoice payment
           selectedItems.push({ 
             invoice: inv, 
-            item: { product: { name: 'No items' }, quantity: 0, price: 0, total: inv.balance }, 
+            item: { product: { name: `Invoice ${inv.invoiceNumber}` }, quantity: 1, price: amount, total: amount }, 
             itemId: inv._id, 
             amount 
           })
@@ -331,15 +295,15 @@ export function CollectionPage({ user }: CollectionPageProps) {
       }
     })
     
-    console.log('Collected selectedItems:', selectedItems)
+    console.log('Collected selectedInvoices:', selectedInvoices)
     
-    if (!selectedItems.length) {
-      toast({ title: "No items selected", variant: "destructive" })
+    if (!selectedInvoices.length) {
+      toast({ title: "No invoices selected", variant: "destructive" })
       return
     }
     
-    const totalAmount = selectedItems.reduce((sum, item) => sum + item.amount, 0)
-    const currentReceived = selectedItems.reduce((sum, item) => sum + item.invoice.receivedAmount, 0)
+    const totalAmount = selectedInvoices.reduce((sum, inv) => sum + parseFloat(amounts[inv._id] || '0'), 0)
+    const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
     
     // Open payment collection dialog
     setPaymentDialog({
@@ -350,8 +314,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
       bankName: '',
       chequeNumber: '',
       inputAmount: '',
-      selectedInvoices: selectedItems.map(item => item.invoice), // Keep for compatibility
-      selectedItems // Add selected items for detailed processing
+      selectedInvoices,
+      selectedItems
     })
   }
   
@@ -395,29 +359,19 @@ export function CollectionPage({ user }: CollectionPageProps) {
       return
     }
     
-    // Create payments array for API using selected items
+    // Create payments array for API using selected invoices
     const payments: Array<{ model: string; id: string; amount: number }> = []
     
-    // Group selected items by invoice to create payment entries
-    const invoicePayments = new Map<string, number>()
-    
-    paymentDialog.selectedItems.forEach(selectedItem => {
-      const invoiceId = selectedItem.invoice._id
-      const itemAmount = selectedItem.amount
-      const proportionalAmount = (itemAmount / paymentDialog.totalAmount) * add
+    // Calculate proportional payment for each selected invoice
+    paymentDialog.selectedInvoices.forEach(invoice => {
+      const invoiceAmount = parseFloat(amounts[invoice._id] || '0')
+      const proportionalAmount = (invoiceAmount / paymentDialog.totalAmount) * add
       
-      // Accumulate amounts for the same invoice
-      invoicePayments.set(invoiceId, (invoicePayments.get(invoiceId) || 0) + proportionalAmount)
-    })
-    
-    // Convert to payments array
-    invoicePayments.forEach((amount, invoiceId) => {
-      const invoice = paymentDialog.selectedItems.find(item => item.invoice._id === invoiceId)?.invoice
-      if (invoice && amount > 0) {
+      if (proportionalAmount > 0) {
         payments.push({
           model: invoice.model,
-          id: invoiceId,
-          amount: amount
+          id: invoice._id,
+          amount: proportionalAmount
         })
       }
     })
@@ -453,39 +407,25 @@ export function CollectionPage({ user }: CollectionPageProps) {
       setSelected({})
       setAmounts({})
       await fetchData(selectedCustomer?._id)
-      // Format receipt data for the ReceiptDialog
-      const receiptItems = payments.flatMap(p => {
+      // Format receipt data to show invoice numbers instead of individual items
+      const receiptItems = payments.map(p => {
         const invoice = invoices.find(inv => inv._id === p.id)
-        if (!invoice) return []
+        if (!invoice) return null
         
-        // If invoice has items, use them, otherwise create a single item for the payment
-        if (invoice.items?.length > 0) {
-          return invoice.items.map(item => ({
-            product: {
-              name: item.product.name,
-              price: item.price
-            },
-            quantity: item.quantity,
-            price: item.price,
-            total: item.total
-          }))
-        }
-        
-        // Fallback for invoices without items
-        return [{
-          product: { 
-            name: `Payment for Invoice #${invoice.invoiceNumber} (${invoice.source.toUpperCase()})`,
+        // Create a single line item for each invoice payment
+        return {
+          product: {
+            name: `Payment for Invoice #${invoice.invoiceNumber}`,
             price: p.amount
           },
           quantity: 1,
           price: p.amount,
           total: p.amount
-        }]
-      })
+        }
+      }).filter(Boolean)
 
-      // Get the first invoice number from the payments for receipt header
-      const firstInvoice = invoices.find(inv => payments.some(p => p.id === inv._id))
-      const invoiceNumber = firstInvoice?.invoiceNumber || `COL-${Date.now().toString().slice(-6)}`
+      // Use collection receipt number instead of individual invoice number
+      const invoiceNumber = `COL-${Date.now().toString().slice(-6)}`
       
       // Fetch full customer details including TR number and address
       const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
@@ -517,42 +457,28 @@ export function CollectionPage({ user }: CollectionPageProps) {
   }
 
   const openPrintWindow = (payments: Array<{ model: string; id: string; amount: number }>, signature?: string) => {
-    // Get the first invoice number from the payments for receipt header
-    const firstInvoice = invoices.find(inv => payments.some(p => p.id === inv._id))
-    const invoiceNumber = firstInvoice?.invoiceNumber || `PREV-${Date.now().toString().slice(-6)}`
+    // Use collection preview receipt number instead of individual invoice number
+    const invoiceNumber = `PREV-${Date.now().toString().slice(-6)}`
     
     // Fetch full customer details including TR number and address
     const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
     
-    // Format receipt data for the ReceiptDialog - use actual product names from invoices
-    const receiptItems = payments.flatMap(p => {
+    // Format receipt data to show invoice numbers instead of individual items
+    const receiptItems = payments.map(p => {
       const invoice = invoices.find(inv => inv._id === p.id)
-      if (!invoice) return []
+      if (!invoice) return null
       
-      // If invoice has items, use them, otherwise create a single item for the payment
-      if (invoice.items?.length > 0) {
-        return invoice.items.map(item => ({
-          product: {
-            name: item.product.name,
-            price: item.price
-          },
-          quantity: item.quantity,
-          price: item.price,
-          total: item.total
-        }))
-      }
-      
-      // Fallback for invoices without items
-      return [{
-        product: { 
-          name: `Payment for Invoice #${invoice.invoiceNumber} (${invoice.source.toUpperCase()})`,
+      // Create a single line item for each invoice payment
+      return {
+        product: {
+          name: `Payment for Invoice #${invoice.invoiceNumber}`,
           price: p.amount
         },
         quantity: 1,
         price: p.amount,
         total: p.amount
-      }]
-    })
+      }
+    }).filter(Boolean)
 
     setReceiptData({
       _id: `preview-${Date.now()}`,
@@ -633,13 +559,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
               <div className="p-4 text-center text-gray-500">No pending invoices</div>
             )}
             {groupedByCustomer.map((group) => {
-              const allSelected = group.invoices.every((inv) => {
-                if (inv.items && inv.items.length > 0) {
-                  return inv.items.every((item, itemIdx) => selected[`${inv._id}-${itemIdx}`])
-                } else {
-                  return selected[inv._id]
-                }
-              }) && group.invoices.length > 0
+              const allSelected = group.invoices.every((inv) => selected[inv._id]) && group.invoices.length > 0
               const groupTotalBalance = group.invoices.reduce((s, inv) => s + (inv.balance || 0), 0)
               return (
                 <div key={group.key} className="border rounded-lg">
@@ -649,19 +569,9 @@ export function CollectionPage({ user }: CollectionPageProps) {
                       <Checkbox checked={allSelected} onCheckedChange={(v) => {
                         const checked = Boolean(v)
                         group.invoices.forEach((inv) => {
-                          if (inv.items && inv.items.length > 0) {
-                            inv.items.forEach((item, itemIdx) => {
-                              const itemId = `${inv._id}-${itemIdx}`
-                              handleSelect(itemId, checked)
-                              if (checked && !amounts[itemId]) {
-                                setAmounts((prev) => ({ ...prev, [itemId]: item.total.toString() }))
-                              }
-                            })
-                          } else {
-                            handleSelect(inv._id, checked)
-                            if (checked && !amounts[inv._id]) {
-                              setAmounts((prev) => ({ ...prev, [inv._id]: inv.balance.toString() }))
-                            }
+                          handleSelect(inv._id, checked)
+                          if (checked && !amounts[inv._id]) {
+                            setAmounts((prev) => ({ ...prev, [inv._id]: inv.balance.toString() }))
                           }
                         })
                       }} />
@@ -680,19 +590,9 @@ export function CollectionPage({ user }: CollectionPageProps) {
                         onClick={() => {
                           const setAll = !allSelected
                           group.invoices.forEach((inv) => {
-                            if (inv.items && inv.items.length > 0) {
-                              inv.items.forEach((item, itemIdx) => {
-                                const itemId = `${inv._id}-${itemIdx}`
-                                handleSelect(itemId, setAll)
-                                if (setAll && !amounts[itemId]) {
-                                  setAmounts((prev) => ({ ...prev, [itemId]: item.total.toString() }))
-                                }
-                              })
-                            } else {
-                              handleSelect(inv._id, setAll)
-                              if (setAll && !amounts[inv._id]) {
-                                setAmounts((prev) => ({ ...prev, [inv._id]: inv.balance.toString() }))
-                              }
+                            handleSelect(inv._id, setAll)
+                            if (setAll && !amounts[inv._id]) {
+                              setAmounts((prev) => ({ ...prev, [inv._id]: inv.balance.toString() }))
                             }
                           })
                         }}
@@ -702,7 +602,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
                       <Button
                         size="sm"
                         onClick={() => {
-                          // Collect all selected items from this customer group
+                          // Collect all selected invoices from this customer group
+                          const selectedInvoices: PendingInvoice[] = []
                           const selectedItems: Array<{
                             invoice: PendingInvoice,
                             item: PendingInvoiceItem,
@@ -711,23 +612,13 @@ export function CollectionPage({ user }: CollectionPageProps) {
                           }> = []
                           
                           group.invoices.forEach((inv) => {
-                            if (inv.items && inv.items.length > 0) {
-                              inv.items.forEach((item, itemIdx) => {
-                                const itemId = `${inv._id}-${itemIdx}`
-                                if (selected[itemId]) {
-                                  const amount = parseFloat(amounts[itemId] || '0')
-                                  if (amount > 0) {
-                                    selectedItems.push({ invoice: inv, item, itemId, amount })
-                                  }
-                                }
-                              })
-                            } else if (selected[inv._id]) {
-                              // Handle invoices without items (fallback)
+                            if (selected[inv._id]) {
                               const amount = parseFloat(amounts[inv._id] || '0')
                               if (amount > 0) {
+                                selectedInvoices.push(inv)
                                 selectedItems.push({ 
                                   invoice: inv, 
-                                  item: { product: { name: 'No items' }, quantity: 0, price: 0, total: inv.balance }, 
+                                  item: { product: { name: `Invoice ${inv.invoiceNumber}` }, quantity: 1, price: amount, total: amount }, 
                                   itemId: inv._id, 
                                   amount 
                                 })
@@ -735,15 +626,15 @@ export function CollectionPage({ user }: CollectionPageProps) {
                             }
                           })
                           
-                          if (!selectedItems.length) {
-                            toast({ title: 'No items selected in this customer group', variant: 'destructive' })
+                          if (!selectedInvoices.length) {
+                            toast({ title: 'No invoices selected in this customer group', variant: 'destructive' })
                             return
                           }
                           
-                          const totalAmount = selectedItems.reduce((sum, item) => sum + item.amount, 0)
-                          const currentReceived = selectedItems.reduce((sum, item) => sum + item.invoice.receivedAmount, 0)
+                          const totalAmount = selectedInvoices.reduce((sum, inv) => sum + parseFloat(amounts[inv._id] || '0'), 0)
+                          const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
                           
-                          // Open payment collection dialog with selected items
+                          // Open payment collection dialog with selected invoices
                           setPaymentDialog({
                             open: true,
                             totalAmount,
@@ -752,19 +643,13 @@ export function CollectionPage({ user }: CollectionPageProps) {
                             bankName: '',
                             chequeNumber: '',
                             inputAmount: '',
-                            selectedInvoices: selectedItems.map(item => item.invoice), // Keep for compatibility
-                            selectedItems // Add selected items for detailed processing
+                            selectedInvoices,
+                            selectedItems
                           })
                         }}
                         disabled={(() => {
-                          // Check if any items are selected in this group
-                          return group.invoices.every((inv) => {
-                            if (inv.items && inv.items.length > 0) {
-                              return inv.items.every((item, itemIdx) => !selected[`${inv._id}-${itemIdx}`])
-                            } else {
-                              return !selected[inv._id]
-                            }
-                          })
+                          // Check if any invoices are selected in this group
+                          return group.invoices.every((inv) => !selected[inv._id])
                         })()}
                       >
                         Receive Amount
@@ -777,66 +662,26 @@ export function CollectionPage({ user }: CollectionPageProps) {
                     <thead>
                       <tr className="bg-gray-100">
                         <th className="p-2"></th>
-                        <th className="text-left p-2">Invoice</th>
+                        <th className="text-left p-2">Invoice Number</th>
                         <th className="text-left p-2">Source</th>
-                        <th className="text-left p-2">Product</th>
-                        <th className="text-center p-2">Qty</th>
-                        <th className="text-right p-2">Unit Price (AED)</th>
-                        <th className="text-right p-2">Item Total (AED)</th>
+                        <th className="text-left p-2">Items Summary</th>
+                        <th className="text-right p-2">Total Amount (AED)</th>
+                        <th className="text-right p-2">Received (AED)</th>
+                        <th className="text-right p-2">Balance (AED)</th>
                         <th className="text-left p-2">Status</th>
                         <th className="text-left p-2">Date</th>
                         <th className="text-right p-2">Collect Amount</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {group.invoices.map((inv) => 
-                        inv.items && inv.items.length > 0 ? (
-                          inv.items.map((item, itemIdx) => {
-                            const itemId = `${inv._id}-${itemIdx}`
-                            return (
-                              <tr key={itemId} className="border-b hover:bg-gray-50">
-                                <td className="p-2 align-middle">
-                                  <Checkbox 
-                                    checked={!!selected[itemId]} 
-                                    onCheckedChange={(v) => handleSelect(itemId, Boolean(v))} 
-                                  />
-                                </td>
-                                <td className="p-2 align-middle font-medium">{inv.invoiceNumber}</td>
-                                <td className="p-2 align-middle">
-                                  <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                                    {inv.source}
-                                  </Badge>
-                                </td>
-                                <td className="p-2 align-middle">
-                                  <div className="font-medium">{item.product.name}</div>
-                                </td>
-                                <td className="p-2 align-middle text-center">{item.quantity}</td>
-                                <td className="p-2 align-middle text-right">{item.price.toFixed(2)}</td>
-                                <td className="p-2 align-middle text-right font-semibold">{item.total.toFixed(2)}</td>
-                                <td className="p-2 align-middle">
-                                  <Badge className={inv.paymentStatus === 'pending' ? 'bg-yellow-500' : 'bg-green-600'}>
-                                    {inv.paymentStatus}
-                                  </Badge>
-                                </td>
-                                <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
-                                <td className="p-2 align-middle text-right">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    max={item.total}
-                                    step="0.01"
-                                    className="w-32 ml-auto"
-                                    placeholder={item.total.toFixed(2)}
-                                    value={amounts[itemId] || ''}
-                                    onChange={(e) => setAmounts((prev) => ({ ...prev, [itemId]: e.target.value }))}
-                                    disabled={!selected[itemId]}
-                                  />
-                                </td>
-                              </tr>
-                            )
-                          })
-                        ) : (
-                          <tr key={inv._id} className="border-b">
+                      {group.invoices.map((inv) => {
+                        // Create items summary
+                        const itemsSummary = inv.items && inv.items.length > 0 
+                          ? inv.items.map(item => `${item.product.name} (${item.quantity})`).join(', ')
+                          : 'No items'
+                        
+                        return (
+                          <tr key={inv._id} className="border-b hover:bg-gray-50">
                             <td className="p-2 align-middle">
                               <Checkbox 
                                 checked={!!selected[inv._id]} 
@@ -849,7 +694,14 @@ export function CollectionPage({ user }: CollectionPageProps) {
                                 {inv.source}
                               </Badge>
                             </td>
-                            <td className="p-2 align-middle text-gray-400" colSpan={4}>No items</td>
+                            <td className="p-2 align-middle">
+                              <div className="text-sm max-w-xs truncate" title={itemsSummary}>
+                                {itemsSummary}
+                              </div>
+                            </td>
+                            <td className="p-2 align-middle text-right font-semibold">{inv.totalAmount.toFixed(2)}</td>
+                            <td className="p-2 align-middle text-right text-green-600">{inv.receivedAmount.toFixed(2)}</td>
+                            <td className="p-2 align-middle text-right font-semibold text-red-600">{inv.balance.toFixed(2)}</td>
                             <td className="p-2 align-middle">
                               <Badge className={inv.paymentStatus === 'pending' ? 'bg-yellow-500' : 'bg-green-600'}>
                                 {inv.paymentStatus}
@@ -860,9 +712,10 @@ export function CollectionPage({ user }: CollectionPageProps) {
                               <Input
                                 type="number"
                                 min={0}
+                                max={inv.balance}
                                 step="0.01"
                                 className="w-32 ml-auto"
-                                placeholder="0.00"
+                                placeholder={inv.balance.toFixed(2)}
                                 value={amounts[inv._id] || ''}
                                 onChange={(e) => setAmounts((prev) => ({ ...prev, [inv._id]: e.target.value }))}
                                 disabled={!selected[inv._id]}
@@ -870,7 +723,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
                             </td>
                           </tr>
                         )
-                      )}
+                      })}
                     </tbody>
                     </table>
                   </div>
@@ -883,63 +736,35 @@ export function CollectionPage({ user }: CollectionPageProps) {
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="text-sm text-gray-600">
-              Selected: <strong>{totalSelected}</strong> • Total to Collect: <strong>AED {totalToCollect.toFixed(2)}</strong>
+              Selected Invoices: <strong>{totalSelected}</strong> • Total to Collect: <strong>AED {totalToCollect.toFixed(2)}</strong>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" disabled={loading || totalSelected === 0} onClick={() => {
-                // Collect all selected items for preview (same logic as handleReceiveAmountClick)
-                const selectedItems: Array<{
-                  invoice: PendingInvoice,
-                  item: PendingInvoiceItem,
-                  itemId: string,
-                  amount: number
-                }> = []
+                // Collect all selected invoices for preview
+                const selectedInvoices: PendingInvoice[] = []
                 
                 filtered.forEach((inv) => {
-                  if (inv.items && inv.items.length > 0) {
-                    inv.items.forEach((item, itemIdx) => {
-                      const itemId = `${inv._id}-${itemIdx}`
-                      if (selected[itemId]) {
-                        const amount = parseFloat(amounts[itemId] || '0')
-                        if (amount > 0) {
-                          selectedItems.push({ invoice: inv, item, itemId, amount })
-                        }
-                      }
-                    })
-                  } else if (selected[inv._id]) {
-                    // Handle invoices without items (fallback)
+                  if (selected[inv._id]) {
                     const amount = parseFloat(amounts[inv._id] || '0')
                     if (amount > 0) {
-                      selectedItems.push({ 
-                        invoice: inv, 
-                        item: { product: { name: 'No items' }, quantity: 0, price: 0, total: inv.balance }, 
-                        itemId: inv._id, 
-                        amount 
-                      })
+                      selectedInvoices.push(inv)
                     }
                   }
                 })
                 
-                if (selectedItems.length === 0) {
-                  toast({ title: "No items selected", variant: "destructive" })
+                if (selectedInvoices.length === 0) {
+                  toast({ title: "No invoices selected", variant: "destructive" })
                   return
                 }
                 
                 // Convert to payments format for openPrintWindow
-                const invoicePayments = new Map<string, number>()
-                selectedItems.forEach(selectedItem => {
-                  const invoiceId = selectedItem.invoice._id
-                  const itemAmount = selectedItem.amount
-                  invoicePayments.set(invoiceId, (invoicePayments.get(invoiceId) || 0) + itemAmount)
-                })
-                
                 const payments: Array<{ model: string; id: string; amount: number }> = []
-                invoicePayments.forEach((amount, invoiceId) => {
-                  const invoice = selectedItems.find(item => item.invoice._id === invoiceId)?.invoice
-                  if (invoice && amount > 0) {
+                selectedInvoices.forEach(invoice => {
+                  const amount = parseFloat(amounts[invoice._id] || '0')
+                  if (amount > 0) {
                     payments.push({
                       model: invoice.model,
-                      id: invoiceId,
+                      id: invoice._id,
                       amount: amount
                     })
                   }

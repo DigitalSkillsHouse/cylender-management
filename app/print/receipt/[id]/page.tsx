@@ -29,7 +29,7 @@ interface Sale {
   createdAt: string;
   customerSignature?: string;
   // Optional: used for cylinder returns to pick the correct header
-  type?: 'deposit' | 'refill' | 'return' | string;
+  type?: 'deposit' | 'refill' | 'return' | 'collection' | string;
 }
 
 const ReceiptPrintPage = () => {
@@ -76,15 +76,25 @@ const ReceiptPrintPage = () => {
     return <div className="flex justify-center items-center h-screen font-semibold">Sale data is not available.</div>;
   }
 
-  // Totals breakdown: Subtotal (price*qty), VAT (5% of subtotal), Grand Total (subtotal + VAT)
-  const subTotal = sale.items.reduce((sum, item) => {
-    const priceNum = Number(item?.price || 0)
-    const qtyNum = Number(item?.quantity || 0)
-    const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
-    return sum + line
-  }, 0)
-  const vatAmount = subTotal * 0.05
-  const grandTotal = subTotal + vatAmount
+  // Calculate totals based on whether it's a collection receipt
+  let subTotal, vatAmount, grandTotal
+  
+  if (sale?.type === 'collection') {
+    // For collections, use the totalAmount directly without VAT calculation
+    grandTotal = Number(sale?.totalAmount || 0)
+    subTotal = grandTotal
+    vatAmount = 0
+  } else {
+    // Totals breakdown: Subtotal (price*qty), VAT (5% of subtotal), Grand Total (subtotal + VAT)
+    subTotal = sale.items.reduce((sum, item) => {
+      const priceNum = Number(item?.price || 0)
+      const qtyNum = Number(item?.quantity || 0)
+      const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+      return sum + line
+    }, 0)
+    vatAmount = subTotal * 0.05
+    grandTotal = subTotal + vatAmount
+  }
 
   // Choose header by transaction type first (Deposit/Return),
   // then allow forcing Receiving header via sessionStorage, else default to Tax header
@@ -93,6 +103,7 @@ const ReceiptPrintPage = () => {
     const t = (sale?.type || '').toString().toLowerCase()
     if (t === 'deposit') return '/images/Header-deposit-invoice.jpg'
     if (t === 'return') return '/images/Header-Return-invoice.jpg'
+    if (t === 'collection') return '/images/Header-Receiving-invoice.jpg'
     if (useReceivingHeader) return '/images/Header-Receiving-invoice.jpg'
     return '/images/Header-Tax-invoice.jpg'
   })()
@@ -130,7 +141,10 @@ const ReceiptPrintPage = () => {
           <div>
             <h2 className="font-bold text-lg text-[#2B3068] mb-2">Invoice Information</h2>
             <div className="space-y-1 text-sm text-gray-700">
-              <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
+              {/* Hide Invoice # for collection receipts */}
+              {sale?.type !== 'collection' && (
+                <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
+              )}
               <div><strong>Date:</strong> {new Date(sale.createdAt).toLocaleDateString()}</div>
               <div>
                 <strong>Payment Method:</strong> {(
@@ -153,7 +167,10 @@ const ReceiptPrintPage = () => {
                 <th className="text-left p-2 font-semibold border">Item</th>
                 <th className="text-center p-2 font-semibold border">Qty</th>
                 <th className="text-right p-2 font-semibold border">Price</th>
-                <th className="text-right p-2 font-semibold border">VAT (5%)</th>
+                {/* Hide VAT column for collection receipts */}
+                {sale?.type !== 'collection' && (
+                  <th className="text-right p-2 font-semibold border">VAT (5%)</th>
+                )}
                 <th className="text-right p-2 font-semibold border">Total</th>
               </tr>
             </thead>
@@ -161,15 +178,28 @@ const ReceiptPrintPage = () => {
               {sale.items.map((item, index) => {
                 const priceNum = Number(item?.price || 0)
                 const qtyNum = Number(item?.quantity || 0)
+                
+                // For collection receipts, use the item total directly without VAT calculation
+                let itemTotal
+                if (sale?.type === 'collection') {
+                  itemTotal = Number(item?.total || 0)
+                } else {
+                  const unitVat = priceNum * 0.05
+                  const unitWithVat = priceNum + unitVat
+                  itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+                }
+                
                 const unitVat = priceNum * 0.05
-                const unitWithVat = priceNum + unitVat
-                const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+                
                 return (
                   <tr key={index} className="border-b h-5">
                     <td className="p-2 border">{item.product.name}</td>
                     <td className="text-center p-2 border">{qtyNum}</td>
                     <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
-                    <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                    {/* Hide VAT column for collection receipts */}
+                    {sale?.type !== 'collection' && (
+                      <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                    )}
                     <td className="text-right p-2 border font-medium">AED {itemTotal.toFixed(2)}</td>
                   </tr>
                 )
@@ -183,14 +213,19 @@ const ReceiptPrintPage = () => {
           <div className="w-full max-w-sm text-sm">
             <table className="w-full">
               <tbody>
-                <tr>
-                  <td className="text-right pr-4 text-base">Subtotal</td>
-                  <td className="text-right w-36 text-base">AED {subTotal.toFixed(2)}</td>
-                </tr>
-                <tr>
-                  <td className="text-right pr-4 text-base">VAT (5%)</td>
-                  <td className="text-right w-36 text-base">AED {vatAmount.toFixed(2)}</td>
-                </tr>
+                {/* Hide subtotal and VAT breakdown for collection receipts */}
+                {sale?.type !== 'collection' && (
+                  <>
+                    <tr>
+                      <td className="text-right pr-4 text-base">Subtotal</td>
+                      <td className="text-right w-36 text-base">AED {subTotal.toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <td className="text-right pr-4 text-base">VAT (5%)</td>
+                      <td className="text-right w-36 text-base">AED {vatAmount.toFixed(2)}</td>
+                    </tr>
+                  </>
+                )}
                 <tr className="border-t-2 border-black mt-2">
                   <td className="text-right pr-4 pt-2 font-bold text-xl">Total</td>
                   <td className="text-right font-bold text-xl w-36 pt-2">AED {grandTotal.toFixed(2)}</td>

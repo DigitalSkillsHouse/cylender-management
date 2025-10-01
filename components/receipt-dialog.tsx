@@ -223,9 +223,12 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
             <div>
               <h3 className="font-semibold text-[#2B3068] mb-2">Invoice Information</h3>
               <div className="space-y-1 text-sm">
-                <div>
-                  <strong>Invoice #:</strong> {sale?.invoiceNumber || '-'}
-                </div>
+                {/* Hide Invoice # for collection receipts */}
+                {sale?.type !== 'collection' && (
+                  <div>
+                    <strong>Invoice #:</strong> {sale?.invoiceNumber || '-'}
+                  </div>
+                )}
                 <div>
                   <strong>Date:</strong> {sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-'}
                 </div>
