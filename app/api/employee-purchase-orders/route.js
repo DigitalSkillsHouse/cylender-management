@@ -22,7 +22,7 @@ export async function GET(request) {
     
     const purchaseOrders = await EmployeePurchaseOrder.find(filter)
       .populate('supplier', 'companyName')
-      .populate('product', 'name')
+      .populate('product', 'name productCode category')
       .populate('employee', 'name email')
       .sort({ createdAt: -1 })
     

@@ -17,6 +17,7 @@ interface InventoryItem {
   id: string
   poNumber: string
   productName: string
+  productCode?: string
   supplierName: string
   purchaseDate: string
   quantity: number
@@ -149,16 +150,24 @@ export function Inventory() {
             return items.map((item: any, itemIndex: number) => {
               const productRef = item.product ?? item.productId ?? order.product ?? order.productId
 
-              // Resolve product name from populated object, ID lookup, or fallback fields
+              // Resolve product name and code from populated object, ID lookup, or fallback fields
               let resolvedProductName = 'Unknown Product'
+              let resolvedProductCode = ''
               if (productRef && typeof productRef === 'object') {
                 resolvedProductName = productRef.name || productRef.title || item.productName || order.productName || resolvedProductName
+                resolvedProductCode = productRef.productCode || productRef.code || item.productCode || order.productCode || ''
               } else if (typeof productRef === 'string') {
                 const p = productsMap.get(productRef)
-                if (p) resolvedProductName = p.name || p.title || resolvedProductName
-                else resolvedProductName = item.productName || order.productName || resolvedProductName
+                if (p) {
+                  resolvedProductName = p.name || p.title || resolvedProductName
+                  resolvedProductCode = p.productCode || p.code || ''
+                } else {
+                  resolvedProductName = item.productName || order.productName || resolvedProductName
+                  resolvedProductCode = item.productCode || order.productCode || ''
+                }
               } else {
                 resolvedProductName = item.productName || order.productName || resolvedProductName
+                resolvedProductCode = item.productCode || order.productCode || ''
               }
               
               if (resolvedProductName === 'Unknown Product' && typeof productRef === 'string') {
@@ -193,7 +202,10 @@ export function Inventory() {
                   itemInventoryStatus: item.inventoryStatus,
                   orderInventoryStatus: order.inventoryStatus,
                   finalStatus: itemStatus,
-                  productName: resolvedProductName
+                  productName: resolvedProductName,
+                  productCode: resolvedProductCode,
+                  productRef: productRef,
+                  productRefType: typeof productRef
                 })
               }
 
@@ -201,6 +213,7 @@ export function Inventory() {
                 id: `${order._id}-${itemIndex}`, // Unique ID for each item
                 poNumber: order.poNumber || `PO-${order._id?.slice(-6) || 'UNKNOWN'}`,
                 productName: resolvedProductName,
+                productCode: resolvedProductCode,
                 supplierName: resolvedSupplierName,
                 purchaseDate: order.purchaseDate || order.createdAt,
                 quantity: item.quantity || order.quantity || 0,
@@ -250,6 +263,14 @@ export function Inventory() {
       const orderIdToUpdate = inventoryItem.originalOrderId || id
       const itemIndex = inventoryItem.itemIndex
       
+      console.log("Inventory item details:", {
+        id: id,
+        originalOrderId: inventoryItem.originalOrderId,
+        itemIndex: inventoryItem.itemIndex,
+        isEmployeePurchase: inventoryItem.isEmployeePurchase,
+        poNumber: inventoryItem.poNumber,
+        productName: inventoryItem.productName
+      })
       console.log("Using order ID for update:", orderIdToUpdate, "Item index:", itemIndex)
       
       // Use the new item-level API if we have an item index, otherwise fall back to old API
@@ -472,8 +493,14 @@ export function Inventory() {
     return { stock, color }
   }
 
+  // Admin Pending: Show only pending items (both admin and employee with "pending" status)
+  // Employee items with "approved" status should NOT appear here - they go to employee dashboard
   const pendingItemsRaw = inventory.filter((item) => item.status === "pending")
-  const receivedItemsRaw = inventory.filter((item) => item.status === "received")
+  
+  // Admin Received: Show only admin received items (exclude all employee items)
+  const receivedItemsRaw = inventory.filter((item) => 
+    item.status === "received" && !item.isEmployeePurchase
+  )
 
   // Aggregate pending items by invoice number and supplier for cleaner display
   const aggregatePending = (items: InventoryItem[]) => {
@@ -665,6 +692,7 @@ export function Inventory() {
                     <TableRow className="bg-gray-50 border-b-2 border-gray-200">
                       <TableHead className="font-bold text-gray-700 p-4">INV Number</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
+                      <TableHead className="font-bold text-gray-700 p-4">Product Code</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Employee</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
@@ -695,6 +723,11 @@ export function Inventory() {
                           </div>
                         </TableCell>
                         <TableCell className="p-4">{item.productName}</TableCell>
+                        <TableCell className="p-4">
+                          <span className="text-sm text-gray-600 font-mono">
+                            {item.productCode || 'N/A'}
+                          </span>
+                        </TableCell>
                         <TableCell className="p-4">{item.supplierName}</TableCell>
                         <TableCell className="p-4">
                           {item.isEmployeePurchase && item.employeeName ? (
@@ -725,7 +758,7 @@ export function Inventory() {
                               style={{ backgroundColor: "#2B3068" }}
                               className="hover:opacity-90 text-white min-h-[36px]"
                             >
-                              Mark Received
+                              {item.isEmployeePurchase ? "Approve & Send to Employee" : "Mark Received"}
                             </Button>
                             <Button
                               size="sm"
@@ -793,6 +826,7 @@ export function Inventory() {
                     <TableRow className="bg-gray-50 border-b-2 border-gray-200">
                       <TableHead className="font-bold text-gray-700 p-4">INV Number</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
+                      <TableHead className="font-bold text-gray-700 p-4">Product Code</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Employee</TableHead>
                       <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
@@ -824,6 +858,11 @@ export function Inventory() {
                           </div>
                         </TableCell>
                         <TableCell className="p-4">{item.productName}</TableCell>
+                        <TableCell className="p-4">
+                          <span className="text-sm text-gray-600 font-mono">
+                            {item.productCode || 'N/A'}
+                          </span>
+                        </TableCell>
                         <TableCell className="p-4">{item.supplierName}</TableCell>
                         <TableCell className="p-4">
                           {item.isEmployeePurchase && item.employeeName ? (
@@ -997,6 +1036,7 @@ export function Inventory() {
                     <TableRow className="bg-gray-50">
                       <TableHead className="p-3">INV Number</TableHead>
                       <TableHead className="p-3">Product</TableHead>
+                      <TableHead className="p-3">Product Code</TableHead>
                       <TableHead className="p-3">Supplier</TableHead>
                       <TableHead className="p-3">Employee</TableHead>
                       <TableHead className="p-3">Qty</TableHead>
@@ -1020,6 +1060,11 @@ export function Inventory() {
                           </div>
                         </TableCell>
                         <TableCell className="p-3">{gi.productName}</TableCell>
+                        <TableCell className="p-3">
+                          <span className="text-sm text-gray-600 font-mono">
+                            {gi.productCode || 'N/A'}
+                          </span>
+                        </TableCell>
                         <TableCell className="p-3">{gi.supplierName}</TableCell>
                         <TableCell className="p-3">
                           {gi.isEmployeePurchase && gi.employeeName ? (

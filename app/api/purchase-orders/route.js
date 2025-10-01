@@ -26,7 +26,7 @@ export async function GET(request) {
     console.log("Fetching purchase orders...")
     const purchaseOrders = await PurchaseOrder.find({})
       .populate('supplier', 'companyName')
-      .populate('items.product', 'name')
+      .populate('items.product', 'name productCode category')
       .sort({ createdAt: -1 })
     
     console.log(`Found ${purchaseOrders.length} purchase orders`)

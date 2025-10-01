@@ -26,7 +26,7 @@ export async function GET(request) {
 
     let assignments = await StockAssignment.find(query)
       .populate("employee", "name email")
-      .populate("product", "name category cylinderSize")
+      .populate("product", "name productCode category cylinderSize")
       .populate("assignedBy", "name")
       .sort({ createdAt: -1 });
     // Inject leastPrice from assignment into product object for frontend compatibility

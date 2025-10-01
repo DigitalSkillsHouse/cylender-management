@@ -19,6 +19,7 @@ export async function PATCH(request, { params }) {
 
     const { status } = await request.json()
     console.log("Update data:", { status })
+    console.log("Attempting to find purchase order with ID:", params.orderId)
 
     if (!status) {
       return NextResponse.json({ error: "Status is required" }, { status: 400 })
@@ -35,9 +36,16 @@ export async function PATCH(request, { params }) {
     
     try {
       // First try admin purchase orders
+      console.log("Searching for admin purchase order with ID:", params.orderId)
       updatedOrder = await PurchaseOrder.findById(params.orderId)
-        .populate('items.product', 'name category')
+        .populate('items.product', 'name productCode category')
         .populate('supplier', 'companyName')
+      
+      if (updatedOrder) {
+        console.log("Found admin purchase order:", updatedOrder._id)
+      } else {
+        console.log("Admin purchase order not found")
+      }
     } catch (error) {
       console.warn("Failed to find admin purchase order:", error.message)
     }
@@ -45,11 +53,18 @@ export async function PATCH(request, { params }) {
     if (!updatedOrder) {
       // Try employee purchase orders
       try {
+        console.log("Searching for employee purchase order with ID:", params.orderId)
         updatedOrder = await EmployeePurchaseOrder.findById(params.orderId)
-          .populate('items.product', 'name category')
+          .populate('product', 'name productCode category')
           .populate('supplier', 'companyName')
           .populate('employee', 'name email')
-        isEmployeePurchase = true
+        
+        if (updatedOrder) {
+          isEmployeePurchase = true
+          console.log("Found employee purchase order:", updatedOrder._id, "Employee:", updatedOrder.employee?.name)
+        } else {
+          console.log("Employee purchase order not found")
+        }
       } catch (error) {
         console.warn("Failed to find employee purchase order:", error.message)
       }
@@ -62,20 +77,59 @@ export async function PATCH(request, { params }) {
       )
     }
 
-    // Check if item index is valid
-    if (!updatedOrder.items || itemIndex >= updatedOrder.items.length) {
-      return NextResponse.json(
-        { success: false, error: "Item index out of range" },
-        { status: 400 }
-      )
-    }
-
-    // Update the specific item's inventory status using MongoDB's positional operator
-    console.log("Before update - Item status:", updatedOrder.items[itemIndex].inventoryStatus)
+    // Handle different structures: admin orders have items array, employee orders have single item
+    let updateQuery = {}
+    let currentItem = null
     
-    // Use MongoDB's positional update to ensure the nested field is properly updated
-    const updateQuery = {}
-    updateQuery[`items.${itemIndex}.inventoryStatus`] = status
+    if (isEmployeePurchase) {
+      // Employee purchase orders use single-item structure (no items array)
+      if (itemIndex !== 0) {
+        return NextResponse.json(
+          { success: false, error: "Employee purchase orders only have one item (index 0)" },
+          { status: 400 }
+        )
+      }
+      
+      console.log("Before update - Employee order inventory status:", updatedOrder.inventoryStatus)
+      
+      // Handle different scenarios for employee orders:
+      // 1. Admin approves employee order: "received" -> "approved" (goes to employee pending)
+      // 2. Employee receives approved order: "received" -> "received" (completes the process)
+      let employeeStatus = status
+      if (status === "received") {
+        if (updatedOrder.inventoryStatus === "pending") {
+          // Admin is approving employee order
+          employeeStatus = "approved"
+          console.log("Admin approving employee order: pending -> approved")
+        } else if (updatedOrder.inventoryStatus === "approved") {
+          // Employee is receiving approved order
+          employeeStatus = "received"
+          console.log("Employee receiving approved order: approved -> received")
+        }
+      }
+      
+      updateQuery.inventoryStatus = employeeStatus
+      currentItem = updatedOrder // The order itself is the item for employee purchases
+      
+      console.log("Employee order status update:", {
+        orderId: updatedOrder._id,
+        fromStatus: updatedOrder.inventoryStatus,
+        toStatus: employeeStatus,
+        requestedStatus: status
+      })
+    } else {
+      // Admin purchase orders use multi-item structure (items array)
+      if (!updatedOrder.items || itemIndex >= updatedOrder.items.length) {
+        return NextResponse.json(
+          { success: false, error: "Item index out of range" },
+          { status: 400 }
+        )
+      }
+      
+      console.log("Before update - Admin order item status:", updatedOrder.items[itemIndex].inventoryStatus)
+      updateQuery[`items.${itemIndex}.inventoryStatus`] = status
+      currentItem = updatedOrder.items[itemIndex]
+    }
     
     console.log("Updating with query:", updateQuery)
     console.log("Target order ID:", params.orderId)
@@ -84,9 +138,31 @@ export async function PATCH(request, { params }) {
     
     let updateResult
     try {
-      // First, ensure all items have the inventoryStatus field (migration for existing data)
-      await (isEmployeePurchase ? EmployeePurchaseOrder : PurchaseOrder)
-        .updateOne(
+      if (isEmployeePurchase) {
+        // For employee purchase orders, ensure inventoryStatus field exists
+        await EmployeePurchaseOrder.updateOne(
+          { 
+            _id: params.orderId,
+            inventoryStatus: { $exists: false }
+          },
+          { 
+            $set: { inventoryStatus: 'pending' }
+          }
+        )
+        
+        // Update the employee purchase order's inventory status
+        updateResult = await EmployeePurchaseOrder
+          .findByIdAndUpdate(
+            params.orderId,
+            { $set: updateQuery },
+            { new: true, runValidators: false }
+          )
+          .populate('product', 'name')
+          .populate('supplier', 'companyName')
+          .populate('employee', 'name email')
+      } else {
+        // For admin purchase orders, ensure items have inventoryStatus field
+        await PurchaseOrder.updateOne(
           { 
             _id: params.orderId,
             [`items.${itemIndex}.inventoryStatus`]: { $exists: false }
@@ -95,25 +171,30 @@ export async function PATCH(request, { params }) {
             $set: { [`items.${itemIndex}.inventoryStatus`]: 'pending' }
           }
         )
-      
-      // Now update the specific item's inventory status
-      updateResult = await (isEmployeePurchase ? EmployeePurchaseOrder : PurchaseOrder)
-        .findByIdAndUpdate(
-          params.orderId,
-          { $set: updateQuery },
-          { new: true, runValidators: false } // Disable validators in case of schema issues
-        )
-        .populate('items.product', 'name')
-        .populate('supplier', 'companyName')
+        
+        // Update the specific item's inventory status in admin purchase order
+        updateResult = await PurchaseOrder
+          .findByIdAndUpdate(
+            params.orderId,
+            { $set: updateQuery },
+            { new: true, runValidators: false }
+          )
+          .populate('items.product', 'name')
+          .populate('supplier', 'companyName')
+      }
       
       console.log("MongoDB update completed")
       console.log("Update result exists:", !!updateResult)
       
       if (updateResult) {
-        console.log("Items array length:", updateResult.items?.length)
-        console.log("Target item exists:", !!updateResult.items[itemIndex])
-        if (updateResult.items[itemIndex]) {
-          console.log("Item inventoryStatus after update:", updateResult.items[itemIndex].inventoryStatus)
+        if (isEmployeePurchase) {
+          console.log("Employee order inventoryStatus after update:", updateResult.inventoryStatus)
+        } else {
+          console.log("Items array length:", updateResult.items?.length)
+          console.log("Target item exists:", !!updateResult.items[itemIndex])
+          if (updateResult.items[itemIndex]) {
+            console.log("Item inventoryStatus after update:", updateResult.items[itemIndex].inventoryStatus)
+          }
         }
       }
       
@@ -131,7 +212,12 @@ export async function PATCH(request, { params }) {
       )
     }
     
-    console.log("After update - Item status:", updateResult.items[itemIndex].inventoryStatus)
+    // Log the updated status
+    if (isEmployeePurchase) {
+      console.log("After update - Employee order status:", updateResult.inventoryStatus)
+    } else {
+      console.log("After update - Item status:", updateResult.items[itemIndex].inventoryStatus)
+    }
     
     // Update our local reference
     updatedOrder = updateResult
@@ -141,9 +227,17 @@ export async function PATCH(request, { params }) {
     // Check if all items are received and update overall purchase order status
     if (status === "received") {
       try {
-        const allItemsReceived = updatedOrder.items.every(item => 
-          (item.inventoryStatus || "pending") === "received"
-        )
+        let allItemsReceived = false
+        
+        if (isEmployeePurchase) {
+          // Employee orders: when admin "approves" them, they go to employee pending inventory
+          allItemsReceived = (updatedOrder.inventoryStatus === "approved")
+        } else {
+          // Admin orders have multiple items, check if all are received
+          allItemsReceived = updatedOrder.items.every(item => 
+            (item.inventoryStatus || "pending") === "received"
+          )
+        }
         
         if (allItemsReceived) {
           console.log("All items received, updating purchase order status to completed")
@@ -162,9 +256,11 @@ export async function PATCH(request, { params }) {
     }
 
     // Handle stock synchronization when inventory is received
+    // For employee orders, this happens when admin "approves" them (status becomes "approved")
     if (status === "received") {
       try {
-        const item = updatedOrder.items[itemIndex]
+        // Get the item data based on order structure
+        const item = isEmployeePurchase ? updatedOrder : updatedOrder.items[itemIndex]
         console.log("Processing received inventory for item:", item.product?._id || item.product)
         
         if (isEmployeePurchase && updatedOrder.employee) {
@@ -328,7 +424,7 @@ export async function PATCH(request, { params }) {
     }
 
     // Return the updated item information
-    const updatedItem = updatedOrder.items[itemIndex]
+    const updatedItem = isEmployeePurchase ? updatedOrder : updatedOrder.items[itemIndex]
     const inventoryItem = {
       id: `${updatedOrder._id}-${itemIndex}`,
       orderId: updatedOrder._id,
@@ -339,8 +435,8 @@ export async function PATCH(request, { params }) {
       purchaseDate: updatedOrder.purchaseDate,
       quantity: updatedItem.quantity || 0,
       unitPrice: updatedItem.unitPrice || 0,
-      totalAmount: updatedItem.itemTotal || 0,
-      status: updatedItem.inventoryStatus || "pending",
+      totalAmount: isEmployeePurchase ? updatedItem.totalAmount : (updatedItem.itemTotal || 0),
+      status: isEmployeePurchase ? updatedItem.inventoryStatus : (updatedItem.inventoryStatus || "pending"),
       purchaseType: updatedItem.purchaseType || "gas",
       isEmployeePurchase: isEmployeePurchase,
       employeeName: isEmployeePurchase ? (updatedOrder.employee?.name || updatedOrder.employee?.email || '') : ''

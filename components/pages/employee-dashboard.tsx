@@ -17,6 +17,7 @@ interface EmployeeDashboardProps {
 export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardProps) {
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [assignedStock, setAssignedStock] = useState<any[]>([])
+  const [pendingInventory, setPendingInventory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState<{ message: string; visible: boolean }>({ message: "", visible: false })
   
@@ -50,11 +51,12 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
 
   const fetchEmployeeData = async () => {
     try {
-      const [stockResponse, notificationsResponse, salesResponse, empCylResponse] = await Promise.all([
+      const [stockResponse, notificationsResponse, salesResponse, empCylResponse, empPurchaseResponse] = await Promise.all([
         stockAPI.getAll(),
         notificationsAPI.getAll(user.id),
         fetch(`/api/employee-sales?employeeId=${user.id}`),
         fetch(`/api/employee-cylinders?employeeId=${user.id}`),
+        fetch(`/api/employee-purchase-orders`),
       ])
 
       // Filter stock assignments for current employee
@@ -67,12 +69,36 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       // Fetch and process sales data
       const salesData = await salesResponse.json()
       const cylData = await empCylResponse.json()
+      const purchaseData = await empPurchaseResponse.json()
       
       // API returns sales directly as an array, not wrapped in data property
       const salesArray = Array.isArray(salesData) ? salesData : []
       
       setSalesData(salesArray)
       setCylinderTxns(Array.isArray(cylData?.data) ? cylData.data : Array.isArray(cylData) ? cylData : [])
+      
+      // Process employee purchase orders to find approved items pending for employee
+      const purchaseArray = Array.isArray(purchaseData?.data) ? purchaseData.data : Array.isArray(purchaseData) ? purchaseData : []
+      const approvedPurchases = purchaseArray.filter((purchase: any) => {
+        const employeeId = purchase.employee?._id || purchase.employee
+        const isApproved = purchase.inventoryStatus === "approved"
+        const isCurrentEmployee = employeeId === user.id
+        
+        console.log("Purchase filter debug:", {
+          purchaseId: purchase._id,
+          inventoryStatus: purchase.inventoryStatus,
+          employeeId: employeeId,
+          currentUserId: user.id,
+          isApproved,
+          isCurrentEmployee,
+          shouldInclude: isApproved && isCurrentEmployee
+        })
+        
+        return isApproved && isCurrentEmployee
+      })
+      
+      console.log("Approved purchases for employee:", approvedPurchases.length, approvedPurchases)
+      setPendingInventory(approvedPurchases)
       
       // Calculate Debit (Total Amount) and Credit (Received Amount)
       const debit = salesArray.reduce((sum: number, sale: any) => sum + (sale.totalAmount || 0), 0)
@@ -84,6 +110,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
     } catch (error) {
       console.error("Failed to fetch employee data:", error)
       setAssignedStock([])
+      setPendingInventory([])
       // Notifications handled by useNotifications hook
       setSalesData([])
       setCylinderTxns([])
@@ -92,6 +119,47 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       if (setUnreadCount) setUnreadCount(0)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleReceiveInventory = async (purchaseOrderId: string) => {
+    try {
+      // Call the inventory API to mark as received (itemIndex 0 for employee orders)
+      const response = await fetch(`/api/inventory/item/${purchaseOrderId}/0`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'received' })
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        // Refresh the employee data to update the pending inventory
+        await fetchEmployeeData()
+        
+        // Show success notification
+        setNotification({ 
+          message: "Inventory item received successfully!", 
+          visible: true 
+        })
+        setTimeout(() => setNotification({ message: "", visible: false }), 3000)
+      } else {
+        console.error("Failed to receive inventory:", result.error)
+        setNotification({ 
+          message: `Failed to receive inventory: ${result.error}`, 
+          visible: true 
+        })
+        setTimeout(() => setNotification({ message: "", visible: false }), 5000)
+      }
+    } catch (error) {
+      console.error("Error receiving inventory:", error)
+      setNotification({ 
+        message: "Error receiving inventory. Please try again.", 
+        visible: true 
+      })
+      setTimeout(() => setNotification({ message: "", visible: false }), 5000)
     }
   }
 
@@ -139,9 +207,61 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
   const receivedStock = assignedStock.filter((stock: any) => stock.status === "received")
   const returnedStock = assignedStock.filter((stock: any) => stock.status === "returned")
 
+  // Define getAvailableForStock function before using it
+  const getAvailableForStock = (stock: any) => {
+    const baseQty = Number(stock.quantity) || 0
+    const productId = stock.product?._id
+    if (!productId) return baseQty
+    const category = stock.product?.category
+    if (category === 'gas') {
+      const used = usageByProductFromGas(productId)
+      const remaining = baseQty - used
+      return remaining < 0 ? 0 : remaining
+    }
+    if (category === 'cylinder') {
+      const size = stock.cylinderSize
+      const usedTxns = usageByProductFromCylinders(productId, size)
+      const usedSales = usageByProductFromCylinderSales(productId, size)
+      const netUsed = usedTxns + usedSales
+      const remaining = baseQty - netUsed
+      return remaining < 0 ? 0 : remaining
+    }
+    return baseQty
+  }
+
   // Filtering logic for category
   const pendingStockFiltered = categoryFilter ? pendingStock.filter((stock: any) => stock.product?.category === categoryFilter) : pendingStock;
   const receivedStockFiltered = categoryFilter ? receivedStock.filter((stock: any) => stock.product?.category === categoryFilter) : receivedStock;
+  
+  // Group received stock by product name and product code
+  const groupedReceivedStock = receivedStockFiltered.reduce((groups: any, stock: any) => {
+    const productName = stock.product?.name || "Unknown Product"
+    const productCode = stock.product?.productCode || stock.product?.code || 'N/A'
+    const key = `${productName}-${productCode}`
+    
+    if (!groups[key]) {
+      groups[key] = {
+        ...stock,
+        totalQuantity: 0,
+        totalAvailableQuantity: 0,
+        items: [],
+        lastReceivedDate: stock.receivedDate
+      }
+    }
+    
+    groups[key].totalQuantity += stock.quantity || 0
+    groups[key].totalAvailableQuantity += getAvailableForStock(stock)
+    groups[key].items.push(stock)
+    
+    // Keep the most recent received date
+    if (stock.receivedDate && (!groups[key].lastReceivedDate || new Date(stock.receivedDate) > new Date(groups[key].lastReceivedDate))) {
+      groups[key].lastReceivedDate = stock.receivedDate
+    }
+    
+    return groups
+  }, {})
+  
+  const groupedReceivedStockArray = Object.values(groupedReceivedStock)
   const unreadNotifications = notifications.filter((n) => !n.isRead)
   
   // Enhanced stock calculations using the new logic
@@ -202,27 +322,6 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
     } catch {
       return 0
     }
-  }
-
-  const getAvailableForStock = (stock: any) => {
-    const baseQty = Number(stock.quantity) || 0
-    const productId = stock.product?._id
-    if (!productId) return baseQty
-    const category = stock.product?.category
-    if (category === 'gas') {
-      const used = usageByProductFromGas(productId)
-      const remaining = baseQty - used
-      return remaining < 0 ? 0 : remaining
-    }
-    if (category === 'cylinder') {
-      const size = stock.cylinderSize
-      const usedTxns = usageByProductFromCylinders(productId, size)
-      const usedSales = usageByProductFromCylinderSales(productId, size)
-      const netUsed = usedTxns + usedSales
-      const remaining = baseQty - netUsed
-      return remaining < 0 ? 0 : remaining
-    }
-    return baseQty
   }
 
   if (loading) {
@@ -289,82 +388,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card className="border-0 shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">
-            <CardTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5" />
-              Pending Stock Assignments
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Cylinder Size</TableHead>
-                    <TableHead>Quantity</TableHead>
-                    <TableHead>Least Price (Assigned)</TableHead>
-                    <TableHead>Assigned Date</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingStockFiltered.map((stock) => (
-                    <TableRow key={stock._id}>
-                      <TableCell className="font-medium">{stock.product?.name || "Unknown Product"}</TableCell>
-                      <TableCell>{stock.product?.category || "-"}</TableCell>
-                      <TableCell>
-                        {stock.product?.category === 'cylinder'
-                          ? (() => {
-                              const size = (stock.cylinderSize || stock.product?.cylinderSize || '').toString()
-                              return size ? size.charAt(0).toUpperCase() + size.slice(1) : '-'
-                            })()
-                          : '-'}
-                      </TableCell>
-                      <TableCell>{stock.quantity}</TableCell>
-                      <TableCell>{(() => {
-                        const leastPrice = stock.leastPrice ?? stock.product?.leastPrice;
-                        return leastPrice ? `AED ${leastPrice}` : <span className="text-gray-400">N/A</span>;
-                      })()}</TableCell>
-                      <TableCell>{new Date(stock.assignedDate).toLocaleDateString()}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => handleReceiveStock(stock._id)}
-                            style={{ backgroundColor: "#2B3068" }}
-                            className="hover:opacity-90"
-                          >
-                            Receive
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleRejectStock(stock._id)}
-                            className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                          >
-                            Reject
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {pendingStock.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center text-gray-500 py-8">
-                        No pending stock assignments.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className="grid grid-cols-1 gap-8">
         <Card className="border-0 shadow-lg">
           <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">
             <CardTitle className="flex items-center gap-2">
@@ -378,50 +402,61 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                 <TableHeader>
                   <TableRow>
                     <TableHead>Product</TableHead>
+                    <TableHead>Product Code</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Cylinder Size</TableHead>
-                    <TableHead>Quantity</TableHead>
+                    <TableHead>Total Quantity</TableHead>
                     <TableHead>Available Quantity</TableHead>
                     <TableHead>Least Price (Assigned)</TableHead>
-                    <TableHead>Received Date</TableHead>
+                    <TableHead>Last Received</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {receivedStockFiltered.map((stock) => (
-                    <TableRow key={stock._id}>
-                      <TableCell className="font-medium">{stock.product?.name || "Unknown Product"}</TableCell>
-                      <TableCell>{stock.product?.category || "-"}</TableCell>
+                  {groupedReceivedStockArray.map((group: any) => (
+                    <TableRow key={`${group.product?.name}-${group.product?.productCode || group.product?.code || 'N/A'}`}>
+                      <TableCell className="font-medium">{group.product?.name || "Unknown Product"}</TableCell>
                       <TableCell>
-                        {stock.product?.category === 'cylinder'
+                        <span className="text-sm text-gray-600 font-mono">
+                          {group.product?.productCode || group.product?.code || 'N/A'}
+                        </span>
+                      </TableCell>
+                      <TableCell>{group.product?.category || "-"}</TableCell>
+                      <TableCell>
+                        {group.product?.category === 'cylinder'
                           ? (() => {
-                              const size = (stock.cylinderSize || stock.product?.cylinderSize || '').toString()
+                              const size = (group.cylinderSize || group.product?.cylinderSize || '').toString()
                               return size ? size.charAt(0).toUpperCase() + size.slice(1) : '-'
                             })()
                           : '-'}
                       </TableCell>
-                      <TableCell>{stock.quantity}</TableCell>
-                      <TableCell>{getAvailableForStock(stock)}</TableCell>
+                      <TableCell className="font-semibold text-blue-600">{group.totalQuantity}</TableCell>
+                      <TableCell className="font-semibold text-green-600">{group.totalAvailableQuantity}</TableCell>
                       <TableCell>{(() => {
-                        const leastPrice = stock.leastPrice ?? stock.product?.leastPrice;
+                        const leastPrice = group.leastPrice ?? group.product?.leastPrice;
                         return leastPrice ? `AED ${leastPrice}` : <span className="text-gray-400">N/A</span>;
                       })()}</TableCell>
-                      <TableCell>{stock.receivedDate ? new Date(stock.receivedDate).toLocaleDateString() : "-"}</TableCell>
+                      <TableCell>{group.lastReceivedDate ? new Date(group.lastReceivedDate).toLocaleDateString() : "-"}</TableCell>
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleReturnStock(stock._id)}
-                          className="border-[#2B3068] text-[#2B3068] hover:bg-[#2B3068] hover:text-white"
-                        >
-                          Return Stock
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              // Return all items in this group
+                              group.items.forEach((item: any) => handleReturnStock(item._id))
+                            }}
+                            className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white text-xs"
+                          >
+                            Return All ({group.items.length})
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
                   {receivedStock.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-gray-500 py-8">
+                      <TableCell colSpan={9} className="text-center text-gray-500 py-8">
                         No received stock assignments.
                       </TableCell>
                     </TableRow>
@@ -432,6 +467,136 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
           </CardContent>
         </Card>
       </div>
+
+      {/* Unified Pending Items Section - Both Stock Assignments and Approved Purchase Orders */}
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-orange-600 to-orange-800 text-white rounded-t-lg">
+          <CardTitle className="flex items-center gap-2">
+            <Package className="w-5 h-5" />
+            Pending Items to Receive ({pendingStock.length + pendingInventory.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead>Product Code</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Quantity</TableHead>
+                  <TableHead>Price/Amount</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {/* Stock Assignments */}
+                {pendingStockFiltered.map((stock) => (
+                  <TableRow key={`stock-${stock._id}`}>
+                    <TableCell>
+                      <Badge variant="default" className="bg-blue-600">
+                        Stock Assignment
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">{stock.product?.name || "Unknown Product"}</TableCell>
+                    <TableCell>
+                      <span className="text-sm text-gray-600 font-mono">
+                        {stock.product?.productCode || stock.product?.code || 'N/A'}
+                      </span>
+                    </TableCell>
+                    <TableCell>{stock.product?.category || "-"}</TableCell>
+                    <TableCell>{stock.quantity}</TableCell>
+                    <TableCell>{(() => {
+                      const leastPrice = stock.leastPrice ?? stock.product?.leastPrice;
+                      return leastPrice ? `AED ${leastPrice}` : <span className="text-gray-400">N/A</span>;
+                    })()}</TableCell>
+                    <TableCell>{new Date(stock.assignedDate).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        Admin Assignment
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleReceiveStock(stock._id)}
+                          style={{ backgroundColor: "#2B3068" }}
+                          className="hover:opacity-90"
+                        >
+                          Receive
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRejectStock(stock._id)}
+                          className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                
+                {/* Approved Purchase Orders */}
+                {pendingInventory.map((item) => (
+                  <TableRow key={`inventory-${item._id}`}>
+                    <TableCell>
+                      <Badge variant="secondary" className="bg-orange-600 text-white">
+                        Purchase Order
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">{item.product?.name || "Unknown Product"}</TableCell>
+                    <TableCell>
+                      <span className="text-sm text-gray-600 font-mono">
+                        {item.product?.productCode || item.product?.code || item.productCode || 'N/A'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={item.purchaseType === "gas" ? "default" : "secondary"}>
+                        {item.purchaseType}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{item.quantity}</TableCell>
+                    <TableCell className="font-semibold">AED {item.totalAmount?.toFixed(2) || '0.00'}</TableCell>
+                    <TableCell>{new Date(item.purchaseDate).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        {item.supplier?.companyName || "Unknown Supplier"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        onClick={() => handleReceiveInventory(item._id)}
+                        style={{ backgroundColor: "#2B3068" }}
+                        className="hover:opacity-90 text-white"
+                      >
+                        Receive Item
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                
+                {/* Empty State */}
+                {pendingStock.length === 0 && pendingInventory.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center text-gray-500 py-8">
+                      <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium">No pending items to receive</p>
+                      <p className="text-sm">Stock assignments and approved purchase orders will appear here</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-0 shadow-lg">
         <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">

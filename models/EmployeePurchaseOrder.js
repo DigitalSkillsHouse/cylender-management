@@ -59,7 +59,7 @@ const employeePurchaseOrderSchema = new mongoose.Schema({
   },
   inventoryStatus: {
     type: String,
-    enum: ['pending', 'received'],
+    enum: ['pending', 'approved', 'received'],
     default: 'pending'
   },
   poNumber: {
