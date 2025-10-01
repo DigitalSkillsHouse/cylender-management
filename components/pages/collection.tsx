@@ -61,7 +61,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const [receiptData, setReceiptData] = useState<{
     _id: string
     invoiceNumber: string
-    customer: { name: string; phone: string; address: string }
+    customer: { name: string; phone: string; address: string; trNumber?: string }
     items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number }>
     totalAmount: number
     paymentMethod: string
@@ -483,13 +483,21 @@ export function CollectionPage({ user }: CollectionPageProps) {
         }]
       })
 
-setReceiptData({
+      // Get the first invoice number from the payments for receipt header
+      const firstInvoice = invoices.find(inv => payments.some(p => p.id === inv._id))
+      const invoiceNumber = firstInvoice?.invoiceNumber || `COL-${Date.now().toString().slice(-6)}`
+      
+      // Fetch full customer details including TR number and address
+      const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
+      
+      setReceiptData({
         _id: `collection-${Date.now()}`,
-        invoiceNumber: `COL-${Date.now().toString().slice(-6)}`,
+        invoiceNumber: invoiceNumber,
         customer: {
           name: selectedCustomer?.name || 'Customer',
           phone: selectedCustomer?.phone || '',
-          address: ''
+          address: customerDetails?.address || '',
+          trNumber: customerDetails?.trNumber || ''
         },
         items: receiptItems,
         totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
@@ -509,21 +517,51 @@ setReceiptData({
   }
 
   const openPrintWindow = (payments: Array<{ model: string; id: string; amount: number }>, signature?: string) => {
-    // Format receipt data for the ReceiptDialog
-    const receiptItems = payments.map(p => ({
-      product: { name: `${p.model} - ${p.id}`, price: p.amount },
-      quantity: 1,
-      price: p.amount,
-      total: p.amount
-    }))
+    // Get the first invoice number from the payments for receipt header
+    const firstInvoice = invoices.find(inv => payments.some(p => p.id === inv._id))
+    const invoiceNumber = firstInvoice?.invoiceNumber || `PREV-${Date.now().toString().slice(-6)}`
+    
+    // Fetch full customer details including TR number and address
+    const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
+    
+    // Format receipt data for the ReceiptDialog - use actual product names from invoices
+    const receiptItems = payments.flatMap(p => {
+      const invoice = invoices.find(inv => inv._id === p.id)
+      if (!invoice) return []
+      
+      // If invoice has items, use them, otherwise create a single item for the payment
+      if (invoice.items?.length > 0) {
+        return invoice.items.map(item => ({
+          product: {
+            name: item.product.name,
+            price: item.price
+          },
+          quantity: item.quantity,
+          price: item.price,
+          total: item.total
+        }))
+      }
+      
+      // Fallback for invoices without items
+      return [{
+        product: { 
+          name: `Payment for Invoice #${invoice.invoiceNumber} (${invoice.source.toUpperCase()})`,
+          price: p.amount
+        },
+        quantity: 1,
+        price: p.amount,
+        total: p.amount
+      }]
+    })
 
     setReceiptData({
       _id: `preview-${Date.now()}`,
-      invoiceNumber: `PREV-${Date.now().toString().slice(-6)}`,
+      invoiceNumber: invoiceNumber,
       customer: {
         name: selectedCustomer?.name || 'Customer',
         phone: selectedCustomer?.phone || '',
-        address: ''
+        address: customerDetails?.address || '',
+        trNumber: customerDetails?.trNumber || ''
       },
       items: receiptItems,
       totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
@@ -848,9 +886,67 @@ setReceiptData({
               Selected: <strong>{totalSelected}</strong> • Total to Collect: <strong>AED {totalToCollect.toFixed(2)}</strong>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" disabled={loading || totalSelected === 0} onClick={() => openPrintWindow(
-                filtered.filter((i) => selected[i._id]).map((i) => ({ model: i.model, id: i._id, amount: Math.min(Number(amounts[i._id] || 0), i.balance) }))
-              )}>
+              <Button variant="outline" disabled={loading || totalSelected === 0} onClick={() => {
+                // Collect all selected items for preview (same logic as handleReceiveAmountClick)
+                const selectedItems: Array<{
+                  invoice: PendingInvoice,
+                  item: PendingInvoiceItem,
+                  itemId: string,
+                  amount: number
+                }> = []
+                
+                filtered.forEach((inv) => {
+                  if (inv.items && inv.items.length > 0) {
+                    inv.items.forEach((item, itemIdx) => {
+                      const itemId = `${inv._id}-${itemIdx}`
+                      if (selected[itemId]) {
+                        const amount = parseFloat(amounts[itemId] || '0')
+                        if (amount > 0) {
+                          selectedItems.push({ invoice: inv, item, itemId, amount })
+                        }
+                      }
+                    })
+                  } else if (selected[inv._id]) {
+                    // Handle invoices without items (fallback)
+                    const amount = parseFloat(amounts[inv._id] || '0')
+                    if (amount > 0) {
+                      selectedItems.push({ 
+                        invoice: inv, 
+                        item: { product: { name: 'No items' }, quantity: 0, price: 0, total: inv.balance }, 
+                        itemId: inv._id, 
+                        amount 
+                      })
+                    }
+                  }
+                })
+                
+                if (selectedItems.length === 0) {
+                  toast({ title: "No items selected", variant: "destructive" })
+                  return
+                }
+                
+                // Convert to payments format for openPrintWindow
+                const invoicePayments = new Map<string, number>()
+                selectedItems.forEach(selectedItem => {
+                  const invoiceId = selectedItem.invoice._id
+                  const itemAmount = selectedItem.amount
+                  invoicePayments.set(invoiceId, (invoicePayments.get(invoiceId) || 0) + itemAmount)
+                })
+                
+                const payments: Array<{ model: string; id: string; amount: number }> = []
+                invoicePayments.forEach((amount, invoiceId) => {
+                  const invoice = selectedItems.find(item => item.invoice._id === invoiceId)?.invoice
+                  if (invoice && amount > 0) {
+                    payments.push({
+                      model: invoice.model,
+                      id: invoiceId,
+                      amount: amount
+                    })
+                  }
+                })
+                
+                openPrintWindow(payments)
+              }}>
                 <Printer className="w-4 h-4 mr-2" /> Preview Receipt
               </Button>
               <Button onClick={handleReceiveAmountClick} disabled={loading || totalSelected === 0}>

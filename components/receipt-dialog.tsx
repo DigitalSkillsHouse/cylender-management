@@ -29,7 +29,7 @@ interface ReceiptDialogProps {
     paymentMethod: string
     paymentStatus: string
     // Optional: used for cylinder returns to pick the correct header
-    type?: 'deposit' | 'refill' | 'return' | string
+    type?: 'deposit' | 'refill' | 'return' | 'collection' | string
     createdAt: string
     customerSignature?: string // Add signature to sale object
   }
@@ -39,9 +39,11 @@ interface ReceiptDialogProps {
   useReceivingHeader?: boolean
   // Control dialog visibility
   open?: boolean
+  // If true, disable VAT calculation and show total amount as-is
+  disableVAT?: boolean
 }
 
-export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, open = true }: ReceiptDialogProps) {
+export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, open = true, disableVAT = false }: ReceiptDialogProps) {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
@@ -56,16 +58,27 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
 
   // Prepare items safely
   const itemsSafe = Array.isArray(sale?.items) ? sale.items : []
-  // VAT is 5% of unit price. We show per-item VAT column and a totals breakdown.
-  // Subtotal: sum(price * qty). VAT: 5% of subtotal. Grand Total: subtotal + VAT.
-  const subTotal = itemsSafe.reduce((sum, item) => {
-    const priceNum = Number(item?.price || 0)
-    const qtyNum = Number(item?.quantity || 0)
-    const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
-    return sum + line
-  }, 0)
-  const vatAmount = subTotal * 0.05
-  const grandTotal = subTotal + vatAmount
+  
+  // Calculate totals based on whether VAT is disabled
+  let subTotal, vatAmount, grandTotal
+  
+  if (disableVAT || sale?.type === 'collection') {
+    // For collections, use the totalAmount directly without VAT calculation
+    grandTotal = Number(sale?.totalAmount || 0)
+    subTotal = grandTotal
+    vatAmount = 0
+  } else {
+    // VAT is 5% of unit price. We show per-item VAT column and a totals breakdown.
+    // Subtotal: sum(price * qty). VAT: 5% of subtotal. Grand Total: subtotal + VAT.
+    subTotal = itemsSafe.reduce((sum, item) => {
+      const priceNum = Number(item?.price || 0)
+      const qtyNum = Number(item?.quantity || 0)
+      const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+      return sum + line
+    }, 0)
+    vatAmount = subTotal * 0.05
+    grandTotal = subTotal + vatAmount
+  }
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
 
@@ -241,7 +254,9 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                     <th className="text-left p-2 border">Item</th>
                     <th className="text-center p-2 border">Qty</th>
                     <th className="text-right p-2 border">Price</th>
-                    <th className="text-right p-2 border">VAT (5%)</th>
+                    {!disableVAT && sale?.type !== 'collection' && (
+                      <th className="text-right p-2 border">VAT (5%)</th>
+                    )}
                     <th className="text-right p-2 border">Total</th>
                   </tr>
                 </thead>
@@ -250,15 +265,28 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                     const name = item?.product?.name || '-'
                     const priceNum = Number(item?.price || 0)
                     const qtyNum = Number(item?.quantity || 0)
+                    
+                    let itemTotal
+                    if (disableVAT || sale?.type === 'collection') {
+                      // For collections, use the item total as-is without VAT
+                      itemTotal = Number(item?.total || 0)
+                    } else {
+                      // Calculate with VAT
+                      const unitVat = priceNum * 0.05
+                      const unitWithVat = priceNum + unitVat
+                      itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+                    }
+                    
                     const unitVat = priceNum * 0.05
-                    const unitWithVat = priceNum + unitVat
-                    const itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+                    
                     return (
                     <tr key={index} className="border-b h-5">
                       <td className="p-2 border">{name}</td>
                       <td className="text-center p-2 border">{qtyNum}</td>
                       <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
-                      <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                      {!disableVAT && sale?.type !== 'collection' && (
+                        <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                      )}
                       <td className="text-right p-2 border">AED {itemTotal.toFixed(2)}</td>
                     </tr>
                     )
@@ -275,14 +303,31 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
           <div className="mt-4">
             <table className="w-full text-[12px] leading-tight">
               <tbody>
-                <tr>
-                  <td className="text-right pr-4 text-base">Subtotal</td>
-                  <td className="text-right w-32 text-base">AED {subTotal.toFixed(2)}</td>
-                </tr>
-                <tr>
-                  <td className="text-right pr-4 text-base">VAT (5%)</td>
-                  <td className="text-right w-32 text-base">AED {vatAmount.toFixed(2)}</td>
-                </tr>
+                {!disableVAT && sale?.type !== 'collection' && (
+                  <>
+                    <tr>
+                      <td className="text-right pr-4 text-base">Subtotal</td>
+                      <td className="text-right w-32 text-base">AED {subTotal.toFixed(2)}</td>
+                    </tr>
+                    <tr>
+                      <td className="text-right pr-4 text-base">VAT (5%)</td>
+                      <td className="text-right w-32 text-base">AED {vatAmount.toFixed(2)}</td>
+                    </tr>
+                  </>
+                )}
+                {/* Add spacing for collection receipts to maintain signature positioning */}
+                {(disableVAT || sale?.type === 'collection') && (
+                  <>
+                    <tr>
+                      <td className="text-right pr-4 text-base">&nbsp;</td>
+                      <td className="text-right w-32 text-base">&nbsp;</td>
+                    </tr>
+                    <tr>
+                      <td className="text-right pr-4 text-base">&nbsp;</td>
+                      <td className="text-right w-32 text-base">&nbsp;</td>
+                    </tr>
+                  </>
+                )}
                 <tr>
                   <td className="text-right pr-4 font-bold text-xl">Total</td>
                   <td className="text-right font-bold text-xl w-32">AED {grandTotal.toFixed(2)}</td>
