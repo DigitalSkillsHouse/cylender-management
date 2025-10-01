@@ -28,7 +28,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
     markAsRead 
   } = useNotifications({
     userId: user.id,
-    types: ['stock_assignment'],
+    types: ['stock_assignment', 'purchase_approved'],
     unreadOnly: true,
     pollInterval: 60000 // Poll every 60 seconds instead of 5
   })
@@ -62,6 +62,14 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       // Filter stock assignments for current employee
       const stockData = Array.isArray(stockResponse.data) ? stockResponse.data : (stockResponse.data?.data || []);
       const employeeStock = stockData.filter((stock: any) => stock.employee?._id === user.id)
+      
+      console.log("Stock assignments fetched:", {
+        totalStockData: stockData.length,
+        employeeStock: employeeStock.length,
+        employeeId: user.id,
+        stockStatuses: employeeStock.map((s: any) => ({ id: s._id, status: s.status, product: s.product?.name }))
+      })
+      
       setAssignedStock(employeeStock)
       // Notifications are now handled by useNotifications hook
       if (setUnreadCount) setUnreadCount(unreadCount)
@@ -136,8 +144,12 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       const result = await response.json()
       
       if (result.success) {
+        console.log("Inventory item received successfully, refreshing data...")
+        
         // Refresh the employee data to update the pending inventory
         await fetchEmployeeData()
+        
+        console.log("Data refreshed after receiving inventory item")
         
         // Show success notification
         setNotification({ 
@@ -206,6 +218,14 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
   const pendingStock = assignedStock.filter((stock: any) => stock.status === "assigned")
   const receivedStock = assignedStock.filter((stock: any) => stock.status === "received")
   const returnedStock = assignedStock.filter((stock: any) => stock.status === "returned")
+  
+  console.log("Stock filtering results:", {
+    totalAssignedStock: assignedStock.length,
+    pendingStock: pendingStock.length,
+    receivedStock: receivedStock.length,
+    returnedStock: returnedStock.length,
+    allStatuses: assignedStock.map((s: any) => s.status)
+  })
 
   // Helpers to compute employee usage per product - defined before use
   const usageByProductFromGas = (productId: string) => {
@@ -318,7 +338,8 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
     .filter((stock) => stock.status !== "returned")
     .reduce((sum, stock) => sum + (stock.quantity || 0), 0)
   
-  const totalPendingQuantity = pendingStock.reduce((sum, stock) => sum + (stock.quantity || 0), 0)
+  const totalPendingQuantity = pendingStock.reduce((sum, stock) => sum + (stock.quantity || 0), 0) + 
+                                pendingInventory.reduce((sum, item) => sum + (item.quantity || 0), 0)
   
   const totalRemainingQuantity = receivedStock.reduce((sum, stock) => sum + (stock.remainingQuantity || stock.quantity || 0), 0)
   
@@ -356,12 +377,12 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
 
         <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-0 shadow-lg">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-700">Pending Stock</CardTitle>
+            <CardTitle className="text-sm font-medium text-gray-700">Pending Items</CardTitle>
             <AlertCircle className="h-5 w-5 text-orange-500" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-orange-500">{totalPendingQuantity}</div>
-            <p className="text-xs text-gray-600 mt-1">Awaiting receipt</p>
+            <p className="text-xs text-gray-600 mt-1">Stock assignments + purchase orders</p>
           </CardContent>
         </Card>
 
@@ -468,88 +489,121 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
         </Card>
       </div>
 
-      {/* Unified Pending Items Section - Both Stock Assignments and Approved Purchase Orders */}
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="bg-gradient-to-r from-orange-600 to-orange-800 text-white rounded-t-lg">
-          <CardTitle className="flex items-center gap-2">
-            <Package className="w-5 h-5" />
-            Pending Items to Receive ({pendingStock.length + pendingInventory.length})
-          </CardTitle>
-        </CardHeader>
+      <div className="space-y-8">
+        {/* Show empty state if no pending items at all */}
+        {pendingStock.length === 0 && pendingInventory.length === 0 && (
+          <Card className="border-0 shadow-lg">
+            <CardContent className="p-12">
+              <div className="text-center">
+                <Package className="w-16 h-16 mx-auto mb-4 opacity-50 text-gray-400" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Pending Items</h3>
+                <p className="text-gray-600 max-w-md mx-auto">
+                  You don't have any pending stock assignments or approved purchase orders to receive at the moment.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Pending Stock Assignments Section - Direct Admin Assignments */}
+        {pendingStock.length > 0 && (
+          <Card className="border-0 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-800 text-white rounded-t-lg">
+              <CardTitle className="flex items-center gap-2">
+                <Package className="w-5 h-5" />
+                Pending Stock Assignments ({pendingStock.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Product Code</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Quantity</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Assigned Date</TableHead>
+                      <TableHead>Notes</TableHead>
+                      <TableHead>Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pendingStock.map((stock) => (
+                      <TableRow key={`stock-${stock._id}`}>
+                        <TableCell className="font-medium">{stock.product?.name || "Unknown Product"}</TableCell>
+                        <TableCell>
+                          <span className="text-sm text-gray-600 font-mono">
+                            {stock.product?.productCode || stock.product?.code || 'N/A'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={stock.product?.category === "gas" ? "default" : "secondary"}>
+                            {stock.product?.category || "N/A"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{stock.quantity}</TableCell>
+                        <TableCell>AED {stock.leastPrice?.toFixed(2) || '0.00'}</TableCell>
+                        <TableCell>{new Date(stock.assignedDate).toLocaleDateString()}</TableCell>
+                        <TableCell className="max-w-32 truncate">{stock.notes || "-"}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleReceiveStock(stock._id)}
+                              style={{ backgroundColor: "#2B3068" }}
+                              className="hover:opacity-90"
+                            >
+                              Receive
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRejectStock(stock._id)}
+                              className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Pending Inventory Section - Only Approved Purchase Orders */}
+        {pendingInventory.length > 0 && (
+          <Card className="border-0 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-orange-600 to-orange-800 text-white rounded-t-lg">
+              <CardTitle className="flex items-center gap-2">
+                <Package className="w-5 h-5" />
+                Pending Inventory Items ({pendingInventory.length})
+              </CardTitle>
+            </CardHeader>
         <CardContent className="p-6">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Type</TableHead>
                   <TableHead>Product</TableHead>
                   <TableHead>Product Code</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Quantity</TableHead>
-                  <TableHead>Price/Amount</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Source</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Purchase Date</TableHead>
+                  <TableHead>Supplier</TableHead>
                   <TableHead>Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {/* Stock Assignments */}
-                {pendingStockFiltered.map((stock) => (
-                  <TableRow key={`stock-${stock._id}`}>
-                    <TableCell>
-                      <Badge variant="default" className="bg-blue-600">
-                        Stock Assignment
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">{stock.product?.name || "Unknown Product"}</TableCell>
-                    <TableCell>
-                      <span className="text-sm text-gray-600 font-mono">
-                        {stock.product?.productCode || stock.product?.code || 'N/A'}
-                      </span>
-                    </TableCell>
-                    <TableCell>{stock.product?.category || "-"}</TableCell>
-                    <TableCell>{stock.quantity}</TableCell>
-                    <TableCell>{(() => {
-                      const leastPrice = stock.leastPrice ?? stock.product?.leastPrice;
-                      return leastPrice ? `AED ${leastPrice}` : <span className="text-gray-400">N/A</span>;
-                    })()}</TableCell>
-                    <TableCell>{new Date(stock.assignedDate).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        Admin Assignment
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => handleReceiveStock(stock._id)}
-                          style={{ backgroundColor: "#2B3068" }}
-                          className="hover:opacity-90"
-                        >
-                          Receive
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleRejectStock(stock._id)}
-                          className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                
-                {/* Approved Purchase Orders */}
+                {/* Approved Purchase Orders Only */}
                 {pendingInventory.map((item) => (
                   <TableRow key={`inventory-${item._id}`}>
-                    <TableCell>
-                      <Badge variant="secondary" className="bg-orange-600 text-white">
-                        Purchase Order
-                      </Badge>
-                    </TableCell>
                     <TableCell className="font-medium">{item.product?.name || "Unknown Product"}</TableCell>
                     <TableCell>
                       <span className="text-sm text-gray-600 font-mono">
@@ -583,12 +637,12 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
                 ))}
                 
                 {/* Empty State */}
-                {pendingStock.length === 0 && pendingInventory.length === 0 && (
+                {pendingInventory.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center text-gray-500 py-8">
+                    <TableCell colSpan={8} className="text-center text-gray-500 py-8">
                       <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                      <p className="text-lg font-medium">No pending items to receive</p>
-                      <p className="text-sm">Stock assignments and approved purchase orders will appear here</p>
+                      <p className="text-lg font-medium">No pending inventory items</p>
+                      <p className="text-sm">Approved purchase orders will appear here for you to receive</p>
                     </TableCell>
                   </TableRow>
                 )}
@@ -596,7 +650,9 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
             </Table>
           </div>
         </CardContent>
-      </Card>
+        </Card>
+        )}
+      </div>
 
       <Card className="border-0 shadow-lg">
         <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg">

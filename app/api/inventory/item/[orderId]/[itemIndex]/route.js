@@ -102,8 +102,8 @@ export async function PATCH(request, { params }) {
       console.log("Before update - Employee order inventory status:", updatedOrder.inventoryStatus)
       
       // Handle different scenarios for employee orders:
-      // 1. Admin approves employee order: "received" -> "approved" (goes to employee pending)
-      // 2. Employee receives approved order: "received" -> "received" (completes the process)
+      // 1. Admin approves employee order: "pending" -> "approved" (goes to employee pending)
+      // 2. Employee receives approved order: "approved" -> "received" (completes the process)
       let employeeStatus = status
       if (status === "received") {
         if (updatedOrder.inventoryStatus === "pending") {
@@ -273,96 +273,112 @@ export async function PATCH(request, { params }) {
         console.log("Processing received inventory for item:", item.product?._id || item.product)
         
         if (isEmployeePurchase && updatedOrder.employee) {
-          // For employee purchases: Create stock assignment instead of updating main stock
           const employeeId = updatedOrder.employee._id || updatedOrder.employee
-          console.log("Creating stock assignment for employee:", employeeId)
           
-          const StockAssignment = require("@/models/StockAssignment").default
-          
-          let product = null
-          let productName = null
-          
-          // Get product information - try multiple approaches
-          if (item.product && item.product._id) {
-            product = await Product.findById(item.product._id)
-            productName = product?.name
-          } else if (typeof item.product === 'string') {
-            product = await Product.findById(item.product)
-            productName = product?.name
-          }
-          
-          // If we have the product name from populated data, use it for lookup
-          if (item.product && item.product.name) {
-            productName = item.product.name
-          }
-          
-          // If we still don't have a product, try to find by name
-          if (!product && productName) {
-            console.log("Trying to find product by name for employee assignment:", productName)
-            product = await Product.findOne({ name: productName })
-          }
-          
-          // If we still don't have a product, try to find by name from the order items
-          if (!product) {
-            // Get the product name from the populated order
-            const populatedOrder = await EmployeePurchaseOrder
-              .findById(params.orderId)
-              .populate('items.product', 'name productCode')
+          if (updatedOrder.inventoryStatus === "pending" && employeeStatus === "approved") {
+            // Admin is approving employee order - just send notification, no stock assignment yet
+            console.log("Admin approving employee purchase - sending notification")
             
-            if (populatedOrder && populatedOrder.items[itemIndex] && populatedOrder.items[itemIndex].product) {
-              const itemProduct = populatedOrder.items[itemIndex].product
-              productName = itemProduct.name
-              
-              // Try to find by name and product code if available
-              if (itemProduct.productCode) {
-                product = await Product.findOne({ 
-                  name: productName, 
-                  productCode: itemProduct.productCode 
-                })
-                console.log("Found product by name and code for employee:", productName, itemProduct.productCode)
-              } else {
-                // Fallback to just name
-                product = await Product.findOne({ name: productName })
-                console.log("Found product by name only for employee:", productName)
-              }
-            }
-          }
-          
-          if (product && employeeId) {
-            // Create stock assignment for the employee
-            const stockAssignment = new StockAssignment({
-              employee: employeeId,
-              product: product._id,
-              quantity: item.quantity || 0,
-              remainingQuantity: item.quantity || 0,
-              assignedBy: user.id, // Admin who received the inventory
-              status: "assigned",
-              notes: `Auto-assigned from purchase order: ${updatedOrder.poNumber} (Item ${itemIndex + 1})`,
-              leastPrice: product.leastPrice || 0,
-              assignedDate: new Date()
-            })
-            
-            await stockAssignment.save()
-            console.log(`Created stock assignment for employee ${employeeId}: ${item.quantity} units of ${product.name}`)
-            
-            // Create notification for employee
             try {
               const Notification = require("@/models/Notification").default
+              
+              let productName = "Unknown Product"
+              if (item.product && item.product.name) {
+                productName = item.product.name
+              } else if (item.product) {
+                const product = await Product.findById(item.product._id || item.product)
+                productName = product?.name || "Unknown Product"
+              }
+              
               const notification = new Notification({
                 userId: employeeId,
-                type: "stock_assignment",
-                title: "New Stock Assignment",
-                message: `${product.name} has been assigned to your inventory. Quantity: ${item.quantity}`,
+                type: "purchase_approved",
+                title: "Purchase Order Approved",
+                message: `Your purchase order for ${productName} (Qty: ${item.quantity}) has been approved and is ready for pickup.`,
                 isRead: false,
                 createdBy: user.id
               })
               await notification.save()
-              console.log("Created notification for employee stock assignment")
+              console.log("Created notification for employee about approved purchase")
             } catch (notificationError) {
               console.warn("Failed to create notification:", notificationError.message)
             }
-          } else {
-            console.warn("Product or employee not found for stock assignment. Product ID:", item.product?._id, "Employee ID:", employeeId)
+            
+          } else if (updatedOrder.inventoryStatus === "approved" && employeeStatus === "received") {
+            // Employee is receiving approved order - NOW create stock assignment
+            console.log("Employee receiving approved purchase - creating stock assignment")
+            
+            const StockAssignment = require("@/models/StockAssignment").default
+            
+            let product = null
+            let productName = null
+            
+            // Get product information - try multiple approaches
+            if (item.product && item.product._id) {
+              product = await Product.findById(item.product._id)
+              productName = product?.name
+            } else if (typeof item.product === 'string') {
+              product = await Product.findById(item.product)
+              productName = product?.name
+            }
+            
+            // If we have the product name from populated data, use it for lookup
+            if (item.product && item.product.name) {
+              productName = item.product.name
+            }
+            
+            // If we still don't have a product, try to find by name
+            if (!product && productName) {
+              console.log("Trying to find product by name for employee assignment:", productName)
+              product = await Product.findOne({ name: productName })
+            }
+            
+            if (product && employeeId) {
+              // Create stock assignment for the employee
+              const stockAssignment = new StockAssignment({
+                employee: employeeId,
+                product: product._id,
+                quantity: item.quantity || 0,
+                remainingQuantity: item.quantity || 0,
+                assignedBy: user.id, // Employee who received the inventory
+                status: "received", // Directly set to received since employee is receiving it
+                notes: `Received from approved purchase order: ${updatedOrder.poNumber}`,
+                leastPrice: product.leastPrice || 0,
+                assignedDate: new Date(),
+                receivedDate: new Date()
+              })
+              
+              await stockAssignment.save()
+              console.log(`✅ Created stock assignment for employee ${employeeId}: ${item.quantity} units of ${product.name}`)
+              console.log("Stock assignment details:", {
+                id: stockAssignment._id,
+                employee: employeeId,
+                product: product._id,
+                productName: product.name,
+                quantity: item.quantity,
+                status: stockAssignment.status,
+                assignedBy: user.id
+              })
+              
+              // Create notification for employee
+              try {
+                const Notification = require("@/models/Notification").default
+                const notification = new Notification({
+                  userId: employeeId,
+                  type: "stock_assignment",
+                  title: "Stock Received",
+                  message: `${product.name} has been added to your inventory. Quantity: ${item.quantity}`,
+                  isRead: false,
+                  createdBy: user.id
+                })
+                await notification.save()
+                console.log("Created notification for employee stock assignment")
+              } catch (notificationError) {
+                console.warn("Failed to create notification:", notificationError.message)
+              }
+            } else {
+              console.warn("Product or employee not found for stock assignment. Product ID:", item.product?._id, "Employee ID:", employeeId)
+            }
           }
         } else {
           // For admin purchases: Update main product stock
