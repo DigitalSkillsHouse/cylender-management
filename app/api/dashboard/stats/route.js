@@ -9,6 +9,10 @@ import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction"
 import InactiveCustomerView from "@/models/InactiveCustomerView"
 import { NextResponse } from "next/server"
 
+// Disable caching for this route
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export async function GET() {
   try {
     await dbConnect()
@@ -204,7 +208,15 @@ export async function GET() {
     }
 
     console.log('Dashboard stats response:', statsResponse)
-    return NextResponse.json(statsResponse)
+    
+    // Prevent caching on Vercel
+    const response = NextResponse.json(statsResponse)
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    response.headers.set('Pragma', 'no-cache')
+    response.headers.set('Expires', '0')
+    response.headers.set('Surrogate-Control', 'no-store')
+    
+    return response
   } catch (error) {
     console.error("Dashboard stats error:", error)
     // Return default zeros when there's an error to ensure frontend displays 0 values

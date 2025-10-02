@@ -7,6 +7,10 @@ import Product from "../../../models/Product"
 import Expense from "../../../models/Expense"
 import { NextResponse } from "next/server"
 
+// Disable caching for this route
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export async function GET() {
   await dbConnect()
 
@@ -133,10 +137,18 @@ export async function GET() {
       allCylinderTransactions: [...adminCylinders, ...employeeCylinders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     }
 
-    return NextResponse.json({ 
+    const response = NextResponse.json({ 
       success: true, 
       data: breakdown 
     })
+    
+    // Prevent caching on Vercel
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    response.headers.set('Pragma', 'no-cache')
+    response.headers.set('Expires', '0')
+    response.headers.set('Surrogate-Control', 'no-store')
+    
+    return response
 
   } catch (error) {
     console.error("Error calculating profit and loss:", error)

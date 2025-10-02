@@ -7,6 +7,22 @@ const api = axios.create({
   },
 })
 
+// Add cache busting interceptor for Vercel
+api.interceptors.request.use((config) => {
+  // Add timestamp to prevent caching on Vercel
+  if (config.method === 'get') {
+    config.params = {
+      ...config.params,
+      _t: Date.now()
+    }
+    // Set cache control headers properly
+    config.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    config.headers.set('Pragma', 'no-cache')
+    config.headers.set('Expires', '0')
+  }
+  return config
+})
+
 // Auth API
 export const authAPI = {
   login: (email: string, password: string) => api.post("/auth/login", { email, password }),
@@ -137,7 +153,7 @@ export const cylindersAPI = {
 
 // Dashboard API
 export const dashboardAPI = {
-  getStats: () => api.get("/dashboard/stats"),
+  getStats: () => api.get("/dashboard/stats"), // Cache busting handled by interceptor
 }
 
 // Inactive Customers API
