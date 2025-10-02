@@ -22,6 +22,10 @@ interface Sale {
     quantity: number;
     price: number;
     total: number;
+    // Additional fields for collection receipts
+    invoiceNumber?: string;
+    invoiceDate?: string;
+    paymentStatus?: string;
   }>;
   totalAmount: number;
   paymentMethod: string;
@@ -164,14 +168,22 @@ const ReceiptPrintPage = () => {
           <table className="w-full border-collapse text-[11px] leading-tight">
             <thead>
               <tr className="bg-[#2B3068] text-white">
-                <th className="text-left p-2 font-semibold border">Item</th>
-                <th className="text-center p-2 font-semibold border">Qty</th>
-                <th className="text-right p-2 font-semibold border">Price</th>
-                {/* Hide VAT column for collection receipts */}
-                {sale?.type !== 'collection' && (
-                  <th className="text-right p-2 font-semibold border">VAT (5%)</th>
+                {sale?.type === 'collection' ? (
+                  <>
+                    <th className="text-left p-2 font-semibold border">Invoice</th>
+                    <th className="text-center p-2 font-semibold border">Date</th>
+                    <th className="text-right p-2 font-semibold border">Type</th>
+                    <th className="text-right p-2 font-semibold border">Total</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="text-left p-2 font-semibold border">Item</th>
+                    <th className="text-center p-2 font-semibold border">Qty</th>
+                    <th className="text-right p-2 font-semibold border">Price</th>
+                    <th className="text-right p-2 font-semibold border">VAT (5%)</th>
+                    <th className="text-right p-2 font-semibold border">Total</th>
+                  </>
                 )}
-                <th className="text-right p-2 font-semibold border">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -193,14 +205,29 @@ const ReceiptPrintPage = () => {
                 
                 return (
                   <tr key={index} className="border-b h-5">
-                    <td className="p-2 border">{item.product.name}</td>
-                    <td className="text-center p-2 border">{qtyNum}</td>
-                    <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
-                    {/* Hide VAT column for collection receipts */}
-                    {sale?.type !== 'collection' && (
-                      <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                    {sale?.type === 'collection' ? (
+                      <>
+                        <td className="p-2 border">{
+                          // Use the invoice number from the item data, or extract from product name
+                          item.invoiceNumber || (item.product.name.includes('Invoice #') ? item.product.name.split('Invoice #')[1] : item.product.name)
+                        }</td>
+                        <td className="text-center p-2 border">{
+                          // Use the invoice date from the item data, or fall back to sale date
+                          item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString() : 
+                          (sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-')
+                        }</td>
+                        <td className="text-right p-2 border">{item.paymentStatus || 'pending'}</td>
+                        <td className="text-right p-2 border font-medium">AED {itemTotal.toFixed(2)}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="p-2 border">{item.product.name}</td>
+                        <td className="text-center p-2 border">{qtyNum}</td>
+                        <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
+                        <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                        <td className="text-right p-2 border font-medium">AED {itemTotal.toFixed(2)}</td>
+                      </>
                     )}
-                    <td className="text-right p-2 border font-medium">AED {itemTotal.toFixed(2)}</td>
                   </tr>
                 )
               })}

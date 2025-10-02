@@ -254,13 +254,24 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
               <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
                 <thead>
                   <tr className="bg-[#2B3068] text-white">
-                    <th className="text-left p-2 border">Item</th>
-                    <th className="text-center p-2 border">Qty</th>
-                    <th className="text-right p-2 border">Price</th>
-                    {!disableVAT && sale?.type !== 'collection' && (
-                      <th className="text-right p-2 border">VAT (5%)</th>
+                    {sale?.type === 'collection' ? (
+                      <>
+                        <th className="text-left p-2 border">Invoice</th>
+                        <th className="text-center p-2 border">Date</th>
+                        <th className="text-right p-2 border">Type</th>
+                        <th className="text-right p-2 border">Total</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="text-left p-2 border">Item</th>
+                        <th className="text-center p-2 border">Qty</th>
+                        <th className="text-right p-2 border">Price</th>
+                        {!disableVAT && (
+                          <th className="text-right p-2 border">VAT (5%)</th>
+                        )}
+                        <th className="text-right p-2 border">Total</th>
+                      </>
                     )}
-                    <th className="text-right p-2 border">Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -284,13 +295,31 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                     
                     return (
                     <tr key={index} className="border-b h-5">
-                      <td className="p-2 border">{name}</td>
-                      <td className="text-center p-2 border">{qtyNum}</td>
-                      <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
-                      {!disableVAT && sale?.type !== 'collection' && (
-                        <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                      {sale?.type === 'collection' ? (
+                        <>
+                          <td className="p-2 border">{
+                            // Use the invoice number from the item data, or extract from product name
+                            (item as any)?.invoiceNumber || (name.includes('Invoice #') ? name.split('Invoice #')[1] : name)
+                          }</td>
+                          <td className="text-center p-2 border">{
+                            // Use the invoice date from the item data, or fall back to sale date
+                            (item as any)?.invoiceDate ? new Date((item as any).invoiceDate).toLocaleDateString() : 
+                            (sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-')
+                          }</td>
+                          <td className="text-right p-2 border">{(item as any)?.paymentStatus || 'pending'}</td>
+                          <td className="text-right p-2 border">AED {itemTotal.toFixed(2)}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="p-2 border">{name}</td>
+                          <td className="text-center p-2 border">{qtyNum}</td>
+                          <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
+                          {!disableVAT && (
+                            <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                          )}
+                          <td className="text-right p-2 border">AED {itemTotal.toFixed(2)}</td>
+                        </>
                       )}
-                      <td className="text-right p-2 border">AED {itemTotal.toFixed(2)}</td>
                     </tr>
                     )
                   })}

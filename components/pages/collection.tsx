@@ -412,7 +412,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
         const invoice = invoices.find(inv => inv._id === p.id)
         if (!invoice) return null
         
-        // Create a single line item for each invoice payment
+        // Create a single line item for each invoice payment with additional invoice details
         return {
           product: {
             name: `Payment for Invoice #${invoice.invoiceNumber}`,
@@ -420,7 +420,11 @@ export function CollectionPage({ user }: CollectionPageProps) {
           },
           quantity: 1,
           price: p.amount,
-          total: p.amount
+          total: p.amount,
+          // Add invoice-specific data for collection receipts
+          invoiceNumber: invoice.invoiceNumber,
+          invoiceDate: invoice.createdAt,
+          paymentStatus: invoice.paymentStatus
         }
       }).filter(Boolean)
 
@@ -468,7 +472,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
       const invoice = invoices.find(inv => inv._id === p.id)
       if (!invoice) return null
       
-      // Create a single line item for each invoice payment
+      // Create a single line item for each invoice payment with additional invoice details
       return {
         product: {
           name: `Payment for Invoice #${invoice.invoiceNumber}`,
@@ -476,7 +480,11 @@ export function CollectionPage({ user }: CollectionPageProps) {
         },
         quantity: 1,
         price: p.amount,
-        total: p.amount
+        total: p.amount,
+        // Add invoice-specific data for collection receipts
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate: invoice.createdAt,
+        paymentStatus: invoice.paymentStatus
       }
     }).filter(Boolean)
 
