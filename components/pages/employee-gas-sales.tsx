@@ -156,11 +156,29 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   // Stock and price validation states
   const [showStockInsufficientPopup, setShowStockInsufficientPopup] = useState(false)
   const [stockErrorMessage, setStockErrorMessage] = useState("")
+  const [userInteractedWithPopup, setUserInteractedWithPopup] = useState(false)
   const [showPriceValidationPopup, setShowPriceValidationPopup] = useState(false)
   const [validationMessage, setValidationMessage] = useState("")
 
   // Track expanded invoice groups in Sales History table
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+
+  // Auto-dismiss stock popup after 5s, but only if user hasn't interacted with it
+  useEffect(() => {
+    if (showStockInsufficientPopup && !userInteractedWithPopup) {
+      const timer = setTimeout(() => {
+        setShowStockInsufficientPopup(false)
+      }, 5000) // 5 seconds for better user experience
+      return () => clearTimeout(timer)
+    }
+  }, [showStockInsufficientPopup, userInteractedWithPopup])
+
+  // Reset interaction state when popup is closed
+  useEffect(() => {
+    if (!showStockInsufficientPopup) {
+      setUserInteractedWithPopup(false)
+    }
+  }, [showStockInsufficientPopup])
 
   useEffect(() => {
     fetchData()
@@ -409,7 +427,6 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     if (product && enteredQuantity > product.currentStock) {
       setStockErrorMessage(`Insufficient stock for ${product.name}. Available: ${product.currentStock}, Required: ${enteredQuantity}`)
       setShowStockInsufficientPopup(true)
-      setTimeout(() => setShowStockInsufficientPopup(false), 2000)
       return
     }
     setCurrentItem((prev) => ({ ...prev, quantity: value }))
@@ -1574,8 +1591,78 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
           sale={saleForReceipt}
         />
       )}
+
+      {/* Stock Insufficient Popup */}
+      {showStockInsufficientPopup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          {/* Background blur overlay */}
+          <div 
+            className="absolute inset-0 bg-black/20 backdrop-blur-sm" 
+            onClick={() => {
+              setUserInteractedWithPopup(true)
+              setShowStockInsufficientPopup(false)
+            }}
+          />
+          
+          {/* Modal with animations */}
+          <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95">
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setUserInteractedWithPopup(true)
+                setShowStockInsufficientPopup(false)
+              }}
+              onMouseEnter={() => setUserInteractedWithPopup(true)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            
+            {/* Icon */}
+            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-orange-500 to-red-500 rounded-full">
+              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            
+            {/* Content */}
+            <div className="text-center">
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Insufficient Stock</h3>
+              <p className="text-gray-600 mb-6">{stockErrorMessage}</p>
+              
+              {/* Action buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setUserInteractedWithPopup(true)
+                    setShowStockInsufficientPopup(false)
+                  }}
+                  onMouseEnter={() => setUserInteractedWithPopup(true)}
+                  className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setUserInteractedWithPopup(true)
+                    setShowStockInsufficientPopup(false)
+                    // Could add logic to navigate to inventory management
+                  }}
+                  onMouseEnter={() => setUserInteractedWithPopup(true)}
+                  className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-orange-600 hover:to-red-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer"
+                >
+                  Check Stock
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
 
 function PlusIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -1595,6 +1682,4 @@ function PlusIcon(props: SVGProps<SVGSVGElement>) {
       <path d="M12 5v14" />
     </svg>
   )
-}
-
 }

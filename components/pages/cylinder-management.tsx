@@ -859,11 +859,17 @@ export function CylinderManagement() {
 
   const validateItemStock = (productId: string, qty: number) => {
     const p = getProductById(productId)
-    if (!p) return true
+    if (!p) {
+      setStockValidationMessage("Product not found")
+      setShowStockValidationPopup(true)
+      return false
+    }
     // Refill skips stock validation
     if (formData.type === 'return') return true
     if (qty <= p.currentStock) return true
-    alert(`Insufficient stock! Available: ${p.currentStock}, Requested: ${qty}`)
+    // Use popup instead of alert
+    setStockValidationMessage(`Insufficient stock! Available: ${p.currentStock}, Requested: ${qty}`)
+    setShowStockValidationPopup(true)
     return false
   }
 

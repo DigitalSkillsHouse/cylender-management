@@ -145,6 +145,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   // Admin-style popup state
   const [showStockValidationPopup, setShowStockValidationPopup] = useState(false)
   const [stockValidationMessage, setStockValidationMessage] = useState("")
+  const [userInteractedWithPopup, setUserInteractedWithPopup] = useState(false)
 
   // Customer search state
   const [customerSearch, setCustomerSearch] = useState("")
@@ -272,6 +273,23 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     })
     return matches.reduce((sum, sa) => sum + (sa.remainingQuantity || 0), 0)
   }
+
+  // Auto-dismiss stock popup after 5s, but only if user hasn't interacted with it
+  useEffect(() => {
+    if (showStockValidationPopup && !userInteractedWithPopup) {
+      const timer = setTimeout(() => {
+        setShowStockValidationPopup(false)
+      }, 5000) // 5 seconds for better user experience
+      return () => clearTimeout(timer)
+    }
+  }, [showStockValidationPopup, userInteractedWithPopup])
+
+  // Reset interaction state when popup is closed
+  useEffect(() => {
+    if (!showStockValidationPopup) {
+      setUserInteractedWithPopup(false)
+    }
+  }, [showStockValidationPopup])
 
   useEffect(() => {
     fetchData()
@@ -2146,22 +2164,61 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     {/* Stock Validation Popup (Admin-style) */}
     {showStockValidationPopup && (
       <div className="fixed inset-0 z-50 flex items-center justify-center">
-        <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowStockValidationPopup(false)} />
+        <div 
+          className="absolute inset-0 bg-black/20 backdrop-blur-sm" 
+          onClick={() => {
+            setUserInteractedWithPopup(true)
+            setShowStockValidationPopup(false)
+          }} 
+        />
         <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95">
+          {/* Close button */}
+          <button
+            onClick={() => {
+              setUserInteractedWithPopup(true)
+              setShowStockValidationPopup(false)
+            }}
+            onMouseEnter={() => setUserInteractedWithPopup(true)}
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          
           <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-red-500 to-red-600 rounded-full">
             <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
           </div>
           <div className="text-center">
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Stock Validation Error</h3>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Insufficient Stock</h3>
             <p className="text-gray-600 mb-6">{stockValidationMessage}</p>
-            <button
-              onClick={() => setShowStockValidationPopup(false)}
-              className="inline-flex items-center justify-center rounded-md bg-[#2B3068] text-white px-4 py-2 text-sm font-medium hover:bg-[#1a1f4a] focus:outline-none"
-            >
-              Close
-            </button>
+            
+            {/* Action buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setUserInteractedWithPopup(true)
+                  setShowStockValidationPopup(false)
+                }}
+                onMouseEnter={() => setUserInteractedWithPopup(true)}
+                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setUserInteractedWithPopup(true)
+                  setShowStockValidationPopup(false)
+                  // Could add logic to navigate to inventory management
+                }}
+                onMouseEnter={() => setUserInteractedWithPopup(true)}
+                className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-red-600 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"
+              >
+                Check Stock
+              </button>
+            </div>
           </div>
         </div>
       </div>

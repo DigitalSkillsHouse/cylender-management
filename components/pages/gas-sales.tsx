@@ -95,6 +95,7 @@ export function GasSales() {
   // Stock insufficient popup state
   const [showStockInsufficientPopup, setShowStockInsufficientPopup] = useState(false)
   const [stockErrorMessage, setStockErrorMessage] = useState("")
+  const [userInteractedWithPopup, setUserInteractedWithPopup] = useState(false)
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -106,13 +107,20 @@ export function GasSales() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   
-  // Auto-dismiss stock popup after 1s while still allowing manual close
+  // Auto-dismiss stock popup after 5s, but only if user hasn't interacted with it
   useEffect(() => {
-    if (showStockInsufficientPopup) {
+    if (showStockInsufficientPopup && !userInteractedWithPopup) {
       const timer = setTimeout(() => {
         setShowStockInsufficientPopup(false)
-      }, 1000)
+      }, 5000) // Increased from 1s to 5s
       return () => clearTimeout(timer)
+    }
+  }, [showStockInsufficientPopup, userInteractedWithPopup])
+
+  // Reset interaction state when popup is closed
+  useEffect(() => {
+    if (!showStockInsufficientPopup) {
+      setUserInteractedWithPopup(false)
     }
   }, [showStockInsufficientPopup])
   // Per-item product autocomplete state
@@ -1960,14 +1968,21 @@ export function GasSales() {
           {/* Background blur overlay */}
           <div 
             className="absolute inset-0 bg-black/20 backdrop-blur-sm" 
-            onClick={() => setShowStockInsufficientPopup(false)}
+            onClick={() => {
+              setUserInteractedWithPopup(true)
+              setShowStockInsufficientPopup(false)
+            }}
           />
           
           {/* Modal with animations */}
           <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95">
             {/* Close button */}
             <button
-              onClick={() => setShowStockInsufficientPopup(false)}
+              onClick={() => {
+                setUserInteractedWithPopup(true)
+                setShowStockInsufficientPopup(false)
+              }}
+              onMouseEnter={() => setUserInteractedWithPopup(true)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1993,9 +2008,11 @@ export function GasSales() {
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
+                    setUserInteractedWithPopup(true)
                     console.log('Cancel button clicked')
                     setShowStockInsufficientPopup(false)
                   }}
+                  onMouseEnter={() => setUserInteractedWithPopup(true)}
                   className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200 cursor-pointer"
                 >
                   Cancel
@@ -2004,10 +2021,12 @@ export function GasSales() {
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
+                    setUserInteractedWithPopup(true)
                     console.log('Check Stock button clicked')
                     setShowStockInsufficientPopup(false)
                     // You could add logic here to navigate to inventory management
                   }}
+                  onMouseEnter={() => setUserInteractedWithPopup(true)}
                   className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-orange-600 hover:to-red-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer"
                 >
                   Check Stock
