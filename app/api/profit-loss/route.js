@@ -1,29 +1,26 @@
-import dbConnect from "../../lib/mongodb"
-import Sale from "../../models/Sale"
-import EmployeeSale from "../../models/EmployeeSale"
-import Cylinder from "../../models/Cylinder"
-import EmployeeCylinderTransaction from "../../models/EmployeeCylinderTransaction"
-import Product from "../../models/Product"
-import Expense from "../../models/Expense"
+import dbConnect from "../../../lib/mongodb"
+import Sale from "../../../models/Sale"
+import EmployeeSale from "../../../models/EmployeeSale"
+import Cylinder from "../../../models/Cylinder"
+import EmployeeCylinderTransaction from "../../../models/EmployeeCylinderTransaction"
+import Product from "../../../models/Product"
+import Expense from "../../../models/Expense"
+import { NextResponse } from "next/server"
 
-export default async function handler(req, res) {
+export async function GET() {
   await dbConnect()
-
-  if (req.method !== "GET") {
-    res.setHeader("Allow", ["GET"])
-    return res.status(405).json({ success: false, error: `Method ${req.method} not allowed` })
-  }
 
   try {
     // Get all sales data
     const [adminSales, employeeSales, adminCylinders, employeeCylinders, products, expenses] = await Promise.all([
-      Sale.find({}).populate('items.product'),
-      EmployeeSale.find({}).populate('items.product'),
+      Sale.find({}).populate('items.product', 'name category costPrice leastPrice'),
+      EmployeeSale.find({}).populate('items.product', 'name category costPrice leastPrice'),
       Cylinder.find({}),
       EmployeeCylinderTransaction.find({}),
       Product.find({}),
       Expense.find({})
     ])
+
 
     // Calculate revenue and costs from admin gas sales
     let adminGasRevenue = 0
@@ -36,7 +33,16 @@ export default async function handler(req, res) {
         
         // Calculate cost using product's costPrice
         if (item.product && item.product.costPrice) {
-          adminGasCost += item.product.costPrice * item.quantity
+          const itemCost = item.product.costPrice * item.quantity
+          adminGasCost += itemCost
+        } else {
+          // If product is not populated or missing costPrice, try to find it manually
+          const productId = item.product?._id || item.product
+          const product = products.find(p => p._id.toString() === productId.toString())
+          if (product && product.costPrice) {
+            const itemCost = product.costPrice * item.quantity
+            adminGasCost += itemCost
+          }
         }
       })
     })
@@ -52,7 +58,16 @@ export default async function handler(req, res) {
         
         // Calculate cost using product's costPrice
         if (item.product && item.product.costPrice) {
-          employeeGasCost += item.product.costPrice * item.quantity
+          const itemCost = item.product.costPrice * item.quantity
+          employeeGasCost += itemCost
+        } else {
+          // If product is not populated or missing costPrice, try to find it manually
+          const productId = item.product?._id || item.product
+          const product = products.find(p => p._id.toString() === productId.toString())
+          if (product && product.costPrice) {
+            const itemCost = product.costPrice * item.quantity
+            employeeGasCost += itemCost
+          }
         }
       })
     })
@@ -86,6 +101,8 @@ export default async function handler(req, res) {
     const totalCosts = adminGasCost + employeeGasCost + totalExpenses
     const netProfit = totalRevenue - totalCosts
 
+
+
     // Prepare detailed breakdown
     const breakdown = {
       revenue: {
@@ -116,16 +133,16 @@ export default async function handler(req, res) {
       allCylinderTransactions: [...adminCylinders, ...employeeCylinders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     }
 
-    res.status(200).json({ 
+    return NextResponse.json({ 
       success: true, 
       data: breakdown 
     })
 
   } catch (error) {
     console.error("Error calculating profit and loss:", error)
-    res.status(500).json({ 
+    return NextResponse.json({ 
       success: false, 
       error: "Failed to calculate profit and loss" 
-    })
+    }, { status: 500 })
   }
 }

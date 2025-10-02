@@ -21,7 +21,7 @@ export async function GET(request) {
 
     const sales = await EmployeeSale.find(query)
       .populate("customer", "name email phone")
-      .populate("items.product", "name category cylinderSize")
+      .populate("items.product", "name category cylinderSize costPrice leastPrice")
       .populate("employee", "name email")
       .sort({ createdAt: -1 })
 
@@ -155,7 +155,7 @@ export async function POST(request) {
     // Populate the response
     const populatedSale = await EmployeeSale.findById(savedSale._id)
       .populate("customer", "name email phone")
-      .populate("items.product", "name category cylinderSize")
+      .populate("items.product", "name category cylinderSize costPrice leastPrice")
       .populate("employee", "name email")
 
     console.log("Employee sale created successfully:", populatedSale.invoiceNumber)

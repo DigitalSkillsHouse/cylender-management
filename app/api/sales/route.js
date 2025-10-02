@@ -10,7 +10,7 @@ export async function GET() {
 
     const sales = await Sale.find()
       .populate("customer", "name phone address email trNumber")
-      .populate("items.product", "name price category cylinderSize")
+      .populate("items.product", "name price category cylinderSize costPrice leastPrice")
       .sort({ createdAt: -1 })
 
     return NextResponse.json({ data: sales })
@@ -153,7 +153,7 @@ export async function POST(request) {
     // Populate the created sale for response
     const populatedSale = await Sale.findById(savedSale._id)
       .populate("customer", "name phone address email trNumber")
-      .populate("items.product", "name price category cylinderSize")
+      .populate("items.product", "name price category cylinderSize costPrice leastPrice")
 
     return NextResponse.json({
       data: populatedSale,
