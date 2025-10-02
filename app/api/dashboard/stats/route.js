@@ -19,8 +19,8 @@ export async function GET() {
         $group: {
           _id: null,
           gasSalesRevenue: { $sum: "$totalAmount" },
-          gasSalesPaid: { $sum: "$amountPaid" },
-          totalDue: { $sum: { $subtract: ["$totalAmount", "$amountPaid"] } },
+          gasSalesPaid: { $sum: "$receivedAmount" },
+          totalDue: { $sum: { $subtract: ["$totalAmount", "$receivedAmount"] } },
           totalSales: { $sum: 1 },
         },
       },
@@ -28,12 +28,56 @@ export async function GET() {
 
     const gasSales = gasSalesResult[0] || { gasSalesRevenue: 0, gasSalesPaid: 0, totalDue: 0, totalSales: 0 }
 
+    // Calculate employee gas sales revenue
+    const employeeGasSalesResult = await EmployeeSale.aggregate([
+      {
+        $group: {
+          _id: null,
+          employeeGasSalesRevenue: { $sum: "$totalAmount" },
+          employeeGasSalesPaid: { $sum: "$receivedAmount" },
+          employeeTotalDue: { $sum: { $subtract: ["$totalAmount", "$receivedAmount"] } },
+          employeeTotalSales: { $sum: 1 },
+        },
+      },
+    ])
+
+    const employeeGasSales = employeeGasSalesResult[0] || { employeeGasSalesRevenue: 0, employeeGasSalesPaid: 0, employeeTotalDue: 0, employeeTotalSales: 0 }
+
+    // Calculate employee cylinder revenue
+    const employeeCylinderRevenueResult = await EmployeeCylinderTransaction.aggregate([
+      {
+        $group: {
+          _id: null,
+          employeeCylinderRevenue: { 
+            $sum: {
+              $add: [
+                { $ifNull: ["$depositAmount", 0] },
+                { $ifNull: ["$refillAmount", 0] },
+                { $ifNull: ["$amount", 0] }
+              ]
+            }
+          },
+          employeeTotalTransactions: { $sum: 1 },
+        },
+      },
+    ])
+
+    const employeeCylinderRevenue = employeeCylinderRevenueResult[0] || { employeeCylinderRevenue: 0, employeeTotalTransactions: 0 }
+
     // Calculate cylinder revenue (sum of all cylinder transactions)
     const cylinderRevenueResult = await CylinderTransaction.aggregate([
       {
         $group: {
           _id: null,
-          cylinderRevenue: { $sum: "$amount" },
+          cylinderRevenue: { 
+            $sum: {
+              $add: [
+                { $ifNull: ["$depositAmount", 0] },
+                { $ifNull: ["$refillAmount", 0] },
+                { $ifNull: ["$amount", 0] }
+              ]
+            }
+          },
           totalTransactions: { $sum: 1 },
         },
       },
@@ -50,7 +94,7 @@ export async function GET() {
     // Get product count
     const productCount = await Product.countDocuments()
 
-    // Calculate products sold (sum of quantities from sales items)
+    // Calculate products sold (sum of quantities from admin sales items)
     const productsSoldResult = await Sale.aggregate([
       { $unwind: "$items" },
       {
@@ -61,10 +105,31 @@ export async function GET() {
       },
     ])
 
-    const productsSold = productsSoldResult[0]?.totalQuantity || 0
+    // Calculate products sold from employee sales
+    const employeeProductsSoldResult = await EmployeeSale.aggregate([
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: null,
+          totalQuantity: { $sum: "$items.quantity" },
+        },
+      },
+    ])
 
-    // Calculate total combined revenue
-    const totalCombinedRevenue = (gasSales.gasSalesRevenue || 0) + (cylinderRevenue.cylinderRevenue || 0)
+    const adminProductsSold = productsSoldResult[0]?.totalQuantity || 0
+    const employeeProductsSold = employeeProductsSoldResult[0]?.totalQuantity || 0
+    const totalProductsSold = adminProductsSold + employeeProductsSold
+
+    // Calculate total combined revenue (admin + employee)
+    const totalGasRevenue = (gasSales.gasSalesRevenue || 0) + (employeeGasSales.employeeGasSalesRevenue || 0)
+    const totalCylinderRevenue = (cylinderRevenue.cylinderRevenue || 0) + (employeeCylinderRevenue.employeeCylinderRevenue || 0)
+    const totalCombinedRevenue = totalGasRevenue + totalCylinderRevenue
+
+    // Calculate total due (admin + employee)
+    const totalDue = (gasSales.totalDue || 0) + (employeeGasSales.employeeTotalDue || 0)
+
+    // Calculate total paid (admin + employee)
+    const totalPaid = (gasSales.gasSalesPaid || 0) + (employeeGasSales.employeeGasSalesPaid || 0)
 
     // Find inactive customers (no transactions in the last 30 days)
     const oneMonthAgo = new Date()
@@ -124,16 +189,16 @@ export async function GET() {
     // Ensure all values are numbers and not null/undefined
     const statsResponse = {
       totalRevenue: Number(totalCombinedRevenue) || 0, // Total business revenue (gas + cylinder)
-      gasSales: Number(gasSales.gasSalesRevenue) || 0, // Total gas sales revenue
-      cylinderRefills: Number(cylinderRevenue.cylinderRevenue) || 0, // Cylinder revenue
-      totalDue: Number(gasSales.totalDue) || 0, // Outstanding amounts
+      gasSales: Number(totalGasRevenue) || 0, // Total gas sales revenue (admin + employee)
+      cylinderRefills: Number(totalCylinderRevenue) || 0, // Total cylinder revenue (admin + employee)
+      totalDue: Number(totalDue) || 0, // Outstanding amounts (admin + employee)
       totalCustomers: Number(customerCount) || 0,
       totalEmployees: Number(employeeCount) || 0,
       totalProducts: Number(productCount) || 0,
-      productsSold: Number(productsSold) || 0,
-      totalSales: Number(gasSales.totalSales) || 0,
+      productsSold: Number(totalProductsSold) || 0, // Total products sold (admin + employee)
+      totalSales: Number((gasSales.totalSales || 0) + (employeeGasSales.employeeTotalSales || 0)) || 0, // Total sales count
       totalCombinedRevenue: Number(totalCombinedRevenue) || 0,
-      totalPaid: Number(gasSales.gasSalesPaid) || 0, // Amount actually received
+      totalPaid: Number(totalPaid) || 0, // Amount actually received (admin + employee)
       inactiveCustomers: inactiveCustomers, // Customers with no transactions in last 30 days
       inactiveCustomersCount: inactiveCustomers.length, // Count of inactive customers
     }
