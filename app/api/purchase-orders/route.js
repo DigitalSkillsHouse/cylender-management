@@ -90,18 +90,18 @@ export async function POST(request) {
         )
       }
 
-      let effectiveCylinderSize = item.cylinderSize
-      if (item.purchaseType === 'cylinder' && !effectiveCylinderSize) {
-        console.log(`Item ${i + 1}: Cylinder purchase without size, looking up product:`, item.productId)
+      let effectiveCylinderStatus = item.cylinderStatus
+      if (item.purchaseType === 'cylinder' && !effectiveCylinderStatus) {
+        console.log(`Item ${i + 1}: Cylinder purchase without status, looking up product:`, item.productId)
         try {
           const prod = await Product.findById(item.productId)
           console.log("Found product:", prod)
-          if (prod && prod.cylinderSize) {
-            effectiveCylinderSize = prod.cylinderSize === 'large' ? '45kg' : '5kg'
-            console.log("Inferred cylinder size:", effectiveCylinderSize)
+          if (prod && prod.cylinderStatus) {
+            effectiveCylinderStatus = prod.cylinderStatus
+            console.log("Inferred cylinder status:", effectiveCylinderStatus)
           } else {
             return NextResponse.json(
-              { error: `Item ${i + 1}: cylinderSize is required for cylinder purchases` },
+              { error: `Item ${i + 1}: cylinderStatus is required for cylinder purchases` },
               { status: 400 }
             )
           }
@@ -114,10 +114,51 @@ export async function POST(request) {
         }
       }
 
-      // Normalize legacy values if client provided them directly
-      if (item.purchaseType === 'cylinder' && effectiveCylinderSize) {
-        if (effectiveCylinderSize === 'large') effectiveCylinderSize = '45kg'
-        if (effectiveCylinderSize === 'small') effectiveCylinderSize = '5kg'
+      // Validate gasType for full cylinders
+      if (item.purchaseType === 'cylinder' && effectiveCylinderStatus === 'full' && !item.gasType) {
+        return NextResponse.json(
+          { error: `Item ${i + 1}: gasType is required for full cylinder purchases` },
+          { status: 400 }
+        )
+      }
+
+      // Validate emptyCylinderId for gas purchases
+      if (item.purchaseType === 'gas' && !item.emptyCylinderId) {
+        return NextResponse.json(
+          { error: `Item ${i + 1}: emptyCylinderId is required for gas purchases` },
+          { status: 400 }
+        )
+      }
+
+      // Validate empty cylinder stock for gas purchases
+      if (item.purchaseType === 'gas' && item.emptyCylinderId) {
+        try {
+          const emptyCylinder = await Product.findById(item.emptyCylinderId)
+          if (!emptyCylinder) {
+            return NextResponse.json(
+              { error: `Item ${i + 1}: Empty cylinder not found` },
+              { status: 400 }
+            )
+          }
+          if (emptyCylinder.category !== 'cylinder' || emptyCylinder.cylinderStatus !== 'empty') {
+            return NextResponse.json(
+              { error: `Item ${i + 1}: Selected product is not an empty cylinder` },
+              { status: 400 }
+            )
+          }
+          if (emptyCylinder.currentStock < Number(item.quantity)) {
+            return NextResponse.json(
+              { error: `Item ${i + 1}: Not enough empty cylinders available. Available: ${emptyCylinder.currentStock}, Requested: ${item.quantity}` },
+              { status: 400 }
+            )
+          }
+        } catch (cylinderError) {
+          console.error("Error validating empty cylinder:", cylinderError)
+          return NextResponse.json(
+            { error: `Item ${i + 1}: Failed to validate empty cylinder` },
+            { status: 500 }
+          )
+        }
       }
 
       const qtyNum = Number(item.quantity)
@@ -127,7 +168,11 @@ export async function POST(request) {
       const processedItem = {
         product: item.productId,
         purchaseType: item.purchaseType,
-        ...(item.purchaseType === 'cylinder' ? { cylinderSize: effectiveCylinderSize } : {}),
+        ...(item.purchaseType === 'cylinder' ? { 
+          cylinderStatus: effectiveCylinderStatus,
+          ...(effectiveCylinderStatus === 'full' ? { gasType: item.gasType } : {})
+        } : {}),
+        ...(item.purchaseType === 'gas' ? { emptyCylinderId: item.emptyCylinderId } : {}),
         quantity: qtyNum,
         unitPrice: unitPriceNum,
         itemTotal: itemTotal

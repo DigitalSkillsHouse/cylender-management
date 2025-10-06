@@ -21,11 +21,24 @@ const purchaseOrderSchema = new mongoose.Schema({
       enum: ['gas', 'cylinder'],
       required: true
     },
-    cylinderSize: {
+    cylinderStatus: {
       type: String,
-      enum: ['5kg', '10kg', '15kg', '20kg', '25kg', '45kg'],
+      enum: ['empty', 'full'],
       required: function () {
         return this.purchaseType === 'cylinder'
+      },
+    },
+    gasType: {
+      type: String,
+      required: function () {
+        return this.purchaseType === 'cylinder' && this.cylinderStatus === 'full'
+      },
+    },
+    emptyCylinderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
+      required: function () {
+        return this.purchaseType === 'gas'
       },
     },
     quantity: {

@@ -21,7 +21,9 @@ interface PurchaseOrder {
     _id?: string
     product: { _id: string; name: string }
     purchaseType: "gas" | "cylinder"
-    cylinderSize?: string
+    cylinderStatus?: "empty" | "full"
+    gasType?: string
+    emptyCylinderId?: string
     quantity: number
     unitPrice: number
     itemTotal: number
@@ -39,7 +41,7 @@ interface Product {
   costPrice: number
   currentStock: number
   category: "gas" | "cylinder"
-  cylinderSize?: string
+  cylinderStatus?: "empty" | "full"
 }
 
 interface PurchaseItem {
@@ -47,7 +49,9 @@ interface PurchaseItem {
   productId: string
   quantity: string
   unitPrice: string
-  cylinderSize?: string
+  cylinderStatus?: "empty" | "full"
+  gasType?: string
+  emptyCylinderId?: string
 }
 
 export function PurchaseManagement() {
@@ -63,15 +67,19 @@ export function PurchaseManagement() {
   // Expanded state for grouped invoice rows
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   // Single entry item state (2x2 form)
-  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"|"cylinder"; productId: string; quantity: string; unitPrice: string; cylinderSize?: string}>({
+  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"|"cylinder"; productId: string; quantity: string; unitPrice: string; cylinderStatus?: "empty" | "full"; gasType?: string; emptyCylinderId?: string}>({
     purchaseType: "gas",
     productId: "",
     quantity: "",
     unitPrice: "",
-    cylinderSize: "",
+    cylinderStatus: "empty",
+    gasType: "",
+    emptyCylinderId: "",
   })
   const [productSearchTerm, setProductSearchTerm] = useState("")
   const [showProductSuggestions, setShowProductSuggestions] = useState(false)
+  const [cylinderSearchTerm, setCylinderSearchTerm] = useState("")
+  const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
   const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string }>(() => ({
     supplierId: "",
@@ -94,6 +102,22 @@ export function PurchaseManagement() {
 
     window.addEventListener('focus', handleFocus)
     return () => window.removeEventListener('focus', handleFocus)
+  }, [])
+
+  // Add click outside handler to close suggestions
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.product-suggestions') && !target.closest('.product-search-input')) {
+        setShowProductSuggestions(false)
+      }
+      if (!target.closest('.cylinder-suggestions') && !target.closest('.cylinder-search-input')) {
+        setShowCylinderSuggestions(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
   const fetchData = async () => {
@@ -180,9 +204,24 @@ export function PurchaseManagement() {
           setError("Please enter quantity for all items")
           return
         }
-        if (item.purchaseType === 'cylinder' && !item.cylinderSize) {
-          setError("Please select cylinder size for all cylinder items")
+        if (item.purchaseType === 'cylinder' && !item.cylinderStatus) {
+          setError("Please select cylinder status for all cylinder items")
           return
+        }
+        if (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full' && !item.gasType) {
+          setError("Please select gas type for full cylinder items")
+          return
+        }
+        if (item.purchaseType === 'gas' && !item.emptyCylinderId) {
+          setError("Please select empty cylinder for gas purchases")
+          return
+        }
+        if (item.purchaseType === 'gas' && item.emptyCylinderId) {
+          const emptyCylinder = products.find(p => p._id === item.emptyCylinderId)
+          if (emptyCylinder && emptyCylinder.currentStock < Number(item.quantity)) {
+            setError(`Not enough empty cylinders available. Available: ${emptyCylinder.currentStock}, Requested: ${item.quantity}`)
+            return
+          }
         }
       }
 
@@ -194,7 +233,11 @@ export function PurchaseManagement() {
           items: formData.items.map(item => ({
             productId: item.productId,
             purchaseType: item.purchaseType,
-            ...(item.purchaseType === 'cylinder' ? { cylinderSize: item.cylinderSize || '' } : {}),
+            ...(item.purchaseType === 'cylinder' ? { 
+              cylinderStatus: item.cylinderStatus || 'empty',
+              ...(item.cylinderStatus === 'full' ? { gasType: item.gasType } : {})
+            } : {}),
+            ...(item.purchaseType === 'gas' ? { emptyCylinderId: item.emptyCylinderId } : {}),
             quantity: item.quantity,
             unitPrice: item.unitPrice || 0,
           })),
@@ -210,7 +253,11 @@ export function PurchaseManagement() {
           items: formData.items.map(item => ({
             productId: item.productId,
             purchaseType: item.purchaseType,
-            ...(item.purchaseType === 'cylinder' ? { cylinderSize: item.cylinderSize || '' } : {}),
+            ...(item.purchaseType === 'cylinder' ? { 
+              cylinderStatus: item.cylinderStatus || 'empty',
+              ...(item.cylinderStatus === 'full' ? { gasType: item.gasType } : {})
+            } : {}),
+            ...(item.purchaseType === 'gas' ? { emptyCylinderId: item.emptyCylinderId } : {}),
             quantity: item.quantity,
             unitPrice: item.unitPrice || 0,
           })),
@@ -242,9 +289,11 @@ export function PurchaseManagement() {
     })
     setEditingOrder(null)
     setError("")
-    setCurrentItem({ purchaseType: "gas", productId: "", quantity: "", unitPrice: "", cylinderSize: "" })
+    setCurrentItem({ purchaseType: "gas", productId: "", quantity: "", unitPrice: "", cylinderStatus: "empty", gasType: "", emptyCylinderId: "" })
     setProductSearchTerm("")
     setShowProductSuggestions(false)
+    setCylinderSearchTerm("")
+    setShowCylinderSuggestions(false)
     setEditingItemIndex(null)
   }
 
@@ -259,7 +308,9 @@ export function PurchaseManagement() {
         productId: item.product._id,
         quantity: item.quantity.toString(),
         unitPrice: item.unitPrice.toString(),
-        cylinderSize: item.purchaseType === 'cylinder' ? (item.cylinderSize || '') : '',
+        cylinderStatus: item.purchaseType === 'cylinder' ? (item.cylinderStatus || 'empty') : undefined,
+        gasType: item.purchaseType === 'cylinder' && item.cylinderStatus === 'full' ? (item.gasType || '') : undefined,
+        emptyCylinderId: item.purchaseType === 'gas' ? (item.emptyCylinderId || '') : undefined,
       })),
       notes: order.notes || "",
     })
@@ -272,11 +323,20 @@ export function PurchaseManagement() {
         productId: firstItem.product._id,
         quantity: firstItem.quantity.toString(),
         unitPrice: firstItem.unitPrice.toString(),
-        cylinderSize: firstItem.cylinderSize || "",
+        cylinderStatus: firstItem.cylinderStatus || "empty",
+        gasType: firstItem.gasType || "",
+        emptyCylinderId: firstItem.emptyCylinderId || "",
       })
       setProductSearchTerm(pName)
+      
+      // Set cylinder search term if it's a gas purchase
+      if (firstItem.purchaseType === 'gas' && firstItem.emptyCylinderId) {
+        const cylinderName = products.find(p => p._id === firstItem.emptyCylinderId)?.name || ""
+        setCylinderSearchTerm(cylinderName)
+      }
     }
     setShowProductSuggestions(false)
+    setShowCylinderSuggestions(false)
     setEditingItemIndex(null)
     setIsDialogOpen(true)
   }
@@ -299,22 +359,41 @@ export function PurchaseManagement() {
       setError("Please select a product and enter quantity")
       return
     }
-    if (currentItem.purchaseType === 'cylinder' && !currentItem.cylinderSize) {
-      setError("Please select cylinder size for cylinder purchase")
+    if (currentItem.purchaseType === 'cylinder' && !currentItem.cylinderStatus) {
+      setError("Please select cylinder status for cylinder purchase")
       return
+    }
+    if (currentItem.purchaseType === 'cylinder' && currentItem.cylinderStatus === 'full' && !currentItem.gasType) {
+      setError("Please select gas type for full cylinder purchase")
+      return
+    }
+    if (currentItem.purchaseType === 'gas' && !currentItem.emptyCylinderId) {
+      setError("Please select empty cylinder for gas purchase")
+      return
+    }
+    if (currentItem.purchaseType === 'gas' && currentItem.emptyCylinderId) {
+      const emptyCylinder = products.find(p => p._id === currentItem.emptyCylinderId)
+      if (emptyCylinder && emptyCylinder.currentStock < Number(currentItem.quantity)) {
+        setError(`Not enough empty cylinders available. Available: ${emptyCylinder.currentStock}, Requested: ${currentItem.quantity}`)
+        return
+      }
     }
     const nextItems = [...formData.items, {
       purchaseType: currentItem.purchaseType,
       productId: currentItem.productId,
       quantity: currentItem.quantity,
       unitPrice: currentItem.unitPrice,
-      cylinderSize: currentItem.purchaseType === 'cylinder' ? (currentItem.cylinderSize || '') : undefined,
+      cylinderStatus: currentItem.purchaseType === 'cylinder' ? (currentItem.cylinderStatus || 'empty') : undefined,
+      gasType: currentItem.purchaseType === 'cylinder' && currentItem.cylinderStatus === 'full' ? currentItem.gasType : undefined,
+      emptyCylinderId: currentItem.purchaseType === 'gas' ? currentItem.emptyCylinderId : undefined,
     }]
     setFormData({ ...formData, items: nextItems })
     // Clear inputs for next entry
-    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderSize: "" })
+    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderStatus: "empty", gasType: "", emptyCylinderId: "" })
     setProductSearchTerm("")
     setShowProductSuggestions(false)
+    setCylinderSearchTerm("")
+    setShowCylinderSuggestions(false)
     setEditingItemIndex(null)
   }
 
@@ -366,14 +445,6 @@ export function PurchaseManagement() {
   }
 
   const norm = (v?: string) => (v || "").toLowerCase()
-  const displayCylinderSize = (s?: string) => {
-    if (!s) return "-"
-    if (s === "45kg") return "Large"
-    if (s === "5kg") return "Small"
-    if (s.toLowerCase() === "large") return "Large"
-    if (s.toLowerCase() === "small") return "Small"
-    return s
-  }
   const filteredOrders = purchaseOrders.filter((o) => {
     const q = searchTerm.trim().toLowerCase()
     if (!q) return true
@@ -555,9 +626,11 @@ export function PurchaseManagement() {
                       <Select
                         value={currentItem.purchaseType}
                         onValueChange={(value: "gas" | "cylinder") => {
-                          setCurrentItem((ci) => ({ ...ci, purchaseType: value, productId: "", cylinderSize: "" }))
+                          setCurrentItem((ci) => ({ ...ci, purchaseType: value, productId: "", cylinderStatus: "empty", gasType: "", emptyCylinderId: "" }))
                           setProductSearchTerm("")
                           setShowProductSuggestions(false)
+                          setCylinderSearchTerm("")
+                          setShowCylinderSuggestions(false)
                         }}
                       >
                         <SelectTrigger className="h-10">
@@ -581,10 +654,10 @@ export function PurchaseManagement() {
                         onFocus={() => setShowProductSuggestions((productSearchTerm || '').trim().length > 0)}
                         onBlur={() => setTimeout(() => setShowProductSuggestions(false), 150)}
                         placeholder="Type to search product"
-                        className="h-10"
+                        className="h-10 product-search-input"
                       />
                       {showProductSuggestions && (
-                        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+                        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto product-suggestions">
                           {(products.filter(p => p.category === currentItem.purchaseType)
                             .filter(p => productSearchTerm.trim().length === 0 ? true : p.name.toLowerCase().includes(productSearchTerm.toLowerCase()))
                           ).slice(0, 8).map((p) => (
@@ -592,18 +665,11 @@ export function PurchaseManagement() {
                               type="button"
                               key={p._id}
                               onClick={() => {
-                                const normalizeSize = (s?: string) => {
-                                  if (!s) return ""
-                                  const v = s.toLowerCase()
-                                  if (v === 'large') return '45kg'
-                                  if (v === 'small') return '5kg'
-                                  return s
-                                }
                                 setCurrentItem((ci) => ({
                                   ...ci,
                                   productId: p._id,
                                   unitPrice: (p.costPrice ?? '').toString(),
-                                  cylinderSize: ci.purchaseType === 'cylinder' ? normalizeSize(p.cylinderSize) : "",
+                                  cylinderStatus: ci.purchaseType === 'cylinder' ? (p.cylinderStatus || 'empty') : undefined,
                                 }))
                                 setProductSearchTerm(p.name)
                                 setShowProductSuggestions(false)
@@ -620,22 +686,90 @@ export function PurchaseManagement() {
                         </div>
                       )}
                     </div>
-                    {currentItem.purchaseType === "cylinder" && (
-                      <div className="space-y-2">
-                        <Label>Cylinder Size *</Label>
-                        <Select
-                          value={currentItem.cylinderSize || ""}
-                          onValueChange={(v) => setCurrentItem((ci) => ({ ...ci, cylinderSize: v }))}
-                        >
-                          <SelectTrigger className="h-10">
-                            <SelectValue placeholder="Select size" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="45kg">Large</SelectItem>
-                            <SelectItem value="5kg">Small</SelectItem>
-                          </SelectContent>
-                        </Select>
+                    
+                    {currentItem.purchaseType === "gas" && (
+                      <div className="space-y-2 relative">
+                        <Label>Empty Cylinder Name *</Label>
+                        <Input
+                          type="text"
+                          placeholder="Type to search empty cylinders..."
+                          value={cylinderSearchTerm}
+                          onChange={(e) => {
+                            setCylinderSearchTerm(e.target.value)
+                            setShowCylinderSuggestions(true)
+                          }}
+                          onFocus={() => setShowCylinderSuggestions(true)}
+                          className="h-10 cylinder-search-input"
+                        />
+                        {showCylinderSuggestions && (
+                          <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto cylinder-suggestions">
+                            {(products.filter(p => p.category === "cylinder" && p.cylinderStatus === "empty")
+                              .filter(p => cylinderSearchTerm.trim().length === 0 ? true : p.name.toLowerCase().includes(cylinderSearchTerm.toLowerCase()))
+                            ).slice(0, 8).map((p) => (
+                              <button
+                                type="button"
+                                key={p._id}
+                                onClick={() => {
+                                  setCurrentItem((ci) => ({
+                                    ...ci,
+                                    emptyCylinderId: p._id,
+                                  }))
+                                  setCylinderSearchTerm(p.name)
+                                  setShowCylinderSuggestions(false)
+                                }}
+                                className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                              >
+                                <div className="font-medium text-gray-800">{p.name}</div>
+                                <div className="text-xs text-gray-500">Stock: {p.currentStock}</div>
+                              </button>
+                            ))}
+                            {(products.filter(p => p.category === "cylinder" && p.cylinderStatus === "empty" && p.name.toLowerCase().includes(cylinderSearchTerm.toLowerCase()))).length === 0 && (
+                              <div className="px-3 py-2 text-sm text-gray-500">No empty cylinders found</div>
+                            )}
+                          </div>
+                        )}
                       </div>
+                    )}
+                    
+                    {currentItem.purchaseType === "cylinder" && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Cylinder Status *</Label>
+                          <Select
+                            value={currentItem.cylinderStatus || "empty"}
+                            onValueChange={(v: "empty" | "full") => setCurrentItem((ci) => ({ ...ci, cylinderStatus: v }))}
+                          >
+                            <SelectTrigger className="h-10">
+                              <SelectValue placeholder="Select status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="empty">Empty</SelectItem>
+                              <SelectItem value="full">Full</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        
+                        {currentItem.cylinderStatus === "full" && (
+                          <div className="space-y-2">
+                            <Label>Gas Type *</Label>
+                            <Select
+                              value={currentItem.gasType || ""}
+                              onValueChange={(v: string) => setCurrentItem((ci) => ({ ...ci, gasType: v }))}
+                            >
+                              <SelectTrigger className="h-10">
+                                <SelectValue placeholder="Select gas type" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {products.filter(p => p.category === "gas").map((gasProduct) => (
+                                  <SelectItem key={gasProduct._id} value={gasProduct.name}>
+                                    {gasProduct.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </>
                     )}
                     <div className="space-y-2">
                       <Label>Quantity *</Label>
@@ -679,12 +813,15 @@ export function PurchaseManagement() {
                             productId: currentItem.productId,
                             quantity: currentItem.quantity,
                             unitPrice: currentItem.unitPrice,
-                            cylinderSize: currentItem.purchaseType === 'cylinder' ? (currentItem.cylinderSize || '') : undefined,
+                            cylinderStatus: currentItem.purchaseType === 'cylinder' ? (currentItem.cylinderStatus || 'empty') : undefined,
+                            gasType: currentItem.purchaseType === 'cylinder' && currentItem.cylinderStatus === 'full' ? currentItem.gasType : undefined,
+                            emptyCylinderId: currentItem.purchaseType === 'gas' ? currentItem.emptyCylinderId : undefined,
                           })
                           setFormData({ ...formData, items: newItems })
                           setEditingItemIndex(null)
-                          setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderSize: "" })
+                          setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderStatus: "empty", gasType: "", emptyCylinderId: "" })
                           setProductSearchTerm("")
+                          setCylinderSearchTerm("")
                         } else {
                           addItem()
                         }
@@ -723,7 +860,7 @@ export function PurchaseManagement() {
                           return (
                             <TableRow key={idx}>
                               <TableCell className="whitespace-nowrap">{it.purchaseType}</TableCell>
-                              <TableCell className="max-w-[220px] truncate">{p?.name || 'Product'}{it.purchaseType === 'cylinder' && it.cylinderSize ? ` (${displayCylinderSize(it.cylinderSize)})` : ''}</TableCell>
+                              <TableCell className="max-w-[220px] truncate">{p?.name || 'Product'}{it.purchaseType === 'cylinder' && it.cylinderStatus ? ` (${it.cylinderStatus}${it.cylinderStatus === 'full' && it.gasType ? ` - ${it.gasType}` : ''})` : ''}</TableCell>
                               <TableCell>{qty}</TableCell>
                               <TableCell>AED {up.toFixed(2)}</TableCell>
                               <TableCell className="font-semibold">AED {(qty * up).toFixed(2)}</TableCell>
@@ -740,9 +877,18 @@ export function PurchaseManagement() {
                                         productId: it.productId,
                                         quantity: it.quantity,
                                         unitPrice: it.unitPrice,
-                                        cylinderSize: (it as any).cylinderSize || "",
+                                        cylinderStatus: (it as any).cylinderStatus || "empty",
+                                        gasType: (it as any).gasType || "",
+                                        emptyCylinderId: (it as any).emptyCylinderId || "",
                                       })
                                       setProductSearchTerm(p?.name || '')
+                                      
+                                      // Set cylinder search term if it's a gas purchase
+                                      if (it.purchaseType === 'gas' && it.emptyCylinderId) {
+                                        const cylinderName = products.find(prod => prod._id === it.emptyCylinderId)?.name || ""
+                                        setCylinderSearchTerm(cylinderName)
+                                      }
+                                      
                                       const remaining = formData.items.filter((_, i) => i !== idx)
                                       setFormData({ ...formData, items: remaining })
                                       setEditingItemIndex(idx)
@@ -906,7 +1052,7 @@ export function PurchaseManagement() {
                                   <TableRow className="bg-white">
                                     <TableHead className="text-xs sm:text-sm">Product</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Type</TableHead>
-                                    <TableHead className="text-xs sm:text-sm">Cylinder Size</TableHead>
+                                    <TableHead className="text-xs sm:text-sm">Cylinder Status</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Qty</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Unit Price (AED)</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Total (AED)</TableHead>
@@ -919,7 +1065,7 @@ export function PurchaseManagement() {
                                     <TableRow key={`${group.items[0]._id}-${itemIndex}`} className="border-b">
                                       <TableCell className="text-xs sm:text-sm max-w-[220px] truncate">{item.product?.name || "Unknown Product"}</TableCell>
                                       <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.purchaseType}</TableCell>
-                                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.purchaseType === 'cylinder' && item.cylinderSize ? displayCylinderSize(item.cylinderSize) : '-'}</TableCell>
+                                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">{item.purchaseType === 'cylinder' && item.cylinderStatus ? item.cylinderStatus : '-'}</TableCell>
                                       <TableCell className="text-xs sm:text-sm">{item.quantity || 0}</TableCell>
                                       <TableCell className="font-semibold text-xs sm:text-sm">AED {item.unitPrice?.toFixed(2) || "0.00"}</TableCell>
                                       <TableCell className="font-semibold text-xs sm:text-sm">AED {item.itemTotal?.toFixed(2) || ((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2)}</TableCell>
