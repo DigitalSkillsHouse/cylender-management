@@ -127,15 +127,60 @@ export function GasSales() {
   const [productSearchTerms, setProductSearchTerms] = useState<string[]>([])
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
   // Single-entry item input state (2x2 grid pattern)
-  const [currentItem, setCurrentItem] = useState<{ category: "gas" | "cylinder"; productId: string; quantity: string; price: string; cylinderSize?: string }>({
+  const [currentItem, setCurrentItem] = useState<{ category: "gas" | "cylinder"; productId: string; quantity: string; price: string; cylinderStatus?: "empty" | "full"; gasProductId?: string; cylinderProductId?: string }>({
     category: "gas",
     productId: "",
     quantity: "1",
     price: "",
-    cylinderSize: "",
+    cylinderStatus: "empty",
+    gasProductId: "",
+    cylinderProductId: "",
   })
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
   const [entryProductSearch, setEntryProductSearch] = useState("")
+  // Gas product autocomplete for Full cylinder
+  const [entryGasSearch, setEntryGasSearch] = useState("")
+  const [showEntryGasSuggestions, setShowEntryGasSuggestions] = useState(false)
+  // Cylinder product autocomplete for Gas sales
+  const [entryCylinderSearch, setEntryCylinderSearch] = useState("")
+  const [showEntryCylinderSuggestions, setShowEntryCylinderSuggestions] = useState(false)
+
+  // Gas product handlers
+  const handleEntryGasSearchChange = (value: string) => {
+    setEntryGasSearch(value)
+    setShowEntryGasSuggestions(value.trim().length > 0)
+  }
+
+  const handleEntryGasSelect = (product: Product) => {
+    setCurrentItem({
+      ...currentItem,
+      gasProductId: product._id,
+    })
+    setEntryGasSearch(product.name)
+    setShowEntryGasSuggestions(false)
+  }
+
+  // Cylinder product handlers for Gas sales
+  const handleEntryCylinderSearchChange = (value: string) => {
+    setEntryCylinderSearch(value)
+    setShowEntryCylinderSuggestions(value.trim().length > 0)
+  }
+
+  const handleEntryCylinderSelect = (product: Product) => {
+    // Check if cylinder has stock
+    if (product.currentStock <= 0) {
+      setStockErrorMessage(`No full cylinders available for ${product.name}. Current stock: ${product.currentStock}`)
+      setShowStockInsufficientPopup(true)
+      return
+    }
+    
+    setCurrentItem({
+      ...currentItem,
+      cylinderProductId: product._id,
+    })
+    setEntryCylinderSearch(product.name)
+    setShowEntryCylinderSuggestions(false)
+  }
   const [showEntrySuggestions, setShowEntrySuggestions] = useState(false)
   // Export UI state
   const [showExportInput, setShowExportInput] = useState(false)
@@ -191,7 +236,7 @@ export function GasSales() {
   const [formData, setFormData] = useState<{
     customerId: string
     category: "gas" | "cylinder"
-    items: { productId: string; quantity: string; price: string; category: "gas" | "cylinder" }[]
+    items: { productId: string; quantity: string; price: string; category: "gas" | "cylinder"; cylinderStatus?: "empty" | "full" }[]
     paymentMethod: string
     paymentStatus: string
     receivedAmount: string
@@ -598,14 +643,14 @@ export function GasSales() {
           const price = Number(item.price) || 0
           const prod = allProducts.find((p: Product) => p._id === item.productId)
           const category = (item as any).category || prod?.category || 'gas'
-          const cylinderSize = category === 'cylinder' ? (prod as any)?.cylinderSize : undefined
           return {
             product: item.productId,
             quantity: quantity,
             price: price,
             total: price * quantity,
             category: category,
-            cylinderSize: cylinderSize,
+            cylinderStatus: (item as any).cylinderStatus,
+            cylinderProductId: (item as any).cylinderProductId,
           }
         })
 
@@ -776,6 +821,7 @@ export function GasSales() {
         quantity: item.quantity.toString(),
         price: item.price?.toString() || "",
         category: (item as any).category || (item.product as any)?.category || "gas", // Fallback to product category or default to gas
+        cylinderStatus: (item as any).cylinderStatus || "empty", // Default to empty for existing sales
       })),
       paymentMethod: sale.paymentMethod || "cash",
       paymentStatus: sale.paymentStatus || "cleared",
@@ -817,7 +863,7 @@ export function GasSales() {
   const addItem = () => {
     setFormData({
       ...formData,
-      items: [...formData.items, { productId: "", quantity: "1", price: "", category: "gas" }],
+      items: [...formData.items, { productId: "", quantity: "1", price: "", category: "gas", cylinderStatus: "empty" }],
     })
     setProductSearchTerms((prev) => [...prev, ""]) 
     setShowProductSuggestions((prev) => [...prev, false])
@@ -842,6 +888,7 @@ export function GasSales() {
         category: value,
         productId: '', // Reset product selection
         price: '', // Reset price
+        cylinderStatus: 'empty', // Reset cylinder status
       };
       // Also clear product search term for this row
       setProductSearchTerms((prev) => {
@@ -938,15 +985,23 @@ export function GasSales() {
 
   // Single-entry item handlers
   const resetCurrentItem = () => {
-    setCurrentItem({ category: "gas", productId: "", quantity: "1", price: "", cylinderSize: "" })
+    setCurrentItem({ category: "gas", productId: "", quantity: "1", price: "", cylinderStatus: "empty", gasProductId: "", cylinderProductId: "" })
     setEntryProductSearch("")
     setShowEntrySuggestions(false)
+    setEntryGasSearch("")
+    setShowEntryGasSuggestions(false)
+    setEntryCylinderSearch("")
+    setShowEntryCylinderSuggestions(false)
     setEditingItemIndex(null)
   }
 
   const handleEntryCategoryChange = (value: "gas" | "cylinder") => {
-    setCurrentItem({ category: value, productId: "", quantity: "1", price: "", cylinderSize: "" })
+    setCurrentItem({ category: value, productId: "", quantity: "1", price: "", cylinderStatus: "empty", gasProductId: "", cylinderProductId: "" })
     setEntryProductSearch("")
+    setEntryGasSearch("")
+    setShowEntryGasSuggestions(false)
+    setEntryCylinderSearch("")
+    setShowEntryCylinderSuggestions(false)
   }
 
   const handleEntryProductSearchChange = (value: string) => {
@@ -955,18 +1010,13 @@ export function GasSales() {
   }
 
   const handleEntryProductSelect = (product: Product) => {
-    const sizeLabel = (() => {
-      if (!product || product.category !== 'cylinder') return ""
-      if (product.cylinderSize === 'large') return 'Large'
-      if (product.cylinderSize === 'small') return 'Small'
-      return ""
-    })()
     setCurrentItem({
       category: product.category,
       productId: product._id,
       quantity: "1",
       price: product.leastPrice.toString(),
-      cylinderSize: sizeLabel,
+      cylinderStatus: "empty",
+      gasProductId: "",
     })
     setEntryProductSearch(product.name)
     setShowEntrySuggestions(false)
@@ -1004,6 +1054,7 @@ export function GasSales() {
         quantity: currentItem.quantity,
         price: currentItem.price,
         category: currentItem.category,
+        cylinderStatus: currentItem.cylinderStatus,
       })
     } else {
       items.push({
@@ -1011,7 +1062,50 @@ export function GasSales() {
         quantity: currentItem.quantity,
         price: currentItem.price,
         category: currentItem.category,
+        cylinderStatus: currentItem.cylinderStatus,
       })
+    }
+    // If cylinder is Full and a gas product is selected, add an auxiliary zero-priced gas item
+    if (currentItem.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
+      if (!currentItem.gasProductId) {
+        setStockErrorMessage('Please select the Gas product for Full cylinder.')
+        setShowStockInsufficientPopup(true)
+        return
+      }
+      items.push({
+        productId: currentItem.gasProductId,
+        quantity: currentItem.quantity,
+        price: '0',
+        category: 'gas' as any,
+      } as any)
+    }
+    
+    // If gas is sold and a cylinder is selected, add auxiliary cylinder conversion item
+    if (currentItem.category === 'gas') {
+      if (!currentItem.cylinderProductId) {
+        setStockErrorMessage('Please select a cylinder for gas sale. The cylinder will be converted from Full to Empty.')
+        setShowStockInsufficientPopup(true)
+        return
+      }
+      
+      // Validate cylinder stock
+      const cylinderProduct = allProducts.find((p: Product) => p._id === currentItem.cylinderProductId)
+      if (cylinderProduct) {
+        const requestedQty = parseInt(currentItem.quantity) || 0
+        if (cylinderProduct.currentStock < requestedQty) {
+          setStockErrorMessage(`Insufficient full cylinders! Available: ${cylinderProduct.currentStock}, Required: ${requestedQty} for ${cylinderProduct.name}`)
+          setShowStockInsufficientPopup(true)
+          return
+        }
+      }
+      
+      items.push({
+        productId: currentItem.cylinderProductId,
+        quantity: currentItem.quantity,
+        price: '0',
+        category: 'cylinder' as any,
+        cylinderStatus: 'full_to_empty', // Special status for conversion
+      } as any)
     }
     setFormData({ ...formData, items })
     resetCurrentItem()
@@ -1021,19 +1115,14 @@ export function GasSales() {
     const items = [...formData.items]
     const [row] = items.splice(index, 1)
     setFormData({ ...formData, items })
-    const prod = allProducts.find(p => p._id === (row as any).productId)
-    const sizeLabel = (() => {
-      if (!prod || prod.category !== 'cylinder') return ""
-      if ((prod as any).cylinderSize === 'large') return 'Large'
-      if ((prod as any).cylinderSize === 'small') return 'Small'
-      return ""
-    })()
     setCurrentItem({
       category: (row as any).category || 'gas',
       productId: (row as any).productId || '',
       quantity: (row as any).quantity || '1',
       price: (row as any).price || '',
-      cylinderSize: sizeLabel,
+      cylinderStatus: (row as any).cylinderStatus || 'empty',
+      gasProductId: (row as any).gasProductId || '',
+      cylinderProductId: (row as any).cylinderProductId || '',
     })
     const pName = allProducts.find(p => p._id === (row as any).productId)?.name || ''
     setEntryProductSearch(pName)
@@ -1197,10 +1286,14 @@ export function GasSales() {
       // Flatten items for display
       const items = Array.isArray(s.items) ? s.items : []
       for (const it of items) {
+        // Hide auxiliary zero-priced items in grouped display
+        if (Number((it as any).price || 0) === 0) {
+          continue
+        }
         map[key].items.push({
           name: it.product?.name || 'Unknown Product',
           category: (it as any).category || (it.product as any)?.category || 'gas',
-          cylinderSize: (it as any).cylinderSize || (it.product as any)?.cylinderSize || '',
+          cylinderStatus: (it as any).cylinderStatus || 'empty',
           quantity: Number((it as any).quantity || 0),
           price: Number((it as any).price || 0),
         })
@@ -1415,11 +1508,6 @@ export function GasSales() {
                               <div className="flex items-center justify-between">
                                 <span className="font-medium text-gray-900">
                                   {product.name}
-                                  {product.category === 'cylinder' && (
-                                    <span className="ml-2 text-xs text-gray-600">(
-                                      {product.cylinderSize === 'large' ? 'Large' : product.cylinderSize === 'small' ? 'Small' : ''}
-                                    )</span>
-                                  )}
                                 </span>
                                 <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
                               </div>
@@ -1429,18 +1517,115 @@ export function GasSales() {
                     )}
                   </div>
 
+                  {currentItem.category === 'gas' && (
+                    <div className="space-y-2 relative">
+                      <Label>Select Cylinder</Label>
+                      <Input
+                        placeholder="Search cylinder product"
+                        value={entryCylinderSearch}
+                        onChange={(e) => handleEntryCylinderSearchChange(e.target.value)}
+                        onFocus={() => setShowEntryCylinderSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowEntryCylinderSuggestions(false), 200)}
+                        className="pr-10"
+                      />
+                      {showEntryCylinderSuggestions && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          {(() => {
+                            const availableCylinders = allProducts
+                              .filter((p: Product) => p.category === 'cylinder' && (p as any).cylinderStatus === 'full' && p.currentStock > 0)
+                              .filter((p: Product) => entryCylinderSearch.trim().length === 0 || p.name.toLowerCase().includes(entryCylinderSearch.toLowerCase()))
+                              .slice(0, 8)
+                            
+                            if (availableCylinders.length === 0) {
+                              return (
+                                <div className="px-4 py-3 text-center text-gray-500 text-sm">
+                                  {entryCylinderSearch.trim().length > 0 
+                                    ? `No full cylinders found matching "${entryCylinderSearch}"`
+                                    : "No full cylinders available in stock"
+                                  }
+                                </div>
+                              )
+                            }
+                            
+                            return availableCylinders.map((product) => (
+                              <div
+                                key={product._id}
+                                className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleEntryCylinderSelect(product)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-gray-900">
+                                    {product.name}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">Full</span>
+                                    <span className="text-xs text-gray-500">Stock: {product.currentStock}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          })()
+                          }
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {currentItem.category === 'cylinder' && (
                     <div className="space-y-2">
-                      <Label>Cylinder Size</Label>
-                      <Select value={(currentItem.cylinderSize || '') as any} disabled>
+                      <Label>Full or Empty Cylinder</Label>
+                      <Select 
+                        value={currentItem.cylinderStatus || "empty"} 
+                        onValueChange={(value: "empty" | "full") => 
+                          setCurrentItem({ ...currentItem, cylinderStatus: value })
+                        }
+                      >
                         <SelectTrigger className="bg-white text-black">
-                          <SelectValue placeholder="Auto from product" />
+                          <SelectValue placeholder="Select status" />
                         </SelectTrigger>
                         <SelectContent className="bg-white text-black">
-                          <SelectItem value="Large">Large</SelectItem>
-                          <SelectItem value="Small">Small</SelectItem>
+                          <SelectItem value="empty">Empty</SelectItem>
+                          <SelectItem value="full">Full</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                  )}
+
+                  {currentItem.category === 'cylinder' && currentItem.cylinderStatus === 'full' && (
+                    <div className="space-y-2 relative">
+                      <Label>Select Gas</Label>
+                      <Input
+                        placeholder="Search gas product"
+                        value={entryGasSearch}
+                        onChange={(e) => handleEntryGasSearchChange(e.target.value)}
+                        onFocus={() => setShowEntryGasSuggestions(entryGasSearch.trim().length > 0)}
+                        onBlur={() => setTimeout(() => setShowEntryGasSuggestions(false), 200)}
+                        className="pr-10"
+                      />
+                      {showEntryGasSuggestions && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          {allProducts
+                            .filter((p: Product) => p.category === 'gas')
+                            .filter((p: Product) => entryGasSearch.trim().length === 0 || p.name.toLowerCase().includes(entryGasSearch.toLowerCase()))
+                            .slice(0, 8)
+                            .map((product) => (
+                              <div
+                                key={product._id}
+                                className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleEntryGasSelect(product)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-gray-900">
+                                    {product.name}
+                                  </span>
+                                  <span className="text-xs text-gray-500">Stock: {product.currentStock}</span>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1491,20 +1676,23 @@ export function GasSales() {
                       <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
                         <div>Category</div>
                         <div>Product</div>
-                        <div>Cylinder Size</div>
+                        <div>Status</div>
                         <div>Qty</div>
                         <div>Price (AED)</div>
                         <div>Actions</div>
                       </div>
                       <div className="space-y-1">
-                        {formData.items.map((it, idx) => {
+                        {formData.items
+                          // Hide auxiliary zero-priced items from the list to avoid confusing users
+                          .filter((it: any) => !(Number((it as any).price || 0) === 0))
+                          .map((it, idx) => {
                           const p = allProducts.find((ap) => ap._id === it.productId)
                           return (
                             <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
                               <div className="truncate">{(it as any).category || 'gas'}</div>
                               <div className="truncate">{p?.name || '-'}</div>
                               <div className="truncate">
-                                {p?.category === 'cylinder' ? (p as any)?.cylinderSize === 'large' ? 'Large' : (p as any)?.cylinderSize === 'small' ? 'Small' : '-' : '-'}
+                                {(it as any).cylinderStatus || '-'}
                               </div>
                               <div>{Number((it as any).quantity || 0)}</div>
                               <div>{Number((it as any).price || 0).toFixed(2)}</div>
@@ -1782,7 +1970,7 @@ export function GasSales() {
                                   <span>{item.name} x{item.quantity}</span>
                                   {item.category === 'cylinder' ? (
                                     <Badge variant="outline" className="text-xs font-medium bg-amber-50 text-amber-700 border-amber-200">
-                                      {item.cylinderSize?.toString().toLowerCase() === 'large' || item.cylinderSize === '45kg' ? 'Large' : item.cylinderSize?.toString().toLowerCase() === 'small' || item.cylinderSize === '5kg' ? 'Small' : 'Cylinder'}
+                                      {item.cylinderStatus === 'full' ? 'Full' : 'Empty'}
                                     </Badge>
                                   ) : null}
                                   <Badge
@@ -1872,7 +2060,7 @@ export function GasSales() {
                                       <span className="font-medium">{item.name}</span>
                                       {item.category === 'cylinder' ? (
                                         <Badge variant="outline" className="text-xs font-medium bg-amber-50 text-amber-700 border-amber-200">
-                                          {item.cylinderSize?.toString().toLowerCase() === 'large' || item.cylinderSize === '45kg' ? 'Large' : item.cylinderSize?.toString().toLowerCase() === 'small' || item.cylinderSize === '5kg' ? 'Small' : 'Cylinder'}
+                                          {item.cylinderStatus === 'full' ? 'Full' : 'Empty'}
                                         </Badge>
                                       ) : null}
                                       <Badge

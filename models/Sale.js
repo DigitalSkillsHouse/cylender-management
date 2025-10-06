@@ -30,6 +30,13 @@ const SaleSchema = new mongoose.Schema(
           return this.category === "cylinder"
         },
       },
+      cylinderStatus: {
+        type: String,
+        enum: ["empty", "full", "full_to_empty"],
+        required: function () {
+          return this.category === "cylinder"
+        },
+      },
       quantity: {
         type: Number,
         required: true,

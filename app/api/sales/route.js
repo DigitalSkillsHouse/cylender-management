@@ -73,7 +73,7 @@ export async function POST(request) {
     
     const invoiceNumber = `${yearPrefix}${nextNumber.toString().padStart(2, '0')}`
 
-    // Enrich items with category and cylinderSize from Product model
+    // Enrich items with category, cylinderSize, and cylinderStatus from Product model
     const enrichedItems = (items || []).map((item) => {
       const prod = products.find(p => p._id.toString() === String(item.product))
       const category = prod?.category || item.category || 'gas'
@@ -82,6 +82,7 @@ export async function POST(request) {
         product: item.product,
         category,
         cylinderSize,
+        cylinderStatus: item.cylinderStatus, // Include cylinderStatus for conversion tracking
         quantity: Number(item.quantity) || 0,
         price: Number(item.price) || 0,
         total: Number(item.total) || ((Number(item.price)||0) * (Number(item.quantity)||0)),
@@ -132,16 +133,66 @@ export async function POST(request) {
       throw new Error(`Failed to save sale after ${maxAttempts} attempts`)
     }
 
-    // Deduct stock quantities from products after successful sale creation
+    // Handle stock updates with cylinder conversion logic
     try {
       for (const item of items) {
         const product = products.find(p => p._id.toString() === item.product)
         if (product) {
-          const newStock = product.currentStock - item.quantity
-          await Product.findByIdAndUpdate(item.product, {
-            currentStock: Math.max(0, newStock) // Ensure stock doesn't go negative
-          })
-          console.log(`✅ Updated ${product.name} stock from ${product.currentStock} to ${newStock} (sold ${item.quantity} units)`)
+          
+          // Handle cylinder conversion from full to empty
+          if (item.cylinderStatus === 'full_to_empty') {
+            console.log(`🔄 CYLINDER CONVERSION: Converting ${item.quantity} ${product.name} from Full to Empty`)
+            
+            // Find the corresponding empty cylinder product
+            const emptyCylinderName = product.name.replace(/\s*(full|Full|FULL)\s*/gi, '').trim() + ' Empty'
+            let emptyCylinder = await Product.findOne({
+              name: { $regex: new RegExp(emptyCylinderName, 'i') },
+              category: 'cylinder',
+              cylinderStatus: 'empty'
+            })
+            
+            // If no empty cylinder found, try alternative naming patterns
+            if (!emptyCylinder) {
+              const baseName = product.name.replace(/\s*(full|Full|FULL)\s*/gi, '').trim()
+              emptyCylinder = await Product.findOne({
+                name: { $regex: new RegExp(`^${baseName}.*empty`, 'i') },
+                category: 'cylinder',
+                cylinderStatus: 'empty'
+              })
+            }
+            
+            if (emptyCylinder) {
+              // Decrease full cylinder stock
+              const newFullStock = product.currentStock - item.quantity
+              await Product.findByIdAndUpdate(item.product, {
+                currentStock: Math.max(0, newFullStock)
+              })
+              
+              // Increase empty cylinder stock
+              const newEmptyStock = emptyCylinder.currentStock + item.quantity
+              await Product.findByIdAndUpdate(emptyCylinder._id, {
+                currentStock: newEmptyStock
+              })
+              
+              console.log(`✅ CONVERSION COMPLETE: ${product.name} stock ${product.currentStock} → ${newFullStock} (Full)`)
+              console.log(`✅ CONVERSION COMPLETE: ${emptyCylinder.name} stock ${emptyCylinder.currentStock} → ${newEmptyStock} (Empty)`)
+            } else {
+              console.warn(`⚠️ No matching empty cylinder found for ${product.name}. Only decreasing full cylinder stock.`)
+              // Fallback: just decrease the full cylinder stock
+              const newStock = product.currentStock - item.quantity
+              await Product.findByIdAndUpdate(item.product, {
+                currentStock: Math.max(0, newStock)
+              })
+              console.log(`✅ Updated ${product.name} stock from ${product.currentStock} to ${newStock} (fallback)`)
+            }
+          } else {
+            // Regular stock deduction for normal sales
+            const newStock = product.currentStock - item.quantity
+            await Product.findByIdAndUpdate(item.product, {
+              currentStock: Math.max(0, newStock) // Ensure stock doesn't go negative
+            })
+            console.log(`✅ Updated ${product.name} stock from ${product.currentStock} to ${newStock} (sold ${item.quantity} units)`)
+          }
         }
       }
     } catch (stockError) {
