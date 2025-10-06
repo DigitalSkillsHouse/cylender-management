@@ -130,7 +130,7 @@ export async function POST(request) {
         )
       }
 
-      // Validate empty cylinder stock for gas purchases
+      // Validate empty cylinder stock for gas purchases and deduct stock
       if (item.purchaseType === 'gas' && item.emptyCylinderId) {
         try {
           const emptyCylinder = await Product.findById(item.emptyCylinderId)
@@ -152,6 +152,14 @@ export async function POST(request) {
               { status: 400 }
             )
           }
+          
+          // Deduct empty cylinder stock immediately when purchase order is created
+          const newEmptyStock = emptyCylinder.currentStock - Number(item.quantity)
+          await Product.findByIdAndUpdate(item.emptyCylinderId, {
+            currentStock: Math.max(0, newEmptyStock)
+          })
+          console.log(`✅ Deducted ${item.quantity} empty cylinders from ${emptyCylinder.name}. Stock: ${emptyCylinder.currentStock} → ${newEmptyStock}`)
+          
         } catch (cylinderError) {
           console.error("Error validating empty cylinder:", cylinderError)
           return NextResponse.json(

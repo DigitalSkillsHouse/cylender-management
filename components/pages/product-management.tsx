@@ -46,6 +46,30 @@ export function ProductManagement() {
 
   useEffect(() => {
     fetchProducts()
+    
+    // Listen for stock updates from other pages (inventory, employee management, etc.)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'stockUpdated' && e.newValue) {
+        console.log('Stock update detected from another page, refreshing products...')
+        fetchProducts()
+        // Clear the storage item after handling
+        localStorage.removeItem('stockUpdated')
+      }
+    }
+    
+    // Listen for custom events from same page
+    const handleStockUpdate = () => {
+      console.log('Stock update event detected, refreshing products...')
+      fetchProducts()
+    }
+    
+    window.addEventListener('storage', handleStorageChange)
+    window.addEventListener('stockUpdated', handleStockUpdate)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('stockUpdated', handleStockUpdate)
+    }
   }, [])
 
   const fetchProducts = async () => {

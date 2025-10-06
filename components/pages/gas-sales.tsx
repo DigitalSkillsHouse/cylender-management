@@ -686,6 +686,11 @@ export function GasSales() {
       await fetchData()
       resetForm()
       setIsDialogOpen(false)
+      
+      // Notify other pages about stock update
+      localStorage.setItem('stockUpdated', Date.now().toString())
+      window.dispatchEvent(new Event('stockUpdated'))
+      console.log('✅ Admin gas sale completed and stock update notification sent to other pages')
 
       // Auto-open signature dialog with normalized sale (like cylinder management)
       try {

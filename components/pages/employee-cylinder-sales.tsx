@@ -1059,6 +1059,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         resetForm()
         setIsDialogOpen(false)
         fetchData()
+        
+        // Notify other pages about stock update
+        localStorage.setItem('stockUpdated', Date.now().toString())
+        window.dispatchEvent(new Event('stockUpdated'))
+        console.log('✅ Cylinder transaction completed and stock update notification sent to other pages')
       } else {
         const errorData = await response.json()
         const actionText = isEditing ? 'update' : 'create'

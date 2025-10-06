@@ -357,6 +357,11 @@ setStockAssignments(stockData)
       // Refresh both employee data and stock assignments
       await fetchData()
       await fetchStockAssignments()
+      
+      // Notify other pages about stock update
+      localStorage.setItem('stockUpdated', Date.now().toString())
+      window.dispatchEvent(new Event('stockUpdated'))
+      console.log('✅ Stock assignment notification sent to other pages')
     } catch (error: any) {
       setUpdateNotification({
         message: error.response?.data?.error || "Failed to assign stock",

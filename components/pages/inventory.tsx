@@ -232,6 +232,11 @@ export function Inventory() {
         // Update stock based on purchase type and cylinder status
         await updateStockForReceivedItem(inventoryItem!)
         await fetchInventoryData()
+        
+        // Notify other pages about stock update
+        localStorage.setItem('stockUpdated', Date.now().toString())
+        window.dispatchEvent(new Event('stockUpdated'))
+        console.log('✅ Stock update notification sent to other pages')
       } else {
         setError("Failed to mark inventory as received")
       }

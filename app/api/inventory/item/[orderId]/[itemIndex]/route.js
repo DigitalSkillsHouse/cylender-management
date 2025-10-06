@@ -416,65 +416,124 @@ export async function PATCH(request, { params }) {
             }
           }
         } else {
-          // For admin purchases: Update main product stock
-          console.log("Updating main product stock for admin purchase")
+          // For admin purchases: Handle different purchase types
+          console.log("Processing admin purchase for stock update")
           
-          let product = null
-          let productName = null
-          
-          // Get product information - try multiple approaches
-          if (item.product && item.product._id) {
-            product = await Product.findById(item.product._id)
-            productName = product?.name
-          } else if (typeof item.product === 'string') {
-            product = await Product.findById(item.product)
-            productName = product?.name
-          }
-          
-          // If we have the product name from populated data, use it for lookup
-          if (item.product && item.product.name) {
-            productName = item.product.name
-          }
-          
-          // If we still don't have a product, try to find by name
-          if (!product && productName) {
-            console.log("Trying to find product by name:", productName)
-            product = await Product.findOne({ name: productName })
-          }
-          
-          // If we still don't have a product, try to find by name from the order items
-          if (!product) {
-            // Get the product name from the populated order
-            const populatedOrder = await (isEmployeePurchase ? EmployeePurchaseOrder : PurchaseOrder)
-              .findById(params.orderId)
-              .populate('items.product', 'name productCode')
+          if (item.purchaseType === 'gas' && item.emptyCylinderId) {
+            // Gas purchase with empty cylinder - special handling
+            console.log("Processing gas purchase with empty cylinder")
             
-            if (populatedOrder && populatedOrder.items[itemIndex] && populatedOrder.items[itemIndex].product) {
-              const itemProduct = populatedOrder.items[itemIndex].product
-              productName = itemProduct.name
+            // 1. Update the gas product stock
+            let gasProduct = null
+            if (item.product && item.product._id) {
+              gasProduct = await Product.findById(item.product._id)
+            } else if (typeof item.product === 'string') {
+              gasProduct = await Product.findById(item.product)
+            }
+            
+            if (gasProduct) {
+              const oldGasStock = gasProduct.currentStock || 0
+              const newGasStock = oldGasStock + (item.quantity || 0)
+              await Product.findByIdAndUpdate(gasProduct._id, { currentStock: newGasStock })
+              console.log(`✅ Updated gas product ${gasProduct.name} stock from ${oldGasStock} to ${newGasStock}`)
+            }
+            
+            // 2. Create or update full cylinder product
+            // Find the corresponding full cylinder product (same name as empty cylinder but with full status)
+            let emptyCylinder = null
+            if (item.emptyCylinderId) {
+              emptyCylinder = await Product.findById(item.emptyCylinderId)
+            }
+            
+            if (emptyCylinder && gasProduct) {
+              // Look for existing full cylinder product with same base name
+              const fullCylinderName = emptyCylinder.name.replace(/empty/i, 'full').replace(/Empty/i, 'Full')
+              let fullCylinder = await Product.findOne({ 
+                name: { $regex: new RegExp(fullCylinderName, 'i') },
+                category: 'cylinder',
+                cylinderStatus: 'full'
+              })
               
-              // Try to find by name and product code if available
-              if (itemProduct.productCode) {
-                product = await Product.findOne({ 
-                  name: productName, 
-                  productCode: itemProduct.productCode 
+              if (!fullCylinder) {
+                // Try to find by similar name pattern
+                const baseName = emptyCylinder.name.replace(/\s*(empty|Empty)\s*/g, '').trim()
+                fullCylinder = await Product.findOne({ 
+                  name: { $regex: new RegExp(`${baseName}.*full`, 'i') },
+                  category: 'cylinder',
+                  cylinderStatus: 'full'
                 })
-                console.log("Found product by name and code:", productName, itemProduct.productCode)
+              }
+              
+              if (fullCylinder) {
+                // Update existing full cylinder stock
+                const oldFullStock = fullCylinder.currentStock || 0
+                const newFullStock = oldFullStock + (item.quantity || 0)
+                await Product.findByIdAndUpdate(fullCylinder._id, { currentStock: newFullStock })
+                console.log(`✅ Updated full cylinder ${fullCylinder.name} stock from ${oldFullStock} to ${newFullStock}`)
               } else {
-                // Fallback to just name
-                product = await Product.findOne({ name: productName })
-                console.log("Found product by name only:", productName)
+                console.warn(`⚠️ Full cylinder product not found for ${emptyCylinder.name}. Please create a corresponding full cylinder product.`)
               }
             }
-          }
-          
-          if (product) {
-            const oldStock = product.currentStock || 0
-            const newStock = oldStock + (item.quantity || 0)
-            await Product.findByIdAndUpdate(product._id, { currentStock: newStock })
-            console.log(`Updated ${product.name} (Code: ${product.productCode || 'N/A'}) stock from ${oldStock} to ${newStock}`)
+            
           } else {
-            console.warn("Product not found for stock update. Product Name:", productName, "Product ID:", item.product?._id)
+            // Regular product purchase (cylinder or gas without empty cylinder)
+            let product = null
+            let productName = null
+            
+            // Get product information - try multiple approaches
+            if (item.product && item.product._id) {
+              product = await Product.findById(item.product._id)
+              productName = product?.name
+            } else if (typeof item.product === 'string') {
+              product = await Product.findById(item.product)
+              productName = product?.name
+            }
+            
+            // If we have the product name from populated data, use it for lookup
+            if (item.product && item.product.name) {
+              productName = item.product.name
+            }
+            
+            // If we still don't have a product, try to find by name
+            if (!product && productName) {
+              console.log("Trying to find product by name:", productName)
+              product = await Product.findOne({ name: productName })
+            }
+            
+            // If we still don't have a product, try to find by name from the order items
+            if (!product) {
+              // Get the product name from the populated order
+              const populatedOrder = await (isEmployeePurchase ? EmployeePurchaseOrder : PurchaseOrder)
+                .findById(params.orderId)
+                .populate('items.product', 'name productCode')
+              
+              if (populatedOrder && populatedOrder.items[itemIndex] && populatedOrder.items[itemIndex].product) {
+                const itemProduct = populatedOrder.items[itemIndex].product
+                productName = itemProduct.name
+                
+                // Try to find by name and product code if available
+                if (itemProduct.productCode) {
+                  product = await Product.findOne({ 
+                    name: productName, 
+                    productCode: itemProduct.productCode 
+                  })
+                  console.log("Found product by name and code:", productName, itemProduct.productCode)
+                } else {
+                  // Fallback to just name
+                  product = await Product.findOne({ name: productName })
+                  console.log("Found product by name only:", productName)
+                }
+              }
+            }
+            
+            if (product) {
+              const oldStock = product.currentStock || 0
+              const newStock = oldStock + (item.quantity || 0)
+              await Product.findByIdAndUpdate(product._id, { currentStock: newStock })
+              console.log(`✅ Updated ${product.name} (Code: ${product.productCode || 'N/A'}) stock from ${oldStock} to ${newStock}`)
+            } else {
+              console.warn("⚠️ Product not found for stock update. Product Name:", productName, "Product ID:", item.product?._id)
+            }
           }
         }
       } catch (stockError) {

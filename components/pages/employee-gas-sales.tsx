@@ -576,12 +576,21 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       }
 
       fetchData()
-      setIsDialogOpen(false)
       resetForm()
+      setIsDialogOpen(false)
+      
+      // Notify other pages about stock update
+      localStorage.setItem('stockUpdated', Date.now().toString())
+      window.dispatchEvent(new Event('stockUpdated'))
+      console.log('✅ Gas sale completed and stock update notification sent to other pages')
 
       // Prepare a normalized sale object and open signature dialog automatically
       try {
         const saved = (savedResponse?.data?.data) || (savedResponse?.data) || null
+        // Notify other pages about sale completion
+        localStorage.setItem('saleCompleted', Date.now().toString())
+        window.dispatchEvent(new Event('saleCompleted'))
+        console.log('✅ Gas sale completed and sale completion notification sent to other pages')
         const selectedCustomer = (customers || []).find((c) => c._id === formData.customerId)
 
         const itemsNormalized = (saved?.items && Array.isArray(saved.items) && saved.items.length > 0)

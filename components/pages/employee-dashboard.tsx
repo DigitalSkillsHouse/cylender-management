@@ -264,7 +264,11 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
       await stockAPI.returnStock(assignmentId);
       // Refresh data immediately to ensure UI updates
       await fetchEmployeeData();
-      console.log('Stock returned successfully');
+      
+      // Notify other pages about stock update
+      localStorage.setItem('stockUpdated', Date.now().toString())
+      window.dispatchEvent(new Event('stockUpdated'))
+      console.log('✅ Stock returned successfully and notification sent to other pages');
     } catch (error) {
       console.error("Failed to return stock:", error);
       alert('Failed to return stock. Please try again.');
