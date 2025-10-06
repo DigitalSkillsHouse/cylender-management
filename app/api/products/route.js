@@ -79,14 +79,43 @@ export async function POST(request) {
     await dbConnect()
     const data = await request.json()
     
+    console.log('Received product data:', data)
+    
+    // Validate required fields
+    if (!data.name || !data.category) {
+      console.log('Missing required fields:', { name: data.name, category: data.category })
+      return NextResponse.json({ error: "Name and category are required" }, { status: 400 })
+    }
+    
+    // Validate cylinder status for cylinder products
+    if (data.category === "cylinder" && !data.cylinderStatus) {
+      console.log('Missing cylinder status for cylinder product')
+      return NextResponse.json({ error: "Cylinder status is required for cylinder products" }, { status: 400 })
+    }
+    
     // Generate product code if not provided
     if (!data.productCode) {
       data.productCode = await generateProductCode(data.name)
     }
     
+    console.log('Creating product with data:', data)
     const product = await Product.create(data)
+    console.log('Product created successfully:', product._id)
+    
     return NextResponse.json(product, { status: 201 })
   } catch (error) {
-    return NextResponse.json({ error: "Failed to create product" }, { status: 500 })
+    console.error('Product creation error:', error)
+    console.error('Error details:', error.message)
+    if (error.name === 'ValidationError') {
+      console.error('Validation errors:', error.errors)
+      return NextResponse.json({ 
+        error: "Validation error", 
+        details: Object.keys(error.errors).map(key => error.errors[key].message)
+      }, { status: 400 })
+    }
+    return NextResponse.json({ 
+      error: "Failed to create product", 
+      details: error.message 
+    }, { status: 500 })
   }
 }

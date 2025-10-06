@@ -17,9 +17,9 @@ const ProductSchema = new mongoose.Schema(
       enum: ["gas", "cylinder"],
       required: true,
     },
-    cylinderSize: {
+    cylinderStatus: {
       type: String,
-      enum: ["large", "small"],
+      enum: ["empty", "full"],
       required: function () {
         return this.category === "cylinder"
       },

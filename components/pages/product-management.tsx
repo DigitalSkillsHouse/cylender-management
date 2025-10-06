@@ -18,7 +18,7 @@ interface Product {
   name: string
   productCode: string
   category: "gas" | "cylinder"
-  cylinderSize?: "large" | "small"
+  cylinderStatus?: "empty" | "full"
   costPrice: number
   leastPrice: number
   currentStock: number
@@ -39,7 +39,7 @@ export function ProductManagement() {
     name: "",
     productCode: "",
     category: "gas" as "gas" | "cylinder",
-    cylinderSize: "large" as "large" | "small",
+    cylinderStatus: "empty" as "empty" | "full",
     costPrice: "",
     leastPrice: "",
   })
@@ -99,12 +99,14 @@ export function ProductManagement() {
         name: formData.name,
         productCode: formData.productCode,
         category: formData.category,
-        cylinderSize: formData.category === "cylinder" ? formData.cylinderSize : undefined,
+        cylinderStatus: formData.category === "cylinder" ? formData.cylinderStatus : undefined,
         costPrice: costPrice,
         leastPrice: leastPrice,
         // Only set currentStock to 0 for new products, not when updating existing ones
         ...(editingProduct ? {} : { currentStock: 0 }),
       }
+
+      console.log("Sending product data:", productData)
 
       if (editingProduct) {
         await productsAPI.update(editingProduct._id, productData)
@@ -116,7 +118,19 @@ export function ProductManagement() {
       resetForm()
       setIsDialogOpen(false)
     } catch (error: any) {
-      alert(error.response?.data?.error || "Failed to save product")
+      console.error("Product save error:", error)
+      const errorMessage = error.response?.data?.error || "Failed to save product"
+      const errorDetails = error.response?.data?.details
+      
+      if (errorDetails) {
+        if (Array.isArray(errorDetails)) {
+          alert(`${errorMessage}:\n${errorDetails.join('\n')}`)
+        } else {
+          alert(`${errorMessage}: ${errorDetails}`)
+        }
+      } else {
+        alert(errorMessage)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -168,7 +182,7 @@ export function ProductManagement() {
       name: "",
       productCode: "",
       category: "gas",
-      cylinderSize: "large",
+      cylinderStatus: "empty",
       costPrice: "",
       leastPrice: "",
     })
@@ -181,7 +195,7 @@ export function ProductManagement() {
       name: product.name,
       productCode: product.productCode,
       category: product.category,
-      cylinderSize: product.cylinderSize || "large",
+      cylinderStatus: product.cylinderStatus || "empty",
       costPrice: product.costPrice.toString(),
       leastPrice: product.leastPrice.toString(),
     })
@@ -225,7 +239,7 @@ export function ProductManagement() {
     return (
       norm(p.name).includes(q) ||
       norm(p.category).includes(q) ||
-      norm(p.cylinderSize).includes(q) ||
+      norm(p.cylinderStatus).includes(q) ||
       String(p.currentStock ?? "").includes(q)
     )
   })
@@ -345,17 +359,17 @@ export function ProductManagement() {
 
                   {formData.category === "cylinder" && (
                     <div className="space-y-2">
-                      <Label htmlFor="cylinderSize" className="text-sm font-medium">Cylinder Size</Label>
+                      <Label htmlFor="cylinderStatus" className="text-sm font-medium">Cylinder Status</Label>
                       <Select
-                        value={formData.cylinderSize}
-                        onValueChange={(value: "large" | "small") => setFormData({ ...formData, cylinderSize: value })}
+                        value={formData.cylinderStatus}
+                        onValueChange={(value: "empty" | "full") => setFormData({ ...formData, cylinderStatus: value })}
                       >
                         <SelectTrigger className="h-11 sm:h-12">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="large">Large</SelectItem>
-                          <SelectItem value="small">Small</SelectItem>
+                          <SelectItem value="empty">Empty</SelectItem>
+                          <SelectItem value="full">Full</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -451,7 +465,7 @@ export function ProductManagement() {
                   <TableHead className="font-bold text-gray-700 p-4">Product Code</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Product Name</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Category</TableHead>
-                  <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-4">Status</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Cost Price (AED)</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Least Price (AED)</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Stock</TableHead>
@@ -464,7 +478,17 @@ export function ProductManagement() {
                     <TableCell className="font-mono font-semibold text-[#2B3068] p-4">{product.productCode || "N/A"}</TableCell>
                     <TableCell className="font-semibold text-[#2B3068] p-4">{product.name}</TableCell>
                     <TableCell className="capitalize p-4">{product.category}</TableCell>
-                    <TableCell className="p-4">{product.category === "cylinder" ? product.cylinderSize : "-"}</TableCell>
+                    <TableCell className="p-4">
+                      {product.category === "cylinder" ? (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          product.cylinderStatus === "full" 
+                            ? "bg-green-100 text-green-800" 
+                            : "bg-orange-100 text-orange-800"
+                        }`}>
+                          {product.cylinderStatus || "N/A"}
+                        </span>
+                      ) : "-"}
+                    </TableCell>
                     <TableCell className="p-4">AED {product.costPrice.toFixed(2)}</TableCell>
                     <TableCell className="p-4">AED {product.leastPrice.toFixed(2)}</TableCell>
                     <TableCell className="p-4">
@@ -521,7 +545,7 @@ export function ProductManagement() {
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Code</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Product</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Category</TableHead>
-                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Type</TableHead>
+                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Status</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Cost</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Least</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Stock</TableHead>
@@ -534,7 +558,17 @@ export function ProductManagement() {
                       <TableCell className="p-3 font-mono font-medium text-[#2B3068] text-sm">{product.productCode || "N/A"}</TableCell>
                       <TableCell className="p-3 font-medium text-[#2B3068] text-sm truncate max-w-[160px]">{product.name}</TableCell>
                       <TableCell className="p-3 capitalize text-sm">{product.category}</TableCell>
-                      <TableCell className="p-3 text-sm">{product.category === "cylinder" ? product.cylinderSize : "-"}</TableCell>
+                      <TableCell className="p-3 text-sm">
+                        {product.category === "cylinder" ? (
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            product.cylinderStatus === "full" 
+                              ? "bg-green-100 text-green-800" 
+                              : "bg-orange-100 text-orange-800"
+                          }`}>
+                            {product.cylinderStatus || "N/A"}
+                          </span>
+                        ) : "-"}
+                      </TableCell>
                       <TableCell className="p-3 text-sm">AED {product.costPrice.toFixed(2)}</TableCell>
                       <TableCell className="p-3 text-sm">AED {product.leastPrice.toFixed(2)}</TableCell>
                       <TableCell className="p-3 text-sm">
@@ -587,7 +621,7 @@ export function ProductManagement() {
             name: p.name,
             productCode: p.productCode,
             category: p.category,
-            cylinderSize: p.cylinderSize,
+            cylinderStatus: p.cylinderStatus,
             costPrice: p.costPrice,
             leastPrice: p.leastPrice,
           }))}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/mongodb";
 import DailyStockReport from "@/models/DailyStockReport";
+import Product from "@/models/Product";
 
 export async function GET(request) {
   try {
@@ -13,7 +14,54 @@ export async function GET(request) {
     const endDate = searchParams.get("endDate");
     const employeeId = searchParams.get("employeeId");
     const limit = parseInt(searchParams.get("limit") || "0", 10);
+    const autoGenerate = searchParams.get("autoGenerate") === "true";
 
+    // If autoGenerate is requested, create reports from cylinder products
+    if (autoGenerate) {
+      const currentDate = date || new Date().toISOString().split('T')[0];
+      
+      // Get all cylinder products
+      const cylinderProducts = await Product.find({ 
+        category: "cylinder",
+        cylinderStatus: { $exists: true }
+      });
+
+      const generatedReports = [];
+
+      for (const product of cylinderProducts) {
+        // Check if report already exists for this product and date
+        const existingReport = await DailyStockReport.findOne({
+          itemName: product.name,
+          date: currentDate,
+          ...(employeeId && { employeeId })
+        });
+
+        if (!existingReport) {
+          // Create new report with current stock based on cylinder status
+          const reportData = {
+            date: currentDate,
+            itemName: product.name,
+            openingFull: product.cylinderStatus === "full" ? product.currentStock : 0,
+            openingEmpty: product.cylinderStatus === "empty" ? product.currentStock : 0,
+            refilled: 0,
+            cylinderSales: 0,
+            gasSales: 0,
+            ...(employeeId && { employeeId })
+          };
+
+          const newReport = await DailyStockReport.create(reportData);
+          generatedReports.push(newReport);
+        }
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        data: generatedReports,
+        message: `Generated ${generatedReports.length} daily stock reports from cylinder products`
+      });
+    }
+
+    // Regular GET logic
     const filter = {};
     if (itemName) filter.itemName = itemName;
     if (date) filter.date = date;
