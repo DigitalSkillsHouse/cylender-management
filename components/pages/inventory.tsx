@@ -350,8 +350,8 @@ export function Inventory() {
 
   const norm = (v?: string | number) => (v === undefined || v === null ? "" : String(v)).toLowerCase()
   const matchesQuery = (it: InventoryItem, q: string) =>
-    norm(it.poNumber).includes(q) ||
     norm(it.productName).includes(q) ||
+    norm(it.productCode).includes(q) ||
     norm(it.supplierName).includes(q) ||
     norm(it.purchaseType).includes(q) ||
     norm(it.quantity).includes(q) ||
@@ -367,7 +367,6 @@ export function Inventory() {
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-              <TableHead className="font-bold text-gray-700 p-4">INV Number</TableHead>
               <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
               <TableHead className="font-bold text-gray-700 p-4">Details</TableHead>
               <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
@@ -382,21 +381,20 @@ export function Inventory() {
           <TableBody>
             {items.map((item) => (
               <TableRow key={item.id} className={`hover:bg-gray-50 transition-colors border-b border-gray-100 ${item.isEmployeePurchase ? 'bg-blue-50/30' : ''}`}>
-                <TableCell className="font-semibold text-[#2B3068] p-4">
+                <TableCell className="p-4">
                   <div className="flex items-center gap-2">
-                    <span>{item.poNumber}</span>
+                    <div>
+                      <div className="font-medium">{item.productName}</div>
+                      {item.productCode && (
+                        <div className="text-sm text-gray-500 font-mono">{item.productCode}</div>
+                      )}
+                    </div>
                     {item.isEmployeePurchase && (
                       <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
                         Employee
                       </Badge>
                     )}
                   </div>
-                </TableCell>
-                <TableCell className="p-4">
-                  <div className="font-medium">{item.productName}</div>
-                  {item.productCode && (
-                    <div className="text-sm text-gray-500 font-mono">{item.productCode}</div>
-                  )}
                 </TableCell>
                 <TableCell className="p-4">
                   <div className="text-sm space-y-1">
@@ -520,7 +518,7 @@ export function Inventory() {
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
-                    placeholder="Search INV, product, supplier, type..."
+                    placeholder="Search product, code, supplier, type..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-10 text-gray-800"
@@ -543,7 +541,7 @@ export function Inventory() {
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
-                    placeholder="Search INV, product, supplier, type..."
+                    placeholder="Search product, code, supplier, type..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-10 text-gray-800"

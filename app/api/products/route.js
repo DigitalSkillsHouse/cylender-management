@@ -98,9 +98,45 @@ export async function POST(request) {
       data.productCode = await generateProductCode(data.name)
     }
     
+    console.log('🚫🚫🚫 CRITICAL: NEW PRODUCT BEING CREATED!')
     console.log('Creating product with data:', data)
+    console.log('🔍 STACK TRACE TO IDENTIFY WHO IS CREATING THIS PRODUCT:')
+    console.trace('Product creation stack trace')
+    
+    // DUPLICATE PREVENTION: Check if product with same name and category already exists
+    // For cylinders, check if ANY cylinder with same name exists (regardless of status)
+    const existingProduct = await Product.findOne({ 
+      name: data.name, 
+      category: data.category
+    })
+    
+    if (existingProduct) {
+      console.error('🚫🚫🚫 DUPLICATE PRODUCT PREVENTION: Product already exists!')
+      console.error('Existing product:', {
+        id: existingProduct._id,
+        name: existingProduct.name,
+        category: existingProduct.category,
+        cylinderStatus: existingProduct.cylinderStatus,
+        productCode: existingProduct.productCode
+      })
+      console.error('Attempted new product:', data)
+      return NextResponse.json({ 
+        error: "Duplicate product", 
+        message: `A product with name "${data.name}" and category "${data.category}" already exists. ${data.category === 'cylinder' ? 'For cylinders, use the existing product and update its availability through gas purchases instead of creating separate empty/full products.' : ''}`,
+        existingProduct: {
+          id: existingProduct._id,
+          name: existingProduct.name,
+          productCode: existingProduct.productCode,
+          category: existingProduct.category,
+          cylinderStatus: existingProduct.cylinderStatus
+        }
+      }, { status: 409 })
+    }
+    
     const product = await Product.create(data)
     console.log('Product created successfully:', product._id)
+    console.log('🚫 Product Code Generated:', product.productCode)
+    console.log('🚫 Product Name:', product.name)
     
     return NextResponse.json(product, { status: 201 })
   } catch (error) {

@@ -68,7 +68,6 @@ export async function POST(request) {
 
     // Validate required fields
     if (!supplier || !purchaseDate || !items || !Array.isArray(items) || items.length === 0 || !invoiceNumber) {
-      console.log("Missing required fields:", { supplier, purchaseDate, items: items?.length, invoiceNumber })
       return NextResponse.json(
         { error: "Missing required fields. Supplier, purchase date, items array, and invoice number are required." },
         { status: 400 }
@@ -89,6 +88,18 @@ export async function POST(request) {
           { status: 400 }
         )
       }
+
+      // CRITICAL: Validate that the product exists and prevent new product creation
+      console.log(`🔍 VALIDATING PRODUCT EXISTS: ${item.productId}`)
+      const existingProduct = await Product.findById(item.productId)
+      if (!existingProduct) {
+        console.error(`❌ PRODUCT NOT FOUND: ${item.productId}`)
+        return NextResponse.json(
+          { error: `Item ${i + 1}: Product not found. Only existing products can be purchased.` },
+          { status: 400 }
+        )
+      }
+      console.log(`✅ PRODUCT VALIDATED: ${existingProduct.name} (${existingProduct.productCode}) - Category: ${existingProduct.category}${existingProduct.cylinderStatus ? '-' + existingProduct.cylinderStatus : ''}`)
 
       let effectiveCylinderStatus = item.cylinderStatus
       if (item.purchaseType === 'cylinder' && !effectiveCylinderStatus) {
@@ -153,12 +164,10 @@ export async function POST(request) {
             )
           }
           
-          // Deduct empty cylinder stock immediately when purchase order is created
-          const newEmptyStock = emptyCylinder.currentStock - Number(item.quantity)
-          await Product.findByIdAndUpdate(item.emptyCylinderId, {
-            currentStock: Math.max(0, newEmptyStock)
-          })
-          console.log(`✅ Deducted ${item.quantity} empty cylinders from ${emptyCylinder.name}. Stock: ${emptyCylinder.currentStock} → ${newEmptyStock}`)
+          // ✅ FIXED: Don't deduct stock here - only validate availability
+          // Stock will be updated when inventory is actually received in inventory API
+          console.log(`✅ Validated ${item.quantity} empty cylinders available in ${emptyCylinder.name}. Current stock: ${emptyCylinder.currentStock}`)
+          console.log(`📋 Stock will be updated when inventory is received, not when purchase order is created`)
           
         } catch (cylinderError) {
           console.error("Error validating empty cylinder:", cylinderError)

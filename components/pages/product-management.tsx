@@ -22,6 +22,8 @@ interface Product {
   costPrice: number
   leastPrice: number
   currentStock: number
+  availableEmpty?: number
+  availableFull?: number
 }
 
 export function ProductManagement() {
@@ -145,8 +147,13 @@ export function ProductManagement() {
       console.error("Product save error:", error)
       const errorMessage = error.response?.data?.error || "Failed to save product"
       const errorDetails = error.response?.data?.details
+      const duplicateMessage = error.response?.data?.message
+      const existingProduct = error.response?.data?.existingProduct
       
-      if (errorDetails) {
+      // Handle duplicate product error specifically
+      if (error.response?.status === 409 && existingProduct) {
+        alert(`❌ Duplicate Product Detected!\n\n${duplicateMessage}\n\nExisting Product:\n- Name: ${existingProduct.name}\n- Code: ${existingProduct.productCode}\n- Category: ${existingProduct.category}${existingProduct.cylinderStatus ? `\n- Status: ${existingProduct.cylinderStatus}` : ''}\n\nPlease use the existing product or choose a different name.`)
+      } else if (errorDetails) {
         if (Array.isArray(errorDetails)) {
           alert(`${errorMessage}:\n${errorDetails.join('\n')}`)
         } else {
@@ -490,9 +497,11 @@ export function ProductManagement() {
                   <TableHead className="font-bold text-gray-700 p-4">Product Name</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Category</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Status</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-4">Stock</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Cost Price (AED)</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Least Price (AED)</TableHead>
-                  <TableHead className="font-bold text-gray-700 p-4">Stock</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-4">Available Empty</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-4">Available Full</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -513,20 +522,48 @@ export function ProductManagement() {
                         </span>
                       ) : "-"}
                     </TableCell>
+                    <TableCell className="p-4">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        (product.currentStock || 0) > 10
+                          ? "bg-green-100 text-green-800"
+                          : (product.currentStock || 0) > 0
+                            ? "bg-yellow-100 text-yellow-800"
+                            : "bg-red-100 text-red-800"
+                      }`}>
+                        {product.currentStock || 0}
+                      </span>
+                    </TableCell>
                     <TableCell className="p-4">AED {product.costPrice.toFixed(2)}</TableCell>
                     <TableCell className="p-4">AED {product.leastPrice.toFixed(2)}</TableCell>
                     <TableCell className="p-4">
-                      <span
-                        className={`px-2 py-1 rounded text-xs ${
-                          product.currentStock > 10
-                            ? "bg-green-100 text-green-800"
-                            : product.currentStock > 0
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {product.currentStock}
-                      </span>
+                      {product.category === "cylinder" ? (
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            (product.availableEmpty || 0) > 10
+                              ? "bg-orange-100 text-orange-800"
+                              : (product.availableEmpty || 0) > 0
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-red-100 text-red-800"
+                          }`}
+                        >
+                          {product.availableEmpty || 0}
+                        </span>
+                      ) : "-"}
+                    </TableCell>
+                    <TableCell className="p-4">
+                      {product.category === "cylinder" ? (
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            (product.availableFull || 0) > 10
+                              ? "bg-green-100 text-green-800"
+                              : (product.availableFull || 0) > 0
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-red-100 text-red-800"
+                          }`}
+                        >
+                          {product.availableFull || 0}
+                        </span>
+                      ) : "-"}
                     </TableCell>
                     <TableCell className="p-4">
                       <div className="flex space-x-2">
@@ -547,7 +584,7 @@ export function ProductManagement() {
                 ))}
                 {filteredProducts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-gray-500 py-12">
+                    <TableCell colSpan={10} className="text-center text-gray-500 py-12">
                       <div className="text-gray-500">
                         <Plus className="w-16 h-16 mx-auto mb-4 opacity-50" />
                         <p className="text-lg font-medium">No products found</p>
@@ -570,9 +607,11 @@ export function ProductManagement() {
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Product</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Category</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Status</TableHead>
+                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Stock</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Cost</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Least</TableHead>
-                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Stock</TableHead>
+                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Empty</TableHead>
+                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Full</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -593,20 +632,32 @@ export function ProductManagement() {
                           </span>
                         ) : "-"}
                       </TableCell>
+                      <TableCell className="p-3 text-sm">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          (product.currentStock || 0) > 10
+                            ? "bg-green-100 text-green-800"
+                            : (product.currentStock || 0) > 0
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-red-100 text-red-800"
+                        }`}>
+                          {product.currentStock || 0}
+                        </span>
+                      </TableCell>
                       <TableCell className="p-3 text-sm">AED {product.costPrice.toFixed(2)}</TableCell>
                       <TableCell className="p-3 text-sm">AED {product.leastPrice.toFixed(2)}</TableCell>
                       <TableCell className="p-3 text-sm">
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            product.currentStock > 10
-                              ? "bg-green-100 text-green-800"
-                              : product.currentStock > 0
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {product.currentStock}
-                        </span>
+                        {product.category === "cylinder" ? (
+                          <span className="px-2 py-1 rounded text-xs bg-orange-100 text-orange-800">
+                            {product.availableEmpty || 0}
+                          </span>
+                        ) : "-"}
+                      </TableCell>
+                      <TableCell className="p-3 text-sm">
+                        {product.category === "cylinder" ? (
+                          <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                            {product.availableFull || 0}
+                          </span>
+                        ) : "-"}
                       </TableCell>
                       <TableCell className="p-3">
                         <div className="flex gap-2">
@@ -622,7 +673,7 @@ export function ProductManagement() {
                   ))}
                   {filteredProducts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-gray-500 py-8">
+                      <TableCell colSpan={10} className="text-center text-gray-500 py-8">
                         <div className="text-gray-500">
                           <Plus className="w-12 h-12 mx-auto mb-3 opacity-50" />
                           <p className="text-sm font-medium">No products found</p>

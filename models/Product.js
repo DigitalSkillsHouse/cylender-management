@@ -36,6 +36,14 @@ const ProductSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    availableEmpty: {
+      type: Number,
+      default: 0,
+    },
+    availableFull: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

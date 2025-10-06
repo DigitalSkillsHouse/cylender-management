@@ -5,78 +5,6 @@ import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
 import Product from "@/models/Product"
 import { verifyToken } from "@/lib/auth"
 
-// ENHANCED PRODUCT MATCHING FUNCTION
-async function findProductByEnhancedMatching(item) {
-  let product = null
-  let productName = null
-  let productCode = null
-  
-  console.log("🔍 ENHANCED MATCHING: Starting product lookup for:", item.product)
-  
-  // Enhanced product lookup strategy - try multiple approaches
-  if (item.product && item.product._id) {
-    product = await Product.findById(item.product._id)
-    productName = product?.name
-    productCode = product?.productCode
-    console.log(`🔍 Found product by ID: ${product?.name} (${product?.productCode})`)
-  } else if (typeof item.product === 'string') {
-    product = await Product.findById(item.product)
-    productName = product?.name
-    productCode = product?.productCode
-    console.log(`🔍 Found product by string ID: ${product?.name} (${product?.productCode})`)
-  }
-  
-  // Get product name and code from populated data if available
-  if (item.product && item.product.name) {
-    productName = item.product.name
-  }
-  if (item.product && item.product.productCode) {
-    productCode = item.product.productCode
-  }
-  
-  // If direct ID lookup failed, try enhanced matching strategies
-  if (!product && (productName || productCode)) {
-    console.log(`🔍 ENHANCED: Trying name/code matching for: Name="${productName}", Code="${productCode}"`)
-    
-    // Strategy 1: Match by both name and product code (most accurate)
-    if (productName && productCode) {
-      product = await Product.findOne({ 
-        name: productName, 
-        productCode: productCode 
-      })
-      if (product) {
-        console.log(`🔍 ENHANCED: Found product by name + code: ${product.name} (${product.productCode})`)
-        return product
-      }
-    }
-    
-    // Strategy 2: Match by product code only
-    if (productCode) {
-      product = await Product.findOne({ productCode: productCode })
-      if (product) {
-        console.log(`🔍 ENHANCED: Found product by code: ${product.name} (${product.productCode})`)
-        return product
-      }
-    }
-    
-    // Strategy 3: Match by product name only (fallback)
-    if (productName) {
-      product = await Product.findOne({ name: productName })
-      if (product) {
-        console.log(`🔍 ENHANCED: Found product by name: ${product.name} (${product.productCode})`)
-        return product
-      }
-    }
-  }
-  
-  if (!product) {
-    console.error(`❌ ENHANCED: Product not found with any matching strategy`)
-    console.error(`❌ Searched for: Name="${productName}", Code="${productCode}"`)
-  }
-  
-  return product
-}
-
 // PATCH - Update individual item inventory status with enhanced product matching
 export async function PATCH(request, { params }) {
   try {
@@ -90,10 +18,10 @@ export async function PATCH(request, { params }) {
     const body = await request.json()
     const { status } = body
     
-    console.log("🚫🚫🚫 CRITICAL DEBUG: Inventory item update request:", {
+    console.log("🔍 ENHANCED INVENTORY: Processing item update request:", {
       orderId: params.orderId,
       itemIndex: params.itemIndex,
-      body
+      status
     })
     
     // CRITICAL: Check what products currently exist before processing
@@ -113,7 +41,7 @@ export async function PATCH(request, { params }) {
       // First try admin purchase orders
       console.log("Searching for admin purchase order with ID:", params.orderId)
       updatedOrder = await PurchaseOrder.findById(params.orderId)
-        .populate('items.product', 'name productCode category')
+        .populate('items.product', 'name productCode category cylinderStatus')
         .populate('supplier', 'companyName')
       
       if (updatedOrder) {
@@ -130,7 +58,7 @@ export async function PATCH(request, { params }) {
       try {
         console.log("Searching for employee purchase order with ID:", params.orderId)
         updatedOrder = await EmployeePurchaseOrder.findById(params.orderId)
-          .populate('product', 'name productCode category')
+          .populate('product', 'name productCode category cylinderStatus')
           .populate('supplier', 'companyName')
           .populate('employee', 'name email')
         
@@ -241,7 +169,7 @@ export async function PATCH(request, { params }) {
             { $set: updateQuery },
             { new: true, runValidators: false }
           )
-          .populate('product', 'name')
+          .populate('product', 'name productCode category cylinderStatus')
           .populate('supplier', 'companyName')
           .populate('employee', 'name email')
       } else {
@@ -263,7 +191,7 @@ export async function PATCH(request, { params }) {
             { $set: updateQuery },
             { new: true, runValidators: false }
           )
-          .populate('items.product', 'name')
+          .populate('items.product', 'name productCode category cylinderStatus')
           .populate('supplier', 'companyName')
       }
       
@@ -345,7 +273,7 @@ export async function PATCH(request, { params }) {
       try {
         // Get the item data based on order structure
         const item = isEmployeePurchase ? updatedOrder : updatedOrder.items[itemIndex]
-        console.log("Processing received inventory for item:", item.product?._id || item.product)
+        console.log("🔍 ENHANCED: Processing received inventory for item:", item.product?._id || item.product)
         
         if (isEmployeePurchase && updatedOrder.employee) {
           const employeeId = updatedOrder.employee._id || updatedOrder.employee
@@ -357,9 +285,13 @@ export async function PATCH(request, { params }) {
             try {
               const Notification = require("@/models/Notification").default
               
-              // ENHANCED PRODUCT MATCHING for notification
-              let product = await findProductByEnhancedMatching(item)
-              let productName = product?.name || "Unknown Product"
+              let productName = "Unknown Product"
+              if (item.product && item.product.name) {
+                productName = item.product.name
+              } else if (item.product) {
+                const product = await Product.findById(item.product._id || item.product)
+                productName = product?.name || "Unknown Product"
+              }
               
               const notification = new Notification({
                 userId: employeeId,
@@ -467,11 +399,12 @@ export async function PATCH(request, { params }) {
             }
           }
         } else {
-          // For admin purchases: Handle different purchase types
-          console.log("Processing admin purchase for stock update")
+          // For admin purchases: Handle different purchase types with ENHANCED PRODUCT MATCHING
+          console.log("🔍 ENHANCED: Processing admin purchase for stock update")
+          
           if (item.purchaseType === 'gas' && item.emptyCylinderId) {
-            // Gas purchase with empty cylinder - STRICT: Only update existing products
-            console.log("CRITICAL: Gas purchase processing - NO NEW PRODUCTS WILL BE CREATED")
+            // Gas purchase with empty cylinder - ENHANCED MATCHING: Only update existing products
+            console.log("🚫 ENHANCED: Gas purchase processing - STRICT PRODUCT MATCHING")
             
             // 1. Update the gas product stock (INCREASE) - ENHANCED PRODUCT MATCHING
             let gasProduct = await findProductByEnhancedMatching(item)
@@ -482,12 +415,12 @@ export async function PATCH(request, { params }) {
               await Product.findByIdAndUpdate(gasProduct._id, { currentStock: newGasStock })
               console.log(`✅ ENHANCED: Updated gas product ${gasProduct.name} (${gasProduct.productCode}) stock: ${oldGasStock} → ${newGasStock}`)
             } else {
-              console.error(`❌ CRITICAL ERROR: Gas product not found! Cannot update gas stock.`)
+              console.error(`❌ ENHANCED ERROR: Gas product not found! Cannot update gas stock.`)
               console.error(`❌ Product ID: ${item.product?._id || item.product}`)
               console.error(`❌ This should never happen - gas product must exist before purchase!`)
             }
             
-            // 2. Update cylinder availability tracking - ONLY EXISTING PRODUCTS
+            // 2. Update cylinder availability tracking - ENHANCED MATCHING
             let emptyCylinder = null
             if (item.emptyCylinderId) {
               emptyCylinder = await Product.findById(item.emptyCylinderId)
@@ -508,12 +441,12 @@ export async function PATCH(request, { params }) {
                 availableFull: newFullAvailable
               })
               
-              console.log(`✅ UPDATED EXISTING cylinder ${emptyCylinder.name} (${emptyCylinder.productCode}) availability:`)
+              console.log(`✅ ENHANCED: Updated cylinder ${emptyCylinder.name} (${emptyCylinder.productCode}) availability:`)
               console.log(`   Available Empty: ${oldEmptyAvailable} → ${newEmptyAvailable}`)
               console.log(`   Available Full: ${oldFullAvailable} → ${newFullAvailable}`)
               console.log(`✅ NO NEW PRODUCTS CREATED - Only updated existing product availability`)
             } else {
-              console.error(`❌ CRITICAL ERROR: Empty cylinder not found! Cannot update cylinder availability.`)
+              console.error(`❌ ENHANCED ERROR: Empty cylinder not found! Cannot update cylinder availability.`)
               console.error(`❌ Empty Cylinder ID: ${item.emptyCylinderId}`)
             }
             
@@ -554,9 +487,8 @@ export async function PATCH(request, { params }) {
                 console.log(`✅ ENHANCED: Updated gas product ${product.name} (${product.productCode}) stock: ${oldStock} → ${newStock}`)
               }
             } else {
-              console.error(`❌ CRITICAL ERROR: Product not found for stock update!`)
+              console.error(`❌ ENHANCED ERROR: Product not found for stock update!`)
               console.error(`❌ Product ID: ${item.product?._id || item.product}`)
-              console.error(`❌ Product Name: ${productName}`)
               console.error(`❌ NO NEW PRODUCT WILL BE CREATED - This is intentional to prevent duplicates`)
             }
           }
@@ -596,7 +528,7 @@ export async function PATCH(request, { params }) {
     )
     
     if (newProducts.length > 0) {
-      console.error("🚫🚫🚫 CRITICAL ERROR: NEW PRODUCTS WERE CREATED DURING INVENTORY PROCESSING!")
+      console.error("🚫🚫🚫 ENHANCED ERROR: NEW PRODUCTS WERE CREATED DURING INVENTORY PROCESSING!")
       console.error("New products:", newProducts.map(p => `${p.productCode} ${p.name} (${p.category}${p.cylinderStatus ? '-' + p.cylinderStatus : ''})`))
       console.error("THIS SHOULD NEVER HAPPEN!")
     } else {
@@ -610,7 +542,7 @@ export async function PATCH(request, { params }) {
     })
 
   } catch (error) {
-    console.error("Inventory item update error:", error)
+    console.error("Enhanced inventory item update error:", error)
     return NextResponse.json(
       { 
         success: false, 
@@ -620,4 +552,76 @@ export async function PATCH(request, { params }) {
       { status: 500 }
     )
   }
+}
+
+// ENHANCED PRODUCT MATCHING FUNCTION
+async function findProductByEnhancedMatching(item) {
+  let product = null
+  let productName = null
+  let productCode = null
+  
+  console.log("🔍 ENHANCED MATCHING: Starting product lookup for:", item.product)
+  
+  // Enhanced product lookup strategy - try multiple approaches
+  if (item.product && item.product._id) {
+    product = await Product.findById(item.product._id)
+    productName = product?.name
+    productCode = product?.productCode
+    console.log(`🔍 Found product by ID: ${product?.name} (${product?.productCode})`)
+  } else if (typeof item.product === 'string') {
+    product = await Product.findById(item.product)
+    productName = product?.name
+    productCode = product?.productCode
+    console.log(`🔍 Found product by string ID: ${product?.name} (${product?.productCode})`)
+  }
+  
+  // Get product name and code from populated data if available
+  if (item.product && item.product.name) {
+    productName = item.product.name
+  }
+  if (item.product && item.product.productCode) {
+    productCode = item.product.productCode
+  }
+  
+  // If direct ID lookup failed, try enhanced matching strategies
+  if (!product && (productName || productCode)) {
+    console.log(`🔍 ENHANCED: Trying name/code matching for: Name="${productName}", Code="${productCode}"`)
+    
+    // Strategy 1: Match by both name and product code (most accurate)
+    if (productName && productCode) {
+      product = await Product.findOne({ 
+        name: productName, 
+        productCode: productCode 
+      })
+      if (product) {
+        console.log(`🔍 ENHANCED: Found product by name + code: ${product.name} (${product.productCode})`)
+        return product
+      }
+    }
+    
+    // Strategy 2: Match by product code only
+    if (productCode) {
+      product = await Product.findOne({ productCode: productCode })
+      if (product) {
+        console.log(`🔍 ENHANCED: Found product by code: ${product.name} (${product.productCode})`)
+        return product
+      }
+    }
+    
+    // Strategy 3: Match by product name only (fallback)
+    if (productName) {
+      product = await Product.findOne({ name: productName })
+      if (product) {
+        console.log(`🔍 ENHANCED: Found product by name: ${product.name} (${product.productCode})`)
+        return product
+      }
+    }
+  }
+  
+  if (!product) {
+    console.error(`❌ ENHANCED: Product not found with any matching strategy`)
+    console.error(`❌ Searched for: Name="${productName}", Code="${productCode}"`)
+  }
+  
+  return product
 }
