@@ -363,19 +363,19 @@ export function Inventory() {
 
   const renderInventoryTable = (items: InventoryItem[], showActions: boolean = true) => (
     <div className="w-full overflow-x-auto">
-      <div className="inline-block min-w-[1000px] align-top">
-        <Table>
+      <div className="w-full min-w-[1200px]">
+        <Table className="w-full table-fixed">
           <TableHeader>
             <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-              <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Details</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Employee</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Quantity</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Unit Price</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Total</TableHead>
-              {showActions && <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>}
+              <TableHead className="font-bold text-gray-700 p-4 w-[18%]">Product</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[16%]">Details</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Supplier</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Employee</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[8%]">Type</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[8%]">Quantity</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Unit Price</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Total</TableHead>
+              {showActions && <TableHead className="font-bold text-gray-700 p-4 w-[18%]">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -551,12 +551,9 @@ export function Inventory() {
             </CardHeader>
             
             {/* Received Inventory Tabs */}
-            <Tabs defaultValue="all" className="w-full">
+            <Tabs defaultValue="full-cylinder" className="w-full">
               <div className="px-4 sm:px-6 pt-4">
-                <TabsList className="grid w-full grid-cols-4 h-auto">
-                  <TabsTrigger value="all" className="text-xs sm:text-sm font-medium py-2">
-                    All ({receivedItemsRaw.length})
-                  </TabsTrigger>
+                <TabsList className="grid w-full grid-cols-3 h-auto">
                   <TabsTrigger value="full-cylinder" className="text-xs sm:text-sm font-medium py-2">
                     Full Cylinders ({receivedItemsRaw.filter(item => item.purchaseType === 'cylinder' && item.cylinderStatus === 'full').length})
                   </TabsTrigger>
@@ -568,12 +565,6 @@ export function Inventory() {
                   </TabsTrigger>
                 </TabsList>
               </div>
-
-              <TabsContent value="all">
-                <CardContent className="p-0">
-                  {renderInventoryTable(getFilteredReceivedItems('all'), false)}
-                </CardContent>
-              </TabsContent>
 
               <TabsContent value="full-cylinder">
                 <CardContent className="p-0">
