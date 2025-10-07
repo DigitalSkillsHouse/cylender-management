@@ -21,9 +21,6 @@ interface Product {
   cylinderStatus?: "empty" | "full"
   costPrice: number
   leastPrice: number
-  currentStock: number
-  availableEmpty?: number
-  availableFull?: number
 }
 
 export function ProductManagement() {
@@ -270,8 +267,7 @@ export function ProductManagement() {
     return (
       norm(p.name).includes(q) ||
       norm(p.category).includes(q) ||
-      norm(p.cylinderStatus).includes(q) ||
-      String(p.currentStock ?? "").includes(q)
+      norm(p.cylinderStatus).includes(q)
     )
   })
 
@@ -474,7 +470,7 @@ export function ProductManagement() {
             <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
               <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                 <Input
-                  placeholder="Search product name, category, type, stock..."
+                  placeholder="Search product name, category, type..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="h-10 text-gray-800"
@@ -497,11 +493,8 @@ export function ProductManagement() {
                   <TableHead className="font-bold text-gray-700 p-4">Product Name</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Category</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Status</TableHead>
-                  <TableHead className="font-bold text-gray-700 p-4">Stock</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Cost Price (AED)</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Least Price (AED)</TableHead>
-                  <TableHead className="font-bold text-gray-700 p-4">Available Empty</TableHead>
-                  <TableHead className="font-bold text-gray-700 p-4">Available Full</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -522,49 +515,8 @@ export function ProductManagement() {
                         </span>
                       ) : "-"}
                     </TableCell>
-                    <TableCell className="p-4">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        (product.currentStock || 0) > 10
-                          ? "bg-green-100 text-green-800"
-                          : (product.currentStock || 0) > 0
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-red-100 text-red-800"
-                      }`}>
-                        {product.currentStock || 0}
-                      </span>
-                    </TableCell>
                     <TableCell className="p-4">AED {product.costPrice.toFixed(2)}</TableCell>
                     <TableCell className="p-4">AED {product.leastPrice.toFixed(2)}</TableCell>
-                    <TableCell className="p-4">
-                      {product.category === "cylinder" ? (
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            (product.availableEmpty || 0) > 10
-                              ? "bg-orange-100 text-orange-800"
-                              : (product.availableEmpty || 0) > 0
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {product.availableEmpty || 0}
-                        </span>
-                      ) : "-"}
-                    </TableCell>
-                    <TableCell className="p-4">
-                      {product.category === "cylinder" ? (
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            (product.availableFull || 0) > 10
-                              ? "bg-green-100 text-green-800"
-                              : (product.availableFull || 0) > 0
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {product.availableFull || 0}
-                        </span>
-                      ) : "-"}
-                    </TableCell>
                     <TableCell className="p-4">
                       <div className="flex space-x-2">
                         <Button variant="outline" size="sm" onClick={() => handleEdit(product)} className="min-h-[36px]">
@@ -584,7 +536,7 @@ export function ProductManagement() {
                 ))}
                 {filteredProducts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-gray-500 py-12">
+                    <TableCell colSpan={7} className="text-center text-gray-500 py-12">
                       <div className="text-gray-500">
                         <Plus className="w-16 h-16 mx-auto mb-4 opacity-50" />
                         <p className="text-lg font-medium">No products found</p>
@@ -599,7 +551,7 @@ export function ProductManagement() {
 
           {/* Mobile Rows (scrollable) */}
           <div className="lg:hidden overflow-x-auto">
-            <div className="min-w-[720px]">
+            <div className="min-w-[520px]">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-50 border-b border-gray-200">
@@ -607,11 +559,8 @@ export function ProductManagement() {
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Product</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Category</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Status</TableHead>
-                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Stock</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Cost</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Least</TableHead>
-                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Empty</TableHead>
-                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Full</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -632,33 +581,8 @@ export function ProductManagement() {
                           </span>
                         ) : "-"}
                       </TableCell>
-                      <TableCell className="p-3 text-sm">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          (product.currentStock || 0) > 10
-                            ? "bg-green-100 text-green-800"
-                            : (product.currentStock || 0) > 0
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-red-100 text-red-800"
-                        }`}>
-                          {product.currentStock || 0}
-                        </span>
-                      </TableCell>
                       <TableCell className="p-3 text-sm">AED {product.costPrice.toFixed(2)}</TableCell>
                       <TableCell className="p-3 text-sm">AED {product.leastPrice.toFixed(2)}</TableCell>
-                      <TableCell className="p-3 text-sm">
-                        {product.category === "cylinder" ? (
-                          <span className="px-2 py-1 rounded text-xs bg-orange-100 text-orange-800">
-                            {product.availableEmpty || 0}
-                          </span>
-                        ) : "-"}
-                      </TableCell>
-                      <TableCell className="p-3 text-sm">
-                        {product.category === "cylinder" ? (
-                          <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-                            {product.availableFull || 0}
-                          </span>
-                        ) : "-"}
-                      </TableCell>
                       <TableCell className="p-3">
                         <div className="flex gap-2">
                           <Button variant="outline" size="sm" onClick={() => handleEdit(product)} className="min-h-[36px]">
@@ -673,7 +597,7 @@ export function ProductManagement() {
                   ))}
                   {filteredProducts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-gray-500 py-8">
+                      <TableCell colSpan={7} className="text-center text-gray-500 py-8">
                         <div className="text-gray-500">
                           <Plus className="w-12 h-12 mx-auto mb-3 opacity-50" />
                           <p className="text-sm font-medium">No products found</p>
