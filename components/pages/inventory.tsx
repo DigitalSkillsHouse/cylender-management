@@ -338,7 +338,11 @@ export function Inventory() {
   const getFilteredReceivedItems = (filter: string) => {
     switch (filter) {
       case 'full-cylinder':
-        return receivedItemsRaw.filter(item => item.purchaseType === 'cylinder' && item.cylinderStatus === 'full')
+        // Show both full cylinders AND gas purchases (since gas comes in cylinders)
+        return receivedItemsRaw.filter(item => 
+          (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') ||
+          (item.purchaseType === 'gas')
+        )
       case 'empty-cylinder':
         return receivedItemsRaw.filter(item => item.purchaseType === 'cylinder' && item.cylinderStatus === 'empty')
       case 'gas':
@@ -361,7 +365,7 @@ export function Inventory() {
   const q = searchTerm.trim().toLowerCase()
   const filteredPending = q ? pendingItems.filter((it) => matchesQuery(it, q)) : pendingItems
 
-  const renderInventoryTable = (items: InventoryItem[], showActions: boolean = true) => (
+  const renderInventoryTable = (items: InventoryItem[], showActions: boolean = true, currentTab: string = '') => (
     <div className="w-full overflow-x-auto">
       <div className="w-full min-w-[1200px]">
         <Table className="w-full table-fixed">
@@ -384,7 +388,21 @@ export function Inventory() {
                 <TableCell className="p-4">
                   <div className="flex items-center gap-2">
                     <div>
-                      <div className="font-medium">{item.productName}</div>
+                      {/* Show different display based on current tab */}
+                      {item.purchaseType === 'gas' && item.emptyCylinderName ? (
+                        currentTab === 'gas' ? (
+                          // In Gas tab: Show only gas information
+                          <div className="font-medium">{item.productName}</div>
+                        ) : (
+                          // In Full Cylinders tab: Show cylinder + gas binding
+                          <div>
+                            <div className="font-medium">{item.emptyCylinderName}</div>
+                            <div className="text-sm text-blue-600 font-medium">Filled with: {item.productName}</div>
+                          </div>
+                        )
+                      ) : (
+                        <div className="font-medium">{item.productName}</div>
+                      )}
                       {item.productCode && (
                         <div className="text-sm text-gray-500 font-mono">{item.productCode}</div>
                       )}
@@ -398,6 +416,7 @@ export function Inventory() {
                 </TableCell>
                 <TableCell className="p-4">
                   <div className="text-sm space-y-1">
+                    {/* Show status for cylinder purchases */}
                     {item.purchaseType === 'cylinder' && item.cylinderStatus && (
                       <div className="flex items-center gap-2">
                         <span className="text-gray-600">Status:</span>
@@ -406,15 +425,40 @@ export function Inventory() {
                         </Badge>
                       </div>
                     )}
+                    
+                    {/* For gas purchases, show different info based on tab */}
+                    {item.purchaseType === 'gas' && (
+                      currentTab === 'gas' ? (
+                        // In Gas tab: Show gas-focused information
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Type:</span>
+                          <Badge variant="default" className="bg-blue-600 hover:bg-blue-700">
+                            Gas Product
+                          </Badge>
+                        </div>
+                      ) : (
+                        // In Full Cylinders tab: Show cylinder status
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Status:</span>
+                          <Badge variant="default" className="bg-green-600 hover:bg-green-700">
+                            Full (Gas Filled)
+                          </Badge>
+                        </div>
+                      )
+                    )}
+                    
+                    {/* Show gas type - always relevant */}
                     {item.gasType && (
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-600">Gas:</span>
-                        <span className="font-medium">{item.gasType}</span>
+                        <span className="text-gray-600">Gas Type:</span>
+                        <span className="font-medium text-blue-600">{item.gasType}</span>
                       </div>
                     )}
-                    {item.emptyCylinderName && (
+                    
+                    {/* Show cylinder info only in Full Cylinders tab for gas purchases */}
+                    {item.purchaseType === 'gas' && item.emptyCylinderName && currentTab !== 'gas' && (
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-600">Empty Cylinder:</span>
+                        <span className="text-gray-600">Cylinder Type:</span>
                         <span className="font-medium">{item.emptyCylinderName}</span>
                       </div>
                     )}
@@ -431,9 +475,23 @@ export function Inventory() {
                   )}
                 </TableCell>
                 <TableCell className="p-4">
-                  <Badge variant={item.purchaseType === "gas" ? "default" : "secondary"}>
-                    {item.purchaseType}
-                  </Badge>
+                  {item.purchaseType === "gas" ? (
+                    currentTab === 'gas' ? (
+                      // In Gas tab: Show as gas
+                      <Badge variant="default" className="bg-blue-600 hover:bg-blue-700">
+                        Gas
+                      </Badge>
+                    ) : (
+                      // In Full Cylinders tab: Show as full cylinder
+                      <Badge variant="default" className="bg-green-600 hover:bg-green-700">
+                        Full Cylinder
+                      </Badge>
+                    )
+                  ) : (
+                    <Badge variant={item.cylinderStatus === "full" ? "default" : "secondary"}>
+                      {item.purchaseType} ({item.cylinderStatus})
+                    </Badge>
+                  )}
                 </TableCell>
                 <TableCell className="p-4 font-medium">{item.quantity}</TableCell>
                 <TableCell className="p-4">AED {item.unitPrice.toFixed(2)}</TableCell>
@@ -527,7 +585,7 @@ export function Inventory() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {renderInventoryTable(filteredPending, true)}
+              {renderInventoryTable(filteredPending, true, 'pending')}
             </CardContent>
           </Card>
         </TabsContent>
@@ -555,7 +613,10 @@ export function Inventory() {
               <div className="px-4 sm:px-6 pt-4">
                 <TabsList className="grid w-full grid-cols-3 h-auto">
                   <TabsTrigger value="full-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Full Cylinders ({receivedItemsRaw.filter(item => item.purchaseType === 'cylinder' && item.cylinderStatus === 'full').length})
+                    Full Cylinders ({receivedItemsRaw.filter(item => 
+                      (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') ||
+                      (item.purchaseType === 'gas')
+                    ).length})
                   </TabsTrigger>
                   <TabsTrigger value="empty-cylinder" className="text-xs sm:text-sm font-medium py-2">
                     Empty Cylinders ({receivedItemsRaw.filter(item => item.purchaseType === 'cylinder' && item.cylinderStatus === 'empty').length})
@@ -568,19 +629,19 @@ export function Inventory() {
 
               <TabsContent value="full-cylinder">
                 <CardContent className="p-0">
-                  {renderInventoryTable(getFilteredReceivedItems('full-cylinder'), false)}
+                  {renderInventoryTable(getFilteredReceivedItems('full-cylinder'), false, 'full-cylinder')}
                 </CardContent>
               </TabsContent>
 
               <TabsContent value="empty-cylinder">
                 <CardContent className="p-0">
-                  {renderInventoryTable(getFilteredReceivedItems('empty-cylinder'), false)}
+                  {renderInventoryTable(getFilteredReceivedItems('empty-cylinder'), false, 'empty-cylinder')}
                 </CardContent>
               </TabsContent>
 
               <TabsContent value="gas">
                 <CardContent className="p-0">
-                  {renderInventoryTable(getFilteredReceivedItems('gas'), false)}
+                  {renderInventoryTable(getFilteredReceivedItems('gas'), false, 'gas')}
                 </CardContent>
               </TabsContent>
             </Tabs>
