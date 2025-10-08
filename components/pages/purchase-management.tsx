@@ -96,6 +96,8 @@ export function PurchaseManagement() {
   const [showProductSuggestions, setShowProductSuggestions] = useState(false)
   const [cylinderSearchTerm, setCylinderSearchTerm] = useState("")
   const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
+  const [gasSearchTerm, setGasSearchTerm] = useState("")
+  const [showGasSuggestions, setShowGasSuggestions] = useState(false)
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
   const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string }>(() => ({
     supplierId: "",
@@ -667,8 +669,28 @@ export function PurchaseManagement() {
                         </SelectContent>
                       </Select>
                     </div>
+                    {currentItem.purchaseType === "cylinder" && (
+                      <div className="space-y-2">
+                        <Label>Cylinder Status *</Label>
+                        <Select
+                          value={currentItem.cylinderStatus || "empty"}
+                          onValueChange={(value: "empty" | "full") =>
+                            setCurrentItem((ci) => ({ ...ci, cylinderStatus: value }))
+                          }
+                        >
+                          <SelectTrigger className="h-10">
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="empty">Empty</SelectItem>
+                            <SelectItem value="full">Full</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
                     <div className="space-y-2 relative">
-                      <Label>Product *</Label>
+                      <Label>{currentItem.purchaseType === 'cylinder' ? 'Select Cylinder *' : 'Product *'}</Label>
                       <Input
                         value={productSearchTerm}
                         onChange={(e) => {
@@ -678,7 +700,7 @@ export function PurchaseManagement() {
                         }}
                         onFocus={() => setShowProductSuggestions((productSearchTerm || '').trim().length > 0)}
                         onBlur={() => setTimeout(() => setShowProductSuggestions(false), 150)}
-                        placeholder="Type to search product"
+                        placeholder={currentItem.purchaseType === 'cylinder' ? 'Type to search cylinders...' : 'Type to search product'}
                         className="h-10 product-search-input"
                       />
                       {showProductSuggestions && (
@@ -712,6 +734,7 @@ export function PurchaseManagement() {
                         </div>
                       )}
                     </div>
+                    {currentItem.purchaseType === "cylinder" && null}
                     
                     {currentItem.purchaseType === "gas" && (
                       <div className="space-y-2 relative">
@@ -772,40 +795,45 @@ export function PurchaseManagement() {
                     
                     {currentItem.purchaseType === "cylinder" && (
                       <>
-                        <div className="space-y-2">
-                          <Label>Cylinder Status *</Label>
-                          <Select
-                            value={currentItem.cylinderStatus || "empty"}
-                            onValueChange={(v: "empty" | "full") => setCurrentItem((ci) => ({ ...ci, cylinderStatus: v }))}
-                          >
-                            <SelectTrigger className="h-10">
-                              <SelectValue placeholder="Select status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="empty">Empty</SelectItem>
-                              <SelectItem value="full">Full</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        
                         {currentItem.cylinderStatus === "full" && (
-                          <div className="space-y-2">
+                          <div className="space-y-2 relative">
                             <Label>Gas Type *</Label>
-                            <Select
-                              value={currentItem.gasType || ""}
-                              onValueChange={(v: string) => setCurrentItem((ci) => ({ ...ci, gasType: v }))}
-                            >
-                              <SelectTrigger className="h-10">
-                                <SelectValue placeholder="Select gas type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {products.filter(p => p.category === "gas").map((gasProduct) => (
-                                  <SelectItem key={gasProduct._id} value={gasProduct.name}>
-                                    {gasProduct.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <Input
+                              type="text"
+                              placeholder="Type to search gas products..."
+                              value={gasSearchTerm}
+                              onChange={(e) => {
+                                setGasSearchTerm(e.target.value)
+                                setShowGasSuggestions(true)
+                              }}
+                              onFocus={() => setShowGasSuggestions(true)}
+                              className="h-10"
+                            />
+                            {showGasSuggestions && (
+                              <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+                                {products
+                                  .filter(p => p.category === 'gas')
+                                  .filter(p => gasSearchTerm.trim().length === 0 ? true : p.name.toLowerCase().includes(gasSearchTerm.toLowerCase()))
+                                  .slice(0, 8)
+                                  .map(gp => (
+                                    <button
+                                      type="button"
+                                      key={gp._id}
+                                      onClick={() => {
+                                        setCurrentItem(ci => ({ ...ci, gasType: gp.name }))
+                                        setGasSearchTerm(gp.name)
+                                        setShowGasSuggestions(false)
+                                      }}
+                                      className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                                    >
+                                      <div className="font-medium text-gray-800">{gp.name}</div>
+                                    </button>
+                                  ))}
+                                {products.filter(p => p.category === 'gas' && p.name.toLowerCase().includes(gasSearchTerm.toLowerCase())).length === 0 && (
+                                  <div className="px-3 py-2 text-sm text-gray-500">No gas products found</div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
                       </>
