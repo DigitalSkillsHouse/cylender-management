@@ -17,13 +17,6 @@ const ProductSchema = new mongoose.Schema(
       enum: ["gas", "cylinder"],
       required: true,
     },
-    cylinderStatus: {
-      type: String,
-      enum: ["empty", "full"],
-      required: function () {
-        return this.category === "cylinder"
-      },
-    },
     costPrice: {
       type: Number,
       required: true,

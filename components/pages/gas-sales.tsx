@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, Edit, Trash2, Receipt, Search, Filter } from "lucide-react"
-import { salesAPI, customersAPI, productsAPI, employeeSalesAPI } from "@/lib/api"
+import { salesAPI, customersAPI, employeeSalesAPI, productsAPI } from "@/lib/api"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { SignatureDialog } from "@/components/signature-dialog"
 import { CustomerDropdown } from "@/components/ui/customer-dropdown"
@@ -72,6 +72,7 @@ interface Product {
   _id: string
   name: string
   category: "gas" | "cylinder"
+  cylinderStatus?: "empty" | "full"
   cylinderSize?: "large" | "small"
   costPrice: number
   leastPrice: number
@@ -548,6 +549,23 @@ export function GasSales() {
     fetchData()
   }, [])
 
+  // Re-filter products when category changes
+  useEffect(() => {
+    if (allProducts.length > 0) {
+      const filteredProducts = allProducts.filter((product: Product) => {
+        // Filter by category
+        if (product.category !== formData.category) return false;
+        // For cylinders, only show full cylinders (available for sale)
+        if (product.category === 'cylinder' && product.cylinderStatus !== 'full') return false;
+        // Always require in-stock products
+        return (product.currentStock || 0) > 0;
+      })
+      console.log('GasSales - Category changed to:', formData.category)
+      console.log('GasSales - Re-filtered products:', filteredProducts.length)
+      setProducts(filteredProducts)
+    }
+  }, [formData.category, allProducts])
+
   const fetchData = async () => {
     try {
       setLoading(true)
@@ -558,46 +576,53 @@ export function GasSales() {
         productsAPI.getAll(),
       ])
 
-      // Ensure we're setting arrays - handle nested data structure for all APIs
-      const adminSalesData = Array.isArray(salesResponse.data?.data) ? salesResponse.data.data : 
+      // Normalize sales and customers
+      const adminSalesData = Array.isArray(salesResponse.data?.data) ? salesResponse.data.data :
                            Array.isArray(salesResponse.data) ? salesResponse.data : []
-
       const employeeSalesData = Array.isArray(employeeSalesResponse.data) ? employeeSalesResponse.data : []
-
       const combinedSales = [...adminSalesData, ...employeeSalesData].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       )
-
       const salesData = combinedSales
-      
-      const customersData = Array.isArray(customersResponse.data?.data) 
-        ? customersResponse.data.data 
-        : Array.isArray(customersResponse.data) 
-          ? customersResponse.data 
-          : Array.isArray(customersResponse) 
-            ? customersResponse 
+
+      const customersData = Array.isArray(customersResponse.data?.data)
+        ? customersResponse.data.data
+        : Array.isArray(customersResponse.data)
+          ? customersResponse.data
+          : Array.isArray(customersResponse)
+            ? customersResponse
             : []
-            
-      const productsData = Array.isArray(productsResponse.data?.data) 
-        ? productsResponse.data.data 
-        : Array.isArray(productsResponse.data) 
-          ? productsResponse.data 
-          : Array.isArray(productsResponse) 
-            ? productsResponse 
+
+      // Normalize products from Products API (source of truth updated by Inventory receive flow)
+      const rawProducts = Array.isArray(productsResponse.data?.data)
+        ? productsResponse.data.data
+        : Array.isArray(productsResponse.data)
+          ? productsResponse.data
+          : Array.isArray(productsResponse)
+            ? productsResponse
             : []
-      
-      console.log('GasSales - Processed customers data:', customersData)
-      console.log('GasSales - Processed products data:', productsData)
-      console.log('GasSales - Processed sales data:', salesData)
-      
+
+      const productsData: Product[] = (rawProducts as any[]).map((p: any) => ({
+        _id: p._id,
+        name: p.name,
+        category: p.category,
+        cylinderStatus: p.cylinderStatus,
+        cylinderSize: p.cylinderSize,
+        costPrice: Number(p.costPrice) || 0,
+        leastPrice: Number(p.leastPrice) || 0,
+        currentStock: Number(p.currentStock) || 0,
+      }))
+
       setSales(salesData)
       setCustomers(customersData)
       setAllProducts(productsData)
-      
-      // Filter products based on selected category
-      const filteredProducts = productsData.filter((product: Product) => product.category === formData.category)
-      console.log('GasSales - Filtering products for category:', formData.category)
-      console.log('GasSales - Filtered products:', filteredProducts)
+
+      // Filter by selected category; for cylinders require full status; require in-stock
+      const filteredProducts = productsData.filter((product: Product) => {
+        if (product.category !== formData.category) return false
+        if (product.category === 'cylinder' && product.cylinderStatus !== 'full') return false
+        return (product.currentStock || 0) > 0
+      })
       setProducts(filteredProducts)
     } catch (error) {
       console.error("Failed to fetch data:", error)
@@ -1492,29 +1517,64 @@ export function GasSales() {
                       onBlur={() => setTimeout(() => setShowEntrySuggestions(false), 200)}
                       className="pr-10"
                     />
-                    {showEntrySuggestions && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                        {allProducts
-                          .filter((p: Product) => p.category === currentItem.category)
-                          .filter((p: Product) => entryProductSearch.trim().length === 0 || p.name.toLowerCase().includes(entryProductSearch.toLowerCase()))
-                          .slice(0, 8)
-                          .map((product) => (
-                            <div
-                              key={product._id}
-                              className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleEntryProductSelect(product)}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="font-medium text-gray-900">
-                                  {product.name}
-                                </span>
-                                <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
-                              </div>
+                    {showEntrySuggestions && (() => {
+                      const filteredProducts = allProducts
+                        .filter((p: Product) => {
+                          // Filter by category
+                          if (p.category !== currentItem.category) return false;
+                          // For cylinders, only show full cylinders (available for sale)
+                          if (p.category === 'cylinder' && p.cylinderStatus !== 'full') return false;
+                          // Filter by search term
+                          if (entryProductSearch.trim().length > 0) {
+                            const searchTerm = entryProductSearch.toLowerCase().trim()
+                            const productName = p.name.toLowerCase().trim()
+                            if (!productName.includes(searchTerm)) return false;
+                          }
+                          return true;
+                        })
+                        .slice(0, 8)
+                      
+                      console.log('GasSales - Autocomplete:', {
+                        category: currentItem.category,
+                        searchTerm: entryProductSearch,
+                        allProductsCount: allProducts.length,
+                        filteredCount: filteredProducts.length,
+                        showSuggestions: showEntrySuggestions,
+                        availableProducts: allProducts.filter(p => p.category === currentItem.category).map(p => ({
+                          name: p.name,
+                          nameMatch: entryProductSearch.trim().length === 0 || p.name.toLowerCase().includes(entryProductSearch.toLowerCase())
+                        }))
+                      })
+                      
+                      return (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          {filteredProducts.length === 0 ? (
+                            <div className="px-4 py-3 text-center text-gray-500 text-sm">
+                              {entryProductSearch.trim().length > 0 
+                                ? `No ${currentItem.category} products found matching "${entryProductSearch}"`
+                                : `No ${currentItem.category} products available`
+                              }
                             </div>
-                          ))}
-                      </div>
-                    )}
+                          ) : (
+                            filteredProducts.map((product) => (
+                              <div
+                                key={product._id}
+                                className="px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleEntryProductSelect(product)}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-gray-900">
+                                    {product.name}
+                                  </span>
+                                  <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
 
                   {currentItem.category === 'gas' && (
@@ -1535,6 +1595,18 @@ export function GasSales() {
                               .filter((p: Product) => p.category === 'cylinder' && (p as any).cylinderStatus === 'full' && p.currentStock > 0)
                               .filter((p: Product) => entryCylinderSearch.trim().length === 0 || p.name.toLowerCase().includes(entryCylinderSearch.toLowerCase()))
                               .slice(0, 8)
+                            
+                            console.log('GasSales - Cylinder Selection Debug:', {
+                              allProductsCount: allProducts.length,
+                              cylinderProducts: allProducts.filter(p => p.category === 'cylinder').map(p => ({
+                                name: p.name,
+                                cylinderStatus: (p as any).cylinderStatus,
+                                currentStock: p.currentStock
+                              })),
+                              fullCylinders: allProducts.filter(p => p.category === 'cylinder' && (p as any).cylinderStatus === 'full'),
+                              availableCylindersCount: availableCylinders.length,
+                              searchTerm: entryCylinderSearch
+                            })
                             
                             if (availableCylinders.length === 0) {
                               return (

@@ -87,11 +87,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Name and category are required" }, { status: 400 })
     }
     
-    // Validate cylinder status for cylinder products
-    if (data.category === "cylinder" && !data.cylinderStatus) {
-      console.log('Missing cylinder status for cylinder product')
-      return NextResponse.json({ error: "Cylinder status is required for cylinder products" }, { status: 400 })
-    }
+    // No longer require cylinder status at product creation time; this is handled in purchase/inventory flows
     
     // Generate product code if not provided
     if (!data.productCode) {
@@ -116,19 +112,17 @@ export async function POST(request) {
         id: existingProduct._id,
         name: existingProduct.name,
         category: existingProduct.category,
-        cylinderStatus: existingProduct.cylinderStatus,
         productCode: existingProduct.productCode
       })
       console.error('Attempted new product:', data)
       return NextResponse.json({ 
         error: "Duplicate product", 
-        message: `A product with name "${data.name}" and category "${data.category}" already exists. ${data.category === 'cylinder' ? 'For cylinders, use the existing product and update its availability through gas purchases instead of creating separate empty/full products.' : ''}`,
+        message: `A product with name "${data.name}" and category "${data.category}" already exists. ${data.category === 'cylinder' ? 'For cylinders, use the existing product and manage empty/full counts via purchases and inventory.' : ''}`,
         existingProduct: {
           id: existingProduct._id,
           name: existingProduct.name,
           productCode: existingProduct.productCode,
-          category: existingProduct.category,
-          cylinderStatus: existingProduct.cylinderStatus
+          category: existingProduct.category
         }
       }, { status: 409 })
     }

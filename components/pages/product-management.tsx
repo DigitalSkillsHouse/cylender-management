@@ -18,7 +18,6 @@ interface Product {
   name: string
   productCode: string
   category: "gas" | "cylinder"
-  cylinderStatus?: "empty" | "full"
   costPrice: number
   leastPrice: number
 }
@@ -38,7 +37,6 @@ export function ProductManagement() {
     name: "",
     productCode: "",
     category: "gas" as "gas" | "cylinder",
-    cylinderStatus: "empty" as "empty" | "full",
     costPrice: "",
     leastPrice: "",
   })
@@ -122,7 +120,6 @@ export function ProductManagement() {
         name: formData.name,
         productCode: formData.productCode,
         category: formData.category,
-        cylinderStatus: formData.category === "cylinder" ? formData.cylinderStatus : undefined,
         costPrice: costPrice,
         leastPrice: leastPrice,
         // Only set currentStock to 0 for new products, not when updating existing ones
@@ -210,7 +207,6 @@ export function ProductManagement() {
       name: "",
       productCode: "",
       category: "gas",
-      cylinderStatus: "empty",
       costPrice: "",
       leastPrice: "",
     })
@@ -223,7 +219,6 @@ export function ProductManagement() {
       name: product.name,
       productCode: product.productCode,
       category: product.category,
-      cylinderStatus: product.cylinderStatus || "empty",
       costPrice: product.costPrice.toString(),
       leastPrice: product.leastPrice.toString(),
     })
@@ -266,8 +261,7 @@ export function ProductManagement() {
     if (!q) return true
     return (
       norm(p.name).includes(q) ||
-      norm(p.category).includes(q) ||
-      norm(p.cylinderStatus).includes(q)
+      norm(p.category).includes(q)
     )
   })
 
@@ -384,23 +378,7 @@ export function ProductManagement() {
                     </Select>
                   </div>
 
-                  {formData.category === "cylinder" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="cylinderStatus" className="text-sm font-medium">Cylinder Status</Label>
-                      <Select
-                        value={formData.cylinderStatus}
-                        onValueChange={(value: "empty" | "full") => setFormData({ ...formData, cylinderStatus: value })}
-                      >
-                        <SelectTrigger className="h-11 sm:h-12">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="empty">Empty</SelectItem>
-                          <SelectItem value="full">Full</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                  {/* Removed Cylinder Status selection from Product form as it's handled in Purchase Management */}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -492,7 +470,6 @@ export function ProductManagement() {
                   <TableHead className="font-bold text-gray-700 p-4">Product Code</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Product Name</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Category</TableHead>
-                  <TableHead className="font-bold text-gray-700 p-4">Status</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Cost Price (AED)</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Least Price (AED)</TableHead>
                   <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
@@ -504,17 +481,6 @@ export function ProductManagement() {
                     <TableCell className="font-mono font-semibold text-[#2B3068] p-4">{product.productCode || "N/A"}</TableCell>
                     <TableCell className="font-semibold text-[#2B3068] p-4">{product.name}</TableCell>
                     <TableCell className="capitalize p-4">{product.category}</TableCell>
-                    <TableCell className="p-4">
-                      {product.category === "cylinder" ? (
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          product.cylinderStatus === "full" 
-                            ? "bg-green-100 text-green-800" 
-                            : "bg-orange-100 text-orange-800"
-                        }`}>
-                          {product.cylinderStatus || "N/A"}
-                        </span>
-                      ) : "-"}
-                    </TableCell>
                     <TableCell className="p-4">AED {product.costPrice.toFixed(2)}</TableCell>
                     <TableCell className="p-4">AED {product.leastPrice.toFixed(2)}</TableCell>
                     <TableCell className="p-4">
@@ -536,7 +502,7 @@ export function ProductManagement() {
                 ))}
                 {filteredProducts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-gray-500 py-12">
+                    <TableCell colSpan={6} className="text-center text-gray-500 py-12">
                       <div className="text-gray-500">
                         <Plus className="w-16 h-16 mx-auto mb-4 opacity-50" />
                         <p className="text-lg font-medium">No products found</p>
@@ -558,7 +524,6 @@ export function ProductManagement() {
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Code</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Product</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Category</TableHead>
-                    <TableHead className="p-3 text-xs font-semibold text-gray-700">Status</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Cost</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Least</TableHead>
                     <TableHead className="p-3 text-xs font-semibold text-gray-700">Actions</TableHead>
@@ -570,17 +535,6 @@ export function ProductManagement() {
                       <TableCell className="p-3 font-mono font-medium text-[#2B3068] text-sm">{product.productCode || "N/A"}</TableCell>
                       <TableCell className="p-3 font-medium text-[#2B3068] text-sm truncate max-w-[160px]">{product.name}</TableCell>
                       <TableCell className="p-3 capitalize text-sm">{product.category}</TableCell>
-                      <TableCell className="p-3 text-sm">
-                        {product.category === "cylinder" ? (
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            product.cylinderStatus === "full" 
-                              ? "bg-green-100 text-green-800" 
-                              : "bg-orange-100 text-orange-800"
-                          }`}>
-                            {product.cylinderStatus || "N/A"}
-                          </span>
-                        ) : "-"}
-                      </TableCell>
                       <TableCell className="p-3 text-sm">AED {product.costPrice.toFixed(2)}</TableCell>
                       <TableCell className="p-3 text-sm">AED {product.leastPrice.toFixed(2)}</TableCell>
                       <TableCell className="p-3">
@@ -597,7 +551,7 @@ export function ProductManagement() {
                   ))}
                   {filteredProducts.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+                      <TableCell colSpan={6} className="text-center text-gray-500 py-8">
                         <div className="text-gray-500">
                           <Plus className="w-12 h-12 mx-auto mb-3 opacity-50" />
                           <p className="text-sm font-medium">No products found</p>
@@ -620,7 +574,6 @@ export function ProductManagement() {
             name: p.name,
             productCode: p.productCode,
             category: p.category,
-            cylinderStatus: p.cylinderStatus,
             costPrice: p.costPrice,
             leastPrice: p.leastPrice,
           }))}
