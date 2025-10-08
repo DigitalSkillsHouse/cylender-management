@@ -33,18 +33,7 @@ export async function PATCH(_req, { params }) {
     item.lastUpdatedAt = new Date()
     await item.save()
 
-    // Best-effort sync product for backward compatibility
-    try {
-      if (item.product) {
-        const product = await Product.findById(item.product)
-        if (product) {
-          product.currentStock = item.currentStock
-          product.availableEmpty = item.availableEmpty
-          product.availableFull = item.availableFull
-          await product.save()
-        }
-      }
-    } catch (_) {}
+
 
     return NextResponse.json({ success: true, data: item })
   } catch (error) {

@@ -366,7 +366,7 @@ export function Inventory() {
           if (!(item.purchaseType === 'cylinder' && item.cylinderStatus === 'empty')) return false
           // Resolve cylinder product id by name
           const product = products.find(p => p.category === 'cylinder' && p.name === item.productName)
-          if (!product) return true // fallback: if not resolvable, keep visible
+          if (!product) return false // if not resolvable, hide to avoid stale badge counts
           const avail = inventoryAvailability[product._id]?.availableEmpty ?? 0
           return avail > 0
         })
@@ -501,7 +501,13 @@ export function Inventory() {
                     </Badge>
                   )}
                 </TableCell>
-                <TableCell className="p-4 font-medium">{item.quantity}</TableCell>
+                <TableCell className="p-4 font-medium">
+                  {currentTab === 'empty-cylinder' ? (() => {
+                    const product = products.find(p => p.category === 'cylinder' && p.name === item.productName)
+                    const remaining = product ? (inventoryAvailability[product._id]?.availableEmpty ?? undefined) : undefined
+                    return typeof remaining === 'number' ? remaining : item.quantity
+                  })() : item.quantity}
+                </TableCell>
                 <TableCell className="p-4">AED {item.unitPrice.toFixed(2)}</TableCell>
                 <TableCell className="p-4 font-semibold">AED {item.totalAmount.toFixed(2)}</TableCell>
                 {showActions && (
@@ -621,16 +627,13 @@ export function Inventory() {
               <div className="px-4 sm:px-6 pt-4">
                 <TabsList className="grid w-full grid-cols-3 h-auto">
                   <TabsTrigger value="full-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Full Cylinders ({receivedItemsRaw.filter(item => 
-                      (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') ||
-                      (item.purchaseType === 'gas')
-                    ).length})
+                    Full Cylinders ({getFilteredReceivedItems('full-cylinder').length})
                   </TabsTrigger>
                   <TabsTrigger value="empty-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Empty Cylinders ({receivedItemsRaw.filter(item => item.purchaseType === 'cylinder' && item.cylinderStatus === 'empty').length})
+                    Empty Cylinders ({getFilteredReceivedItems('empty-cylinder').length})
                   </TabsTrigger>
                   <TabsTrigger value="gas" className="text-xs sm:text-sm font-medium py-2">
-                    Gas ({receivedItemsRaw.filter(item => item.purchaseType === 'gas').length})
+                    Gas ({getFilteredReceivedItems('gas').length})
                   </TabsTrigger>
                 </TabsList>
               </div>

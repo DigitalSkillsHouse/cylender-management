@@ -66,14 +66,6 @@ export async function POST(request) {
       gasType,
     })
 
-    // Best-effort sync into Product for backward compatibility
-    try {
-      product.currentStock = currentStock
-      product.availableEmpty = availableEmpty
-      product.availableFull = availableFull
-      await product.save()
-    } catch (_) {}
-
     return NextResponse.json({ success: true, data: item }, { status: 201 })
   } catch (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
