@@ -35,6 +35,16 @@ interface PurchaseOrder {
   poNumber: string
 }
 
+interface InventoryItemLite {
+  _id: string
+  productId: string | null
+  productName: string
+  category: "gas" | "cylinder"
+  availableEmpty?: number
+  availableFull?: number
+  currentStock?: number
+}
+
 interface Product {
   _id: string
   name: string
@@ -49,11 +59,13 @@ interface Product {
 interface PurchaseItem {
   purchaseType: "gas" | "cylinder"
   productId: string
+  productCode?: string
   quantity: string
   unitPrice: string
   cylinderStatus?: "empty" | "full"
   gasType?: string
   emptyCylinderId?: string
+  emptyCylinderCode?: string
 }
 
 export function PurchaseManagement() {
@@ -69,14 +81,16 @@ export function PurchaseManagement() {
   // Expanded state for grouped invoice rows
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   // Single entry item state (2x2 form)
-  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"|"cylinder"; productId: string; quantity: string; unitPrice: string; cylinderStatus?: "empty" | "full"; gasType?: string; emptyCylinderId?: string}>({
+  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"|"cylinder"; productId: string; productCode?: string; quantity: string; unitPrice: string; cylinderStatus?: "empty" | "full"; gasType?: string; emptyCylinderId?: string; emptyCylinderCode?: string}>({
     purchaseType: "gas",
     productId: "",
+    productCode: undefined,
     quantity: "",
     unitPrice: "",
     cylinderStatus: "empty",
     gasType: "",
     emptyCylinderId: "",
+    emptyCylinderCode: undefined,
   })
   const [productSearchTerm, setProductSearchTerm] = useState("")
   const [showProductSuggestions, setShowProductSuggestions] = useState(false)
@@ -90,6 +104,7 @@ export function PurchaseManagement() {
     items: [],
     notes: "",
   }))
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemLite[]>([])
 
   useEffect(() => {
     fetchData()
@@ -126,17 +141,20 @@ export function PurchaseManagement() {
     try {
       setError("")
       
-      // Fetch suppliers and products first (they don't require auth)
-      const [suppliersRes, productsRes] = await Promise.all([
+      // Fetch suppliers, products, and inventory items
+      const [suppliersRes, productsRes, inventoryRes] = await Promise.all([
         suppliersAPI.getAll(), 
-        productsAPI.getAll()
+        productsAPI.getAll(),
+        fetch('/api/inventory-items', { cache: 'no-store' })
       ])
       
       const suppliersData = suppliersRes.data || []
       const productsData = productsRes.data || []
+      const inventoryDataRaw = await (async () => { try { return (await inventoryRes.json())?.data || [] } catch { return [] } })()
       
       setSuppliers(suppliersData)
       setProducts(productsData)
+      setInventoryItems(inventoryDataRaw)
       
       // Try to fetch purchase orders separately (requires auth)
       try {
@@ -219,8 +237,8 @@ export function PurchaseManagement() {
           return
         }
         if (item.purchaseType === 'gas' && item.emptyCylinderId) {
-          const emptyCylinder = products.find(p => p._id === item.emptyCylinderId)
-          const available = emptyCylinder?.availableEmpty ?? emptyCylinder?.currentStock ?? 0
+          const inv = inventoryItems.find(ii => ii.productId === item.emptyCylinderId)
+          const available = inv?.availableEmpty ?? 0
           if (available < Number(item.quantity)) {
             setError(`Not enough empty cylinders available. Available: ${available}, Requested: ${item.quantity}`)
             return
@@ -235,12 +253,13 @@ export function PurchaseManagement() {
           purchaseDate: formData.purchaseDate,
           items: formData.items.map(item => ({
             productId: item.productId,
+            ...(item.productCode ? { productCode: item.productCode } : {}),
             purchaseType: item.purchaseType,
             ...(item.purchaseType === 'cylinder' ? { 
               cylinderStatus: item.cylinderStatus || 'empty',
               ...(item.cylinderStatus === 'full' ? { gasType: item.gasType } : {})
             } : {}),
-            ...(item.purchaseType === 'gas' ? { emptyCylinderId: item.emptyCylinderId } : {}),
+            ...(item.purchaseType === 'gas' ? { emptyCylinderId: item.emptyCylinderId, ...(item.emptyCylinderCode ? { emptyCylinderCode: item.emptyCylinderCode } : {}) } : {}),
             quantity: item.quantity,
             unitPrice: item.unitPrice || 0,
           })),
@@ -375,8 +394,8 @@ export function PurchaseManagement() {
       return
     }
     if (currentItem.purchaseType === 'gas' && currentItem.emptyCylinderId) {
-      const emptyCylinder = products.find(p => p._id === currentItem.emptyCylinderId)
-      const available = emptyCylinder?.availableEmpty ?? emptyCylinder?.currentStock ?? 0
+      const inv = inventoryItems.find(ii => ii.productId === currentItem.emptyCylinderId)
+      const available = inv?.availableEmpty ?? 0
       if (available < Number(currentItem.quantity)) {
         setError(`Not enough empty cylinders available. Available: ${available}, Requested: ${currentItem.quantity}`)
         return
@@ -385,15 +404,17 @@ export function PurchaseManagement() {
     const nextItems = [...formData.items, {
       purchaseType: currentItem.purchaseType,
       productId: currentItem.productId,
+      productCode: currentItem.productCode,
       quantity: currentItem.quantity,
       unitPrice: currentItem.unitPrice,
       cylinderStatus: currentItem.purchaseType === 'cylinder' ? (currentItem.cylinderStatus || 'empty') : undefined,
       gasType: currentItem.purchaseType === 'cylinder' && currentItem.cylinderStatus === 'full' ? currentItem.gasType : undefined,
       emptyCylinderId: currentItem.purchaseType === 'gas' ? currentItem.emptyCylinderId : undefined,
+      emptyCylinderCode: currentItem.purchaseType === 'gas' ? currentItem.emptyCylinderCode : undefined,
     }]
     setFormData({ ...formData, items: nextItems })
     // Clear inputs for next entry
-    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderStatus: "empty", gasType: "", emptyCylinderId: "" })
+    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", productCode: undefined, quantity: "", unitPrice: "", cylinderStatus: "empty", gasType: "", emptyCylinderId: "", emptyCylinderCode: undefined })
     setProductSearchTerm("")
     setShowProductSuggestions(false)
     setCylinderSearchTerm("")
@@ -672,6 +693,7 @@ export function PurchaseManagement() {
                                 setCurrentItem((ci) => ({
                                   ...ci,
                                   productId: p._id,
+                                  productCode: (p as any).productCode,
                                   unitPrice: (p.costPrice ?? '').toString(),
                                   cylinderStatus: ci.purchaseType === 'cylinder' ? (ci.cylinderStatus || 'empty') : undefined,
                                 }))
@@ -707,27 +729,40 @@ export function PurchaseManagement() {
                         />
                         {showCylinderSuggestions && (
                           <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto cylinder-suggestions">
-                            {(products.filter(p => p.category === "cylinder" && ((p.availableEmpty ?? 0) > 0))
-                              .filter(p => cylinderSearchTerm.trim().length === 0 ? true : p.name.toLowerCase().includes(cylinderSearchTerm.toLowerCase()))
-                            ).slice(0, 8).map((p) => (
-                              <button
-                                type="button"
-                                key={p._id}
-                                onClick={() => {
-                                  setCurrentItem((ci) => ({
-                                    ...ci,
-                                    emptyCylinderId: p._id,
-                                  }))
-                                  setCylinderSearchTerm(p.name)
-                                  setShowCylinderSuggestions(false)
-                                }}
-                                className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                              >
-                                <div className="font-medium text-gray-800">{p.name}</div>
-                                <div className="text-xs text-gray-500">Empty available: {p.availableEmpty ?? 0}</div>
-                              </button>
-                            ))}
-                            {(products.filter(p => p.category === "cylinder" && ((p.availableEmpty ?? 0) > 0) && p.name.toLowerCase().includes(cylinderSearchTerm.toLowerCase()))).length === 0 && (
+                            {inventoryItems
+                              .filter(ii => ii.category === 'cylinder' && (ii.availableEmpty ?? 0) > 0)
+                              .filter(ii => {
+                                const name = products.find(p => p._id === ii.productId)?.name || ii.productName || ''
+                                return cylinderSearchTerm.trim().length === 0 ? true : name.toLowerCase().includes(cylinderSearchTerm.toLowerCase())
+                              })
+                              .slice(0, 8)
+                              .map(ii => {
+                                const prod = products.find(p => p._id === ii.productId)
+                                const name = prod?.name || ii.productName || 'Unknown Cylinder'
+                                return (
+                                  <button
+                                    type="button"
+                                    key={ii._id}
+                                    onClick={() => {
+                                      setCurrentItem((ci) => ({
+                                        ...ci,
+                                        emptyCylinderId: (ii.productId || ''),
+                                      }))
+                                      setCylinderSearchTerm(name)
+                                      setShowCylinderSuggestions(false)
+                                    }}
+                                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                                  >
+                                    <div className="font-medium text-gray-800">{name}</div>
+                                    <div className="text-xs text-gray-500">Empty available: {ii.availableEmpty ?? 0}</div>
+                                  </button>
+                                )
+                              })}
+                            {inventoryItems.filter(ii => {
+                              if (!(ii.category === 'cylinder' && (ii.availableEmpty ?? 0) > 0)) return false
+                              const name = products.find(p => p._id === ii.productId)?.name || ii.productName || ''
+                              return name.toLowerCase().includes(cylinderSearchTerm.toLowerCase())
+                            }).length === 0 && (
                               <div className="px-3 py-2 text-sm text-gray-500">No empty cylinders found</div>
                             )}
                           </div>

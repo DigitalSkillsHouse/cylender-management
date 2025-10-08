@@ -56,6 +56,7 @@ export function Inventory() {
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
@@ -68,11 +69,12 @@ export function Inventory() {
     try {
       setError("")
       
-      const [purchaseOrdersRes, employeePurchaseOrdersRes, productsRes, suppliersRes] = await Promise.all([
+      const [purchaseOrdersRes, employeePurchaseOrdersRes, productsRes, suppliersRes, invItemsRes] = await Promise.all([
         purchaseOrdersAPI.getAll(),
         employeePurchaseOrdersAPI.getAll(),
         productsAPI.getAll(),
-        suppliersAPI.getAll()
+        suppliersAPI.getAll(),
+        fetch('/api/inventory-items', { cache: 'no-store' })
       ])
 
       const purchaseOrdersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
@@ -91,6 +93,7 @@ export function Inventory() {
           : Array.isArray(suppliersRes)
             ? suppliersRes
             : []
+      const invItemsData = await (async () => { try { const j = await invItemsRes.json(); return Array.isArray(j?.data) ? j.data : [] } catch { return [] } })()
 
       const allPurchaseOrders = [
         ...purchaseOrdersData.map((order: any) => ({ ...order, isEmployeePurchase: false })),
@@ -197,6 +200,18 @@ export function Inventory() {
       setInventory(inventoryItems)
       setProducts(productsData)
       setSuppliers(suppliersData)
+      // Build availability map by productId
+      const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
+      for (const ii of invItemsData) {
+        if (ii?.productId) {
+          availMap[ii.productId] = {
+            availableEmpty: Number(ii.availableEmpty || 0),
+            availableFull: Number(ii.availableFull || 0),
+            currentStock: Number(ii.currentStock || 0),
+          }
+        }
+      }
+      setInventoryAvailability(availMap)
     } catch (error: any) {
       setError(`Failed to load inventory: ${error.message}`)
       setInventory([])
@@ -346,7 +361,15 @@ export function Inventory() {
           (item.purchaseType === 'gas')
         )
       case 'empty-cylinder':
-        return receivedItemsRaw.filter(item => item.purchaseType === 'cylinder' && item.cylinderStatus === 'empty')
+        // Only show empty-cylinder received items whose current availableEmpty > 0 in inventory
+        return receivedItemsRaw.filter(item => {
+          if (!(item.purchaseType === 'cylinder' && item.cylinderStatus === 'empty')) return false
+          // Resolve cylinder product id by name
+          const product = products.find(p => p.category === 'cylinder' && p.name === item.productName)
+          if (!product) return true // fallback: if not resolvable, keep visible
+          const avail = inventoryAvailability[product._id]?.availableEmpty ?? 0
+          return avail > 0
+        })
       case 'gas':
         return receivedItemsRaw.filter(item => item.purchaseType === 'gas')
       default:

@@ -3,6 +3,7 @@ import dbConnect from "@/lib/mongodb"
 import PurchaseOrder from "@/models/PurchaseOrder"
 import Supplier from "@/models/Supplier"
 import Product from "@/models/Product"
+import InventoryItem from "@/models/InventoryItem"
 import { verifyToken } from "@/lib/auth"
 
 // GET - Fetch all purchase orders
@@ -101,6 +102,18 @@ export async function POST(request) {
       }
       console.log(`✅ PRODUCT VALIDATED: ${existingProduct.name} (${existingProduct.productCode}) - Category: ${existingProduct.category}${existingProduct.cylinderStatus ? '-' + existingProduct.cylinderStatus : ''}`)
 
+      // Optional productCode validation for main product
+      if (item.productCode !== undefined) {
+        const expected = String(existingProduct.productCode || '')
+        const provided = String(item.productCode || '')
+        if (expected && provided && expected !== provided) {
+          return NextResponse.json(
+            { error: `Item ${i + 1}: productCode mismatch for selected product. Expected ${expected}, got ${provided}` },
+            { status: 400 }
+          )
+        }
+      }
+
       let effectiveCylinderStatus = item.cylinderStatus
       if (item.purchaseType === 'cylinder' && !effectiveCylinderStatus) {
         console.log(`Item ${i + 1}: Cylinder purchase without status, looking up product:`, item.productId)
@@ -141,38 +154,53 @@ export async function POST(request) {
         )
       }
 
-      // Validate empty cylinder stock for gas purchases and deduct stock
+      // Validate empty cylinder stock for gas purchases using InventoryItem (no deductions here)
       if (item.purchaseType === 'gas' && item.emptyCylinderId) {
         try {
-          const emptyCylinder = await Product.findById(item.emptyCylinderId)
-          if (!emptyCylinder) {
+          // Optional productCode validation for empty cylinder product
+          if (item.emptyCylinderCode !== undefined) {
+            const emptyCylinderProd = await Product.findById(item.emptyCylinderId)
+            if (!emptyCylinderProd) {
+              return NextResponse.json(
+                { error: `Item ${i + 1}: Empty cylinder product not found` },
+                { status: 400 }
+              )
+            }
+            const expectedCode = String(emptyCylinderProd.productCode || '')
+            const providedCode = String(item.emptyCylinderCode || '')
+            if (expectedCode && providedCode && expectedCode !== providedCode) {
+              return NextResponse.json(
+                { error: `Item ${i + 1}: emptyCylinderCode mismatch. Expected ${expectedCode}, got ${providedCode}` },
+                { status: 400 }
+              )
+            }
+          }
+
+          const emptyInv = await InventoryItem.findOne({ product: item.emptyCylinderId })
+          if (!emptyInv) {
             return NextResponse.json(
-              { error: `Item ${i + 1}: Empty cylinder not found` },
+              { error: `Item ${i + 1}: Empty cylinder inventory not found` },
               { status: 400 }
             )
           }
-          if (emptyCylinder.category !== 'cylinder' || emptyCylinder.cylinderStatus !== 'empty') {
+          if (emptyInv.category !== 'cylinder') {
             return NextResponse.json(
-              { error: `Item ${i + 1}: Selected product is not an empty cylinder` },
+              { error: `Item ${i + 1}: Selected item is not a cylinder` },
               { status: 400 }
             )
           }
-          if (emptyCylinder.currentStock < Number(item.quantity)) {
+          const available = Number(emptyInv.availableEmpty || 0)
+          if (available < Number(item.quantity)) {
             return NextResponse.json(
-              { error: `Item ${i + 1}: Not enough empty cylinders available. Available: ${emptyCylinder.currentStock}, Requested: ${item.quantity}` },
+              { error: `Item ${i + 1}: Not enough empty cylinders available. Available: ${available}, Requested: ${item.quantity}` },
               { status: 400 }
             )
           }
-          
-          // ✅ FIXED: Don't deduct stock here - only validate availability
-          // Stock will be updated when inventory is actually received in inventory API
-          console.log(`✅ Validated ${item.quantity} empty cylinders available in ${emptyCylinder.name}. Current stock: ${emptyCylinder.currentStock}`)
-          console.log(`📋 Stock will be updated when inventory is received, not when purchase order is created`)
-          
+          console.log(`✅ Inventory validated for empty cylinders: requested=${item.quantity}, available=${available}`)
         } catch (cylinderError) {
-          console.error("Error validating empty cylinder:", cylinderError)
+          console.error("Error validating empty cylinder inventory:", cylinderError)
           return NextResponse.json(
-            { error: `Item ${i + 1}: Failed to validate empty cylinder` },
+            { error: `Item ${i + 1}: Failed to validate empty cylinder inventory` },
             { status: 500 }
           )
         }
