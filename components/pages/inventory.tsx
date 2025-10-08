@@ -57,6 +57,7 @@ export function Inventory() {
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
+  const [inventoryList, setInventoryList] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
@@ -68,32 +69,32 @@ export function Inventory() {
   const fetchInventoryData = async () => {
     try {
       setError("")
-      
-      const [purchaseOrdersRes, employeePurchaseOrdersRes, productsRes, suppliersRes, invItemsRes] = await Promise.all([
-        purchaseOrdersAPI.getAll(),
-        employeePurchaseOrdersAPI.getAll(),
-        productsAPI.getAll(),
-        suppliersAPI.getAll(),
-        fetch('/api/inventory-items', { cache: 'no-store' })
-      ])
+      // Always attempt to load inventory items first (public aggregate source for Received tabs)
+      const invItemsRes = await fetch('/api/inventory-items', { cache: 'no-store' })
+      const invItemsJson = await (async () => { try { return await invItemsRes.json() } catch { return {} as any } })()
+      const invItemsData = Array.isArray(invItemsJson?.data) ? invItemsJson.data : []
 
-      const purchaseOrdersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
-      const employeePurchaseOrdersData = employeePurchaseOrdersRes.data?.data || employeePurchaseOrdersRes.data || []
-      const productsData = Array.isArray(productsRes.data?.data)
-        ? productsRes.data.data
-        : Array.isArray(productsRes.data)
-          ? productsRes.data
-          : Array.isArray(productsRes)
-            ? productsRes
-            : []
-      const suppliersData = Array.isArray(suppliersRes.data?.data)
-        ? suppliersRes.data.data
-        : Array.isArray(suppliersRes.data)
-          ? suppliersRes.data
-          : Array.isArray(suppliersRes)
-            ? suppliersRes
-            : []
-      const invItemsData = await (async () => { try { const j = await invItemsRes.json(); return Array.isArray(j?.data) ? j.data : [] } catch { return [] } })()
+      // Best-effort fetch for POs, products, suppliers (may 401). Fall back to [] on error.
+      let purchaseOrdersData: any[] = []
+      let employeePurchaseOrdersData: any[] = []
+      let productsData: any[] = []
+      let suppliersData: any[] = []
+      try {
+        const res = await purchaseOrdersAPI.getAll()
+        purchaseOrdersData = res.data?.data || res.data || []
+      } catch (_) {}
+      try {
+        const res = await employeePurchaseOrdersAPI.getAll()
+        employeePurchaseOrdersData = res.data?.data || res.data || []
+      } catch (_) {}
+      try {
+        const res = await productsAPI.getAll()
+        productsData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
+      } catch (_) {}
+      try {
+        const res = await suppliersAPI.getAll()
+        suppliersData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
+      } catch (_) {}
 
       const allPurchaseOrders = [
         ...purchaseOrdersData.map((order: any) => ({ ...order, isEmployeePurchase: false })),
@@ -200,6 +201,7 @@ export function Inventory() {
       setInventory(inventoryItems)
       setProducts(productsData)
       setSuppliers(suppliersData)
+      setInventoryList(invItemsData)
       // Build availability map by productId
       const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
       for (const ii of invItemsData) {
@@ -351,30 +353,66 @@ export function Inventory() {
   const pendingItems = inventory.filter(item => item.status === "pending")
   const receivedItemsRaw = inventory.filter(item => item.status === "received")
 
-  // Filter functions for received inventory tabs
+  // Build aggregated lists for Received tabs from live inventory to avoid duplicates
   const getFilteredReceivedItems = (filter: string) => {
-    switch (filter) {
-      case 'full-cylinder':
-        // Show both full cylinders AND gas purchases (since gas comes in cylinders)
-        return receivedItemsRaw.filter(item => 
-          (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') ||
-          (item.purchaseType === 'gas')
-        )
-      case 'empty-cylinder':
-        // Only show empty-cylinder received items whose current availableEmpty > 0 in inventory
-        return receivedItemsRaw.filter(item => {
-          if (!(item.purchaseType === 'cylinder' && item.cylinderStatus === 'empty')) return false
-          // Resolve cylinder product id by name
-          const product = products.find(p => p.category === 'cylinder' && p.name === item.productName)
-          if (!product) return false // if not resolvable, hide to avoid stale badge counts
-          const avail = inventoryAvailability[product._id]?.availableEmpty ?? 0
-          return avail > 0
-        })
-      case 'gas':
-        return receivedItemsRaw.filter(item => item.purchaseType === 'gas')
-      default:
-        return receivedItemsRaw
+    const rows: InventoryItem[] = [] as any
+
+    const pushRowFromInv = (inv: any, qty: number, kind: 'empty' | 'full' | 'gas') => {
+      if (qty <= 0) return
+      const id = `${inv.productId || inv._id}-${kind}`
+      // Try to infer supplier from latest received PO item for same product name
+      let inferredSupplier = ''
+      const match = receivedItemsRaw.find(it => it.productName === (inv.productName || '') && it.status === 'received')
+      if (match) inferredSupplier = match.supplierName || ''
+      const base = {
+        id,
+        poNumber: '',
+        productName: inv.productName || 'Unknown',
+        productCode: inv.productCode || '',
+        supplierName: inferredSupplier,
+        purchaseDate: '',
+        quantity: qty,
+        unitPrice: 0,
+        totalAmount: 0,
+        status: 'received' as const,
+        purchaseType: inv.category === 'gas' ? 'gas' : 'cylinder',
+        cylinderStatus: kind === 'empty' ? 'empty' : kind === 'full' ? 'full' : undefined,
+        gasType: undefined,
+        emptyCylinderId: undefined,
+        emptyCylinderName: undefined,
+        isEmployeePurchase: false,
+      }
+      rows.push(base as any)
     }
+
+    if (filter === 'empty-cylinder') {
+      // Show cylinders with availableEmpty > 0 directly from inventory list
+      for (const inv of inventoryList.filter(ii => ii.category === 'cylinder')) {
+        const avail = Number(inv.availableEmpty || 0)
+        if (avail > 0) pushRowFromInv(inv, avail, 'empty')
+      }
+      return rows
+    }
+
+    if (filter === 'full-cylinder') {
+      // Show cylinders with availableFull > 0 directly from inventory list
+      for (const inv of inventoryList.filter(ii => ii.category === 'cylinder')) {
+        const avail = Number(inv.availableFull || 0)
+        if (avail > 0) pushRowFromInv(inv, avail, 'full')
+      }
+      return rows
+    }
+
+    if (filter === 'gas') {
+      // Show gas SKUs with currentStock > 0 directly from inventory list
+      for (const inv of inventoryList.filter(ii => ii.category === 'gas')) {
+        const qty = Number(inv.currentStock || 0)
+        if (qty > 0) pushRowFromInv(inv, qty, 'gas')
+      }
+      return rows
+    }
+
+    return receivedItemsRaw
   }
 
   const norm = (v?: string | number) => (v === undefined || v === null ? "" : String(v)).toLowerCase()
