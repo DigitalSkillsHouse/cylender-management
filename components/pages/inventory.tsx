@@ -372,9 +372,10 @@ export function Inventory() {
           <TableHeader>
             <TableRow className="bg-gray-50 border-b-2 border-gray-200">
               <TableHead className="font-bold text-gray-700 p-4 w-[18%]">Product</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[16%]">Details</TableHead>
+              {currentTab === 'pending' && (
+                <TableHead className="font-bold text-gray-700 p-4 w-[16%]">Details</TableHead>
+              )}
               <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Supplier</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Employee</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[8%]">Type</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[8%]">Quantity</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Unit Price</TableHead>
@@ -414,66 +415,48 @@ export function Inventory() {
                     )}
                   </div>
                 </TableCell>
-                <TableCell className="p-4">
-                  <div className="text-sm space-y-1">
-                    {/* Show status for cylinder purchases */}
-                    {item.purchaseType === 'cylinder' && item.cylinderStatus && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-600">Status:</span>
-                        <Badge variant={item.cylinderStatus === 'full' ? 'default' : 'secondary'}>
-                          {item.cylinderStatus}
-                        </Badge>
-                      </div>
-                    )}
-                    
-                    {/* For gas purchases, show different info based on tab */}
-                    {item.purchaseType === 'gas' && (
-                      currentTab === 'gas' ? (
-                        // In Gas tab: Show gas-focused information
+                {currentTab === 'pending' && (
+                  <TableCell className="p-4">
+                    <div className="text-sm space-y-1">
+                      {/* Show status for cylinder purchases */}
+                      {item.purchaseType === 'cylinder' && item.cylinderStatus && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Status:</span>
+                          <Badge variant={item.cylinderStatus === 'full' ? 'default' : 'secondary'}>
+                            {item.cylinderStatus}
+                          </Badge>
+                        </div>
+                      )}
+                      
+                      {/* For gas purchases in pending tab: show gas-focused info */}
+                      {item.purchaseType === 'gas' && (
                         <div className="flex items-center gap-2">
                           <span className="text-gray-600">Type:</span>
                           <Badge variant="default" className="bg-blue-600 hover:bg-blue-700">
                             Gas Product
                           </Badge>
                         </div>
-                      ) : (
-                        // In Full Cylinders tab: Show cylinder status
+                      )}
+                      
+                      {/* Show gas type - always relevant */}
+                      {item.gasType && (
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-600">Status:</span>
-                          <Badge variant="default" className="bg-green-600 hover:bg-green-700">
-                            Full (Gas Filled)
-                          </Badge>
+                          <span className="text-gray-600">Gas Type:</span>
+                          <span className="font-medium text-blue-600">{item.gasType}</span>
                         </div>
-                      )
-                    )}
-                    
-                    {/* Show gas type - always relevant */}
-                    {item.gasType && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-600">Gas Type:</span>
-                        <span className="font-medium text-blue-600">{item.gasType}</span>
-                      </div>
-                    )}
-                    
-                    {/* Show cylinder info only in Full Cylinders tab for gas purchases */}
-                    {item.purchaseType === 'gas' && item.emptyCylinderName && currentTab !== 'gas' && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-600">Cylinder Type:</span>
-                        <span className="font-medium">{item.emptyCylinderName}</span>
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
+                      )}
+                      
+                      {/* Show cylinder info for gas purchases when available */}
+                      {item.purchaseType === 'gas' && item.emptyCylinderName && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Cylinder Type:</span>
+                          <span className="font-medium">{item.emptyCylinderName}</span>
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
+                )}
                 <TableCell className="p-4">{item.supplierName}</TableCell>
-                <TableCell className="p-4">
-                  {item.isEmployeePurchase && item.employeeName ? (
-                    <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">
-                      {item.employeeName}
-                    </Badge>
-                  ) : (
-                    <span className="text-gray-500 text-sm">Admin</span>
-                  )}
-                </TableCell>
                 <TableCell className="p-4">
                   {item.purchaseType === "gas" ? (
                     currentTab === 'gas' ? (
@@ -516,7 +499,7 @@ export function Inventory() {
             ))}
             {items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={showActions ? 10 : 9} className="text-center text-gray-500 py-12">
+                <TableCell colSpan={currentTab === 'pending' ? (showActions ? 8 : 7) : (showActions ? 7 : 6)} className="text-center text-gray-500 py-12">
                   <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-medium">No items found</p>
                   <p className="text-sm">No items match the current filter</p>
