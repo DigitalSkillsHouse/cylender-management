@@ -207,6 +207,48 @@ export function Inventory() {
     }
   }
 
+  // Helper: get or create InventoryItem ID for a given product
+  const getOrCreateInventoryItemId = async (
+    productId: string,
+    category: "gas" | "cylinder"
+  ): Promise<string> => {
+    try {
+      const res = await fetch('/api/inventory-items', { cache: 'no-store' })
+      const json = await res.json()
+      const found = Array.isArray(json?.data)
+        ? json.data.find((it: any) => it.productId === productId)
+        : null
+      if (found?._id) return found._id as string
+    } catch (_) {}
+
+    // Create if not found
+    try {
+      const createRes = await fetch('/api/inventory-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, category })
+      })
+      const created = await createRes.json()
+      return (created?.data?._id as string) || ''
+    } catch (e) {
+      console.error('Failed to create inventory item', e)
+      return ''
+    }
+  }
+
+  // Helper: apply delta to inventory item
+  const patchInventoryDelta = async (
+    inventoryItemId: string,
+    delta: Partial<{ currentStock: number; availableEmpty: number; availableFull: number }>
+  ) => {
+    if (!inventoryItemId) return
+    await fetch(`/api/inventory-items/${inventoryItemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delta })
+    })
+  }
+
   const handleReceiveInventory = async (id: string) => {
     try {
       setError("")
@@ -249,81 +291,41 @@ export function Inventory() {
   const updateStockForReceivedItem = async (item: InventoryItem) => {
     try {
       if (item.purchaseType === 'cylinder') {
-        if (item.cylinderStatus === 'full') {
-          // Full cylinder purchase: Move cylinder to full category and update gas stock
-          const cylinderProduct = products.find(p => p.name === item.productName && p.category === 'cylinder')
-          if (cylinderProduct) {
-            // Update cylinder to full status
-            await productsAPI.update(cylinderProduct._id, {
-              cylinderStatus: 'full',
-              currentStock: cylinderProduct.currentStock + item.quantity
-            })
+        // Adjust cylinder availability in InventoryItems
+        const cylinderProduct = products.find(p => p.name === item.productName && p.category === 'cylinder')
+        if (cylinderProduct) {
+          const invId = await getOrCreateInventoryItemId(cylinderProduct._id, 'cylinder')
+          if (item.cylinderStatus === 'full') {
+            await patchInventoryDelta(invId, { availableFull: item.quantity })
+          } else if (item.cylinderStatus === 'empty') {
+            await patchInventoryDelta(invId, { availableEmpty: item.quantity })
           }
-          
-          // Update gas stock if gasType is specified
-          if (item.gasType) {
-            const gasProduct = products.find(p => p.name === item.gasType && p.category === 'gas')
-            if (gasProduct) {
-              await productsAPI.update(gasProduct._id, {
-                currentStock: gasProduct.currentStock + item.quantity
-              })
-            }
-          }
-        } else if (item.cylinderStatus === 'empty') {
-          // Empty cylinder purchase: Add to empty cylinder stock
-          const cylinderProduct = products.find(p => p.name === item.productName && p.category === 'cylinder')
-          if (cylinderProduct) {
-            await productsAPI.update(cylinderProduct._id, {
-              cylinderStatus: 'empty',
-              currentStock: cylinderProduct.currentStock + item.quantity
-            })
+        }
+
+        // If gasType specified for full cylinders, increase gas stock too
+        if (item.cylinderStatus === 'full' && item.gasType) {
+          const gasProduct = products.find(p => p.name === item.gasType && p.category === 'gas')
+          if (gasProduct) {
+            const invId = await getOrCreateInventoryItemId(gasProduct._id, 'gas')
+            await patchInventoryDelta(invId, { currentStock: item.quantity })
           }
         }
       } else if (item.purchaseType === 'gas') {
-        // Gas purchase/refilling: Move empty cylinder to full and update gas stock
+        // Gas purchase/refilling: move empty -> full for cylinder, and increase gas stock
         if (item.emptyCylinderId && item.emptyCylinderName) {
-          // Reduce empty cylinder stock
-          const emptyCylinder = products.find(p => p._id === item.emptyCylinderId)
-          if (emptyCylinder && emptyCylinder.currentStock >= item.quantity) {
-            await productsAPI.update(item.emptyCylinderId, {
-              currentStock: emptyCylinder.currentStock - item.quantity
-            })
-          }
-          
-          // Find or create full cylinder with same name
-          let fullCylinder = products.find(p => 
-            p.name === item.emptyCylinderName && 
-            p.category === 'cylinder' && 
-            p.cylinderStatus === 'full'
-          )
-          
-          if (fullCylinder) {
-            // Update existing full cylinder stock
-            await productsAPI.update(fullCylinder._id, {
-              currentStock: fullCylinder.currentStock + item.quantity
-            })
-          } else {
-            // Create new full cylinder entry if it doesn't exist
-            const emptyCylinderData = products.find(p => p._id === item.emptyCylinderId)
-            if (emptyCylinderData) {
-              await productsAPI.create({
-                name: item.emptyCylinderName,
-                category: 'cylinder',
-                cylinderStatus: 'full',
-                costPrice: emptyCylinderData.costPrice,
-                leastPrice: emptyCylinderData.leastPrice,
-                currentStock: item.quantity
-              })
-            }
+          const emptyCylinder = products.find(p => p._id === item.emptyCylinderId && p.category === 'cylinder')
+          if (emptyCylinder) {
+            const invId = await getOrCreateInventoryItemId(emptyCylinder._id, 'cylinder')
+            // Decrease empty, increase full by quantity
+            await patchInventoryDelta(invId, { availableEmpty: -item.quantity, availableFull: item.quantity })
           }
         }
-        
-        // Update gas stock
+
+        // Update gas stock for the purchased gas product
         const gasProduct = products.find(p => p.name === item.productName && p.category === 'gas')
         if (gasProduct) {
-          await productsAPI.update(gasProduct._id, {
-            currentStock: gasProduct.currentStock + item.quantity
-          })
+          const invId = await getOrCreateInventoryItemId(gasProduct._id, 'gas')
+          await patchInventoryDelta(invId, { currentStock: item.quantity })
         }
       }
     } catch (error) {

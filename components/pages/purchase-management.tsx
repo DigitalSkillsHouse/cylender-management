@@ -42,6 +42,8 @@ interface Product {
   currentStock: number
   category: "gas" | "cylinder"
   cylinderStatus?: "empty" | "full"
+  availableEmpty?: number
+  availableFull?: number
 }
 
 interface PurchaseItem {
@@ -218,8 +220,9 @@ export function PurchaseManagement() {
         }
         if (item.purchaseType === 'gas' && item.emptyCylinderId) {
           const emptyCylinder = products.find(p => p._id === item.emptyCylinderId)
-          if (emptyCylinder && emptyCylinder.currentStock < Number(item.quantity)) {
-            setError(`Not enough empty cylinders available. Available: ${emptyCylinder.currentStock}, Requested: ${item.quantity}`)
+          const available = emptyCylinder?.availableEmpty ?? emptyCylinder?.currentStock ?? 0
+          if (available < Number(item.quantity)) {
+            setError(`Not enough empty cylinders available. Available: ${available}, Requested: ${item.quantity}`)
             return
           }
         }
@@ -373,8 +376,9 @@ export function PurchaseManagement() {
     }
     if (currentItem.purchaseType === 'gas' && currentItem.emptyCylinderId) {
       const emptyCylinder = products.find(p => p._id === currentItem.emptyCylinderId)
-      if (emptyCylinder && emptyCylinder.currentStock < Number(currentItem.quantity)) {
-        setError(`Not enough empty cylinders available. Available: ${emptyCylinder.currentStock}, Requested: ${currentItem.quantity}`)
+      const available = emptyCylinder?.availableEmpty ?? emptyCylinder?.currentStock ?? 0
+      if (available < Number(currentItem.quantity)) {
+        setError(`Not enough empty cylinders available. Available: ${available}, Requested: ${currentItem.quantity}`)
         return
       }
     }
@@ -669,7 +673,7 @@ export function PurchaseManagement() {
                                   ...ci,
                                   productId: p._id,
                                   unitPrice: (p.costPrice ?? '').toString(),
-                                  cylinderStatus: ci.purchaseType === 'cylinder' ? (p.cylinderStatus || 'empty') : undefined,
+                                  cylinderStatus: ci.purchaseType === 'cylinder' ? (ci.cylinderStatus || 'empty') : undefined,
                                 }))
                                 setProductSearchTerm(p.name)
                                 setShowProductSuggestions(false)
@@ -703,7 +707,7 @@ export function PurchaseManagement() {
                         />
                         {showCylinderSuggestions && (
                           <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto cylinder-suggestions">
-                            {(products.filter(p => p.category === "cylinder" && p.cylinderStatus === "empty")
+                            {(products.filter(p => p.category === "cylinder" && ((p.availableEmpty ?? 0) > 0))
                               .filter(p => cylinderSearchTerm.trim().length === 0 ? true : p.name.toLowerCase().includes(cylinderSearchTerm.toLowerCase()))
                             ).slice(0, 8).map((p) => (
                               <button
@@ -720,10 +724,10 @@ export function PurchaseManagement() {
                                 className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
                               >
                                 <div className="font-medium text-gray-800">{p.name}</div>
-                                <div className="text-xs text-gray-500">Stock: {p.currentStock}</div>
+                                <div className="text-xs text-gray-500">Empty available: {p.availableEmpty ?? 0}</div>
                               </button>
                             ))}
-                            {(products.filter(p => p.category === "cylinder" && p.cylinderStatus === "empty" && p.name.toLowerCase().includes(cylinderSearchTerm.toLowerCase()))).length === 0 && (
+                            {(products.filter(p => p.category === "cylinder" && ((p.availableEmpty ?? 0) > 0) && p.name.toLowerCase().includes(cylinderSearchTerm.toLowerCase()))).length === 0 && (
                               <div className="px-3 py-2 text-sm text-gray-500">No empty cylinders found</div>
                             )}
                           </div>
