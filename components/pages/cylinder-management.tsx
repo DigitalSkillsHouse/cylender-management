@@ -24,7 +24,7 @@ import jsPDF from "jspdf"
 
 interface CylinderTransaction {
   _id: string  
-  type: "deposit" | "refill" | "return"
+  type: "deposit" | "return"
   invoiceNumber?: string
   customer?: {
     _id: string
@@ -205,10 +205,7 @@ export function CylinderManagement() {
     switch (activeTab) {
       case 'deposit':
         return ['invoiceNumber', ...baseColumns, 'depositAmount', ...commonColumns]
-      case 'refill': {
-        const columnsToHide = ['amount', 'depositAmount', 'refillAmount', 'returnAmount', 'paymentMethod', 'cashAmount', 'bankName', 'checkNumber', 'status']
-        return ['invoiceNumber', ...baseColumns, ...commonColumns].filter(col => !columnsToHide.includes(col))
-      }
+
       case 'return':
         return ['invoiceNumber', ...baseColumns, 'returnAmount', ...commonColumns]
       case 'all':
@@ -403,16 +400,14 @@ export function CylinderManagement() {
       actions: () => (
         <TableCell className="p-4">
           <div className="flex space-x-2">
-            {transaction.type !== 'refill' && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleReceiptClick(transaction)}
-                className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
-              >
-                Receipt
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleReceiptClick(transaction)}
+              className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
+            >
+              Receipt
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -882,12 +877,12 @@ export function CylinderManagement() {
     }
   }, [formData.type, formData.amount, formData.depositAmount, formData.items])
 
-  // Enforce delivery note behavior: no deposit and pending status when delivery_note (legacy safety)
+  // Enforce delivery note behavior: no deposit and pending status when delivery_note
   useEffect(() => {
-    if (formData.paymentOption === 'delivery_note' && formData.type !== 'refill') {
+    if (formData.paymentOption === 'delivery_note') {
       setFormData(prev => ({ ...prev, depositAmount: 0, status: 'pending' }))
     }
-  }, [formData.paymentOption, formData.type])
+  }, [formData.paymentOption])
 
   // Always clear status for return transactions
   useEffect(() => {
@@ -956,17 +951,7 @@ export function CylinderManagement() {
     setShowSecurityDialog(false)
   }
 
-  // Clear irrelevant party based on type
-  useEffect(() => {
-    if (formData.type === 'refill') {
-      // clear customer selection when switching to refill
-      setCustomerSearchTerm("")
-      setFormData(prev => ({ ...prev, customerId: prev.customerId ? "" : prev.customerId }))
-    } else {
-      // clear supplier selection when not refill
-      setFormData(prev => ({ ...prev, supplierId: prev.supplierId ? "" : prev.supplierId }))
-    }
-  }, [formData.type])
+
 
   // Since Payment Option is hidden for deposit, force it to 'debit'
   useEffect(() => {
@@ -975,15 +960,7 @@ export function CylinderManagement() {
     }
   }, [formData.type, formData.paymentOption])
 
-  // Ensure refill has an amount set from selected product price
-  useEffect(() => {
-    if (formData.type === 'refill' && formData.productId) {
-      const selectedProduct = products.find(p => p._id === formData.productId)
-      if (selectedProduct && (!formData.amount || formData.amount === 0)) {
-        setFormData(prev => ({ ...prev, amount: selectedProduct.leastPrice }))
-      }
-    }
-  }, [formData.type, formData.productId, products])
+
 
   const fetchData = async () => {
     try {
@@ -1073,16 +1050,9 @@ export function CylinderManagement() {
     try {
       
       // Validate required fields
-      if (formData.type === 'refill') {
-        if (!formData.supplierId || formData.supplierId === '') {
-          alert("Please select a supplier for refill")
-          return
-        }
-      } else {
-        if (!formData.customerId || formData.customerId === '') {
-          alert("Please select a customer")
-          return
-        }
+      if (!formData.customerId || formData.customerId === '') {
+        alert("Please select a customer")
+        return
       }
       
       if (formData.items.length === 0) {
@@ -1098,7 +1068,7 @@ export function CylinderManagement() {
           alert("Please enter a valid quantity")
           return
         }
-        if (formData.type !== 'refill' && (!formData.amount || formData.amount <= 0)) {
+        if (!formData.amount || formData.amount <= 0) {
           alert("Please enter a valid amount")
           return
         }
@@ -1107,7 +1077,7 @@ export function CylinderManagement() {
         if (formData.items.some(it => !it.productId)) { alert('Please select product for all items'); return }
         if (formData.items.some(it => !it.cylinderSize)) { alert('Please select size for all items'); return }
         if (formData.items.some(it => !it.quantity || it.quantity <= 0)) { alert('Please enter valid quantity for all items'); return }
-        if (formData.type !== 'refill' && formData.items.some(it => !it.amount || it.amount <= 0)) { alert('Please enter amount for all items'); return }
+        if (formData.items.some(it => !it.amount || it.amount <= 0)) { alert('Please enter amount for all items'); return }
       }
 
       console.log("Form validation passed, creating transaction data:", formData);
@@ -1162,11 +1132,7 @@ export function CylinderManagement() {
       }
 
       // Map party fields
-      if (formData.type === 'refill') {
-        baseData.supplier = formData.supplierId
-      } else {
-        baseData.customer = formData.customerId
-      }
+      baseData.customer = formData.customerId
 
       const transactionData = baseData
       // Attach linkedDeposit only for return transactions
@@ -1179,13 +1145,10 @@ export function CylinderManagement() {
       if (editingTransaction) {
         savedResponse = await cylindersAPI.update(editingTransaction._id, transactionData)
       } else {
-        // Use specific endpoints; for refill, use unified POST that supports supplier
+        // Use specific endpoints
         switch (formData.type) {
           case "deposit":
             savedResponse = await cylindersAPI.deposit(transactionData)
-            break
-          case "refill":
-            savedResponse = await cylindersAPI.create(transactionData)
             break
           case "return":
             savedResponse = await cylindersAPI.return(transactionData)
@@ -1207,16 +1170,12 @@ export function CylinderManagement() {
           const normalized: any = {
             _id: savedTx?._id || `temp-${Date.now()}`,
             type: txType,
-            customer: savedTx?.customer || (txType !== 'refill' ? {
+            customer: savedTx?.customer || {
               _id: formData.customerId,
               name: customers.find(c=>c._id===formData.customerId)?.name || 'Customer',
               phone: customers.find(c=>c._id===formData.customerId)?.phone || '',
               address: customers.find(c=>c._id===formData.customerId)?.address || '',
-            } : undefined),
-            supplier: savedTx?.supplier || (txType === 'refill' ? {
-              _id: formData.supplierId,
-              companyName: suppliers.find(s=>s._id===formData.supplierId)?.companyName || 'Supplier',
-            } : undefined),
+            },
             product: savedTx?.product || products.find(p=>p._id===formData.productId) || undefined,
             cylinderSize: savedTx?.cylinderSize || formData.cylinderSize,
             quantity: savedTx?.quantity || (formData.items.length>0 ? formData.items.reduce((s,it)=>s+(Number(it.quantity)||0),0) : formData.quantity),
@@ -1325,11 +1284,6 @@ export function CylinderManagement() {
   }
 
   const handleReceiptClick = (transaction: CylinderTransaction) => {
-    // Block receipt generation for 'refill' transactions
-    if (transaction.type === 'refill') {
-      return
-    }
-    // Allow receipt generation for all other types, including 'return'
 
     if (!customerSignature) {
       // No signature yet - show signature dialog first
@@ -1602,8 +1556,7 @@ export function CylinderManagement() {
     switch (type) {
       case "deposit":
         return <ArrowDown className="w-4 h-4 text-blue-600" />
-      case "refill":
-        return <RotateCcw className="w-4 h-4 text-green-600" />
+
       case "return":
         return <ArrowUp className="w-4 h-4 text-orange-600" />
       default:
@@ -1628,8 +1581,7 @@ export function CylinderManagement() {
     switch (type) {
       case "deposit":
         return <Badge className="bg-blue-100 text-blue-800 border-blue-200">Deposit</Badge>
-      case "refill":
-        return <Badge className="bg-green-100 text-green-800 border-green-200">Refill</Badge>
+
       case "return":
         return <Badge className="bg-orange-100 text-orange-800 border-orange-200">Return</Badge>
       default:
@@ -1669,18 +1621,7 @@ export function CylinderManagement() {
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-0 shadow-lg">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-700">Total Refills</CardTitle>
-            <RotateCcw className="h-5 w-5 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-600">
-              {(transactions || []).filter((t) => t.type === "refill").length}
-            </div>
-            <p className="text-xs text-gray-600 mt-1">Cylinders refilled</p>
-          </CardContent>
-        </Card>
+
 
         <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-0 shadow-lg">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -1790,7 +1731,6 @@ export function CylinderManagement() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="deposit">Deposit</SelectItem>
-                      <SelectItem value="refill">Refill</SelectItem>
                       <SelectItem value="return">Return</SelectItem>
                     </SelectContent>
                   </Select>
@@ -2325,7 +2265,7 @@ export function CylinderManagement() {
               <TabsList className="bg-transparent p-0 -mb-px">
                 <TabsTrigger value="all" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#2B3068] rounded-none text-base font-semibold px-4 py-3">All</TabsTrigger>
                 <TabsTrigger value="deposit" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none text-base font-semibold px-4 py-3">Deposits</TabsTrigger>
-                <TabsTrigger value="refill" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none text-base font-semibold px-4 py-3">Refills</TabsTrigger>
+
                 <TabsTrigger value="return" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none text-base font-semibold px-4 py-3">Returns</TabsTrigger>
               </TabsList>
             </div>
