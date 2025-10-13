@@ -61,6 +61,7 @@ export function Inventory() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
+  const [processingItems, setProcessingItems] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetchInventoryData()
@@ -271,10 +272,20 @@ export function Inventory() {
       setError("")
       
       const inventoryItem = inventory.find(item => item.id === id)
+      
+      // Check if item is already received to prevent duplicate processing
+      if (inventoryItem?.status === "received") {
+        setError("This item has already been received")
+        return
+      }
+      
       const orderIdToUpdate = inventoryItem?.originalOrderId || id
       const itemIndex = inventoryItem?.itemIndex
       
       console.log("Receiving inventory item:", { id, orderIdToUpdate, itemIndex, inventoryItem })
+      
+      // Add item to processing set to disable the button
+      setProcessingItems(prev => new Set(prev).add(id))
       
       let response
       if (itemIndex !== undefined && itemIndex >= 0) {
@@ -288,8 +299,11 @@ export function Inventory() {
       console.log("Inventory update response:", response)
       
       if (response.data.success) {
-        // Update stock based on purchase type and cylinder status
-        await updateStockForReceivedItem(inventoryItem!)
+        // Only update stock if the item exists (we already checked it's not received at the start)
+        if (inventoryItem) {
+          await updateStockForReceivedItem(inventoryItem)
+        }
+        
         await fetchInventoryData()
         
         // Notify other pages about stock update
@@ -302,6 +316,13 @@ export function Inventory() {
     } catch (error: any) {
       console.error("Failed to receive inventory:", error)
       setError(`Failed to receive inventory: ${error.message}`)
+    } finally {
+      // Remove item from processing set
+      setProcessingItems(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(id)
+        return newSet
+      })
     }
   }
 
@@ -551,7 +572,7 @@ export function Inventory() {
                 {showActions && (
                   <TableCell className="p-4">
                     <div className="flex justify-end gap-2">
-                      {item.status === "pending" && (
+                      {item.status === "pending" && !processingItems.has(item.id) && (
                         <Button
                           size="sm"
                           onClick={() => handleReceiveInventory(item.id)}
@@ -559,6 +580,27 @@ export function Inventory() {
                           className="hover:opacity-90 text-white"
                         >
                           {item.isEmployeePurchase ? "Approve & Send to Employee" : "Mark Received"}
+                        </Button>
+                      )}
+                      {(item.status === "pending" && processingItems.has(item.id)) && (
+                        <Button
+                          size="sm"
+                          disabled={true}
+                          style={{ backgroundColor: "#6B7280" }}
+                          className="text-white cursor-not-allowed"
+                        >
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Processing...
+                        </Button>
+                      )}
+                      {item.status === "received" && (
+                        <Button
+                          size="sm"
+                          disabled={true}
+                          style={{ backgroundColor: "#10B981" }}
+                          className="text-white cursor-not-allowed"
+                        >
+                          ✓ Received
                         </Button>
                       )}
                     </div>
