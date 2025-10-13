@@ -222,8 +222,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       const filteredProducts = allProducts.filter((product: Product) => {
         // Filter by category
         if (product.category !== formData.category) return false;
-        // For cylinders, only show full cylinders (available for sale)
-        if (product.category === 'cylinder' && product.cylinderStatus !== 'full') return false;
+        // For cylinders, only show those with stock available
+        if (product.category === 'cylinder' && (product.currentStock || 0) <= 0) return false;
         // Always require in-stock products
         return (product.currentStock || 0) > 0;
       })
