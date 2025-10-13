@@ -90,6 +90,7 @@ interface Product {
   _id: string
   name: string
   category: "gas" | "cylinder"
+  cylinderStatus?: "empty" | "full"
   cylinderSize?: "large" | "small"
   costPrice: number
   leastPrice: number
@@ -109,6 +110,9 @@ export function CylinderManagement() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [allProducts, setAllProducts] = useState<Product[]>([])
+  // Live availability from inventory-items (authoritative for cylinder availability)
+  const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingTransaction, setEditingTransaction] = useState<CylinderTransaction | null>(null)
@@ -790,13 +794,26 @@ export function CylinderManagement() {
     setSecurityPrompted(false)
   }, [formData.type, formData.customerId])
 
+  // Re-filter products when transaction type changes
+  useEffect(() => {
+    if (allProducts.length > 0) {
+      // Show all cylinder products, filter by availability in dropdown
+      const filteredProducts = allProducts.filter((product: Product) => {
+        return product.category === 'cylinder'
+      })
+      console.log('CylinderManagement - Transaction type changed to:', formData.type)
+      console.log('CylinderManagement - All cylinder products:', filteredProducts.length)
+      setProducts(filteredProducts)
+    }
+  }, [formData.type, allProducts])
+
   // Helpers for items
-  const getProductById = (id: string) => products.find(p => p._id === id)
+  const getProductById = (id: string) => allProducts.find(p => p._id === id)
 
   const addItem = () => {
     // Add current draft item to items list (or save edit), then reset draft
-    if (!draftItem.productId || !draftItem.cylinderSize || (Number(draftItem.quantity) || 0) <= 0) {
-      alert('Please select product, size and quantity')
+    if (!draftItem.productId || (Number(draftItem.quantity) || 0) <= 0) {
+      alert('Please select product and quantity')
       return
     }
     // stock validation (skip only for return)
@@ -830,6 +847,7 @@ export function CylinderManagement() {
         const p = getProductById(value)
         if (p) {
           item.productName = p.name
+          // Remove cylinder size dependency
           item.amount = Number((p.leastPrice).toFixed(2))
         }
       }
@@ -853,19 +871,33 @@ export function CylinderManagement() {
   const totalItemsAmount = () => formData.items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0)
 
   const validateItemStock = (productId: string, qty: number) => {
-    const p = getProductById(productId)
+    const p = allProducts.find(p => p._id === productId)
     if (!p) {
       setStockValidationMessage("Product not found")
       setShowStockValidationPopup(true)
       return false
     }
-    // Refill skips stock validation
+    // Return skips stock validation
     if (formData.type === 'return') return true
-    if (qty <= p.currentStock) return true
-    // Use popup instead of alert
-    setStockValidationMessage(`Insufficient stock! Available: ${p.currentStock}, Requested: ${qty}`)
-    setShowStockValidationPopup(true)
-    return false
+    
+    // For deposits, validate full cylinder availability
+    if (formData.type === 'deposit' && p.category === 'cylinder') {
+      const availableFull = inventoryAvailability[productId]?.availableFull || 0
+      if (qty > availableFull) {
+        setStockValidationMessage(`Insufficient full cylinders! Available: ${availableFull}, Requested: ${qty}`)
+        setShowStockValidationPopup(true)
+        return false
+      }
+      return true
+    }
+    
+    // Fallback validation
+    if (qty > p.currentStock) {
+      setStockValidationMessage(`Insufficient stock! Available: ${p.currentStock}, Requested: ${qty}`)
+      setShowStockValidationPopup(true)
+      return false
+    }
+    return true
   }
 
   // Auto status for deposit based on total Amount (items or single) vs Deposit Amount
@@ -1021,14 +1053,57 @@ export function CylinderManagement() {
       
       try {
         const productsResponse = await productsAPI.getAll()
-        // The products API returns data directly, not in a data property
-        const allProducts = productsResponse.data || productsResponse || []
-        productsData = allProducts.filter(
-          (product: Product) => product.category === "cylinder"
-        )
+        // Normalize products from Products API
+        const rawProducts = Array.isArray(productsResponse.data?.data)
+          ? productsResponse.data.data
+          : Array.isArray(productsResponse.data)
+            ? productsResponse.data
+            : Array.isArray(productsResponse)
+              ? productsResponse
+              : []
+
+        const allProductsData: Product[] = (rawProducts as any[]).map((p: any) => ({
+          _id: p._id,
+          name: p.name,
+          category: p.category,
+          cylinderStatus: p.cylinderStatus,
+          cylinderSize: p.cylinderSize,
+          costPrice: Number(p.costPrice) || 0,
+          leastPrice: Number(p.leastPrice) || 0,
+          currentStock: Number(p.currentStock) || 0,
+        }))
+
+        setAllProducts(allProductsData)
+        
+        // Filter products based on transaction type - show all cylinders, filter by availability later
+        const filteredProducts = allProductsData.filter((product: Product) => {
+          return product.category === 'cylinder'
+        })
+        
+        productsData = filteredProducts
       } catch (error) {
         console.error("Failed to fetch products:", error)
-        // Products API might not exist yet, so we'll continue without products
+        productsData = []
+      }
+      
+      // Fetch live inventory-items availability (authoritative for cylinder availability)
+      try {
+        const invRes = await fetch('/api/inventory-items', { cache: 'no-store' })
+        const invJson = await (async () => { try { return await invRes.json() } catch { return {} as any } })()
+        const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
+        const invArr = Array.isArray(invJson?.data) ? invJson.data : []
+        for (const ii of invArr) {
+          if (ii?.productId) {
+            availMap[ii.productId] = {
+              availableEmpty: Number(ii.availableEmpty || 0),
+              availableFull: Number(ii.availableFull || 0),
+              currentStock: Number(ii.currentStock || 0),
+            }
+          }
+        }
+        setInventoryAvailability(availMap)
+      } catch (_) {
+        // Non-fatal; keep suggestions functional with product.currentStock fallback
       }
       
       setTransactions(transactionsData)
@@ -1075,7 +1150,6 @@ export function CylinderManagement() {
       } else {
         // Validate items rows
         if (formData.items.some(it => !it.productId)) { alert('Please select product for all items'); return }
-        if (formData.items.some(it => !it.cylinderSize)) { alert('Please select size for all items'); return }
         if (formData.items.some(it => !it.quantity || it.quantity <= 0)) { alert('Please enter valid quantity for all items'); return }
         if (formData.items.some(it => !it.amount || it.amount <= 0)) { alert('Please enter amount for all items'); return }
       }
@@ -1105,11 +1179,10 @@ export function CylinderManagement() {
         type: formData.type,
         // Backward-compatible primary fields required by API
         product: single ? formData.productId : (firstItem?.productId || ''),
-        cylinderSize: single ? formData.cylinderSize : (firstItem?.cylinderSize || ''),
+        cylinderSize: single ? formData.cylinderSize : (firstItem?.cylinderSize || 'small'),
         quantity: totalQuantity,
         amount: single ? (Number(formData.amount) || 0) : itemsTotal,
         depositAmount: formData.type === 'deposit' ? (formData.paymentOption === 'delivery_note' ? 0 : Number(formData.depositAmount) || 0) : 0,
-        refillAmount: formData.type === 'refill' ? (single ? (Number(formData.amount) || 0) : itemsTotal) : 0,
         returnAmount: formData.type === 'return' ? (single ? (Number(formData.amount) || 0) : itemsTotal) : 0,
         paymentOption: formData.paymentOption,
         paymentMethod: formData.paymentOption === 'debit' ? formData.paymentMethod : undefined,
@@ -1120,15 +1193,42 @@ export function CylinderManagement() {
         notes: formData.notes,
       }
 
-      // Include items array for multi-item transactions
-      if (!single) {
-        baseData.items = formData.items.map(it => ({
-          productId: it.productId,
-          productName: it.productName,
-          cylinderSize: it.cylinderSize,
-          quantity: Number(it.quantity) || 0,
-          amount: Number(it.amount) || 0,
-        }))
+      // For deposits (selling full cylinders), we need to find gas products to deduct
+      if (formData.type === 'deposit') {
+        // Add gas product information for stock deduction (like gas sales)
+        const gasProducts = allProducts.filter(p => p.category === 'gas')
+        
+        if (single) {
+          // Use first available gas product for deduction
+          const firstGas = gasProducts[0]
+          if (firstGas) {
+            baseData.gasProductId = firstGas._id
+            console.log('[CylinderManagement] Auto-selected gas product for deduction:', firstGas.name)
+          }
+        } else {
+          // Add gas product IDs to items for multi-item transactions
+          baseData.items = formData.items.map(it => {
+            const firstGas = gasProducts[0]
+            
+            return {
+              productId: it.productId,
+              productName: it.productName,
+              quantity: Number(it.quantity) || 0,
+              amount: Number(it.amount) || 0,
+              gasProductId: firstGas?._id, // Add gas product for deduction
+            }
+          })
+        }
+      } else {
+        // Include items array for non-deposit multi-item transactions
+        if (!single) {
+          baseData.items = formData.items.map(it => ({
+            productId: it.productId,
+            productName: it.productName,
+            quantity: Number(it.quantity) || 0,
+            amount: Number(it.amount) || 0,
+          }))
+        }
       }
 
       // Map party fields
@@ -1140,27 +1240,47 @@ export function CylinderManagement() {
         ;(transactionData as any).linkedDeposit = formData.linkedDeposit
       }
       console.log('[CylinderManagement] Submitting payload:', transactionData)
+      console.log('[CylinderManagement] Inventory availability data:', inventoryAvailability)
+      console.log('[CylinderManagement] Transaction type:', formData.type)
+      console.log('[CylinderManagement] Items being processed:', formData.items.length > 0 ? formData.items : 'Single item transaction')
 
       let savedResponse: any = null
       if (editingTransaction) {
         savedResponse = await cylindersAPI.update(editingTransaction._id, transactionData)
       } else {
-        // Use specific endpoints
+        // Use specific endpoints and include inventory data for proper stock deduction
+        const payloadWithInventory = {
+          ...transactionData,
+          inventoryAvailability: inventoryAvailability, // Include for backend stock validation
+        }
+        
         switch (formData.type) {
           case "deposit":
-            savedResponse = await cylindersAPI.deposit(transactionData)
+            savedResponse = await cylindersAPI.deposit(payloadWithInventory)
             break
           case "return":
-            savedResponse = await cylindersAPI.return(transactionData)
+            savedResponse = await cylindersAPI.return(payloadWithInventory)
             break
           default:
-            savedResponse = await cylindersAPI.create(transactionData)
+            savedResponse = await cylindersAPI.create(payloadWithInventory)
         }
       }
 
       await fetchData()
+      
+      // Force refresh inventory data after transaction
+      setTimeout(async () => {
+        console.log('CylinderManagement - Force refreshing inventory data after 1 second...')
+        await fetchData()
+      }, 1000)
+      
       resetForm()
       setIsDialogOpen(false)
+      
+      // Notify other pages about stock update
+      localStorage.setItem('stockUpdated', Date.now().toString())
+      window.dispatchEvent(new Event('stockUpdated'))
+      console.log('✅ Cylinder transaction completed and stock update notification sent to other pages')
 
       // Auto-open signature dialog (skip for returns)
       try {
@@ -1458,9 +1578,9 @@ export function CylinderManagement() {
     }
   }
 
-  // Stock validation function
+  // Stock validation function with inventory awareness
   const validateStock = (productId: string, requestedQuantity: number) => {
-    const selectedProduct = products.find(p => p._id === productId)
+    const selectedProduct = allProducts.find(p => p._id === productId)
     if (!selectedProduct) {
       setStockValidationMessage("Product not found")
       setShowStockValidationPopup(true)
@@ -1471,6 +1591,20 @@ export function CylinderManagement() {
       return true
     }
 
+    // For deposits, validate empty cylinder availability
+    if (formData.type === 'deposit' && selectedProduct.category === 'cylinder') {
+      const availableEmpty = inventoryAvailability[productId]?.availableEmpty || 0
+      if (requestedQuantity > availableEmpty) {
+        setStockValidationMessage(
+          `Insufficient empty cylinders! Available: ${availableEmpty}, Requested: ${requestedQuantity}`
+        )
+        setShowStockValidationPopup(true)
+        return false
+      }
+      return true
+    }
+
+    // Fallback to currentStock for other cases
     if (requestedQuantity > selectedProduct.currentStock) {
       setStockValidationMessage(
         `Insufficient stock! Available: ${selectedProduct.currentStock}, Requested: ${requestedQuantity}`
@@ -1819,28 +1953,77 @@ export function CylinderManagement() {
                     />
                     {showDraftProductSuggestions && draftProductSearchTerm.trim().length > 0 && (
                       <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
-                        {products
-                          .filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes(draftProductSearchTerm.toLowerCase()))
-                          .slice(0, 5)
-                          .map(p => (
-                            <li
-                              key={p._id}
-                              className="p-2 hover:bg-gray-100 cursor-pointer"
-                              onMouseDown={() => {
-                                setDraftItem(prev => ({ 
-                                  ...prev, 
-                                  productId: p._id, 
-                                  productName: p.name, 
-                                  cylinderSize: p.cylinderSize || '', 
-                                  amount: Number((p.leastPrice).toFixed(2)) 
-                                }))
-                                setDraftProductSearchTerm(p.name)
-                                setShowDraftProductSuggestions(false)
-                              }}
-                            >
-                              {p.name} - AED {p.leastPrice.toFixed(2)}
-                            </li>
-                          ))}
+                        {(() => {
+                          const filteredProducts = products
+                            .filter(p => {
+                              if (p.category !== 'cylinder') return false
+                              if (draftProductSearchTerm && !p.name.toLowerCase().includes(draftProductSearchTerm.toLowerCase())) return false
+                              
+                              // For deposits, check empty cylinder availability from inventory
+                              if (formData.type === 'deposit') {
+                                const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0
+                                return availableEmpty > 0
+                              }
+                              // For returns, check empty cylinder availability from inventory
+                              if (formData.type === 'return') {
+                                const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0
+                                return availableEmpty > 0
+                              }
+                              // Fallback to currentStock
+                              return (p.currentStock || 0) > 0
+                            })
+                            .slice(0, 8)
+                          
+                          if (filteredProducts.length === 0) {
+                            return (
+                              <li className="p-2 text-gray-500 text-sm">
+                                {formData.type === 'deposit' 
+                                  ? 'No empty cylinders available in inventory'
+                                  : 'No empty cylinders available in inventory'
+                                }
+                              </li>
+                            )
+                          }
+                          
+                          return filteredProducts.map(p => {
+                            const availableFull = inventoryAvailability[p._id]?.availableFull || 0
+                            const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0
+                            const showCount = formData.type === 'deposit' ? availableEmpty : availableEmpty
+                            
+                            return (
+                              <li
+                                key={p._id}
+                                className="p-2 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                onMouseDown={() => {
+                                  setDraftItem(prev => ({ 
+                                    ...prev, 
+                                    productId: p._id, 
+                                    productName: p.name, 
+                                    cylinderSize: p.cylinderSize || 'small', // Use product's cylinder size or default to small
+                                    amount: Number((p.leastPrice).toFixed(2)) 
+                                  }))
+                                  setDraftProductSearchTerm(p.name)
+                                  setShowDraftProductSuggestions(false)
+                                }}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="font-medium">{p.name}</div>
+                                    <div className="text-xs text-gray-500">Min Price: AED {p.leastPrice.toFixed(2)}</div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-xs font-medium text-green-600">
+                                      {formData.type === 'deposit' ? 'Empty' : 'Empty'}: {showCount}
+                                    </div>
+                                    <div className="text-xs text-gray-400">
+                                      Size: {p.cylinderSize || 'N/A'}
+                                    </div>
+                                  </div>
+                                </div>
+                              </li>
+                            )
+                          })
+                        })()}
                         {products.filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes(draftProductSearchTerm.toLowerCase())).length === 0 && (
                           <li className="p-2 text-gray-500">No matches</li>
                         )}
@@ -1848,26 +2031,7 @@ export function CylinderManagement() {
                     )}
                   </div>
 
-                  {/* Cylinder Size */}
-                  <div className="space-y-2">
-                    <Label>Cylinder Size *</Label>
-                    <Select
-                      value={draftItem.cylinderSize}
-                      disabled={!!draftItem.productId} // Disable when product is selected
-                      onValueChange={(value) => setDraftItem(prev => ({ ...prev, cylinderSize: value }))}
-                    >
-                      <SelectTrigger className={draftItem.productId ? "bg-gray-100" : ""}>
-                        <SelectValue placeholder={draftItem.productId ? "Auto-filled" : "Select size"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="small">Small</SelectItem>
-                        <SelectItem value="large">Large</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {draftItem.productId && (
-                      <p className="text-xs text-gray-500">Cylinder size automatically set from product</p>
-                    )}
-                  </div>
+
 
                   {/* Quantity */}
                   <div className="space-y-2">

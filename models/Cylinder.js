@@ -28,7 +28,7 @@ const CylinderTransactionSchema = new mongoose.Schema(
     },
     cylinderSize: {
       type: String,
-      required: true,
+      required: false,
       enum: ["small", "large"],
     },
     quantity: {

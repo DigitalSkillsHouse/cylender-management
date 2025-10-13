@@ -1,9 +1,32 @@
 import dbConnect from "@/lib/mongodb";
 import CylinderTransaction from "@/models/Cylinder";
 import Product from "@/models/Product";
+import InventoryItem from "@/models/InventoryItem";
 import Customer from "@/models/Customer";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
+
+// Helper function to update inventory for return transactions
+async function updateInventoryForReturn(cylinderProductId, quantity) {
+  console.log(`[Return] Processing stock addition - Cylinder: ${cylinderProductId}, Quantity: ${quantity}`);
+  
+  // 1. Add empty cylinders to inventory
+  const cylinderInventory = await InventoryItem.findOne({ product: cylinderProductId });
+  if (cylinderInventory) {
+    cylinderInventory.availableEmpty = (cylinderInventory.availableEmpty || 0) + quantity;
+    cylinderInventory.currentStock = (cylinderInventory.availableFull || 0) + (cylinderInventory.availableEmpty || 0);
+    await cylinderInventory.save();
+    console.log(`[Return] Updated cylinder inventory - Full: ${cylinderInventory.availableFull}, Empty: ${cylinderInventory.availableEmpty}`);
+  }
+  
+  // 2. Update cylinder product stock to match inventory total (sync with inventory)
+  const cylinderProduct = await Product.findById(cylinderProductId);
+  if (cylinderProduct && cylinderInventory) {
+    cylinderProduct.currentStock = (cylinderInventory.availableFull || 0) + (cylinderInventory.availableEmpty || 0);
+    await cylinderProduct.save();
+    console.log(`[Return] Synced cylinder product ${cylinderProduct.name} stock: ${cylinderProduct.currentStock}`);
+  }
+}
 
 // Helper: get next sequential invoice number: INV-<year>-CM-<seq>
 async function getNextCylinderInvoice() {
@@ -68,26 +91,17 @@ export async function POST(request) {
       .populate("customer", "name phone address email")
       .populate("product", "name category cylinderType");
 
-    // Update product stock (supports single-item or multi-item payloads)
+    // Update inventory stock for return (receiving empty cylinders)
     try {
       if (Array.isArray(data.items) && data.items.length > 0) {
-        for (const it of data.items) {
-          if (!it?.productId || !it?.quantity) continue
-          const product = await Product.findById(it.productId)
-          if (product) {
-            product.currentStock += Number(it.quantity) || 0
-            await product.save()
-          }
+        for (const item of data.items) {
+          await updateInventoryForReturn(item.productId, Number(item.quantity));
         }
       } else if (data.product && data.quantity) {
-        const product = await Product.findById(data.product)
-        if (product) {
-          product.currentStock += Number(data.quantity) || 0 // Add stock back on return
-          await product.save()
-        }
+        await updateInventoryForReturn(data.product, Number(data.quantity));
       }
     } catch (stockErr) {
-      console.error("[cylinders/return] Failed to update product stock:", stockErr)
+      console.error("[cylinders/return] Failed to update inventory stock:", stockErr)
       // Do not fail the whole request if stock update trips; transaction is still recorded
     }
 
