@@ -240,7 +240,7 @@ export function GasSales() {
   const [formData, setFormData] = useState<{
     customerId: string
     category: "gas" | "cylinder"
-    items: { productId: string; quantity: string; price: string; category: "gas" | "cylinder"; cylinderStatus?: "empty" | "full" }[]
+    items: { productId: string; quantity: string; price: string; category: "gas" | "cylinder"; cylinderStatus?: "empty" | "full"; cylinderName?: string }[]
     paymentMethod: string
     paymentStatus: string
     receivedAmount: string
@@ -699,7 +699,9 @@ export function GasSales() {
       const saleItems = formData.items
         .filter((item) => {
           const quantity = Number(item.quantity) || 0
-          return item.productId && quantity > 0
+          const price = Number(item.price) || 0
+          // Only include items with valid productId, quantity > 0, and price > 0 (exclude auxiliary items from API)
+          return item.productId && quantity > 0 && price > 0
         })
         .map((item) => {
           const quantity = Number(item.quantity) || 1
@@ -707,16 +709,57 @@ export function GasSales() {
           const price = Number(item.price) || 0
           const prod = allProducts.find((p: Product) => p._id === item.productId)
           const category = (item as any).category || prod?.category || 'gas'
-          return {
-            product: item.productId,
+          
+          // For gas items, include cylinder information for backend processing
+          const saleItem: any = {
+            product: item.productId,  // This maps productId to product for the API
             quantity: quantity,
             price: price,
             total: price * quantity,
             category: category,
             cylinderStatus: (item as any).cylinderStatus,
-            cylinderProductId: (item as any).cylinderProductId,
+            cylinderName: (item as any).cylinderName,
+          }
+          
+          // Add cylinder product ID for gas sales so backend knows which cylinder to convert
+          if (category === 'gas' && (item as any).cylinderProductId) {
+            saleItem.cylinderProductId = (item as any).cylinderProductId
+            // Also add cylinder size information for backend processing
+            const cylinderProd = allProducts.find((p: Product) => p._id === (item as any).cylinderProductId)
+            if (cylinderProd) {
+              saleItem.cylinderSize = cylinderProd.cylinderSize || 'large'
+            }
+          }
+          
+          return saleItem
+        })
+
+      // Also create auxiliary items for backend inventory processing
+      const auxiliaryItems = formData.items
+        .filter((item) => {
+          const quantity = Number(item.quantity) || 0
+          const price = Number(item.price) || 0
+          // Include auxiliary items (price = 0) for inventory conversion
+          return item.productId && quantity > 0 && price === 0
+        })
+        .map((item) => {
+          const quantity = Number(item.quantity) || 1
+          const prod = allProducts.find((p: Product) => p._id === item.productId)
+          const category = (item as any).category || prod?.category || 'cylinder'
+          return {
+            product: item.productId,
+            quantity: quantity,
+            price: 0,
+            total: 0,
+            category: category,
+            cylinderStatus: (item as any).cylinderStatus || 'full_to_empty',
+            cylinderName: (item as any).cylinderName,
+            cylinderSize: prod?.cylinderSize || 'large', // Add cylinder size for backend
           }
         })
+
+      // Combine main items and auxiliary items for complete inventory processing
+      const allItems = [...saleItems, ...auxiliaryItems]
 
       if (saleItems.length === 0) {
         alert("Please add at least one item")
@@ -745,17 +788,36 @@ export function GasSales() {
 
       const saleData = {
         customer: formData.customerId,
-        items: saleItems,
+        items: saleItems,  // Send only main items - backend should handle cylinder conversion internally
         totalAmount,
         paymentMethod: derivedPaymentMethod,
         paymentStatus: derivedPaymentStatus,
         receivedAmount: derivedReceivedAmount,
         notes: formData.notes,
+        // Include inventory availability data so backend uses same source as frontend
+        inventoryAvailability: inventoryAvailability,
       }
 
       console.log('GasSales - Submitting sale data:', saleData)
-      console.log('GasSales - Sale items:', saleItems)
+      console.log('GasSales - Sale items (main):', saleItems)
+      console.log('GasSales - Auxiliary items:', auxiliaryItems)
+      console.log('GasSales - All items (combined):', allItems)
       console.log('GasSales - Form data items:', formData.items)
+      console.log('GasSales - Inventory availability data:', inventoryAvailability)
+      
+      // Log detailed item structure for debugging
+      allItems.forEach((item, index) => {
+        console.log(`GasSales - Item ${index}:`, {
+          product: item.product,
+          category: item.category,
+          quantity: item.quantity,
+          price: item.price,
+          cylinderStatus: item.cylinderStatus,
+          cylinderProductId: item.cylinderProductId,
+          cylinderName: item.cylinderName,
+          cylinderSize: item.cylinderSize
+        })
+      })
 
       let savedResponse: any = null
       if (editingSale) {
@@ -792,7 +854,15 @@ export function GasSales() {
         savedResponse = await salesAPI.create(saleData)
       }
 
+      console.log('GasSales - Sale completed successfully, refreshing data...')
       await fetchData()
+      
+      // Force refresh inventory data after sale
+      setTimeout(async () => {
+        console.log('GasSales - Force refreshing inventory data after 1 second...')
+        await fetchData()
+      }, 1000)
+      
       resetForm()
       setIsDialogOpen(false)
       
@@ -1119,11 +1189,41 @@ export function GasSales() {
   const handleEntryQuantityChange = (value: string) => {
     const enteredQuantity = parseInt(value) || 0
     const product = allProducts.find((p: Product) => p._id === currentItem.productId)
-    if (product && enteredQuantity > product.currentStock) {
-      setStockErrorMessage(`Insufficient stock for ${product.name}. Available: ${product.currentStock}, Required: ${enteredQuantity}`)
-      setShowStockInsufficientPopup(true)
-      return
+    
+    if (product && enteredQuantity > 0) {
+      // Validate stock based on category and inventory data
+      let availableStock = 0
+      let stockType = ''
+      
+      if (currentItem.category === 'gas') {
+        // For gas sales, validate gas stock from inventory Gas tab
+        const gasStock = product.currentStock || 0
+        
+        if (enteredQuantity > gasStock) {
+          setStockErrorMessage(`Insufficient Gas stock for ${product.name}. Available: ${gasStock}, Required: ${enteredQuantity}`)
+          setShowStockInsufficientPopup(true)
+          return
+        }
+        
+        // Skip cylinder validation - let backend handle it with proper inventory data
+      } else if (currentItem.category === 'cylinder') {
+        // For cylinders, check based on cylinderStatus
+        if (currentItem.cylinderStatus === 'full') {
+          availableStock = inventoryAvailability[product._id]?.availableFull || product.currentStock || 0
+          stockType = 'Full Cylinders'
+        } else {
+          availableStock = inventoryAvailability[product._id]?.availableEmpty || 0
+          stockType = 'Empty Cylinders'
+        }
+        
+        if (enteredQuantity > availableStock) {
+          setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${availableStock}, Required: ${enteredQuantity}`)
+          setShowStockInsufficientPopup(true)
+          return
+        }
+      }
     }
+    
     setCurrentItem((prev) => ({ ...prev, quantity: value }))
   }
 
@@ -1143,21 +1243,45 @@ export function GasSales() {
     if (!currentItem.productId || qty <= 0 || pr <= 0) return
     const items = [...formData.items]
     if (editingItemIndex !== null && editingItemIndex >= 0 && editingItemIndex <= items.length) {
-      items.splice(editingItemIndex, 0, {
+      // For editing, also include cylinder name for gas sales
+      let itemToEdit: any = {
         productId: currentItem.productId,
         quantity: currentItem.quantity,
         price: currentItem.price,
         category: currentItem.category,
         cylinderStatus: currentItem.cylinderStatus,
-      })
+      }
+      
+      // If this is a gas sale, add the selected cylinder information
+      if (currentItem.category === 'gas' && currentItem.cylinderProductId) {
+        const cylinderProduct = allProducts.find((p: Product) => p._id === currentItem.cylinderProductId)
+        if (cylinderProduct) {
+          itemToEdit.cylinderName = cylinderProduct.name
+          itemToEdit.cylinderProductId = currentItem.cylinderProductId
+        }
+      }
+      
+      items.splice(editingItemIndex, 0, itemToEdit)
     } else {
-      items.push({
+      // For gas sales, include cylinder name in the main item
+      let itemToAdd: any = {
         productId: currentItem.productId,
         quantity: currentItem.quantity,
         price: currentItem.price,
         category: currentItem.category,
         cylinderStatus: currentItem.cylinderStatus,
-      })
+      }
+      
+      // If this is a gas sale, add the selected cylinder information
+      if (currentItem.category === 'gas' && currentItem.cylinderProductId) {
+        const cylinderProduct = allProducts.find((p: Product) => p._id === currentItem.cylinderProductId)
+        if (cylinderProduct) {
+          itemToAdd.cylinderName = cylinderProduct.name
+          itemToAdd.cylinderProductId = currentItem.cylinderProductId
+        }
+      }
+      
+      items.push(itemToAdd)
     }
     // If cylinder is Full and a gas product is selected, add an auxiliary zero-priced GAS item
     if (currentItem.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
@@ -1177,25 +1301,18 @@ export function GasSales() {
     // If GAS is being sold, add an auxiliary zero-priced CYLINDER item to convert full->empty
     if (currentItem.category === 'gas') {
       const cylinderProduct = allProducts.find((p: Product) => p._id === currentItem.cylinderProductId)
-      const requestedQty = Number(currentItem.quantity) || 0
-      if (!cylinderProduct) {
-        setStockErrorMessage('Please select a full cylinder for gas sale')
-        setShowStockInsufficientPopup(true)
-        return
+      
+      if (cylinderProduct) {
+        // Skip frontend cylinder validation - let backend handle it with proper inventory data
+        items.push({
+          productId: currentItem.cylinderProductId,
+          quantity: currentItem.quantity,
+          price: '0',
+          category: 'cylinder' as any,
+          cylinderStatus: 'full_to_empty',
+          cylinderName: cylinderProduct.name, // Store cylinder name for display
+        } as any)
       }
-      const availableFull = (inventoryAvailability[cylinderProduct._id]?.availableFull ?? cylinderProduct.currentStock) || 0
-      if (availableFull < requestedQty) {
-        setStockErrorMessage(`Insufficient full cylinders! Available: ${availableFull}, Required: ${requestedQty} for ${cylinderProduct.name}`)
-        setShowStockInsufficientPopup(true)
-        return
-      }
-      items.push({
-        productId: currentItem.cylinderProductId,
-        quantity: currentItem.quantity,
-        price: '0',
-        category: 'cylinder' as any,
-        cylinderStatus: 'full_to_empty',
-      } as any)
     }
     setFormData({ ...formData, items })
     resetCurrentItem()
@@ -1822,10 +1939,11 @@ export function GasSales() {
                 <div className="w-full overflow-x-auto">
                   <div className="inline-block min-w-[700px] align-top">
                     <div className="max-h-[40vh] overflow-y-auto pr-2">
-                      <div className="grid grid-cols-[1fr_2fr_1fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
+                      <div className="grid grid-cols-[1fr_2fr_1fr_1.5fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
                         <div>Category</div>
                         <div>Product</div>
                         <div>Status</div>
+                        <div>Cylinder</div>
                         <div>Qty</div>
                         <div>Price (AED)</div>
                         <div>Actions</div>
@@ -1837,11 +1955,28 @@ export function GasSales() {
                           .map((it, idx) => {
                           const p = allProducts.find((ap) => ap._id === it.productId)
                           return (
-                            <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
+                            <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1.5fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
                               <div className="truncate">{(it as any).category || 'gas'}</div>
                               <div className="truncate">{p?.name || '-'}</div>
                               <div className="truncate">
-                                {(it as any).cylinderStatus || '-'}
+                                {(() => {
+                                  // Show product status based on category and inventory data
+                                  if ((it as any).category === 'gas') {
+                                    return 'Gas'
+                                  } else if ((it as any).category === 'cylinder') {
+                                    if ((it as any).cylinderStatus === 'full') {
+                                      return 'Full'
+                                    } else if ((it as any).cylinderStatus === 'empty') {
+                                      return 'Empty'
+                                    } else {
+                                      return 'Full → Empty'
+                                    }
+                                  }
+                                  return '-'
+                                })()}
+                              </div>
+                              <div className="truncate">
+                                {(it as any).cylinderName || '-'}
                               </div>
                               <div>{Number((it as any).quantity || 0)}</div>
                               <div>{Number((it as any).price || 0).toFixed(2)}</div>

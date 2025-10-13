@@ -133,72 +133,63 @@ export async function POST(request) {
       throw new Error(`Failed to save sale after ${maxAttempts} attempts`)
     }
 
-    // Handle stock updates with cylinder conversion logic
+    // Handle inventory updates for gas sales with cylinder conversion logic
     try {
+      const InventoryItem = (await import('@/models/InventoryItem')).default
+      
       for (const item of items) {
         const product = products.find(p => p._id.toString() === item.product)
         if (product) {
           
-          // Handle cylinder conversion from full to empty
-          if (item.cylinderStatus === 'full_to_empty') {
-            console.log(`🔄 CYLINDER CONVERSION: Converting ${item.quantity} ${product.name} from Full to Empty`)
+          if (product.category === 'gas') {
+            console.log(`🔄 GAS SALE: Processing ${item.quantity} units of ${product.name}`)
             
-            // Find the corresponding empty cylinder product
-            const emptyCylinderName = product.name.replace(/\s*(full|Full|FULL)\s*/gi, '').trim() + ' Empty'
-            let emptyCylinder = await Product.findOne({
-              name: { $regex: new RegExp(emptyCylinderName, 'i') },
-              category: 'cylinder',
-              cylinderStatus: 'empty'
+            // Update gas inventory - decrease gas stock
+            const gasInventory = await InventoryItem.findOne({ product: item.product })
+            if (gasInventory) {
+              await InventoryItem.findByIdAndUpdate(gasInventory._id, {
+                $inc: { currentStock: -item.quantity },
+                lastUpdatedAt: new Date()
+              })
+              console.log(`✅ Gas inventory updated: ${product.name} decreased by ${item.quantity}`)
+            }
+            
+            // Find related cylinder from cylinderProductId (set by frontend)
+            if (item.cylinderProductId) {
+              const cylinderInventory = await InventoryItem.findOne({ product: item.cylinderProductId })
+              if (cylinderInventory) {
+                // Move cylinders from Full to Empty
+                await InventoryItem.findByIdAndUpdate(cylinderInventory._id, {
+                  $inc: { 
+                    availableFull: -item.quantity,
+                    availableEmpty: item.quantity 
+                  },
+                  lastUpdatedAt: new Date()
+                })
+                
+                const cylinderProduct = products.find(p => p._id.toString() === item.cylinderProductId)
+                console.log(`✅ Cylinder conversion: ${cylinderProduct?.name || 'Cylinder'} - ${item.quantity} moved from Full to Empty`)
+              }
+            }
+            
+            // Also update Product model for backward compatibility
+            await Product.findByIdAndUpdate(item.product, {
+              currentStock: Math.max(0, product.currentStock - item.quantity)
             })
             
-            // If no empty cylinder found, try alternative naming patterns
-            if (!emptyCylinder) {
-              const baseName = product.name.replace(/\s*(full|Full|FULL)\s*/gi, '').trim()
-              emptyCylinder = await Product.findOne({
-                name: { $regex: new RegExp(`^${baseName}.*empty`, 'i') },
-                category: 'cylinder',
-                cylinderStatus: 'empty'
-              })
-            }
-            
-            if (emptyCylinder) {
-              // Decrease full cylinder stock
-              const newFullStock = product.currentStock - item.quantity
-              await Product.findByIdAndUpdate(item.product, {
-                currentStock: Math.max(0, newFullStock)
-              })
-              
-              // Increase empty cylinder stock
-              const newEmptyStock = emptyCylinder.currentStock + item.quantity
-              await Product.findByIdAndUpdate(emptyCylinder._id, {
-                currentStock: newEmptyStock
-              })
-              
-              console.log(`✅ CONVERSION COMPLETE: ${product.name} stock ${product.currentStock} → ${newFullStock} (Full)`)
-              console.log(`✅ CONVERSION COMPLETE: ${emptyCylinder.name} stock ${emptyCylinder.currentStock} → ${newEmptyStock} (Empty)`)
-            } else {
-              console.warn(`⚠️ No matching empty cylinder found for ${product.name}. Only decreasing full cylinder stock.`)
-              // Fallback: just decrease the full cylinder stock
-              const newStock = product.currentStock - item.quantity
-              await Product.findByIdAndUpdate(item.product, {
-                currentStock: Math.max(0, newStock)
-              })
-              console.log(`✅ Updated ${product.name} stock from ${product.currentStock} to ${newStock} (fallback)`)
-            }
           } else {
-            // Regular stock deduction for normal sales
+            // Handle non-gas products (regular stock deduction)
             const newStock = product.currentStock - item.quantity
             await Product.findByIdAndUpdate(item.product, {
-              currentStock: Math.max(0, newStock) // Ensure stock doesn't go negative
+              currentStock: Math.max(0, newStock)
             })
-            console.log(`✅ Updated ${product.name} stock from ${product.currentStock} to ${newStock} (sold ${item.quantity} units)`)
+            console.log(`✅ Updated ${product.name} stock from ${product.currentStock} to ${newStock}`)
           }
         }
       }
     } catch (stockError) {
-      console.error("❌ Failed to update product stock after sale:", stockError)
-      // Note: Sale is already created, but stock update failed
-      // In a production system, you might want to implement compensation logic
+      console.error("❌ Failed to update inventory after sale:", stockError)
+      // Note: Sale is already created, but inventory update failed
     }
 
     // Populate the created sale for response
