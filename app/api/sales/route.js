@@ -47,12 +47,62 @@ export async function POST(request) {
     }
 
     // Check if there's enough stock for all items
+    const InventoryItem = (await import('@/models/InventoryItem')).default
+    
     for (const item of items) {
       const product = products.find(p => p._id.toString() === item.product)
-      if (product && product.currentStock < item.quantity) {
-        return NextResponse.json({ 
-          error: `Insufficient stock for ${product.name}. Available: ${product.currentStock}, Required: ${item.quantity}` 
-        }, { status: 400 })
+      console.log(`Checking stock for item:`, {
+        productId: item.product,
+        productName: product?.name,
+        category: product?.category,
+        cylinderStatus: item.cylinderStatus,
+        quantity: item.quantity
+      })
+      
+      if (product) {
+        let availableStock = 0
+        let stockType = ''
+        
+        if (product.category === 'cylinder') {
+          // For cylinders, check inventory availability based on status
+          const inventoryItem = await InventoryItem.findOne({ product: item.product })
+          console.log(`Inventory item found:`, {
+            inventoryItem: inventoryItem ? {
+              availableEmpty: inventoryItem.availableEmpty,
+              availableFull: inventoryItem.availableFull,
+              currentStock: inventoryItem.currentStock
+            } : null
+          })
+          
+          if (item.cylinderStatus === 'empty') {
+            availableStock = inventoryItem?.availableEmpty || 0
+            stockType = 'Empty Cylinders'
+          } else if (item.cylinderStatus === 'full') {
+            availableStock = inventoryItem?.availableFull || 0
+            stockType = 'Full Cylinders'
+          } else {
+            // Default to currentStock for other statuses
+            availableStock = product.currentStock || 0
+            stockType = 'Cylinders'
+          }
+        } else {
+          // For gas and other products, use currentStock
+          availableStock = product.currentStock || 0
+          stockType = product.category === 'gas' ? 'Gas' : 'Stock'
+        }
+        
+        console.log(`Stock check result:`, {
+          availableStock,
+          requiredStock: item.quantity,
+          stockType,
+          sufficient: availableStock >= item.quantity
+        })
+        
+        if (availableStock < item.quantity) {
+          return NextResponse.json({ 
+            error: `Insufficient ${stockType} for ${product.name}. Available: ${availableStock}, Required: ${item.quantity}` 
+          }, { status: 400 })
+        }
       }
     }
 
@@ -177,8 +227,37 @@ export async function POST(request) {
               currentStock: Math.max(0, product.currentStock - item.quantity)
             })
             
+          } else if (product.category === 'cylinder') {
+            // Handle cylinder sales - update inventory based on status
+            const cylinderInventory = await InventoryItem.findOne({ product: item.product })
+            if (cylinderInventory) {
+              if (item.cylinderStatus === 'empty') {
+                // Selling empty cylinders - decrease availableEmpty
+                await InventoryItem.findByIdAndUpdate(cylinderInventory._id, {
+                  $inc: { availableEmpty: -item.quantity },
+                  lastUpdatedAt: new Date()
+                })
+                console.log(`✅ Empty cylinder sale: ${product.name} decreased by ${item.quantity}`)
+              } else if (item.cylinderStatus === 'full') {
+                // Selling full cylinders - decrease availableFull, increase availableEmpty
+                await InventoryItem.findByIdAndUpdate(cylinderInventory._id, {
+                  $inc: { 
+                    availableFull: -item.quantity,
+                    availableEmpty: item.quantity 
+                  },
+                  lastUpdatedAt: new Date()
+                })
+                console.log(`✅ Full cylinder sale: ${product.name} - ${item.quantity} moved from Full to Empty`)
+              }
+            }
+            
+            // Also update Product model currentStock for backward compatibility
+            const newStock = product.currentStock - item.quantity
+            await Product.findByIdAndUpdate(item.product, {
+              currentStock: Math.max(0, newStock)
+            })
           } else {
-            // Handle non-gas products (regular stock deduction)
+            // Handle other products (regular stock deduction)
             const newStock = product.currentStock - item.quantity
             await Product.findByIdAndUpdate(item.product, {
               currentStock: Math.max(0, newStock)
@@ -203,6 +282,12 @@ export async function POST(request) {
     })
   } catch (error) {
     console.error("Sales POST error:", error)
-    return NextResponse.json({ error: "Failed to create sale" }, { status: 500 })
+    console.error("Error stack:", error.stack)
+    console.error("Error message:", error.message)
+    return NextResponse.json({ 
+      error: "Failed to create sale", 
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    }, { status: 500 })
   }
 }

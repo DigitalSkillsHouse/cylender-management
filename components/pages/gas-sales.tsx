@@ -719,6 +719,7 @@ export function GasSales() {
             category: category,
             cylinderStatus: (item as any).cylinderStatus,
             cylinderName: (item as any).cylinderName,
+            cylinderSize: prod?.cylinderSize || 'large', // Add cylinder size
           }
           
           // Add cylinder product ID for gas sales so backend knows which cylinder to convert
@@ -1204,12 +1205,10 @@ export function GasSales() {
           setShowStockInsufficientPopup(true)
           return
         }
-        
-        // Skip cylinder validation - let backend handle it with proper inventory data
       } else if (currentItem.category === 'cylinder') {
         // For cylinders, check based on cylinderStatus
         if (currentItem.cylinderStatus === 'full') {
-          availableStock = inventoryAvailability[product._id]?.availableFull || product.currentStock || 0
+          availableStock = inventoryAvailability[product._id]?.availableFull || 0
           stockType = 'Full Cylinders'
         } else {
           availableStock = inventoryAvailability[product._id]?.availableEmpty || 0
@@ -1689,6 +1688,27 @@ export function GasSales() {
                       </SelectContent>
                     </Select>
                   </div>
+                  
+                  {currentItem.category === 'cylinder' && (
+                    <div className="space-y-2">
+                      <Label>Full or Empty Cylinder</Label>
+                      <Select 
+                        value={currentItem.cylinderStatus || "empty"} 
+                        onValueChange={(value: "empty" | "full") => 
+                          setCurrentItem({ ...currentItem, cylinderStatus: value })
+                        }
+                      >
+                        <SelectTrigger className="bg-white text-black">
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white text-black">
+                          <SelectItem value="empty">Empty</SelectItem>
+                          <SelectItem value="full">Full</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  
                   <div className="space-y-2 relative">
                     <Label>Product</Label>
                     <Input
@@ -1704,8 +1724,18 @@ export function GasSales() {
                         .filter((p: Product) => {
                           // Filter by category
                           if (p.category !== currentItem.category) return false;
-                          // For cylinders, only show full cylinders (available for sale)
-                          if (p.category === 'cylinder' && p.cylinderStatus !== 'full') return false;
+                          // For cylinders, filter based on selected status
+                          if (p.category === 'cylinder') {
+                            if (currentItem.cylinderStatus === 'empty') {
+                              // Show cylinders with empty stock available
+                              const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0;
+                              if (availableEmpty <= 0) return false;
+                            } else {
+                              // Show cylinders with full stock available
+                              const availableFull = inventoryAvailability[p._id]?.availableFull || 0;
+                              if (availableFull <= 0) return false;
+                            }
+                          }
                           // For gas, only show products that are in stock (align with Inventory 'Gas' tab)
                           if (p.category === 'gas' && (p.currentStock || 0) <= 0) return false;
                           // Filter by search term
@@ -1751,7 +1781,14 @@ export function GasSales() {
                                   <span className="font-medium text-gray-900">
                                     {product.name}
                                   </span>
-                                  <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
+                                  <div className="flex items-center gap-2">
+                                    {product.category === 'cylinder' && (
+                                      <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                        {currentItem.cylinderStatus === 'empty' ? 'Empty' : 'Full'}: {currentItem.cylinderStatus === 'empty' ? (inventoryAvailability[product._id]?.availableEmpty || 0) : (inventoryAvailability[product._id]?.availableFull || 0)}
+                                      </span>
+                                    )}
+                                    <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
+                                  </div>
                                 </div>
                               </div>
                             ))
@@ -1835,26 +1872,6 @@ export function GasSales() {
                           }
                         </div>
                       )}
-                    </div>
-                  )}
-
-                  {currentItem.category === 'cylinder' && (
-                    <div className="space-y-2">
-                      <Label>Full or Empty Cylinder</Label>
-                      <Select 
-                        value={currentItem.cylinderStatus || "empty"} 
-                        onValueChange={(value: "empty" | "full") => 
-                          setCurrentItem({ ...currentItem, cylinderStatus: value })
-                        }
-                      >
-                        <SelectTrigger className="bg-white text-black">
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white text-black">
-                          <SelectItem value="empty">Empty</SelectItem>
-                          <SelectItem value="full">Full</SelectItem>
-                        </SelectContent>
-                      </Select>
                     </div>
                   )}
 
