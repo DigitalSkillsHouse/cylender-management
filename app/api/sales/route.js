@@ -248,6 +248,26 @@ export async function POST(request) {
                   lastUpdatedAt: new Date()
                 })
                 console.log(`✅ Full cylinder sale: ${product.name} - ${item.quantity} moved from Full to Empty`)
+                
+                // Also deduct gas stock since full cylinder contains gas
+                if (item.gasProductId) {
+                  const gasInventory = await InventoryItem.findOne({ product: item.gasProductId })
+                  if (gasInventory) {
+                    await InventoryItem.findByIdAndUpdate(gasInventory._id, {
+                      $inc: { currentStock: -item.quantity },
+                      lastUpdatedAt: new Date()
+                    })
+                    
+                    // Also update gas Product model
+                    const gasProduct = products.find(p => p._id.toString() === item.gasProductId)
+                    if (gasProduct) {
+                      await Product.findByIdAndUpdate(item.gasProductId, {
+                        currentStock: Math.max(0, gasProduct.currentStock - item.quantity)
+                      })
+                      console.log(`✅ Gas stock deducted: ${gasProduct.name} decreased by ${item.quantity} (from full cylinder sale)`)
+                    }
+                  }
+                }
               }
             }
             

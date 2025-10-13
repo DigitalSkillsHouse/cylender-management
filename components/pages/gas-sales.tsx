@@ -1151,7 +1151,7 @@ export function GasSales() {
       productId: product._id,
       quantity: "1",
       price: (Number(product.leastPrice) || 0).toString(),
-      cylinderStatus: "empty" as "empty" | "full",
+      cylinderStatus: currentItem.cylinderStatus || "empty" as "empty" | "full",
       gasProductId: "",
       cylinderProductId: currentItem.cylinderProductId || "",
     }
@@ -1179,6 +1179,29 @@ export function GasSales() {
         // No suitable cylinder available
         nextItem = { ...nextItem, cylinderProductId: "" }
         setEntryCylinderSearch("")
+      }
+    }
+    
+    // If full cylinder selected, auto-pick a suitable gas product
+    if (product.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
+      const cylinderSize = product.cylinderSize as ("large" | "small" | undefined)
+      let gasProducts = allProducts.filter((p: Product) => {
+        if (p.category !== 'gas') return false
+        const gasStock = p.currentStock || 0
+        return gasStock > 0
+      })
+      // Try to match cylinder size with gas size if available
+      const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => (g.cylinderSize as any) === cylinderSize) : []
+      const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
+        .sort((a, b) => ((b.currentStock || 0) - (a.currentStock || 0)))[0]
+      if (pick) {
+        nextItem = { ...nextItem, gasProductId: pick._id }
+        setEntryGasSearch(pick.name)
+        setShowEntryGasSuggestions(false)
+      } else {
+        // No suitable gas available
+        nextItem = { ...nextItem, gasProductId: "" }
+        setEntryGasSearch("")
       }
     }
 
