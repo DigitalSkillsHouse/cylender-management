@@ -205,18 +205,16 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
   const addItem = () => {
     // Add current draft item to items or save edit
-    if (!draftItem.productId || !draftItem.cylinderSize || (Number(draftItem.quantity) || 0) <= 0) {
-      toast.error('Please select product, size and quantity')
+    if (!draftItem.productId || (Number(draftItem.quantity) || 0) <= 0) {
+      toast.error('Please select product and quantity')
       return
     }
-    // Validate against assigned stock (skip for refill)
-    if (formData.type !== 'refill') {
-      const available = getAssignedAvailableFor(draftItem.productId, draftItem.cylinderSize)
-      if (available < (Number(draftItem.quantity) || 0)) {
-        setStockValidationMessage(`You requested ${draftItem.quantity} unit(s). Only ${available} unit(s) are available in your assigned inventory.`)
-        setShowStockValidationPopup(true)
-        return
-      }
+    // Validate against assigned stock
+    const available = getAssignedAvailableFor(draftItem.productId, draftItem.cylinderSize || '')
+    if (available < (Number(draftItem.quantity) || 0)) {
+      setStockValidationMessage(`You requested ${draftItem.quantity} unit(s). Only ${available} unit(s) are available in your assigned inventory.`)
+      setShowStockValidationPopup(true)
+      return
     }
     setFormData(prev => {
       const items = [...prev.items]
@@ -770,12 +768,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         newState.depositAmount = 0;
         newState.refillAmount = 0;
         newState.returnAmount = 0;
-        // Clear irrelevant party fields when switching types
-        if (value === 'refill') {
-          newState.customer = '';
-        } else {
-          newState.supplier = '';
-        }
+        // Clear customer field when switching types
+        newState.customer = '';
       }
 
       // When product changes, auto-fill the amount with least price
@@ -853,14 +847,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     e.preventDefault()
 
     // Enhanced validation
-    if (formData.type === 'refill') {
-      const hasSingle = !!formData.product && !!formData.cylinderSize && Number(formData.quantity) > 0
-      const hasItems = Array.isArray(formData.items) && formData.items.length > 0
-      if (!formData.supplier || (!hasSingle && !hasItems)) {
-        toast.error("Please fill in all required fields")
-        return
-      }
-    } else if (!formData.customer || (formData.items.length === 0 && (!formData.product || !formData.cylinderSize || formData.quantity <= 0))) {
+    if (!formData.customer || (formData.items.length === 0 && (!formData.product || !formData.cylinderSize || formData.quantity <= 0))) {
       toast.error("Please fill in all required fields")
       return
     }
@@ -874,38 +861,36 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       }
     }
 
-    // Validate against assigned stock (skip for refill transactions)
-    if (formData.type !== 'refill') {
-      if (formData.items.length === 0) {
-        const assignedAvailable = getAssignedAvailable()
-        if (assignedAvailable < formData.quantity) {
+    // Validate against assigned stock
+    if (formData.items.length === 0) {
+      const assignedAvailable = getAssignedAvailable()
+      if (assignedAvailable < formData.quantity) {
+        setStockAlert({
+          open: true,
+          productName: selectedProduct!.name,
+          size: formData.cylinderSize,
+          available: assignedAvailable,
+          requested: formData.quantity,
+        })
+        setStockValidationMessage(`You requested ${formData.quantity} unit(s) of ${selectedProduct!.name} (${formData.cylinderSize}). Only ${assignedAvailable} unit(s) are available in your assigned inventory.`)
+        setShowStockValidationPopup(true)
+        return
+      }
+    } else {
+      // Multi-item validation per item
+      for (const it of formData.items) {
+        const available = getAssignedAvailableFor(it.productId, it.cylinderSize)
+        if (available < (Number(it.quantity) || 0)) {
           setStockAlert({
             open: true,
-            productName: selectedProduct!.name,
-            size: formData.cylinderSize,
-            available: assignedAvailable,
-            requested: formData.quantity,
+            productName: it.productName,
+            size: it.cylinderSize,
+            available,
+            requested: it.quantity,
           })
-          setStockValidationMessage(`You requested ${formData.quantity} unit(s) of ${selectedProduct!.name} (${formData.cylinderSize}). Only ${assignedAvailable} unit(s) are available in your assigned inventory.`)
+          setStockValidationMessage(`You requested ${it.quantity} unit(s) of ${it.productName} (${it.cylinderSize}). Only ${available} unit(s) are available in your assigned inventory.`)
           setShowStockValidationPopup(true)
           return
-        }
-      } else {
-        // Multi-item validation per item
-        for (const it of formData.items) {
-          const available = getAssignedAvailableFor(it.productId, it.cylinderSize)
-          if (available < (Number(it.quantity) || 0)) {
-            setStockAlert({
-              open: true,
-              productName: it.productName,
-              size: it.cylinderSize,
-              available,
-              requested: it.quantity,
-            })
-            setStockValidationMessage(`You requested ${it.quantity} unit(s) of ${it.productName} (${it.cylinderSize}). Only ${available} unit(s) are available in your assigned inventory.`)
-            setShowStockValidationPopup(true)
-            return
-          }
         }
       }
     }
@@ -926,7 +911,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           formData.type === 'deposit'
             ? (formData.paymentOption === 'delivery_note' ? 0 : Number(formData.depositAmount) || 0)
             : 0,
-        refillAmount: formData.type === 'refill' ? calculatedAmount : 0,
+        refillAmount: 0,
         returnAmount: formData.type === 'return' ? calculatedAmount : 0,
         // Enforce status rules: return => cleared, deposit => pending, otherwise keep selected
         status: formData.type === 'return'
@@ -951,11 +936,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         transactionData.linkedDeposit = formData.linkedDeposit
       }
 
-      if (formData.type === 'refill') {
-        transactionData.supplier = formData.supplier
-      } else {
-        transactionData.customer = formData.customer
-      }
+      transactionData.customer = formData.customer
 
       if (formData.paymentOption === 'debit') {
         transactionData.paymentMethod = formData.paymentMethod
@@ -1080,7 +1061,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     setFormData({
       type: transaction.type,
       customer: (transaction as any).customer?._id || '',
-      supplier: (transaction as any).supplier?._id || '',
+      supplier: '',
       product: (transaction.items && transaction.items.length > 0) ? (transaction.items[0].productId || '') : (transaction.product?._id || ''),
       cylinderSize: (transaction.items && transaction.items.length > 0) ? transaction.items[0].cylinderSize : transaction.cylinderSize,
       quantity: (transaction.items && transaction.items.length > 0) ? transaction.items[0].quantity : transaction.quantity,
@@ -1135,11 +1116,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
   // Handle view receipt - opens signature dialog first
   const handleViewReceipt = (transaction: CylinderTransaction) => {
-    // Block receipt generation for refill transactions
-    if (transaction.type === 'refill') {
-      toast.info('Receipt is not available for Refill transactions')
-      return
-    }
     // Build a safe party object for receipt/signature
     const isRefill = transaction.type === 'refill'
     // Enrich customer data with full customer object to get trNumber
@@ -1260,11 +1236,9 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     
     let amountColumns: string[] = []
     if (activeTab === 'all') {
-      amountColumns = ['depositAmount', 'refillAmount', 'returnAmount']
+      amountColumns = ['depositAmount', 'returnAmount']
     } else if (activeTab === 'deposit') {
       amountColumns = ['depositAmount']
-    } else if (activeTab === 'refill') {
-      amountColumns = ['refillAmount']
     } else if (activeTab === 'return') {
       amountColumns = ['returnAmount']
     }
@@ -1330,17 +1304,10 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       ),
       customer: () => (
         <TableCell className="p-4">
-          {transaction.type === 'refill' ? (
-            <div>
-              <div className="font-medium">{(transaction as any).supplier?.companyName || 'N/A'}</div>
-              <div className="text-sm text-gray-500">{(transaction as any).supplier?.phone || ''}</div>
-            </div>
-          ) : (
-            <div>
-              <div className="font-medium">{transaction.customer.name}</div>
-              <div className="text-sm text-gray-500">{transaction.customer.phone}</div>
-            </div>
-          )}
+          <div>
+            <div className="font-medium">{transaction.customer.name}</div>
+            <div className="text-sm text-gray-500">{transaction.customer.phone}</div>
+          </div>
         </TableCell>
       ),
       product: () => {
@@ -1458,17 +1425,15 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       actions: () => (
         <TableCell className="p-4">
           <div className="flex gap-2">
-            {transaction.type !== 'refill' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleViewReceipt(transaction)}
-                className="h-8 px-2 text-xs"
-              >
-                <Receipt className="w-3 h-3 mr-1" />
-                Receipt
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewReceipt(transaction)}
+              className="h-8 px-2 text-xs"
+            >
+              <Receipt className="w-3 h-3 mr-1" />
+              Receipt
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -1663,72 +1628,53 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="deposit">Deposit</SelectItem>
-          <SelectItem value="refill">Refill</SelectItem>
           <SelectItem value="return">Return</SelectItem>
         </SelectContent>
       </Select>
     </div>
 
-    {/* Customer or Supplier (conditional) */}
-    {formData.type !== 'refill' ? (
-      <div className="relative">
-        <Label htmlFor="customer">Customer</Label>
-        <Input
-          id="customer"
-          type="text"
-          value={customerSearch}
-          onChange={(e) => handleCustomerSearchChange(e.target.value)}
-          onFocus={handleCustomerInputFocus}
-          onBlur={handleCustomerInputBlur}
-          placeholder="Search by name, serial number, phone, or email..."
-          autoComplete="off"
-        />
-        {showCustomerSuggestions && filteredCustomers.length > 0 && (
-          <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
-            {filteredCustomers.map((customer) => (
-              <li
-                key={customer._id}
-                className="p-2 hover:bg-gray-100 cursor-pointer"
-                onMouseDown={() => handleCustomerSuggestionClick(customer)}
-              >
-                <div className="flex items-center gap-2">
-                  <span>{customer.name}</span>
-                  {customer.serialNumber && (
-                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
-                      {customer.serialNumber}
-                    </span>
-                  )}
-                </div>
-                <div className="text-sm text-gray-500">({customer.phone})</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    ) : (
-      <div>
-        <Label htmlFor="supplier">Supplier</Label>
-        <Select value={formData.supplier} onValueChange={(value) => handleSelectChange('supplier', value)}>
-          <SelectTrigger>
-            <SelectValue placeholder="Select a supplier" />
-          </SelectTrigger>
-          <SelectContent>
-            {suppliers.map((s) => (
-              <SelectItem key={s._id} value={s._id}>
-                {s.companyName} {s.contactPerson ? `- ${s.contactPerson}` : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-    )}
+    {/* Customer */}
+    <div className="relative">
+      <Label htmlFor="customer">Customer</Label>
+      <Input
+        id="customer"
+        type="text"
+        value={customerSearch}
+        onChange={(e) => handleCustomerSearchChange(e.target.value)}
+        onFocus={handleCustomerInputFocus}
+        onBlur={handleCustomerInputBlur}
+        placeholder="Search by name, serial number, phone, or email..."
+        autoComplete="off"
+      />
+      {showCustomerSuggestions && filteredCustomers.length > 0 && (
+        <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg">
+          {filteredCustomers.map((customer) => (
+            <li
+              key={customer._id}
+              className="p-2 hover:bg-gray-100 cursor-pointer"
+              onMouseDown={() => handleCustomerSuggestionClick(customer)}
+            >
+              <div className="flex items-center gap-2">
+                <span>{customer.name}</span>
+                {customer.serialNumber && (
+                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full font-medium">
+                    {customer.serialNumber}
+                  </span>
+                )}
+              </div>
+              <div className="text-sm text-gray-500">({customer.phone})</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
 
     {/* Items: single-entry draft form + items table */}
     <div className="md:col-span-2 space-y-4">
       <Label className="text-lg font-semibold">Items</Label>
 
       {/* 2x2 draft form */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Product autocomplete */}
         <div className="space-y-2 relative">
           <Label>Product *</Label>
@@ -1774,26 +1720,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           )}
         </div>
 
-        {/* Cylinder Size */}
-        <div className="space-y-2">
-          <Label>Cylinder Size *</Label>
-          <Select
-            value={draftItem.cylinderSize}
-            disabled={!!draftItem.productId} // Disable when product is selected
-            onValueChange={(v) => setDraftItem(prev => ({ ...prev, cylinderSize: v }))}
-          >
-            <SelectTrigger className={draftItem.productId ? "bg-gray-100" : ""}>
-              <SelectValue placeholder={draftItem.productId ? "Auto-filled" : "Select size"} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="small">Small (5kg)</SelectItem>
-              <SelectItem value="large">Large (45kg)</SelectItem>
-            </SelectContent>
-          </Select>
-          {draftItem.productId && (
-            <p className="text-xs text-gray-500">Cylinder size automatically set from product</p>
-          )}
-        </div>
+
 
         {/* Quantity */}
         <div className="space-y-2">
@@ -1830,7 +1757,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             <TableHeader>
               <TableRow>
                 <TableHead>Product</TableHead>
-                <TableHead>Size</TableHead>
+
                 <TableHead>Qty</TableHead>
                 <TableHead>Amount (AED)</TableHead>
                 <TableHead className="w-32">Actions</TableHead>
@@ -1840,7 +1767,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
               {formData.items.map((it, idx) => (
                 <TableRow key={idx}>
                   <TableCell>{it.productName || products.find(p => p._id === it.productId)?.name || '-'}</TableCell>
-                  <TableCell className="capitalize">{it.cylinderSize || '-'}</TableCell>
                   <TableCell>{it.quantity}</TableCell>
                   <TableCell>AED {(Number(it.amount)||0).toFixed(2)}</TableCell>
                   <TableCell>
@@ -1860,7 +1786,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell colSpan={3} className="text-right font-semibold">Total</TableCell>
+                <TableCell colSpan={2} className="text-right font-semibold">Total</TableCell>
                 <TableCell className="font-semibold">AED {totalItemsAmount().toFixed(2)}</TableCell>
                 <TableCell />
               </TableRow>
@@ -2052,7 +1978,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             <TabsList className="bg-transparent p-0 -mb-px">
               <TabsTrigger value="all" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#2B3068] rounded-none text-base font-semibold px-4 py-3">All</TabsTrigger>
               <TabsTrigger value="deposit" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none text-base font-semibold px-4 py-3">Deposits</TabsTrigger>
-              <TabsTrigger value="refill" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none text-base font-semibold px-4 py-3">Refills</TabsTrigger>
               <TabsTrigger value="return" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none text-base font-semibold px-4 py-3">Returns</TabsTrigger>
             </TabsList>
           </div>

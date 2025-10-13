@@ -4,7 +4,45 @@ import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction"
 import Customer from "@/models/Customer"
 import User from "@/models/User"
 import Counter from "@/models/Counter"
+import Product from "@/models/Product"
+import InventoryItem from "@/models/InventoryItem"
+import StockAssignment from "@/models/StockAssignment"
 import mongoose from "mongoose"
+
+// Helper function to update inventory for deposit transactions
+async function updateInventoryForDeposit(cylinderProductId, quantity, employeeId) {
+  console.log(`[Employee Deposit] Processing stock deduction - Cylinder: ${cylinderProductId}, Quantity: ${quantity}, Employee: ${employeeId}`)
+  
+  // 1. Deduct from employee's stock assignment
+  const assignment = await StockAssignment.findOne({ 
+    employee: employeeId, 
+    product: cylinderProductId,
+    status: 'received'
+  })
+  
+  if (assignment) {
+    assignment.remainingQuantity = Math.max(0, (assignment.remainingQuantity || 0) - quantity)
+    await assignment.save()
+    console.log(`[Employee Deposit] Updated assignment remaining: ${assignment.remainingQuantity}`)
+  }
+  
+  // 2. Deduct empty cylinders from inventory
+  const cylinderInventory = await InventoryItem.findOne({ product: cylinderProductId })
+  if (cylinderInventory) {
+    cylinderInventory.availableEmpty = Math.max(0, (cylinderInventory.availableEmpty || 0) - quantity)
+    cylinderInventory.currentStock = (cylinderInventory.availableFull || 0) + (cylinderInventory.availableEmpty || 0)
+    await cylinderInventory.save()
+    console.log(`[Employee Deposit] Updated cylinder inventory - Empty: ${cylinderInventory.availableEmpty}, Total: ${cylinderInventory.currentStock}`)
+  }
+  
+  // 3. Sync cylinder product stock with inventory total
+  const cylinderProduct = await Product.findById(cylinderProductId)
+  if (cylinderProduct && cylinderInventory) {
+    cylinderProduct.currentStock = cylinderInventory.currentStock
+    await cylinderProduct.save()
+    console.log(`[Employee Deposit] Synced cylinder product ${cylinderProduct.name} stock: ${cylinderProduct.currentStock}`)
+  }
+}
 
 export async function GET(request) {
   try {
@@ -135,14 +173,8 @@ export async function POST(request) {
       }
     }
 
-    if (type === 'refill') {
-      if (!supplier) {
-        return NextResponse.json({ error: "Supplier is required for refill" }, { status: 400 })
-      }
-    } else {
-      if (!customer) {
-        return NextResponse.json({ error: "Customer is required for this transaction" }, { status: 400 })
-      }
+    if (!customer) {
+      return NextResponse.json({ error: "Customer is required for this transaction" }, { status: 400 })
     }
 
     // Compute totals
@@ -183,11 +215,7 @@ export async function POST(request) {
       })) : undefined,
     }
 
-    if (type === 'refill') {
-      transactionData.supplier = supplier
-    } else {
-      transactionData.customer = customer
-    }
+    transactionData.customer = customer
 
     console.log("[POST /api/employee-cylinders] creating with itemsLen=", Array.isArray(transactionData.items) ? transactionData.items.length : 0,
       'totalQty=', transactionData.quantity, 'totalAmt=', transactionData.amount)
@@ -238,6 +266,24 @@ export async function POST(request) {
       }
     }
     console.log('[POST /api/employee-cylinders] saved _id=', savedTransaction._id, 'itemsLen=', Array.isArray(savedTransaction.items) ? savedTransaction.items.length : 0)
+
+    // Update inventory for deposit transactions
+    if (type === 'deposit') {
+      try {
+        if (hasItems) {
+          // Multi-item: update inventory for each item
+          for (const item of items) {
+            await updateInventoryForDeposit(item.productId, Number(item.quantity) || 0, employeeId)
+          }
+        } else {
+          // Single item: update inventory
+          await updateInventoryForDeposit(product, totalQuantity, employeeId)
+        }
+      } catch (error) {
+        console.error('[Employee Deposit] Inventory update failed:', error)
+        // Continue without failing the transaction
+      }
+    }
 
     // Populate the response
     const populatedTransaction = await EmployeeCylinderTransaction.findById(savedTransaction._id)
