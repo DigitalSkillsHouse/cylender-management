@@ -250,8 +250,58 @@ export async function POST(request) {
                 console.log(`✅ Full cylinder sale: ${product.name} - ${item.quantity} moved from Full to Empty`)
                 
                 // Also deduct gas stock since full cylinder contains gas
-                if (item.gasProductId) {
-                  const gasInventory = await InventoryItem.findOne({ product: item.gasProductId })
+                // Try multiple ways to find the gas product ID
+                let gasProductId = item.gasProductId || item.gasProduct
+                
+                // If no explicit gas product ID, try to find a matching gas product by cylinder size
+                if (!gasProductId && product.cylinderSize) {
+                  console.log(`🔍 No gasProductId found, searching for gas by cylinder size: ${product.cylinderSize}`)
+                  const matchingGasProducts = products.filter(p => 
+                    p.category === 'gas' && 
+                    p.cylinderSize === product.cylinderSize &&
+                    (p.currentStock || 0) > 0
+                  )
+                  if (matchingGasProducts.length > 0) {
+                    gasProductId = matchingGasProducts[0]._id.toString()
+                    console.log(`🎯 Auto-selected gas product: ${matchingGasProducts[0].name} (${gasProductId})`)
+                  }
+                }
+                
+                // If still no gas product found, try to find ANY gas product with stock
+                if (!gasProductId) {
+                  console.log(`🔍 Still no gasProductId, searching for any gas product with stock`)
+                  const anyGasProducts = products.filter(p => 
+                    p.category === 'gas' && 
+                    (p.currentStock || 0) > 0
+                  )
+                  if (anyGasProducts.length > 0) {
+                    // Sort by stock descending and pick the one with most stock
+                    anyGasProducts.sort((a, b) => (b.currentStock || 0) - (a.currentStock || 0))
+                    gasProductId = anyGasProducts[0]._id.toString()
+                    console.log(`🎯 Auto-selected gas product (any): ${anyGasProducts[0].name} (${gasProductId})`)
+                  }
+                }
+                
+                console.log(`🔍 Gas deduction check:`, {
+                  itemGasProductId: item.gasProductId,
+                  itemGasProduct: item.gasProduct,
+                  finalGasProductId: gasProductId,
+                  cylinderSize: product.cylinderSize,
+                  availableGasProducts: products.filter(p => p.category === 'gas').map(p => ({
+                    id: p._id.toString(),
+                    name: p.name,
+                    cylinderSize: p.cylinderSize,
+                    currentStock: p.currentStock
+                  }))
+                })
+                
+                if (gasProductId) {
+                  const gasInventory = await InventoryItem.findOne({ product: gasProductId })
+                  console.log(`🔍 Gas inventory found:`, gasInventory ? {
+                    productId: gasInventory.product,
+                    currentStock: gasInventory.currentStock
+                  } : 'Not found')
+                  
                   if (gasInventory) {
                     await InventoryItem.findByIdAndUpdate(gasInventory._id, {
                       $inc: { currentStock: -item.quantity },
@@ -259,14 +309,24 @@ export async function POST(request) {
                     })
                     
                     // Also update gas Product model
-                    const gasProduct = products.find(p => p._id.toString() === item.gasProductId)
+                    const gasProduct = products.find(p => p._id.toString() === gasProductId)
                     if (gasProduct) {
-                      await Product.findByIdAndUpdate(item.gasProductId, {
+                      await Product.findByIdAndUpdate(gasProductId, {
                         currentStock: Math.max(0, gasProduct.currentStock - item.quantity)
                       })
                       console.log(`✅ Gas stock deducted: ${gasProduct.name} decreased by ${item.quantity} (from full cylinder sale)`)
                     }
+                  } else {
+                    console.log(`❌ Gas inventory not found for product ID: ${gasProductId}`)
                   }
+                } else {
+                  console.log(`❌ No gas product found to deduct for full cylinder: ${product.name}`)
+                  console.log(`❌ Available gas products:`, products.filter(p => p.category === 'gas').map(p => ({
+                    id: p._id.toString(),
+                    name: p.name,
+                    currentStock: p.currentStock,
+                    cylinderSize: p.cylinderSize
+                  })))
                 }
               }
             }

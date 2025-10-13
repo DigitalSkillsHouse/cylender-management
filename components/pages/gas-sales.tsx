@@ -732,6 +732,12 @@ export function GasSales() {
             }
           }
           
+          // Add gas product ID for full cylinder sales so backend knows which gas to deduct
+          if (category === 'cylinder' && (item as any).cylinderStatus === 'full' && (item as any).gasProductId) {
+            saleItem.gasProductId = (item as any).gasProductId
+            console.log('GasSales - Adding gasProductId to cylinder item:', (item as any).gasProductId)
+          }
+          
           return saleItem
         })
 
@@ -805,6 +811,18 @@ export function GasSales() {
       console.log('GasSales - All items (combined):', allItems)
       console.log('GasSales - Form data items:', formData.items)
       console.log('GasSales - Inventory availability data:', inventoryAvailability)
+      
+      // Debug gas product ID passing
+      saleItems.forEach((item, index) => {
+        if (item.category === 'cylinder' && item.cylinderStatus === 'full') {
+          console.log(`🔍 Full cylinder item ${index}:`, {
+            product: item.product,
+            gasProductId: item.gasProductId,
+            cylinderStatus: item.cylinderStatus,
+            category: item.category
+          })
+        }
+      })
       
       // Log detailed item structure for debugging
       allItems.forEach((item, index) => {
@@ -1312,11 +1330,21 @@ export function GasSales() {
         setShowStockInsufficientPopup(true)
         return
       }
+      
+      // Add gasProductId to the main cylinder item for backend processing
+      if (items.length > 0) {
+        const lastItem = items[items.length - 1] as any
+        if (lastItem.category === 'cylinder') {
+          lastItem.gasProductId = currentItem.gasProductId
+        }
+      }
+      
       items.push({
         productId: currentItem.gasProductId,
         quantity: currentItem.quantity,
         price: '0',
         category: 'gas' as any,
+        gasProductId: currentItem.gasProductId, // Also add to auxiliary item
       } as any)
     }
 

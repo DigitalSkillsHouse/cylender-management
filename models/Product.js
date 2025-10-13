@@ -37,6 +37,16 @@ const ProductSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    cylinderSize: {
+      type: String,
+      enum: ["large", "small"],
+      required: false,
+    },
+    cylinderStatus: {
+      type: String,
+      enum: ["empty", "full"],
+      required: false,
+    },
   },
   {
     timestamps: true,
