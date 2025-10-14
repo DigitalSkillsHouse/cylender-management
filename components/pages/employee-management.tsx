@@ -88,7 +88,10 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   // Stock assignment form state
   const [stockFormData, setStockFormData] = useState({
     category: "cylinder" as "gas" | "cylinder",
+    cylinderStatus: "empty" as "empty" | "full",
     productId: "",
+    gasProductId: "",
+    cylinderProductId: "",
     quantity: 1,
     notes: "",
   })
@@ -98,17 +101,43 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   const [showProductSuggestions, setShowProductSuggestions] = useState(false)
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([])
   const [selectedProductName, setSelectedProductName] = useState("")
+  
+  // Gas and cylinder product autocomplete for assignments
+  const [gasProductSearch, setGasProductSearch] = useState("")
+  const [showGasProductSuggestions, setShowGasProductSuggestions] = useState(false)
+  const [cylinderProductSearch, setCylinderProductSearch] = useState("")
+  const [showCylinderProductSuggestions, setShowCylinderProductSuggestions] = useState(false)
+  
+  // Live availability from inventory-items
+  const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
 
-  // Handle product search
+  // Handle product search based on category and cylinder status
   const handleProductSearch = (searchTerm: string) => {
     setProductSearchTerm(searchTerm)
     
     if (searchTerm.trim().length > 0) {
-      const filtered = products.filter(product => 
-        product.category === stockFormData.category &&
-        (product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-         (product.cylinderSize && product.cylinderSize.toLowerCase().includes(searchTerm.toLowerCase())))
-      ).slice(0, 5) // Limit to 5 suggestions
+      let filtered = products.filter(product => {
+        // Filter by category
+        if (product.category !== stockFormData.category) return false
+        
+        // For cylinders, filter based on status and availability
+        if (stockFormData.category === 'cylinder') {
+          if (stockFormData.cylinderStatus === 'empty') {
+            const availableEmpty = inventoryAvailability[product._id]?.availableEmpty || 0
+            if (availableEmpty <= 0) return false
+          } else {
+            const availableFull = inventoryAvailability[product._id]?.availableFull || 0
+            if (availableFull <= 0) return false
+          }
+        }
+        
+        // For gas, check current stock
+        if (stockFormData.category === 'gas' && (product.currentStock || 0) <= 0) return false
+        
+        // Filter by search term
+        return product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+               (product.cylinderSize && product.cylinderSize.toLowerCase().includes(searchTerm.toLowerCase()))
+      }).slice(0, 5)
       
       setFilteredProducts(filtered)
       setShowProductSuggestions(true)
@@ -119,7 +148,59 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   }
 
   const handleProductSelect = (product: Product) => {
-    setStockFormData({ ...stockFormData, productId: product._id })
+    let nextFormData = { ...stockFormData, productId: product._id }
+    
+    // If gas selected, auto-pick a suitable full cylinder
+    if (product.category === 'gas') {
+      const gasSize = product.cylinderSize
+      let candidates = products.filter((p: Product) => {
+        if (p.category !== 'cylinder') return false
+        const avail = inventoryAvailability[p._id]?.availableFull || 0
+        return avail > 0
+      })
+      
+      const sizeMatched = gasSize ? candidates.filter((c: Product) => c.cylinderSize === gasSize) : []
+      const pick = (sizeMatched.length > 0 ? sizeMatched : candidates)
+        .sort((a, b) => ((inventoryAvailability[b._id]?.availableFull || b.currentStock) || 0) - ((inventoryAvailability[a._id]?.availableFull || a.currentStock) || 0))[0]
+      
+      if (pick) {
+        nextFormData.cylinderProductId = pick._id
+        setCylinderProductSearch(pick.name)
+      }
+    }
+    
+    // If full cylinder selected, auto-pick a suitable gas product
+    if (product.category === 'cylinder' && stockFormData.cylinderStatus === 'full') {
+      console.log('🔍 Auto-filling gas for full cylinder:', product.name)
+      console.log('🔍 All products:', products.length)
+      console.log('🔍 Gas products:', products.filter(p => p.category === 'gas'))
+      
+      const cylinderSize = product.cylinderSize
+      let gasProducts = products.filter((p: Product) => {
+        if (p.category !== 'gas') return false
+        // Check inventory availability first, fallback to currentStock
+        const gasStock = inventoryAvailability[p._id]?.currentStock || p.currentStock || 0
+        return gasStock > 0
+      })
+      
+      console.log('🔍 Available gas products:', gasProducts)
+      
+      const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => g.cylinderSize === cylinderSize) : []
+      const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
+        .sort((a, b) => ((b.currentStock || 0) - (a.currentStock || 0)))[0]
+      
+      console.log('🔍 Selected gas product:', pick)
+      
+      if (pick) {
+        nextFormData.gasProductId = pick._id
+        setGasProductSearch(pick.name)
+        console.log('🔍 Gas field set to:', pick.name)
+      } else {
+        console.log('🔍 No suitable gas product found')
+      }
+    }
+    
+    setStockFormData(nextFormData)
     setSelectedProductName(product.name)
     setProductSearchTerm(product.cylinderSize ? `${product.name} - ${product.cylinderSize.charAt(0).toUpperCase()}${product.cylinderSize.slice(1)}` : product.name)
     setShowProductSuggestions(false)
@@ -154,13 +235,24 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       const products = productsResponse.data || []
       setProducts(products)
       
-      // Debug logging
-      
-      if (products.length > 0) {
-        const cylinderProducts = products.filter((p: Product) => p.category === 'cylinder')
-        const gasProducts = products.filter((p: Product) => p.category === 'gas')
-        
-        
+      // Fetch live inventory availability
+      try {
+        const invRes = await fetch('/api/inventory-items', { cache: 'no-store' })
+        const invJson = await invRes.json().catch(() => ({}))
+        const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
+        const invArr = Array.isArray(invJson?.data) ? invJson.data : []
+        for (const ii of invArr) {
+          if (ii?.productId) {
+            availMap[ii.productId] = {
+              availableEmpty: Number(ii.availableEmpty || 0),
+              availableFull: Number(ii.availableFull || 0),
+              currentStock: Number(ii.currentStock || 0),
+            }
+          }
+        }
+        setInventoryAvailability(availMap)
+      } catch (_) {
+        // Non-fatal; keep functionality with product.currentStock fallback
       }
     } catch (error) {
       setEmployees([])
@@ -317,6 +409,12 @@ setStockAssignments(stockData)
           assignedBy: user.id,
           notes: stockFormData.notes,
           leastPrice: selectedProduct.leastPrice,
+          category: stockFormData.category,
+          cylinderStatus: stockFormData.cylinderStatus,
+          gasProductId: stockFormData.gasProductId,
+          cylinderProductId: stockFormData.cylinderProductId,
+          // Include inventory availability for backend processing
+          inventoryAvailability: inventoryAvailability,
         }
 
         await stockAssignmentsAPI.create(assignmentData)
@@ -342,8 +440,11 @@ setStockAssignments(stockData)
 
       // Reset form and close dialog
       setStockFormData({
-        category: "cylinder" as "cylinder",
+        category: "cylinder" as "gas" | "cylinder",
+        cylinderStatus: "empty" as "empty" | "full",
         productId: "",
+        gasProductId: "",
+        cylinderProductId: "",
         quantity: 1,
         notes: "",
       })
@@ -351,6 +452,10 @@ setStockAssignments(stockData)
       setSelectedProductName("")
       setShowProductSuggestions(false)
       setFilteredProducts([])
+      setGasProductSearch("")
+      setShowGasProductSuggestions(false)
+      setCylinderProductSearch("")
+      setShowCylinderProductSuggestions(false)
       setIsStockDialogOpen(false)
       setSelectedEmployee(null)
 
@@ -717,7 +822,10 @@ setStockAssignments(stockData)
               <Select
                 value={stockFormData.category}
                 onValueChange={(value: "gas" | "cylinder") => {
-                  setStockFormData({ ...stockFormData, category: value, productId: "" })
+                  setStockFormData({ ...stockFormData, category: value, productId: "", gasProductId: "", cylinderProductId: "" })
+                  setProductSearchTerm("")
+                  setGasProductSearch("")
+                  setCylinderProductSearch("")
                 }}
                 required
               >
@@ -730,6 +838,64 @@ setStockAssignments(stockData)
                 </SelectContent>
               </Select>
             </div>
+
+            {stockFormData.category === "cylinder" && (
+              <div className="space-y-2">
+                <Label htmlFor="cylinderStatus">Empty/Full *</Label>
+                <Select
+                  value={stockFormData.cylinderStatus}
+                  onValueChange={(value: "empty" | "full") => {
+                    const newFormData = { ...stockFormData, cylinderStatus: value, productId: "", gasProductId: "" }
+                    
+                    // If changing to full and we have a selected cylinder, auto-fill gas
+                    if (value === "full" && stockFormData.productId) {
+                      console.log('🔍 Status changed to full, auto-filling gas')
+                      const selectedCylinder = products.find(p => p._id === stockFormData.productId)
+                      console.log('🔍 Selected cylinder:', selectedCylinder)
+                      
+                      if (selectedCylinder) {
+                        const cylinderSize = selectedCylinder.cylinderSize
+                        let gasProducts = products.filter((p: Product) => {
+                          if (p.category !== 'gas') return false
+                          // Check inventory availability first, fallback to currentStock
+                          const gasStock = inventoryAvailability[p._id]?.currentStock || p.currentStock || 0
+                          return gasStock > 0
+                        })
+                        
+                        console.log('🔍 Available gas products for status change:', gasProducts)
+                        
+                        const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => g.cylinderSize === cylinderSize) : []
+                        const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
+                          .sort((a, b) => ((b.currentStock || 0) - (a.currentStock || 0)))[0]
+                        
+                        console.log('🔍 Picked gas for status change:', pick)
+                        
+                        if (pick) {
+                          newFormData.gasProductId = pick._id
+                          setGasProductSearch(pick.name)
+                          console.log('🔍 Gas field set via status change to:', pick.name)
+                        }
+                      }
+                    }
+                    
+                    setStockFormData(newFormData)
+                    setProductSearchTerm("")
+                    if (value === "empty") {
+                      setGasProductSearch("")
+                    }
+                  }}
+                  required
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="empty">Empty</SelectItem>
+                    <SelectItem value="full">Full</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-2 relative">
               <Label htmlFor="product">Product *</Label>
@@ -775,18 +941,87 @@ setStockAssignments(stockData)
               )}
             </div>
 
-            {stockFormData.category === "cylinder" && stockFormData.productId && (
-              <div className="space-y-2">
-                <Label htmlFor="cylinderSize">Cylinder Size</Label>
+            {stockFormData.category === "gas" && (
+              <div className="space-y-2 relative">
+                <Label htmlFor="cylinderProduct">Select Cylinder *</Label>
                 <Input
-                  id="cylinderSize"
-                  value={(() => {
-                    const p = products.find((prod) => prod._id === stockFormData.productId)
-                    const val = p?.cylinderSize || ""
-                    return val ? val.charAt(0).toUpperCase() + val.slice(1) : ""
-                  })()}
-                  disabled
+                  id="cylinderProduct"
+                  placeholder="Search cylinder product"
+                  value={cylinderProductSearch}
+                  onChange={(e) => {
+                    setCylinderProductSearch(e.target.value)
+                    setShowCylinderProductSuggestions(e.target.value.trim().length > 0)
+                  }}
+                  onFocus={() => setShowCylinderProductSuggestions(cylinderProductSearch.trim().length > 0)}
+                  onBlur={() => setTimeout(() => setShowCylinderProductSuggestions(false), 200)}
+                  required
                 />
+                {showCylinderProductSuggestions && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {products
+                      .filter(p => p.category === 'cylinder' && (inventoryAvailability[p._id]?.availableFull || 0) > 0)
+                      .filter(p => cylinderProductSearch.trim().length === 0 || p.name.toLowerCase().includes(cylinderProductSearch.toLowerCase()))
+                      .slice(0, 5)
+                      .map((product) => (
+                        <div
+                          key={product._id}
+                          className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          onClick={() => {
+                            setStockFormData({ ...stockFormData, cylinderProductId: product._id })
+                            setCylinderProductSearch(product.name)
+                            setShowCylinderProductSuggestions(false)
+                          }}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-medium text-gray-900">{product.name}</span>
+                            <span className="text-sm text-gray-500">Available Full: {inventoryAvailability[product._id]?.availableFull || 0}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {stockFormData.category === "cylinder" && stockFormData.cylinderStatus === "full" && (
+              <div className="space-y-2 relative">
+                <Label htmlFor="gasProduct">Select Gas *</Label>
+                <Input
+                  id="gasProduct"
+                  placeholder="Search gas product"
+                  value={gasProductSearch}
+                  onChange={(e) => {
+                    setGasProductSearch(e.target.value)
+                    setShowGasProductSuggestions(e.target.value.trim().length > 0)
+                  }}
+                  onFocus={() => setShowGasProductSuggestions(gasProductSearch.trim().length > 0)}
+                  onBlur={() => setTimeout(() => setShowGasProductSuggestions(false), 200)}
+                  required
+                />
+                {showGasProductSuggestions && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {products
+                      .filter(p => p.category === 'gas' && (p.currentStock || 0) > 0)
+                      .filter(p => gasProductSearch.trim().length === 0 || p.name.toLowerCase().includes(gasProductSearch.toLowerCase()))
+                      .slice(0, 5)
+                      .map((product) => (
+                        <div
+                          key={product._id}
+                          className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          onClick={() => {
+                            setStockFormData({ ...stockFormData, gasProductId: product._id })
+                            setGasProductSearch(product.name)
+                            setShowGasProductSuggestions(false)
+                          }}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-medium text-gray-900">{product.name}</span>
+                            <span className="text-sm text-gray-500">Stock: {product.currentStock}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             )}
 

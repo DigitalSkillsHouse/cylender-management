@@ -61,6 +61,7 @@ export async function POST(request) {
 
   try {
     const data = await request.json();
+    const InventoryItem = (await import("@/models/InventoryItem")).default;
 
     // Get the product to validate and include pricing
     const product = await Product.findById(data.product);
@@ -71,15 +72,74 @@ export async function POST(request) {
       );
     }
 
-    // Check if sufficient stock is available
-    if (product.currentStock < data.quantity) {
-      return NextResponse.json(
-        { error: `Insufficient stock. Available: ${product.currentStock}, Requested: ${data.quantity}` },
-        { status: 400 }
-      );
+    // Get inventory availability
+    const inventoryAvailability = data.inventoryAvailability || {};
+    const productInventory = inventoryAvailability[data.product] || {};
+
+    // Validate stock availability based on category and cylinder status
+    if (data.category === 'gas') {
+      const gasStock = productInventory.currentStock || product.currentStock || 0;
+      if (gasStock < data.quantity) {
+        return NextResponse.json(
+          { error: `Insufficient gas stock. Available: ${gasStock}, Requested: ${data.quantity}` },
+          { status: 400 }
+        );
+      }
+    } else if (data.category === 'cylinder') {
+      if (data.cylinderStatus === 'full') {
+        const fullStock = productInventory.availableFull || 0;
+        if (fullStock < data.quantity) {
+          return NextResponse.json(
+            { error: `Insufficient full cylinders. Available: ${fullStock}, Requested: ${data.quantity}` },
+            { status: 400 }
+          );
+        }
+      } else {
+        const emptyStock = productInventory.availableEmpty || 0;
+        if (emptyStock < data.quantity) {
+          return NextResponse.json(
+            { error: `Insufficient empty cylinders. Available: ${emptyStock}, Requested: ${data.quantity}` },
+            { status: 400 }
+          );
+        }
+      }
     }
 
-    // Do NOT deduct stock here; stock will be deducted when employee RECEIVES the assignment
+    // Perform inventory deduction like Gas Sales
+    if (data.category === 'gas' && data.cylinderProductId) {
+      // Gas assignment: deduct gas stock and convert full cylinder to empty
+      await InventoryItem.findOneAndUpdate(
+        { product: data.product },
+        { $inc: { currentStock: -data.quantity } }
+      );
+      
+      await InventoryItem.findOneAndUpdate(
+        { product: data.cylinderProductId },
+        { 
+          $inc: { 
+            availableFull: -data.quantity,
+            availableEmpty: data.quantity 
+          }
+        }
+      );
+    } else if (data.category === 'cylinder' && data.cylinderStatus === 'full' && data.gasProductId) {
+      // Full cylinder assignment: deduct full cylinders and gas stock
+      await InventoryItem.findOneAndUpdate(
+        { product: data.product },
+        { $inc: { availableFull: -data.quantity } }
+      );
+      
+      await InventoryItem.findOneAndUpdate(
+        { product: data.gasProductId },
+        { $inc: { currentStock: -data.quantity } }
+      );
+    } else if (data.category === 'cylinder' && data.cylinderStatus === 'empty') {
+      // Empty cylinder assignment: deduct empty cylinders
+      await InventoryItem.findOneAndUpdate(
+        { product: data.product },
+        { $inc: { availableEmpty: -data.quantity } }
+      );
+    }
 
     // Create assignment with remainingQuantity initialized to the assigned quantity and include leastPrice
     const assignmentData = {
