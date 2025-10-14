@@ -675,7 +675,6 @@ export function Reports() {
     })()
   }
 
-  const [showDSRForm, setShowDSRForm] = useState(false)
   const [showDSRList, setShowDSRList] = useState(false)
   const [showDSRView, setShowDSRView] = useState(false)
   const [dsrEntries, setDsrEntries] = useState<DailyStockEntry[]>([])
@@ -683,15 +682,6 @@ export function Reports() {
   // Products for DSR grid
   interface ProductLite { _id: string; name: string }
   const [dsrProducts, setDsrProducts] = useState<ProductLite[]>([])
-  type DsrGridRow = {
-    itemId: string
-    itemName: string
-    openingFull: string
-    openingEmpty: string
-    closingFull: string
-    closingEmpty: string
-  }
-  const [dsrGrid, setDsrGrid] = useState<DsrGridRow[]>([])
   // Consistent name normalizer used across aggregation and rendering
   const normalizeName = (s: any) => (typeof s === 'string' || typeof s === 'number')
     ? String(s).replace(/\s+/g, ' ').trim().toLowerCase()
@@ -711,6 +701,91 @@ export function Reports() {
   const [dailyAggReturnsById, setDailyAggReturnsById] = useState<Record<string, number>>({})
   // Aggregation readiness flag
   const [aggReady, setAggReady] = useState<boolean>(false)
+  
+  // Automated inventory data fetching for DSR
+  const [inventoryData, setInventoryData] = useState<Record<string, { availableFull: number; availableEmpty: number; currentStock: number }>>({})
+  
+  // Fetch real-time inventory data for automated DSR
+  const fetchInventoryData = async () => {
+    try {
+      const [inventoryRes, productsRes] = await Promise.all([
+        fetch('/api/inventory-items', { cache: 'no-store' }),
+        fetch('/api/products', { cache: 'no-store' })
+      ])
+      
+      const inventoryJson = await inventoryRes.json()
+      const productsJson = await productsRes.json()
+      
+      const inventoryItems = Array.isArray(inventoryJson?.data) ? inventoryJson.data : []
+      const products = Array.isArray(productsJson?.data?.data) ? productsJson.data.data : 
+                      Array.isArray(productsJson?.data) ? productsJson.data : 
+                      Array.isArray(productsJson) ? productsJson : []
+      
+      const inventoryMap: Record<string, { availableFull: number; availableEmpty: number; currentStock: number }> = {}
+      
+      // Map inventory items by product name
+      inventoryItems.forEach((item: any) => {
+        if (item.productName) {
+          inventoryMap[item.productName.toLowerCase()] = {
+            availableFull: item.availableFull || 0,
+            availableEmpty: item.availableEmpty || 0,
+            currentStock: item.currentStock || 0
+          }
+        }
+      })
+      
+      // Also map products by name for fallback
+      products.forEach((product: any) => {
+        if (product.name) {
+          const key = product.name.toLowerCase()
+          if (!inventoryMap[key]) {
+            inventoryMap[key] = {
+              availableFull: product.availableFull || 0,
+              availableEmpty: product.availableEmpty || 0,
+              currentStock: product.currentStock || 0
+            }
+          }
+        }
+      })
+      
+      setInventoryData(inventoryMap)
+    } catch (error) {
+      console.error('Failed to fetch inventory data:', error)
+      setInventoryData({})
+    }
+  }
+  
+  // Fetch purchase orders for refilling data
+  const fetchRefillData = async (date: string) => {
+    try {
+      const res = await fetch('/api/purchase-orders', { cache: 'no-store' })
+      const json = await res.json()
+      const purchaseOrders = Array.isArray(json?.data) ? json.data : []
+      
+      const refillMap: Record<string, number> = {}
+      const selectedDate = new Date(date)
+      
+      purchaseOrders.forEach((order: any) => {
+        const orderDate = new Date(order.purchaseDate || order.createdAt)
+        if (orderDate.toDateString() === selectedDate.toDateString()) {
+          if (Array.isArray(order.items)) {
+            order.items.forEach((item: any) => {
+              if (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') {
+                const productName = item.product?.name || 'Unknown'
+                const key = productName.toLowerCase()
+                refillMap[key] = (refillMap[key] || 0) + (item.quantity || 0)
+              }
+            })
+          }
+        }
+      })
+      
+      return refillMap
+    } catch (error) {
+      console.error('Failed to fetch refill data:', error)
+      return {}
+    }
+  }
   
   // Types and state for Employee-scoped Daily Stock Report viewing
   interface EmployeeLite { _id: string; name?: string; email?: string }
@@ -746,6 +821,13 @@ export function Reports() {
     }
     if (showEmployeeDSR) loadEmployees()
   }, [showEmployeeDSR])
+  
+  // Fetch inventory data when DSR view opens or date changes
+  useEffect(() => {
+    if (showDSRView) {
+      fetchInventoryData()
+    }
+  }, [showDSRView, dsrViewDate])
 
   // Fetch per-employee DSR for selected date and build grid rows
   const loadEmployeeDsr = async () => {
@@ -876,131 +958,7 @@ export function Reports() {
     } catch (e) {
     }
   }
-  // Load products when DSR form opens and build empty grid
-  useEffect(() => {
-    if (!showDSRForm) return
-    ;(async () => {
-      try {
-        const res = await fetch('/api/products', { cache: 'no-store' })
-        const json = await res.json()
-        const list: any[] = Array.isArray(json?.data?.data)
-          ? json.data.data
-          : Array.isArray(json?.data)
-            ? json.data
-            : Array.isArray(json)
-              ? (json as any[])
-              : []
-        const products: ProductLite[] = list
-          .filter((p: any) => p && (p.name || p.title))
-          .map((p: any) => ({ _id: String(p._id || p.id || p.name), name: String(p.name || p.title) }))
-        setDsrProducts(products)
-        // Initialize grid with empty values, items populated
-        const baseGrid = products.map(p => ({
-          itemId: p._id,
-          itemName: p.name,
-          openingFull: '',
-          openingEmpty: '',
-          closingFull: '',
-          closingEmpty: '',
-        }))
-        setDsrGrid(baseGrid)
-        // Prefill openings from previous day closings per item
-        await prefillDsrGridOpenings(dsrForm.date, baseGrid)
-      } catch (e) {
-        setDsrProducts([])
-        setDsrGrid([])
-      }
-    })()
-  }, [showDSRForm])
 
-  const updateDsrGridCell = (itemId: string, field: keyof Omit<DsrGridRow, 'itemId' | 'itemName'>, value: string) => {
-    setDsrGrid(prev => prev.map(r => r.itemId === itemId ? { ...r, [field]: value } as DsrGridRow : r))
-  }
-  // Prefill Opening columns from previous day's closing for each item in the grid
-  const prefillDsrGridOpenings = async (date: string, rows: DsrGridRow[]) => {
-    const updated = await Promise.all(rows.map(async (r) => {
-      try {
-        const url = `${API_BASE}/previous?itemName=${encodeURIComponent(r.itemName)}&date=${encodeURIComponent(date)}`
-        const res = await fetch(url, { cache: "no-store" })
-        if (res.ok) {
-          const json = await res.json()
-          if (json?.data) {
-            return {
-              ...r,
-              openingFull: String(json.data.closingFull ?? ''),
-              openingEmpty: String(json.data.closingEmpty ?? ''),
-            }
-          }
-        }
-      } catch {}
-      return r
-    }))
-    setDsrGrid(updated)
-  }
-
-  // Save handler for grid: persists each row (skips completely empty rows)
-  const saveDsrGrid = async () => {
-    const date = dsrForm.date
-    const rowsToSave = dsrGrid.filter(r => r.openingFull !== '' || r.openingEmpty !== '' || r.closingFull !== '' || r.closingEmpty !== '')
-    if (rowsToSave.length === 0) {
-      setShowDSRForm(false)
-      return
-    }
-    const toNumber = (v: string) => {
-      const n = Number.parseFloat(v)
-      return Number.isFinite(n) ? n : 0
-    }
-    try {
-      const results = await Promise.all(rowsToSave.map(async (r) => {
-        const payload: any = {
-          date,
-          itemName: r.itemName,
-          openingFull: toNumber(r.openingFull),
-          openingEmpty: toNumber(r.openingEmpty),
-        }
-        if (r.closingFull !== "") payload.closingFull = toNumber(r.closingFull)
-        if (r.closingEmpty !== "") payload.closingEmpty = toNumber(r.closingEmpty)
-        try {
-          const res = await fetch(API_BASE, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
-          if (!res.ok) throw new Error('post failed')
-          const json = await res.json()
-          return json?.data || payload
-        } catch {
-          // offline/local fallback
-          return payload
-        }
-      }))
-
-      // Merge into local state list
-      const merged = [...dsrEntries]
-      results.forEach((d: any) => {
-        const id = d._id || `${d.itemName}-${d.date}`
-        const idx = merged.findIndex(x => (x.itemName === d.itemName && x.date === d.date))
-        const entry = {
-          id,
-          date: d.date,
-          itemName: d.itemName,
-          openingFull: Number(d.openingFull || 0),
-          openingEmpty: Number(d.openingEmpty || 0),
-          refilled: Number(d.refilled || 0),
-          cylinderSales: Number(d.cylinderSales || 0),
-          gasSales: Number(d.gasSales || 0),
-          closingFull: typeof d.closingFull === 'number' ? d.closingFull : undefined,
-          closingEmpty: typeof d.closingEmpty === 'number' ? d.closingEmpty : undefined,
-          createdAt: d.createdAt || new Date().toISOString(),
-        } as DailyStockEntry
-        if (idx >= 0) merged[idx] = entry; else merged.unshift(entry)
-      })
-      setDsrEntries(merged)
-      saveDsrLocal(merged)
-    } finally {
-      setShowDSRForm(false)
-    }
-  }
   // Download the current DSR list as PDF via browser print dialog
   const downloadDsrPdf = () => {
     try {
@@ -1063,20 +1021,10 @@ export function Reports() {
       w.document.close()
       w.focus()
       w.print()
-      // Do not auto-close to allow user to re-print if needed
     } catch (err) {
       alert('Failed to prepare PDF')
     }
   }
-  const [dsrForm, setDsrForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    itemName: "",
-    openingFull: "",
-    openingEmpty: "",
-    refilled: "",
-    cylinderSales: "",
-    gasSales: "",
-  } as Record<string, string>)
   // Closing stock dialog state
   const [closingDialog, setClosingDialog] = useState({
     open: false,
@@ -1281,13 +1229,15 @@ export function Reports() {
     }
     ;(async () => {
       try {
-        // Admin-side only: Sales (gas + cylinder) and Cylinders (refill)
-        const [salesRes, cylTxRes] = await Promise.all([
+        // Fetch admin data sources only: Admin sales, Cylinders, Purchase orders
+        const [salesRes, cylTxRes, purchaseRes] = await Promise.all([
           fetch('/api/sales', { cache: 'no-store' }),
           fetch('/api/cylinders', { cache: 'no-store' }),
+          fetch('/api/purchase-orders', { cache: 'no-store' })
         ])
         const salesJson = await salesRes.json()
         const cylTxJson = await cylTxRes.json()
+        const purchaseJson = await purchaseRes.json()
 
         const gas: Record<string, number> = {}
         const gasById: Record<string, number> = {}
@@ -1300,13 +1250,11 @@ export function Reports() {
         const ret: Record<string, number> = {}
         const retById: Record<string, number> = {}
 
-        // Admin sales
+        // Admin sales only (employee sales handled separately in "View Employee Daily Stock Report")
         const salesList: any[] = Array.isArray(salesJson?.data) ? salesJson.data : (Array.isArray(salesJson) ? salesJson : [])
         for (const s of salesList) {
           if (!inSelectedDay(s?.createdAt)) continue
           const items: any[] = Array.isArray(s?.items) ? s.items : []
-          if (!items.length) {
-          }
           for (const it of items) {
             const product = it?.product
             const name = product?.name || ''
@@ -1318,7 +1266,27 @@ export function Reports() {
           }
         }
 
-        // Refills from admin cylinder transactions (type=refill)
+
+        // Refills from purchase orders (cylinder refilling)
+        const purchaseList: any[] = Array.isArray(purchaseJson?.data) ? purchaseJson.data : (Array.isArray(purchaseJson) ? purchaseJson : [])
+        for (const order of purchaseList) {
+          const orderDate = new Date(order?.purchaseDate || order?.createdAt)
+          if (!inSelectedDay(orderDate)) continue
+          
+          const items: any[] = Array.isArray(order?.items) ? order.items : []
+          for (const item of items) {
+            if (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full' && item.inventoryStatus === 'received') {
+              const product = item?.product
+              const name = product?.name || ''
+              const pid = product?._id
+              const qty = Number(item?.quantity) || 0
+              inc(ref, name, qty)
+              incId(refById, pid, qty)
+            }
+          }
+        }
+
+        // Cylinder transactions (deposits and returns)
         const cylTxList: any[] = Array.isArray(cylTxJson?.data) ? cylTxJson.data : (Array.isArray(cylTxJson) ? cylTxJson : [])
         for (const t of cylTxList) {
           if (!inSelectedDay(t?.createdAt)) continue
@@ -1327,10 +1295,7 @@ export function Reports() {
           const pid = t?.product?._id
           const qty = Number(t?.quantity) || 0
           const type = String(t?.type || '').toLowerCase()
-          if (type === 'refill') {
-            inc(ref, name, qty)
-            incId(refById, pid, qty)
-          } else if (type === 'deposit') {
+          if (type === 'deposit') {
             inc(dep, name, qty)
             incId(depById, pid, qty)
           } else if (type === 'return') {
@@ -1366,127 +1331,11 @@ export function Reports() {
     })()
   }, [dsrViewDate])
 
-  // Prefill opening from previous day closing for same item (API first, fallback local)
-  const prefillOpeningFromPrevious = (date: string, itemName: string) => {
-    if (!date || !itemName) return
-    ;(async () => {
-      try {
-        const url = `${API_BASE}/previous?itemName=${encodeURIComponent(itemName)}&date=${encodeURIComponent(date)}`
-        const res = await fetch(url, { cache: "no-store" })
-        if (res.ok) {
-          const json = await res.json()
-          if (json?.data) {
-            setDsrForm(prevState => ({
-              ...prevState,
-              openingFull: String(json.data.closingFull ?? 0),
-              openingEmpty: String(json.data.closingEmpty ?? 0),
-            }))
-            return
-          }
-        }
-      } catch {}
-      // fallback to local mirror
-      const all = loadDsrLocal().filter(e => e.itemName.toLowerCase() === itemName.toLowerCase())
-      if (all.length === 0) return
-      const prev = all
-        .filter(e => e.date < date)
-        .sort((a, b) => b.date.localeCompare(a.date))[0]
-      if (prev) {
-        setDsrForm(prevState => ({
-          ...prevState,
-          openingFull: String(prev.closingFull ?? 0),
-          openingEmpty: String(prev.closingEmpty ?? 0),
-        }))
-      }
-    })()
-  }
-
   const parseNum = (v: string) => {
     const n = Number.parseFloat(v)
     return Number.isFinite(n) ? n : 0
   }
 
-  const computeClosing = () => {
-    const openingFull = parseNum(dsrForm.openingFull)
-    const openingEmpty = parseNum(dsrForm.openingEmpty)
-    const refilled = parseNum(dsrForm.refilled)
-    const cylinderSales = parseNum(dsrForm.cylinderSales)
-    const gasSales = parseNum(dsrForm.gasSales)
-    // Business rule (as provided): closing = opening + refilled - sales
-    const closingFull = Math.max(0, openingFull + refilled - cylinderSales)
-    // For empty, a reasonable simple flow: empty increases by sales and decreases by refills
-    const closingEmpty = Math.max(0, openingEmpty + cylinderSales - refilled)
-    return { closingFull, closingEmpty }
-  }
-
-  const handleDsrChange = (field: string, value: string) => {
-    setDsrForm(prev => ({ ...prev, [field]: value }))
-    if (field === "itemName" || field === "date") {
-      const itemName = field === "itemName" ? value : prevItemNameRef.current
-      const date = field === "date" ? value : dsrForm.date
-      // Attempt carry-forward when both are present
-      if ((field === "itemName" && value) || (field === "date" && dsrForm.itemName)) {
-        prefillOpeningFromPrevious(date, field === "itemName" ? value : dsrForm.itemName)
-      }
-      if (field === "itemName") prevItemNameRef.current = value
-    }
-  }
-
-  const prevItemNameRef = React.useRef("")
-
-  const handleDsrSubmit = () => {
-    if (!dsrForm.itemName.trim()) return alert("Please enter item name")
-    const payload = {
-      date: dsrForm.date,
-      itemName: dsrForm.itemName.trim(),
-      openingFull: parseNum(dsrForm.openingFull),
-      openingEmpty: parseNum(dsrForm.openingEmpty),
-      refilled: parseNum(dsrForm.refilled),
-      cylinderSales: parseNum(dsrForm.cylinderSales),
-      gasSales: parseNum(dsrForm.gasSales),
-    }
-    ;(async () => {
-      try {
-        const res = await fetch(API_BASE, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error("post failed")
-        const json = await res.json()
-        const d = json?.data || payload
-        const entry: DailyStockEntry = {
-          id: d._id || `${payload.itemName}-${payload.date}-${Date.now()}`,
-          date: payload.date,
-          itemName: payload.itemName,
-          openingFull: payload.openingFull,
-          openingEmpty: payload.openingEmpty,
-          refilled: payload.refilled,
-          cylinderSales: payload.cylinderSales,
-          gasSales: payload.gasSales,
-          closingFull: typeof d.closingFull === 'number' ? d.closingFull : undefined as any,
-          closingEmpty: typeof d.closingEmpty === 'number' ? d.closingEmpty : undefined as any,
-          createdAt: d.createdAt || new Date().toISOString(),
-        }
-        const updated = [entry, ...dsrEntries]
-        setDsrEntries(updated)
-        saveDsrLocal(updated)
-      } catch (e) {
-        // Offline/local fallback
-        const entry: DailyStockEntry = {
-          id: `${payload.itemName}-${payload.date}-${Date.now()}`,
-          ...payload,
-          createdAt: new Date().toISOString(),
-        }
-        const updated = [entry, ...dsrEntries]
-        setDsrEntries(updated)
-        saveDsrLocal(updated)
-        alert("Saved locally (offline). Will sync when online.")
-      } finally {
-        setShowDSRForm(false)
-      }
-    })()
-  }
 
   const clearDsr = () => {
     if (!confirm("Clear all Daily Stock Reports?")) return
@@ -1939,16 +1788,12 @@ export function Reports() {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle style={{ color: "#2B3068" }}>Daily Stock Report</CardTitle>
-          <p className="text-sm text-gray-600">Track opening/closing stock with daily refills and sales. Stored locally on this device.</p>
+          <p className="text-sm text-gray-600">Automated daily stock tracking with real-time data from inventory, sales, and refilling operations.</p>
         </CardHeader>
         <CardContent className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <Button onClick={() => setShowDSRForm(true)} className="w-full sm:w-auto" style={{ backgroundColor: "#2B3068" }}>
-            <PlusCircle className="h-4 w-4 mr-2" />
-            Daily Stock Report
-          </Button>
-          <Button variant="outline" onClick={() => setShowDSRView(true)} className="w-full sm:w-auto">
+          <Button variant="outline" onClick={() => setShowDSRView(true)} className="w-full sm:w-auto" style={{ backgroundColor: "#2B3068", color: "white" }}>
             <ListChecks className="h-4 w-4 mr-2" />
-            View Reports
+            View Daily Stock Report
           </Button>
           <div className="sm:ml-auto w-full sm:w-auto">
             <Button variant="secondary" onClick={() => setShowEmployeeDSR(true)} className="w-full sm:w-auto">
@@ -1960,183 +1805,96 @@ export function Reports() {
 
       {/* View Employee DSR Dialog */}
       <Dialog open={showEmployeeDSR} onOpenChange={setShowEmployeeDSR}>
-        <DialogContent className="max-w-[900px] sm:max-w-[1000px]">
+        <DialogContent className="w-[95vw] max-w-[900px] p-3 sm:p-6 rounded-lg">
           <DialogHeader>
-            <DialogTitle>Employee Daily Stock Report</DialogTitle>
+            <DialogTitle>Employee Daily Stock Report – {employeeDsrDate}</DialogTitle>
+            <DialogDescription className="sr-only">Employee-specific daily stock report with sales and operations data.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            {/* Employee and Date selectors */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="col-span-2">
-                <Label>Employee</Label>
-                <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-                  <SelectTrigger className="w-full"><SelectValue placeholder={empLoading ? "Loading..." : "Select employee"} /></SelectTrigger>
-                  <SelectContent>
-                    {employees.map(e => (
-                      <SelectItem key={String(e._id)} value={String(e._id)}>
-                        {e.name || e.email || e._id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Date</Label>
-                <Input type="date" value={employeeDsrDate} onChange={(e) => setEmployeeDsrDate(e.target.value)} />
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button disabled={!selectedEmployeeId || empLoading} onClick={loadEmployeeDsr} style={{ backgroundColor: "#2B3068" }}>
-                {empLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />} Load Report
-              </Button>
-              <Button variant="outline" disabled={employeeDsrEntries.length === 0} onClick={() => downloadEmployeeDsrGridPdf(employeeDsrDate)}>
-                <FileText className="h-4 w-4 mr-2" /> Download PDF
-              </Button>
-            </div>
-
-            {/* Read-only grid like existing layout */}
-            <div className="overflow-x-auto border rounded-md">
-              <Table className="min-w-[1100px] whitespace-nowrap">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Opening Full</TableHead>
-                    <TableHead>Opening Empty</TableHead>
-                    <TableHead>Refilled</TableHead>
-                    <TableHead>Cylinder Sales</TableHead>
-                    <TableHead>Gas Sales</TableHead>
-                    <TableHead>Closing Full</TableHead>
-                    <TableHead>Closing Empty</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {empGridRows.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center text-gray-500">{selectedEmployeeId ? "No data for selected date" : "Select employee and date to view"}</TableCell>
-                    </TableRow>
-                  ) : empGridRows.map((r) => (
-                    <TableRow key={r.itemName}>
-                      <TableCell className="font-medium">{r.itemName}</TableCell>
-                      <TableCell>{r.openingFull}</TableCell>
-                      <TableCell>{r.openingEmpty}</TableCell>
-                      <TableCell>{r.refilled}</TableCell>
-                      <TableCell>{r.cylinderSales}</TableCell>
-                      <TableCell>{r.gasSales}</TableCell>
-                      <TableCell>{typeof r.closingFull === 'number' ? r.closingFull : '-'}</TableCell>
-                      <TableCell>{typeof r.closingEmpty === 'number' ? r.closingEmpty : '-'}</TableCell>
-                    </TableRow>
+          
+          {/* Employee and Date selectors */}
+          <div className="mb-3 flex flex-col sm:flex-row items-start sm:items-center gap-2">
+            <div className="flex-1">
+              <Label className="whitespace-nowrap">Employee</Label>
+              <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={empLoading ? "Loading..." : "Select employee"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map(e => (
+                    <SelectItem key={String(e._id)} value={String(e._id)}>
+                      {e.name || e.email || e._id}
+                    </SelectItem>
                   ))}
-                </TableBody>
-              </Table>
+                </SelectContent>
+              </Select>
             </div>
+            <div>
+              <Label className="whitespace-nowrap">Date</Label>
+              <Input type="date" value={employeeDsrDate} onChange={(e) => setEmployeeDsrDate(e.target.value)} className="h-9 w-[10.5rem]" />
+            </div>
+            <Button disabled={!selectedEmployeeId || empLoading} onClick={loadEmployeeDsr} style={{ backgroundColor: "#2B3068" }}>
+              {empLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Eye className="h-4 w-4 mr-2" />} Load
+            </Button>
+            <Button variant="outline" disabled={employeeDsrEntries.length === 0} onClick={() => downloadEmployeeDsrGridPdf(employeeDsrDate)}>
+              <FileText className="h-4 w-4 mr-2" /> PDF
+            </Button>
           </div>
+
+          <div className="border rounded-lg overflow-x-auto">
+            <Table className="min-w-[900px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Items</TableHead>
+                  <TableHead colSpan={2}>Opening</TableHead>
+                  <TableHead colSpan={3}>During the day</TableHead>
+                  <TableHead colSpan={2}>Closing</TableHead>
+                </TableRow>
+                <TableRow>
+                  <TableHead></TableHead>
+                  <TableHead>Full</TableHead>
+                  <TableHead>Empty</TableHead>
+                  <TableHead>Refilled</TableHead>
+                  <TableHead>Cylinder Sales</TableHead>
+                  <TableHead>Gas Sales</TableHead>
+                  <TableHead>Full</TableHead>
+                  <TableHead>Empty</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {empGridRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-6 text-gray-500">
+                      {selectedEmployeeId ? "No data for selected date" : "Select employee and date to view"}
+                    </TableCell>
+                  </TableRow>
+                ) : empGridRows.map((r) => (
+                  <TableRow key={r.itemName}>
+                    <TableCell className="font-medium">{r.itemName}</TableCell>
+                    <TableCell className="text-blue-600 font-medium">{r.openingFull}</TableCell>
+                    <TableCell className="text-blue-600 font-medium">{r.openingEmpty}</TableCell>
+                    <TableCell className="text-green-600">{r.refilled}</TableCell>
+                    <TableCell className="text-orange-600">{r.cylinderSales}</TableCell>
+                    <TableCell className="text-red-600">{r.gasSales}</TableCell>
+                    <TableCell className="text-blue-800 font-bold">{typeof r.closingFull === 'number' ? r.closingFull : '-'}</TableCell>
+                    <TableCell className="text-blue-800 font-bold">{typeof r.closingEmpty === 'number' ? r.closingEmpty : '-'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEmployeeDSR(false)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Daily Stock Report - Excel-like Dialog */}
-      <Dialog open={showDSRForm} onOpenChange={setShowDSRForm}>
-        <DialogContent className="w-screen max-w-screen sm:w-[95vw] sm:max-w-[1090px] p-0 sm:p-6 overflow-x-visible" style={{ overflowX: 'visible' }}>
-          <DialogHeader>
-            <DialogTitle>Daily Stock Report</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Optional date selector aligned with report */}
-            <div className="flex items-center gap-3">
-              <Label className="w-24">Date</Label>
-              <Input
-                type="date"
-                value={dsrForm.date}
-                onChange={(e) => setDsrForm(prev => ({ ...prev, date: e.target.value }))}
-                className="w-48"
-              />
-            </div>
-
-            {/* Force full-viewport width on mobile so horizontal scroll is available */}
-            <div className="w-screen sm:w-auto -mx-4 sm:mx-0">
-              <div className="overflow-x-auto sm:overflow-x-auto overscroll-x-contain w-full max-w-full border rounded-md touch-pan-x px-4 pointer-events-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
-                <table className="min-w-[1200px] sm:min-w-[1000px] border-collapse whitespace-nowrap">
-                  <thead>
-                  <tr>
-                    <th className="border px-3 py-2 text-left bg-gray-50 min-w-[12rem]">Items</th>
-                    <th className="border px-3 py-2 text-center bg-gray-50 min-w-[8rem]" colSpan={2}>Opening</th>
-                    <th className="border px-3 py-2 text-center bg-gray-50 min-w-[8rem]" colSpan={2}>Closing</th>
-                  </tr>
-                  <tr>
-                    <th className="border px-3 py-2 text-left bg-white whitespace-nowrap min-w-[12rem]"></th>
-                    <th className="border px-3 py-2 text-center bg-white whitespace-nowrap min-w-[7.5rem]">Full</th>
-                    <th className="border px-3 py-2 text-center bg-white whitespace-nowrap min-w-[7.5rem]">Empty</th>
-                    <th className="border px-3 py-2 text-center bg-white whitespace-nowrap min-w-[7.5rem]">Full</th>
-                    <th className="border px-3 py-2 text-center bg-white whitespace-nowrap min-w-[7.5rem]">Empty</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dsrGrid.length === 0 ? (
-                    <tr>
-                      <td className="border px-3 py-3 text-center text-gray-500" colSpan={5}>No products found</td>
-                    </tr>
-                  ) : (
-                    dsrGrid.map(row => (
-                      <tr key={row.itemId}>
-                        <td className="border px-3 py-2 whitespace-nowrap min-w-[12rem]">{row.itemName}</td>
-                        <td className="border px-2 py-1 w-28 min-w-[7.5rem]">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={row.openingFull}
-                            onChange={(e) => updateDsrGridCell(row.itemId, 'openingFull', e.target.value)}
-                            className="w-full min-w-[6.5rem]"
-                          />
-                        </td>
-                        <td className="border px-2 py-1 w-28 min-w-[7.5rem]">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={row.openingEmpty}
-                            onChange={(e) => updateDsrGridCell(row.itemId, 'openingEmpty', e.target.value)}
-                            className="w-full min-w-[6.5rem]"
-                          />
-                        </td>
-                        <td className="border px-2 py-1 w-28 min-w-[7.5rem]">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={row.closingFull}
-                            onChange={(e) => updateDsrGridCell(row.itemId, 'closingFull', e.target.value)}
-                            className="w-full min-w-[6.5rem]"
-                          />
-                        </td>
-                        <td className="border px-2 py-1 w-28 min-w-[7.5rem]">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={row.closingEmpty}
-                            onChange={(e) => updateDsrGridCell(row.itemId, 'closingEmpty', e.target.value)}
-                            className="w-full min-w-[6.5rem]"
-                          />
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowDSRForm(false)}>Cancel</Button>
-              <Button style={{ backgroundColor: '#2B3068' }} onClick={saveDsrGrid}>Save</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* DSR Grid View Dialog (read-only) */}
       <Dialog open={showDSRView} onOpenChange={setShowDSRView}>
         <DialogContent className="w-[95vw] max-w-[900px] p-3 sm:p-6 rounded-lg">
           <DialogHeader>
             <DialogTitle>Daily Stock Report – {dsrViewDate}</DialogTitle>
-            <DialogDescription className="sr-only">Daily totals are derived from admin gas/cylinder sales and admin refills for the selected date.</DialogDescription>
+            <DialogDescription className="sr-only">Automated daily stock report with real-time data from inventory, sales, and refilling operations.</DialogDescription>
           </DialogHeader>
           <div className="mb-3 flex items-center gap-2">
             <Label className="whitespace-nowrap">Date</Label>
@@ -2209,19 +1967,30 @@ export function Reports() {
                       const retV = (dailyAggReturns[key]
                         ?? (idKey ? dailyAggReturnsById[idKey] : undefined)
                         ?? 0) ?? 0
-                      // Temporary debug per row
+                      
+                      // Get real-time inventory data for opening/closing calculations
+                      const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+                      
+                      // Calculate opening stock (use current inventory as baseline)
+                      const openingFull = e?.openingFull ?? inventoryInfo.availableFull
+                      const openingEmpty = e?.openingEmpty ?? inventoryInfo.availableEmpty
+                      
+                      // Calculate closing stock: Opening + Refilled - Gas Sales - Cylinder Sales + Returns - Deposits
+                      const closingFull = Math.max(0, openingFull + refV - gasV - cylV)
+                      const closingEmpty = Math.max(0, openingEmpty + gasV + cylV - refV + retV - depV)
+                      
                       return (
                         <TableRow key={p._id || p.name}>
                           <TableCell className="font-medium">{p.name}</TableCell>
-                          <TableCell>{e ? e.openingFull : 0}</TableCell>
-                          <TableCell>{e ? e.openingEmpty : 0}</TableCell>
-                          <TableCell>{refV}</TableCell>
-                          <TableCell>{cylV}</TableCell>
-                          <TableCell>{gasV}</TableCell>
-                          <TableCell>{depV}</TableCell>
-                          <TableCell>{retV}</TableCell>
-                          <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
-                          <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
+                          <TableCell className="text-blue-600 font-medium">{openingFull}</TableCell>
+                          <TableCell className="text-blue-600 font-medium">{openingEmpty}</TableCell>
+                          <TableCell className="text-green-600">{refV}</TableCell>
+                          <TableCell className="text-orange-600">{cylV}</TableCell>
+                          <TableCell className="text-red-600">{gasV}</TableCell>
+                          <TableCell className="text-purple-600">{depV}</TableCell>
+                          <TableCell className="text-indigo-600">{retV}</TableCell>
+                          <TableCell className="text-blue-800 font-bold">{closingFull}</TableCell>
+                          <TableCell className="text-blue-800 font-bold">{closingEmpty}</TableCell>
                         </TableRow>
                       )
                     })
