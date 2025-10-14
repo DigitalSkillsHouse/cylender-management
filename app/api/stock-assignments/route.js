@@ -120,14 +120,14 @@ export async function POST(request) {
     if (data.category === 'gas' && data.cylinderProductId) {
       // Gas assignment: deduct gas stock and convert full cylinder to empty
       const gasUpdate = await InventoryItem.findOneAndUpdate(
-        { productId: data.product },
+        { product: data.product },
         { $inc: { currentStock: -data.quantity } },
         { new: true }
       );
       console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
       
       const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-        { productId: data.cylinderProductId },
+        { product: data.cylinderProductId },
         { 
           $inc: { 
             availableFull: -data.quantity,
@@ -138,16 +138,16 @@ export async function POST(request) {
       );
       console.log('✅ Cylinder converted full->empty:', cylinderUpdate?.availableFull, '->', cylinderUpdate?.availableEmpty);
     } else if (data.category === 'cylinder' && data.cylinderStatus === 'full' && data.gasProductId) {
-      // Full cylinder assignment: deduct full cylinders and gas stock
+      // Full cylinder assignment: deduct full cylinders and gas stock (same as Gas Sales)
       const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-        { productId: data.product },
+        { product: data.product },
         { $inc: { availableFull: -data.quantity } },
         { new: true }
       );
       console.log('✅ Full cylinders deducted:', cylinderUpdate?.availableFull);
       
       const gasUpdate = await InventoryItem.findOneAndUpdate(
-        { productId: data.gasProductId },
+        { product: data.gasProductId },
         { $inc: { currentStock: -data.quantity } },
         { new: true }
       );
@@ -155,7 +155,7 @@ export async function POST(request) {
     } else if (data.category === 'cylinder' && data.cylinderStatus === 'empty') {
       // Empty cylinder assignment: deduct empty cylinders
       const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-        { productId: data.product },
+        { product: data.product },
         { $inc: { availableEmpty: -data.quantity } },
         { new: true }
       );
@@ -163,7 +163,7 @@ export async function POST(request) {
     } else if (data.category === 'cylinder' && data.cylinderStatus === 'full') {
       // Full cylinder only assignment (no gas product)
       const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-        { productId: data.product },
+        { product: data.product },
         { $inc: { availableFull: -data.quantity } },
         { new: true }
       );
@@ -171,7 +171,7 @@ export async function POST(request) {
     } else if (data.category === 'gas') {
       // Gas only assignment (no cylinder product)
       const gasUpdate = await InventoryItem.findOneAndUpdate(
-        { productId: data.product },
+        { product: data.product },
         { $inc: { currentStock: -data.quantity } },
         { new: true }
       );

@@ -10,15 +10,26 @@ export async function PATCH(request, { params }) {
     const { id } = params;
     const data = await request.json();
     
+    console.log('📝 PATCH request data:', { id, data });
+    
     const assignment = await StockAssignment.findByIdAndUpdate(
       id,
       { status: data.status },
       { new: true }
-    ).populate("product", "name category cylinderSize");
+    ).populate("product", "name category cylinderSize productCode");
     
     if (!assignment) {
+      console.error('❌ Assignment not found:', id);
       return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
     }
+    
+    console.log('✅ Assignment found:', {
+      id: assignment._id,
+      product: assignment.product?.name,
+      category: assignment.category,
+      cylinderStatus: assignment.cylinderStatus,
+      status: assignment.status
+    });
     
     // If accepting assignment, create EmployeeInventory records
     if (data.status === 'received' && data.createEmployeeInventory) {
@@ -27,12 +38,27 @@ export async function PATCH(request, { params }) {
       // Use the base category for database storage (gas/cylinder)
       const dbCategory = assignment.category || (assignment.product?.category === 'gas' ? 'gas' : 'cylinder');
       
+      // Handle undefined cylinderStatus for cylinder products
+      const cylinderStatus = assignment.cylinderStatus || (assignment.product?.category === 'cylinder' ? 'empty' : undefined);
+      
       console.log('🔧 Assignment details:', {
         category: assignment.category,
         cylinderStatus: assignment.cylinderStatus,
+        resolvedCylinderStatus: cylinderStatus,
         dbCategory: dbCategory,
         productName: assignment.product?.name
       });
+      
+      // Validate required data
+      if (!assignment.product || !assignment.product._id) {
+        console.error('❌ Missing product data in assignment');
+        return NextResponse.json({ error: "Invalid assignment: missing product data" }, { status: 400 });
+      }
+      
+      if (!dbCategory || !['gas', 'cylinder'].includes(dbCategory)) {
+        console.error('❌ Invalid category:', dbCategory);
+        return NextResponse.json({ error: "Invalid assignment: invalid category" }, { status: 400 });
+      }
       
       // Check for existing inventory by product name and code (primary check)
       const allEmployeeInventory = await EmployeeInventory.find({
@@ -46,19 +72,18 @@ export async function PATCH(request, { params }) {
       
       if (targetInventory) {
         // Update existing record
-        await EmployeeInventory.findByIdAndUpdate(targetInventory._id, {
+        const updateData = {
           $inc: {
             assignedQuantity: assignment.quantity,
             currentStock: assignment.quantity,
-            ...(assignment.category === 'cylinder' && assignment.cylinderStatus === 'empty' && {
+            ...(dbCategory === 'cylinder' && cylinderStatus === 'empty' && {
               availableEmpty: assignment.quantity
             }),
-            ...(assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && {
+            ...(dbCategory === 'cylinder' && cylinderStatus === 'full' && {
               availableFull: assignment.quantity
             })
           },
           category: dbCategory,
-          cylinderStatus: assignment.cylinderStatus,
           leastPrice: assignment.leastPrice,
           status: 'received',
           $push: {
@@ -66,10 +91,17 @@ export async function PATCH(request, { params }) {
               type: 'assignment',
               quantity: assignment.quantity,
               date: new Date(),
-              notes: `Additional stock assignment accepted - ${dbCategory} ${assignment.cylinderStatus || ''}`
+              notes: `Additional stock assignment accepted - ${dbCategory} ${cylinderStatus || ''}`
             }
           }
-        });
+        };
+        
+        // Only set cylinderStatus if it's defined
+        if (cylinderStatus) {
+          updateData.cylinderStatus = cylinderStatus;
+        }
+        
+        await EmployeeInventory.findByIdAndUpdate(targetInventory._id, updateData);
       } else {
         // Create new record with valid enum category
         console.log('💾 Creating new EmployeeInventory record:', {
@@ -78,17 +110,16 @@ export async function PATCH(request, { params }) {
           quantity: assignment.quantity
         });
         
-        await EmployeeInventory.create({
+        const newInventoryData = {
           employee: assignment.employee,
           product: assignment.product._id,
           category: dbCategory,
-          cylinderStatus: assignment.cylinderStatus,
           assignedQuantity: assignment.quantity,
           currentStock: assignment.quantity,
-          ...(assignment.category === 'cylinder' && assignment.cylinderStatus === 'empty' && {
+          ...(dbCategory === 'cylinder' && cylinderStatus === 'empty' && {
             availableEmpty: assignment.quantity
           }),
-          ...(assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && {
+          ...(dbCategory === 'cylinder' && cylinderStatus === 'full' && {
             availableFull: assignment.quantity
           }),
           cylinderSize: assignment.cylinderSize,
@@ -98,9 +129,16 @@ export async function PATCH(request, { params }) {
             type: 'assignment',
             quantity: assignment.quantity,
             date: new Date(),
-            notes: `Stock assignment accepted - ${dbCategory} ${assignment.cylinderStatus || ''}`
+            notes: `Stock assignment accepted - ${dbCategory} ${cylinderStatus || ''}`
           }]
-        });
+        };
+        
+        // Only set cylinderStatus if it's defined
+        if (cylinderStatus) {
+          newInventoryData.cylinderStatus = cylinderStatus;
+        }
+        
+        await EmployeeInventory.create(newInventoryData);
       }
       
       // For gas assignments, also create/update cylinder inventory
@@ -148,7 +186,7 @@ export async function PATCH(request, { params }) {
       }
       
       // For full cylinder assignments, also create/update gas inventory
-      if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && assignment.gasProductId) {
+      if (dbCategory === 'cylinder' && cylinderStatus === 'full' && assignment.gasProductId) {
         const gasProduct = await Product.findById(assignment.gasProductId);
         const targetGasInventory = allEmployeeInventory.find(inv => 
           inv.product?.name === gasProduct?.name && 
