@@ -82,15 +82,41 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
   const returnedItems = inventory.filter(item => item.status === "returned")
 
   // Group received items by category for tabs
-  const gasItems = receivedItems.filter(item => item.product.category === "gas")
-  const fullCylinderItems = receivedItems.filter(item => 
-    item.product.category === "cylinder" && 
-    ((item as any).cylinderStatus === 'full' || ((item.availableFull || 0) > 0))
-  )
-  const emptyCylinderItems = receivedItems.filter(item => 
-    item.product.category === "cylinder" && 
-    ((item as any).cylinderStatus === 'empty' || ((item.availableEmpty || 0) > 0) || (item.currentStock > 0 && !(item as any).cylinderStatus))
-  )
+  const gasItems = receivedItems.filter(item => {
+    const category = (item as any).category || item.product.category
+    return category === "Gas" || category === "gas" || item.product.category === "gas"
+  })
+  
+  const fullCylinderItems = receivedItems.filter(item => {
+    const category = (item as any).category || item.product.category
+    const cylinderStatus = (item as any).cylinderStatus
+    return category === "Full Cylinder" || 
+           (cylinderStatus === 'full' && item.product.category === "cylinder") ||
+           (category === "cylinder" && cylinderStatus === 'full')
+  })
+  
+  const emptyCylinderItems = receivedItems.filter(item => {
+    const category = (item as any).category || item.product.category
+    const cylinderStatus = (item as any).cylinderStatus
+    return category === "Empty Cylinder" || 
+           (cylinderStatus === 'empty' && item.product.category === "cylinder") ||
+           (category === "cylinder" && cylinderStatus === 'empty') ||
+           (item.product.category === "cylinder" && !cylinderStatus)
+  })
+  
+  // Debug logging
+  console.log('📊 Inventory categorization:', {
+    total: receivedItems.length,
+    gas: gasItems.length,
+    fullCylinder: fullCylinderItems.length,
+    emptyCylinder: emptyCylinderItems.length,
+    items: receivedItems.map(item => ({
+      name: item.product.name,
+      category: (item as any).category,
+      productCategory: item.product.category,
+      cylinderStatus: (item as any).cylinderStatus
+    }))
+  })
 
   const norm = (v?: string | number) => (v === undefined || v === null ? "" : String(v)).toLowerCase()
   const matchesQuery = (item: EmployeeInventoryItem, q: string) =>
@@ -175,7 +201,35 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
                 </TableCell>
                 <TableCell className="p-4">
                   <Badge variant={(item as any).category === "Gas" ? "default" : "secondary"}>
-                    {(item as any).category || item.product.category}
+                    {(() => {
+                      // Debug logging
+                      console.log('🏷️ Category debug:', {
+                        displayCategory: (item as any).displayCategory,
+                        category: (item as any).category,
+                        cylinderStatus: (item as any).cylinderStatus,
+                        productCategory: item.product.category,
+                        productName: item.product.name
+                      });
+                      
+                      // First check for displayCategory (from StockAssignment)
+                      const displayCategory = (item as any).displayCategory
+                      if (displayCategory) return displayCategory
+                      
+                      // Then check for category field
+                      const category = (item as any).category
+                      if (category && category !== 'cylinder' && category !== 'gas') return category
+                      
+                      // Force correct display for cylinders based on cylinderStatus
+                      if (item.product.category === 'cylinder' || category === 'cylinder') {
+                        const cylinderStatus = (item as any).cylinderStatus
+                        if (cylinderStatus === 'full') return 'Full Cylinder'
+                        if (cylinderStatus === 'empty') return 'Empty Cylinder'
+                        return 'Cylinder'
+                      }
+                      
+                      return item.product.category === 'gas' || category === 'gas' ? 'Gas' : (category || item.product.category)
+                    })()
+                    }
                   </Badge>
                 </TableCell>
                 <TableCell className="p-4 font-medium">{item.assignedQuantity}</TableCell>

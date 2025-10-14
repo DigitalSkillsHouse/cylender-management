@@ -61,6 +61,7 @@ export async function POST(request) {
 
   try {
     const data = await request.json();
+    console.log('📥 Stock assignment request data:', JSON.stringify(data, null, 2));
     const InventoryItem = (await import("@/models/InventoryItem")).default;
 
     // Get the product to validate and include pricing
@@ -75,6 +76,14 @@ export async function POST(request) {
     // Get inventory availability
     const inventoryAvailability = data.inventoryAvailability || {};
     const productInventory = inventoryAvailability[data.product] || {};
+
+    // Validate required fields for full cylinder assignments
+    if (data.category === 'cylinder' && data.cylinderStatus === 'full' && !data.gasProductId) {
+      return NextResponse.json(
+        { error: "Gas product is required for full cylinder assignments" },
+        { status: 400 }
+      );
+    }
 
     // Validate stock availability based on category and cylinder status
     if (data.category === 'gas') {
@@ -105,40 +114,68 @@ export async function POST(request) {
       }
     }
 
-    // Perform inventory deduction like Gas Sales
+    // Perform inventory deduction from admin inventory
+    console.log('🔄 Deducting inventory for assignment:', { category: data.category, cylinderStatus: data.cylinderStatus, quantity: data.quantity });
+    
     if (data.category === 'gas' && data.cylinderProductId) {
       // Gas assignment: deduct gas stock and convert full cylinder to empty
-      await InventoryItem.findOneAndUpdate(
+      const gasUpdate = await InventoryItem.findOneAndUpdate(
         { productId: data.product },
-        { $inc: { currentStock: -data.quantity } }
+        { $inc: { currentStock: -data.quantity } },
+        { new: true }
       );
+      console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
       
-      await InventoryItem.findOneAndUpdate(
+      const cylinderUpdate = await InventoryItem.findOneAndUpdate(
         { productId: data.cylinderProductId },
         { 
           $inc: { 
             availableFull: -data.quantity,
             availableEmpty: data.quantity 
           }
-        }
+        },
+        { new: true }
       );
+      console.log('✅ Cylinder converted full->empty:', cylinderUpdate?.availableFull, '->', cylinderUpdate?.availableEmpty);
     } else if (data.category === 'cylinder' && data.cylinderStatus === 'full' && data.gasProductId) {
       // Full cylinder assignment: deduct full cylinders and gas stock
-      await InventoryItem.findOneAndUpdate(
+      const cylinderUpdate = await InventoryItem.findOneAndUpdate(
         { productId: data.product },
-        { $inc: { availableFull: -data.quantity } }
+        { $inc: { availableFull: -data.quantity } },
+        { new: true }
       );
+      console.log('✅ Full cylinders deducted:', cylinderUpdate?.availableFull);
       
-      await InventoryItem.findOneAndUpdate(
+      const gasUpdate = await InventoryItem.findOneAndUpdate(
         { productId: data.gasProductId },
-        { $inc: { currentStock: -data.quantity } }
+        { $inc: { currentStock: -data.quantity } },
+        { new: true }
       );
+      console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
     } else if (data.category === 'cylinder' && data.cylinderStatus === 'empty') {
       // Empty cylinder assignment: deduct empty cylinders
-      await InventoryItem.findOneAndUpdate(
+      const cylinderUpdate = await InventoryItem.findOneAndUpdate(
         { productId: data.product },
-        { $inc: { availableEmpty: -data.quantity } }
+        { $inc: { availableEmpty: -data.quantity } },
+        { new: true }
       );
+      console.log('✅ Empty cylinders deducted:', cylinderUpdate?.availableEmpty);
+    } else if (data.category === 'cylinder' && data.cylinderStatus === 'full') {
+      // Full cylinder only assignment (no gas product)
+      const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+        { productId: data.product },
+        { $inc: { availableFull: -data.quantity } },
+        { new: true }
+      );
+      console.log('✅ Full cylinders deducted (no gas):', cylinderUpdate?.availableFull);
+    } else if (data.category === 'gas') {
+      // Gas only assignment (no cylinder product)
+      const gasUpdate = await InventoryItem.findOneAndUpdate(
+        { productId: data.product },
+        { $inc: { currentStock: -data.quantity } },
+        { new: true }
+      );
+      console.log('✅ Gas stock deducted (no cylinder):', gasUpdate?.currentStock);
     }
 
     // Create assignment with remainingQuantity initialized to the assigned quantity and include leastPrice
@@ -154,8 +191,18 @@ export async function POST(request) {
       ...data,
       remainingQuantity: data.quantity,
       leastPrice: product.leastPrice,
-      displayCategory: displayCategory
+      displayCategory: displayCategory,
+      cylinderStatus: data.cylinderStatus // Explicitly save cylinder status
     };
+    
+    // Remove empty string ObjectId fields to prevent validation errors
+    if (!data.gasProductId || data.gasProductId === '') {
+      delete assignmentData.gasProductId;
+    }
+    if (!data.cylinderProductId || data.cylinderProductId === '') {
+      delete assignmentData.cylinderProductId;
+    }
+    console.log('🔍 Creating assignment with data:', { category: data.category, cylinderStatus: data.cylinderStatus, displayCategory });
     const assignment = await StockAssignment.create(assignmentData);
 
     // Create notification for employee
@@ -168,7 +215,7 @@ export async function POST(request) {
       relatedId: assignment._id,
     });
 
-    console.log('✅ Stock assignment created and inventory updated for product:', data.product)
+    console.log('✅ Stock assignment created and admin inventory updated for product:', data.product, 'quantity:', data.quantity)
 
     const populatedAssignment = await StockAssignment.findById(assignment._id)
       .populate("employee", "name email")

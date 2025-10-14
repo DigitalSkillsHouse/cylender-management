@@ -50,13 +50,35 @@ export async function GET(request) {
       let displayCategory = assignment.displayCategory;
       if (!displayCategory) {
         if (assignment.category === 'cylinder') {
-          displayCategory = assignment.cylinderStatus === 'empty' ? 'Empty Cylinder' : 'Full Cylinder';
+          // Handle missing cylinderStatus - default to 'Empty Cylinder' for existing records
+          if (assignment.cylinderStatus === 'full') {
+            displayCategory = 'Full Cylinder';
+          } else if (assignment.cylinderStatus === 'empty') {
+            displayCategory = 'Empty Cylinder';
+          } else {
+            // For existing records without cylinderStatus, check product name for clues
+            const productName = assignment.product?.name?.toLowerCase() || '';
+            if (productName.includes('full') || assignment.gasProductId) {
+              displayCategory = 'Full Cylinder';
+            } else {
+              displayCategory = 'Empty Cylinder'; // Default for cylinders
+            }
+          }
         } else if (assignment.category === 'gas') {
           displayCategory = 'Gas';
         } else {
-          displayCategory = assignment.category || assignment.product?.category;
+          displayCategory = assignment.category || assignment.product?.category || 'Unknown';
         }
       }
+      
+      console.log('🏷️ Assignment conversion debug:', {
+        assignmentId: assignment._id,
+        category: assignment.category,
+        cylinderStatus: assignment.cylinderStatus,
+        displayCategory: displayCategory,
+        productName: assignment.product?.name,
+        hasGasProduct: !!assignment.gasProductId
+      });
       
       return {
         _id: assignment._id,
@@ -69,6 +91,7 @@ export async function GET(request) {
         assignedDate: assignment.createdAt,
         lastUpdated: assignment.updatedAt || assignment.createdAt,
         category: displayCategory,
+        displayCategory: displayCategory, // Add displayCategory field
         cylinderStatus: assignment.cylinderStatus,
         gasProductId: assignment.gasProductId,
         cylinderProductId: assignment.cylinderProductId
