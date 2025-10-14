@@ -264,12 +264,17 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
   // Assigned availability helper for a specific product and size
   const getAssignedAvailableFor = (productId: string, size: string) => {
-    const matches = stockAssignments.filter(sa => {
-      const sameProduct = sa?.product?._id === productId
-      const sameSize = sa?.cylinderSize ? sa.cylinderSize === size : true
-      return sameProduct && sameSize
-    })
-    return matches.reduce((sum, sa) => sum + (sa.remainingQuantity || 0), 0)
+    const product = products.find(p => p._id === productId)
+    if (!product) return 0
+    
+    // For cylinders, check specific availability based on size and status
+    if (product.category === 'cylinder') {
+      // Return total available (empty + full) for the product
+      return (product as any).availableEmpty + (product as any).availableFull
+    }
+    
+    // For gas products, return current stock
+    return product.currentStock || 0
   }
 
   // Auto-dismiss stock popup after 5s, but only if user hasn't interacted with it
@@ -601,11 +606,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const fetchData = async () => {
     try {
       setLoading(true)
-      const [transactionsResponse, customersResponse, productsResponse, stockAssignmentsResponse, suppliersResponse] = await Promise.all([
+      const [transactionsResponse, customersResponse, productsResponse, employeeInventoryResponse, suppliersResponse] = await Promise.all([
         fetch(`/api/employee-cylinders?employeeId=${user.id}`),
         fetch("/api/customers"),
         fetch("/api/products"),
-        fetch(`/api/stock-assignments?employeeId=${user.id}&status=received`),
+        fetch(`/api/employee-inventory?employeeId=${user.id}`),
         fetch("/api/suppliers")
       ])
 
@@ -653,28 +658,44 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         console.error("Failed to fetch products:", productsResponse.status)
       }
 
-      if (stockAssignmentsResponse.ok) {
-        const stockData = await stockAssignmentsResponse.json()
-        const assignments = stockData.data || stockData
-        const list = Array.isArray(assignments) ? assignments : []
-        setStockAssignments(list)
-        // Build products list: include ALL cylinder products (so 'refill' can always pick),
-        // enriched with assigned ones; deduplicate by _id
-        const allCylinder = (allProducts || []).filter((p: any) => p?.category === 'cylinder')
+      if (employeeInventoryResponse.ok) {
+        const inventoryData = await employeeInventoryResponse.json()
+        const inventory = inventoryData.data || inventoryData
+        const list = Array.isArray(inventory) ? inventory : []
+        
+        // Convert employee inventory to stock assignments format for compatibility
+        const stockAssignments = list.map((inv: any) => ({
+          _id: inv._id,
+          product: inv.product,
+          remainingQuantity: inv.currentStock,
+          cylinderSize: inv.product?.cylinderSize || inv.product?.cylinderType,
+          category: inv.category,
+          cylinderStatus: inv.cylinderStatus
+        }))
+        setStockAssignments(stockAssignments)
+        
+        // Build products list from employee inventory
+        const cylinderProducts = list
+          .filter((inv: any) => inv.product && inv.product.category === 'cylinder' && inv.currentStock > 0)
+          .map((inv: any) => ({
+            ...inv.product,
+            currentStock: inv.currentStock,
+            availableEmpty: inv.availableEmpty || 0,
+            availableFull: inv.availableFull || 0
+          }))
+        
+        // Deduplicate by product ID
         const mergedMap = new Map<string, any>()
-        // seed with all cylinder products from catalog
-        allCylinder.forEach((p: any) => mergedMap.set(p._id, p))
-        // overlay assigned products (to ensure latest nested product object if needed)
-        list
-          .filter(sa => sa?.product && sa?.product?.category === 'cylinder')
-          .forEach(sa => {
-            const prod = sa.product
-            const enriched = allProducts.find((p: any) => p._id === prod._id) || prod
-            mergedMap.set(enriched._id, enriched)
-          })
+        cylinderProducts.forEach((p: any) => mergedMap.set(p._id, p))
         setProducts(Array.from(mergedMap.values()))
+        
+        console.log('Employee Cylinder Sales - Loaded inventory:', {
+          totalInventoryItems: list.length,
+          cylinderProducts: cylinderProducts.length,
+          stockAssignments: stockAssignments.length
+        })
       } else {
-        console.error("Failed to fetch stock assignments:", stockAssignmentsResponse.status)
+        console.error("Failed to fetch employee inventory:", employeeInventoryResponse.status)
         setStockAssignments([])
         setProducts([])
       }
@@ -1203,12 +1224,15 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   // Get assigned remaining quantity for the selected product and cylinder size
   const getAssignedAvailable = () => {
     if (!formData.product) return 0;
-    const matches = stockAssignments.filter(sa => {
-      const sameProduct = sa?.product?._id === formData.product;
-      const sameSize = sa?.cylinderSize ? sa.cylinderSize === formData.cylinderSize : true;
-      return sameProduct && sameSize;
-    });
-    return matches.reduce((sum, sa) => sum + (sa.remainingQuantity || 0), 0);
+    const product = products.find(p => p._id === formData.product)
+    if (!product) return 0
+    
+    // For cylinders, return available stock based on current form data
+    if (product.category === 'cylinder') {
+      return (product as any).availableEmpty + (product as any).availableFull
+    }
+    
+    return product.currentStock || 0
   };
 
   // Filter transactions based on active tab

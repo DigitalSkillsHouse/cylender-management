@@ -252,10 +252,10 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const fetchData = async () => {
     try {
       setLoading(true)
-      const [salesResponse, customersResponse, stockAssignmentsResponse] = await Promise.all([
+      const [salesResponse, customersResponse, employeeInventoryResponse] = await Promise.all([
         fetch(`/api/employee-sales?employeeId=${user.id}`),
         customersAPI.getAll(),
-        fetch(`/api/stock-assignments?employeeId=${user.id}&status=received`),
+        fetch(`/api/employee-inventory?employeeId=${user.id}`),
       ])
       
       const salesData = await salesResponse.json()
@@ -276,18 +276,23 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
             ? customersResponse 
             : []
       
-      // Fetch employee's assigned products from stock assignments
-      const stockAssignmentsData = await stockAssignmentsResponse.json()
-      console.log('Employee stock assignments:', stockAssignmentsData)
+      // Fetch employee's own inventory
+      const employeeInventoryData = await employeeInventoryResponse.json()
+      console.log('Employee inventory response:', employeeInventoryData)
       
-      // Extract products from stock assignments with remaining quantities
+      // Extract products from employee inventory with current stock
       const allEmployeeProducts: Product[] = [];
-      if (stockAssignmentsData?.data && Array.isArray(stockAssignmentsData.data)) {
-        stockAssignmentsData.data.forEach((assignment: any) => {
-          if (assignment.product && assignment.remainingQuantity > 0) {
+      if (employeeInventoryData?.data && Array.isArray(employeeInventoryData.data)) {
+        employeeInventoryData.data.forEach((inventoryItem: any) => {
+          if (inventoryItem.product && inventoryItem.currentStock > 0) {
             const productWithStock = {
-              ...assignment.product,
-              currentStock: assignment.remainingQuantity // Use remaining quantity as current stock
+              ...inventoryItem.product,
+              currentStock: inventoryItem.currentStock,
+              // Add inventory-specific fields for availability checking
+              availableEmpty: inventoryItem.availableEmpty || 0,
+              availableFull: inventoryItem.availableFull || 0,
+              category: inventoryItem.category || inventoryItem.product.category,
+              cylinderStatus: inventoryItem.cylinderStatus
             }
             allEmployeeProducts.push(productWithStock)
           }
@@ -299,32 +304,41 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       )
       // Filter products for the current category
       const initialCategory = formData.category || "gas";
-      const filteredProducts = dedupedAllProducts.filter((product: Product) => product.category === initialCategory);
+      const filteredProducts = dedupedAllProducts.filter((product: Product) => {
+        if (product.category === 'gas') return true;
+        if (product.category === 'cylinder') {
+          // For cylinders, check if they have available stock based on status
+          return (product as any).availableEmpty > 0 || (product as any).availableFull > 0;
+        }
+        return false;
+      });
       
-      // Fetch live inventory-items availability (authoritative for cylinder availability)
-      try {
-        const invRes = await fetch('/api/inventory-items', { cache: 'no-store' })
-        const invJson = await (async () => { try { return await invRes.json() } catch { return {} as any } })()
-        const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
-        const invArr = Array.isArray(invJson?.data) ? invJson.data : []
-        for (const ii of invArr) {
-          if (ii?.productId) {
-            availMap[ii.productId] = {
-              availableEmpty: Number(ii.availableEmpty || 0),
-              availableFull: Number(ii.availableFull || 0),
-              currentStock: Number(ii.currentStock || 0),
+      // Build inventory availability map from employee inventory
+      const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
+      if (employeeInventoryData?.data && Array.isArray(employeeInventoryData.data)) {
+        employeeInventoryData.data.forEach((inventoryItem: any) => {
+          if (inventoryItem.product?._id) {
+            availMap[inventoryItem.product._id] = {
+              availableEmpty: Number(inventoryItem.availableEmpty || 0),
+              availableFull: Number(inventoryItem.availableFull || 0),
+              currentStock: Number(inventoryItem.currentStock || 0),
             }
           }
-        }
-        setInventoryAvailability(availMap)
-      } catch (_) {
-        // Non-fatal; keep suggestions functional with product.currentStock fallback
+        })
       }
+      setInventoryAvailability(availMap)
       
       setCustomers(customersData)
       setAllProducts(dedupedAllProducts)
       setProducts(filteredProducts)
       setSales(salesArray)
+      
+      console.log('Employee Gas Sales - Loaded inventory:', {
+        totalItems: employeeInventoryData?.data?.length || 0,
+        gasProducts: dedupedAllProducts.filter(p => p.category === 'gas').length,
+        cylinderProducts: dedupedAllProducts.filter(p => p.category === 'cylinder').length,
+        availabilityMap: Object.keys(availMap).length
+      })
     } catch (error) {
       console.error("Failed to fetch data:", error)
       setSales([])
@@ -596,7 +610,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       let stockType = ''
       
       if (currentItem.category === 'gas') {
-        // For gas sales, validate gas stock from inventory Gas tab
+        // For gas sales, validate gas stock from employee inventory
         const gasStock = product.currentStock || 0
         
         if (enteredQuantity > gasStock) {
@@ -605,12 +619,12 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
           return
         }
       } else if (currentItem.category === 'cylinder') {
-        // For cylinders, check based on cylinderStatus
+        // For cylinders, check based on cylinderStatus from employee inventory
         if (currentItem.cylinderStatus === 'full') {
-          availableStock = inventoryAvailability[product._id]?.availableFull || 0
+          availableStock = (product as any).availableFull || inventoryAvailability[product._id]?.availableFull || 0
           stockType = 'Full Cylinders'
         } else {
-          availableStock = inventoryAvailability[product._id]?.availableEmpty || 0
+          availableStock = (product as any).availableEmpty || inventoryAvailability[product._id]?.availableEmpty || 0
           stockType = 'Empty Cylinders'
         }
         
@@ -1840,11 +1854,11 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                         if (p.category === 'cylinder') {
                           if (currentItem.cylinderStatus === 'empty') {
                             // Show cylinders with empty stock available
-                            const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0;
+                            const availableEmpty = (p as any).availableEmpty || inventoryAvailability[p._id]?.availableEmpty || 0;
                             if (availableEmpty <= 0) return false;
                           } else {
                             // Show cylinders with full stock available
-                            const availableFull = inventoryAvailability[p._id]?.availableFull || 0;
+                            const availableFull = (p as any).availableFull || inventoryAvailability[p._id]?.availableFull || 0;
                             if (availableFull <= 0) return false;
                           }
                         }
@@ -1915,13 +1929,9 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                           let availableCylinders = allProducts
                             .filter((p: Product) => {
                               if (p.category !== 'cylinder') return false
-                              const avail = inventoryAvailability[p._id]?.availableFull || 0
+                              const avail = (p as any).availableFull || inventoryAvailability[p._id]?.availableFull || 0
                               return avail > 0
                             })
-                          // Fallback if inventory availability map is empty
-                          if (availableCylinders.length === 0) {
-                            availableCylinders = allProducts.filter((p: Product) => p.category === 'cylinder' && (p.currentStock || 0) > 0)
-                          }
                           availableCylinders = availableCylinders
                             .filter((p: Product) => entryCylinderSearch.trim().length === 0 || p.name.toLowerCase().includes(entryCylinderSearch.toLowerCase()))
                             .slice(0, 8)

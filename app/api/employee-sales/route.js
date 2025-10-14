@@ -4,7 +4,7 @@ import EmployeeSale from "@/models/EmployeeSale"
 import Product from "@/models/Product"
 import Customer from "@/models/Customer"
 import User from "@/models/User"
-import StockAssignment from "@/models/StockAssignment"
+
 
 export async function GET(request) {
   try {
@@ -66,22 +66,40 @@ export async function POST(request) {
         }, { status: 400 })
       }
 
-      // Get least price from employee's received inventory (stock assignments)
-      const stockAssignment = await StockAssignment.findOne({
+      // Get least price from employee's inventory
+      const EmployeeInventory = (await import("@/models/EmployeeInventory")).default
+      const employeeInventory = await EmployeeInventory.findOne({
         employee: employeeId,
         product: item.product,
-        status: "received",
-        remainingQuantity: { $gt: 0 }
-      }).sort({ createdAt: 1 }) // Get the oldest assignment first (FIFO)
+        currentStock: { $gt: 0 }
+      })
 
-      if (!stockAssignment) {
+      if (!employeeInventory) {
         return NextResponse.json({ 
-          error: `No received inventory found for ${product.name} for this employee` 
+          error: `No inventory found for ${product.name} for this employee` 
         }, { status: 400 })
       }
 
-      // Use least price from stock assignment
-      const leastPrice = stockAssignment.leastPrice
+      // Check specific stock availability for cylinders
+      if (item.category === 'cylinder') {
+        const availableStock = item.cylinderStatus === 'full' 
+          ? (employeeInventory.availableFull || 0)
+          : (employeeInventory.availableEmpty || 0)
+        
+        if (availableStock < item.quantity) {
+          const statusLabel = item.cylinderStatus === 'full' ? 'full' : 'empty'
+          return NextResponse.json({ 
+            error: `Insufficient ${statusLabel} cylinder stock for ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}` 
+          }, { status: 400 })
+        }
+      } else if (employeeInventory.currentStock < item.quantity) {
+        return NextResponse.json({ 
+          error: `Insufficient stock for ${product.name}. Available: ${employeeInventory.currentStock}, Requested: ${item.quantity}` 
+        }, { status: 400 })
+      }
+
+      // Use least price from employee inventory
+      const leastPrice = employeeInventory.leastPrice
       const itemTotal = leastPrice * item.quantity
       calculatedTotal += itemTotal
 
@@ -115,40 +133,38 @@ export async function POST(request) {
 
     const savedSale = await newSale.save()
 
-    // Update product stock and employee stock assignments
+    // Update employee inventory
+    const EmployeeInventory = (await import("@/models/EmployeeInventory")).default
     for (const item of validatedItems) {
-      await Product.findByIdAndUpdate(
-        item.product,
-        { $inc: { currentStock: -item.quantity } }
-      )
-      console.log(`Updated product stock for ${item.product}: reduced by ${item.quantity}`)
-      
-      // Deduct from employee's assigned stock (remainingQuantity)
-      const employeeAssignments = await StockAssignment.find({
+      const employeeInventory = await EmployeeInventory.findOne({
         employee: employeeId,
-        product: item.product,
-        status: "received",
-        remainingQuantity: { $gt: 0 }
-      }).sort({ createdAt: 1 }) // FIFO - First In, First Out
+        product: item.product
+      })
       
-      let remainingToDeduct = item.quantity
-      
-      for (const assignment of employeeAssignments) {
-        if (remainingToDeduct <= 0) break
+      if (employeeInventory) {
+        const updateData = {
+          $inc: { currentStock: -item.quantity },
+          $push: {
+            transactions: {
+              type: 'sale',
+              quantity: -item.quantity,
+              date: new Date(),
+              notes: `Sale - Invoice: ${invoiceNumber}`
+            }
+          }
+        }
         
-        const deductFromThisAssignment = Math.min(assignment.remainingQuantity, remainingToDeduct)
+        // For cylinders, also update specific availability
+        if (item.category === 'cylinder') {
+          if (item.cylinderStatus === 'full') {
+            updateData.$inc.availableFull = -item.quantity
+          } else {
+            updateData.$inc.availableEmpty = -item.quantity
+          }
+        }
         
-        await StockAssignment.findByIdAndUpdate(
-          assignment._id,
-          { $inc: { remainingQuantity: -deductFromThisAssignment } }
-        )
-        
-        remainingToDeduct -= deductFromThisAssignment
-        console.log(`Deducted ${deductFromThisAssignment} from employee assignment ${assignment._id}, remaining: ${assignment.remainingQuantity - deductFromThisAssignment}`)
-      }
-      
-      if (remainingToDeduct > 0) {
-        console.warn(`Warning: Employee ${employeeId} sold ${remainingToDeduct} more than their assigned stock for product ${item.product}`)
+        await EmployeeInventory.findByIdAndUpdate(employeeInventory._id, updateData)
+        console.log(`Updated employee inventory for ${item.product}: reduced by ${item.quantity}`)
       }
     }
 
