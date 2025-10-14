@@ -18,6 +18,7 @@ import { EmployeeDashboard } from "@/components/pages/employee-dashboard"
 import { EmployeeGasSales } from "@/components/pages/employee-gas-sales"
 import { EmployeeCylinderSales } from "@/components/pages/employee-cylinder-sales"
 import EmployeeReports from "@/components/pages/employee-reports"
+import { EmployeeInventory } from "@/components/pages/employee-inventory"
 import { PurchaseManagement as EmployeePurchaseManagement } from "@/components/pages/purchase-emp-management"
 import { Notifications } from "@/components/pages/notifications"
 import { NotificationPopup } from "@/components/notification-popup"
@@ -147,6 +148,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
           return <EmployeeGasSales user={user} />
         case "employee-cylinder-sales":
           return <EmployeeCylinderSales user={user} />
+        case "employee-inventory":
+          return <EmployeeInventory user={user} />
         case "employee-reports":
           return <EmployeeReports user={user} />
         case "notifications":

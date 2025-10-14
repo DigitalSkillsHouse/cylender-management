@@ -127,6 +127,11 @@ const employeeMenuItems = [
     icon: Cylinder,
   },
   {
+    title: "My Inventory",
+    url: "employee-inventory",
+    icon: Warehouse,
+  },
+  {
     title: "Purchase Management",
     url: "employee-purchases",
     icon: ShoppingCart,
