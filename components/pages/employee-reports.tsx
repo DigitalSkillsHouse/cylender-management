@@ -145,144 +145,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     })
   }
 
-  // Auto-calculate Closing Full/Empty for selected date and roll forward as next day's Opening
-  const autoCalcAndSaveDsrForDate = async (date: string) => {
-    try {
-      if (!date) return;
-      // Build easy access map of existing entries for this date
-      const entriesForDate = dsrEntries.filter(e => e.date === date)
-      const byKey = new Map<string, DailyStockEntry>()
-      entriesForDate.forEach(e => byKey.set(normalizeName(e.itemName), e))
 
-      // Determine all item keys we should process (ensure all employee products are included)
-      const nameSet = new Set<string>()
-      const nameToDisplay = new Map<string, string>()
-      // Existing entries for this date
-      entriesForDate.forEach(e => {
-        const k = normalizeName(e.itemName)
-        nameSet.add(k)
-        if (!nameToDisplay.has(k)) nameToDisplay.set(k, e.itemName)
-      })
-      // Aggregates
-      Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
-      Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
-      Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
-      Object.keys((dailyAggDeposits as any) || {}).forEach(k => nameSet.add(k))
-      Object.keys((dailyAggReturns as any) || {}).forEach(k => nameSet.add(k))
-      // Employee assigned products first (preferred list)
-      if (Array.isArray(assignedProducts) && assignedProducts.length > 0) {
-        assignedProducts.forEach((p: any) => {
-          const k = normalizeName(p.name)
-          nameSet.add(k)
-          if (!nameToDisplay.has(k)) nameToDisplay.set(k, String((p as any).displayName || p.name))
-        })
-      }
-      // Fallback to dsrProducts if assigned list is empty
-      else if (Array.isArray(dsrProducts) && dsrProducts.length > 0) {
-        dsrProducts.forEach((p: any) => {
-          const k = normalizeName(p.name)
-          nameSet.add(k)
-          if (!nameToDisplay.has(k)) nameToDisplay.set(k, String(p.name))
-        })
-      }
-
-      // Helper to get next/prev day in YYYY-MM-DD
-      const nextDay = (d: string) => {
-        const dt = new Date(d + 'T00:00:00')
-        dt.setDate(dt.getDate() + 1)
-        const yyyy = dt.getFullYear()
-        const mm = String(dt.getMonth() + 1).padStart(2, '0')
-        const dd = String(dt.getDate()).padStart(2, '0')
-        return `${yyyy}-${mm}-${dd}`
-      }
-      const prevDay = (d: string) => {
-        const dt = new Date(d + 'T00:00:00')
-        dt.setDate(dt.getDate() - 1)
-        const yyyy = dt.getFullYear()
-        const mm = String(dt.getMonth() + 1).padStart(2, '0')
-        const dd = String(dt.getDate()).padStart(2, '0')
-        return `${yyyy}-${mm}-${dd}`
-      }
-
-      const results: Array<{ itemName: string; closingFull: number; closingEmpty: number; openingFull: number; openingEmpty: number; }>
-        = []
-
-      // Build previous day's closing map to backfill openings when missing
-      const prevDate = prevDay(date)
-      const prevByKey = new Map<string, DailyStockEntry>()
-      dsrEntries.filter(e => e.date === prevDate).forEach(e => prevByKey.set(normalizeName(e.itemName), e))
-
-      for (const key of nameSet) {
-        const entry = byKey.get(key)
-        const displayName = nameToDisplay.get(key) || entry?.itemName || key // user-friendly label if available
-
-        // Inputs
-        const openingFull = Number(
-          (entry?.openingFull ?? (prevByKey.get(key)?.closingFull)) ?? 0
-        )
-        const openingEmpty = Number(
-          (entry?.openingEmpty ?? (prevByKey.get(key)?.closingEmpty)) ?? 0
-        )
-        const refilled = Number((dailyAggRefills as any)?.[key] ?? entry?.refilled ?? 0)
-        const gasSales = Number((dailyAggGasSales as any)?.[key] ?? entry?.gasSales ?? 0)
-        const cylinderSales = Number((dailyAggCylinderSales as any)?.[key] ?? entry?.cylinderSales ?? 0)
-        const depositCyl = Number((dailyAggDeposits as any)?.[key] ?? 0)
-        const returnCyl = Number((dailyAggReturns as any)?.[key] ?? 0)
-
-        // Calculations per updated requirements:
-        // Closing Full = (Opening Full + Refilled) - Gas Sales
-        const closingFullRaw = (openingFull + refilled) - gasSales
-        const closingFull = Math.max(0, Math.floor(closingFullRaw))
-
-        // Total inventory units = (Opening Full + Opening Empty) - Cylinder Sales - Deposit + Return
-        const totalUnitsRaw = (openingFull + openingEmpty) - cylinderSales - depositCyl + returnCyl
-        const totalUnits = Math.max(0, Math.floor(totalUnitsRaw))
-
-        // Closing Empty = Total - Closing Full (not below zero)
-        const closingEmpty = Math.max(0, totalUnits - closingFull)
-
-        results.push({ itemName: displayName, closingFull, closingEmpty, openingFull, openingEmpty })
-      }
-
-      // Persist closings for current date, and roll forward as next day's openings
-      const nextDate = nextDay(date)
-
-      for (const r of results) {
-        // Upsert current day closings
-        await fetch('/api/daily-stock-reports', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date,
-            itemName: r.itemName,
-            openingFull: r.openingFull,
-            openingEmpty: r.openingEmpty,
-            closingFull: r.closingFull,
-            closingEmpty: r.closingEmpty,
-          })
-        })
-
-        // Upsert next day openings from today's closings
-        await fetch('/api/daily-stock-reports', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date: nextDate,
-            itemName: r.itemName,
-            openingFull: r.closingFull,
-            openingEmpty: r.closingEmpty,
-          })
-        })
-      }
-
-      // Refresh local data after save (non-blocking where possible)
-      await fetchDsrEntries()
-      toast.success('DSR updated', { description: `Closings saved for ${date} and openings rolled to ${nextDate}.` })
-    } catch (err) {
-      console.error('Auto-calc DSR error', err)
-      toast.error('Failed to auto-calculate and save DSR.')
-    }
-  }
 
   const closeReceiveDialog = () => {
     setReceiveDialog(prev => ({ 
@@ -388,7 +251,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     }
   }
 
-  // Daily Stock Report local model (stored in localStorage)
+  // Daily Stock Report local model (automated calculations)
   interface DailyStockEntry {
     id: string
     date: string // yyyy-mm-dd
@@ -576,33 +439,51 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     try {
       const byKey = new Map<string, DailyStockEntry>()
       dsrEntries.filter(e => e.date === date).forEach(e => byKey.set(normalizeName(e.itemName), e))
+      
       // Build rows from multiple sources similar to DSR Grid View
       const rowsSource = (() => {
-        // Only use employee's assigned inventory; fallback to dsrProducts built by the form
-        if (assignedProducts.length > 0) return assignedProducts.map(p => ({ ...p, displayName: p.name }))
-        if (dsrProducts.length > 0) return dsrProducts.map(p => ({ ...p, displayName: p.name }))
-        return [] as any[]
+        if (assignedProducts.length > 0) return assignedProducts
+        if (dsrProducts.length > 0) return dsrProducts
+        // Build from aggregated data if no assigned products
+        const nameSet = new Set<string>()
+        Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggDeposits || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggReturns || {}).forEach(k => nameSet.add(k))
+        return Array.from(nameSet).map((name, i) => ({ _id: String(i), name }))
       })()
+      
       const rows = rowsSource.map(p => {
         const key = normalizeName(p.name)
         const e = byKey.get(key)
-        const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
-        const cylSalesVal = dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0)
-        const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
-        const depositVal = dailyAggDeposits[key] ?? 0
-        const returnVal = dailyAggReturns[key] ?? 0
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        
+        const refV = dailyAggRefills[key] ?? 0
+        const cylV = dailyAggCylinderSales[key] ?? 0
+        const gasV = dailyAggGasSales[key] ?? 0
+        const depV = dailyAggDeposits[key] ?? 0
+        const retV = dailyAggReturns[key] ?? 0
+        
+        const openingFull = e?.openingFull ?? inventoryInfo.availableFull
+        const openingEmpty = e?.openingEmpty ?? inventoryInfo.availableEmpty
+        
+        // Calculate closing stock using admin formula
+        const closingFull = Math.max(0, (openingFull + refV) - gasV)
+        const closingEmpty = Math.max(0, openingEmpty + gasV + cylV - refV + retV - depV)
+        
         return `
           <tr>
-            <td>${(p as any).displayName || p.name}</td>
-            <td>${e ? e.openingFull : 0}</td>
-            <td>${e ? e.openingEmpty : 0}</td>
-            <td>${refilledVal}</td>
-            <td>${cylSalesVal}</td>
-            <td>${gasSalesVal}</td>
-            <td>${depositVal}</td>
-            <td>${returnVal}</td>
-            <td>${typeof e?.closingFull === 'number' ? e!.closingFull : 0}</td>
-            <td>${typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</td>
+            <td>${p.name}</td>
+            <td>${openingFull}</td>
+            <td>${openingEmpty}</td>
+            <td>${refV}</td>
+            <td>${cylV}</td>
+            <td>${gasV}</td>
+            <td>${depV}</td>
+            <td>${retV}</td>
+            <td>${closingFull}</td>
+            <td>${closingEmpty}</td>
           </tr>
         `
       }).join('')
@@ -611,7 +492,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       <html>
         <head>
           <meta charset=\"utf-8\" />
-          <title>Daily Stock Report – ${date}</title>
+          <title>Employee Daily Stock Report – ${date}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 16px; }
             h1 { font-size: 18px; margin: 0 0 12px; }
@@ -621,7 +502,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           </style>
         </head>
         <body>
-          <h1>Daily Stock Report – ${date}</h1>
+          <h1>Employee Daily Stock Report – ${date}</h1>
           <table>
             <thead>
               <tr>
@@ -723,23 +604,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     })()
   }
 
-  const [showDSRForm, setShowDSRForm] = useState(false)
-  const [showDSRList, setShowDSRList] = useState(false)
   const [showDSRView, setShowDSRView] = useState(false)
   const [dsrEntries, setDsrEntries] = useState<DailyStockEntry[]>([])
   const [dsrViewDate, setDsrViewDate] = useState<string>(new Date().toISOString().slice(0, 10))
   // Products for DSR grid
   interface ProductLite { _id: string; name: string }
   const [dsrProducts, setDsrProducts] = useState<ProductLite[]>([])
-  type DsrGridRow = {
-    itemId: string
-    itemName: string
-    openingFull: string
-    openingEmpty: string
-    closingFull: string
-    closingEmpty: string
-  }
-  const [dsrGrid, setDsrGrid] = useState<DsrGridRow[]>([])
   // Consistent name normalizer used across aggregation and rendering
   const normalizeName = (s: any) => (typeof s === 'string' || typeof s === 'number')
     ? String(s).replace(/\s+/g, ' ').trim().toLowerCase()
@@ -752,25 +622,67 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const [dailyAggReturns, setDailyAggReturns] = useState<Record<string, number>>({})
   // Assigned products for the employee to ensure baseline rows
   const [assignedProducts, setAssignedProducts] = useState<ProductLite[]>([])
-  // Track which dates have had auto-calc executed in this session to avoid repeated calls
-  const [autoCalcRanForDate, setAutoCalcRanForDate] = useState<Record<string, boolean>>({})
+  // Track aggregation readiness for employee data
+  const [aggReady, setAggReady] = useState<boolean>(false)
+  
+  // Automated inventory data fetching for DSR
+  const [inventoryData, setInventoryData] = useState<Record<string, { availableFull: number; availableEmpty: number; currentStock: number }>>({})
 
-  // Automatically run Daily Stock Report auto-calc once per date when inputs are ready
+  // Fetch employee inventory data for automated DSR
+  const fetchInventoryData = async () => {
+    try {
+      const [inventoryRes, employeeInventoryRes] = await Promise.all([
+        fetch('/api/inventory-items', { cache: 'no-store' }),
+        fetch(`/api/employee-inventory?employeeId=${user.id}`, { cache: 'no-store' })
+      ])
+      
+      const inventoryJson = await inventoryRes.json()
+      const employeeInventoryJson = await employeeInventoryRes.json()
+      
+      const inventoryItems = Array.isArray(inventoryJson?.data) ? inventoryJson.data : []
+      const employeeInventoryItems = Array.isArray(employeeInventoryJson?.data) ? employeeInventoryJson.data : 
+                                   Array.isArray(employeeInventoryJson) ? employeeInventoryJson : []
+      
+      const inventoryMap: Record<string, { availableFull: number; availableEmpty: number; currentStock: number }> = {}
+      
+      // Map employee inventory items by product name (priority)
+      employeeInventoryItems.forEach((item: any) => {
+        if (item.productName) {
+          inventoryMap[item.productName.toLowerCase()] = {
+            availableFull: item.availableFull || 0,
+            availableEmpty: item.availableEmpty || 0,
+            currentStock: item.currentStock || 0
+          }
+        }
+      })
+      
+      // Fallback to main inventory items if not in employee inventory
+      inventoryItems.forEach((item: any) => {
+        if (item.productName) {
+          const key = item.productName.toLowerCase()
+          if (!inventoryMap[key]) {
+            inventoryMap[key] = {
+              availableFull: item.availableFull || 0,
+              availableEmpty: item.availableEmpty || 0,
+              currentStock: item.currentStock || 0
+            }
+          }
+        }
+      })
+      
+      setInventoryData(inventoryMap)
+    } catch (error) {
+      console.error('Failed to fetch inventory data:', error)
+      setInventoryData({})
+    }
+  }
+  
+  // Fetch inventory data when DSR view opens or date changes
   useEffect(() => {
-    const date = dsrViewDate
-    if (!date) return
-    if (autoCalcRanForDate[date]) return
-    // Ensure we have some baseline products to process (assigned or dsrProducts)
-    const haveProducts = (assignedProducts && assignedProducts.length > 0) || (dsrProducts && dsrProducts.length > 0)
-    if (!haveProducts) return
-    ;(async () => {
-      try {
-        await autoCalcAndSaveDsrForDate(date)
-      } finally {
-        setAutoCalcRanForDate(prev => ({ ...prev, [date]: true }))
-      }
-    })()
-  }, [dsrViewDate, assignedProducts, dsrProducts, dailyAggRefills, dailyAggCylinderSales, dailyAggGasSales, dailyAggDeposits, dailyAggReturns])
+    if (showDSRView) {
+      fetchInventoryData()
+    }
+  }, [showDSRView, dsrViewDate, user.id])
   
   // Ensure assigned products (employee inventory) are available globally for grid/PDF without opening form
   useEffect(() => {
@@ -811,158 +723,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     })()
   }, [user?.id])
 
-  // Load products when DSR form opens and build empty grid (employee inventory ONLY)
-  useEffect(() => {
-    if (!showDSRForm) return
-    if (!user?.id) return
-    ;(async () => {
-      try {
-        // Prefer in-memory assignedProducts, otherwise fetch fresh
-        let chosen: ProductLite[] = assignedProducts
-        if (chosen.length === 0) {
-          // Try 'received' (employee inventory), then 'assigned' as fallback
-          const [rRes, aRes] = await Promise.all([
-            fetch(`/api/stock-assignments?employeeId=${user.id}&status=received`, { cache: 'no-store' }),
-            fetch(`/api/stock-assignments?employeeId=${user.id}&status=assigned`, { cache: 'no-store' }),
-          ])
-          const gather = async (res: Response | undefined) => {
-            if (!res || !res.ok) return [] as any[]
-            const json = await res.json().catch(() => ({}))
-            const arr: any[] = Array.isArray(json)
-              ? json
-              : Array.isArray(json?.data)
-                ? json.data
-                : []
-            return arr
-          }
-          const received = await gather(rRes)
-          const assigned = await gather(aRes)
-          const all = [...received, ...assigned]
-          const seen = new Set<string>()
-          const ap: ProductLite[] = []
-          all.forEach((a: any) => {
-            const name = a?.product?.name || a?.productName
-            const id = String(a?.product?._id || a?.product || name || '')
-            const key = normalizeName(name)
-            if (name && !seen.has(key)) {
-              seen.add(key)
-              ap.push({ _id: id, name: String(name) })
-            }
-          })
-          chosen = ap
-          setAssignedProducts(ap)
-        }
 
-        // Do NOT fallback to admin products. If none assigned, show empty grid.
-        setDsrProducts(chosen)
-        const baseGrid = chosen.map(p => ({
-          itemId: p._id,
-          itemName: p.name,
-          openingFull: '',
-          openingEmpty: '',
-          closingFull: '',
-          closingEmpty: '',
-        }))
-        setDsrGrid(baseGrid)
-        if (baseGrid.length > 0) {
-          await prefillDsrGridOpenings(dsrForm.date, baseGrid)
-        }
-      } catch (e) {
-        setDsrProducts([])
-        setDsrGrid([])
-      }
-    })()
-  }, [showDSRForm, user?.id])
 
-  const updateDsrGridCell = (itemId: string, field: keyof Omit<DsrGridRow, 'itemId' | 'itemName'>, value: string) => {
-    setDsrGrid(prev => prev.map(r => r.itemId === itemId ? { ...r, [field]: value } as DsrGridRow : r))
-  }
-  // Prefill Opening columns from previous day's closing for each item in the grid
-  const prefillDsrGridOpenings = async (date: string, rows: DsrGridRow[]) => {
-    const updated = await Promise.all(rows.map(async (r) => {
-      try {
-        const url = `${API_BASE}/previous?itemName=${encodeURIComponent(r.itemName)}&date=${encodeURIComponent(date)}&employeeId=${encodeURIComponent(user.id)}`
-        const res = await fetch(url, { cache: 'no-store' })
-        if (res.ok) {
-          const json = await res.json()
-          if (json?.data) {
-            return {
-              ...r,
-              openingFull: String(json.data.closingFull ?? ''),
-              openingEmpty: String(json.data.closingEmpty ?? ''),
-            }
-          }
-        }
-      } catch {}
-      return r
-    }))
-    setDsrGrid(updated)
-  }
 
-  // Save handler for grid: persists each row (skips completely empty rows)
-  const saveDsrGrid = async () => {
-    const date = dsrForm.date
-    const rowsToSave = dsrGrid.filter(r => r.openingFull !== '' || r.openingEmpty !== '' || r.closingFull !== '' || r.closingEmpty !== '')
-    if (rowsToSave.length === 0) {
-      setShowDSRForm(false)
-      return
-    }
-    const toNumber = (v: string) => {
-      const n = Number.parseFloat(v)
-      return Number.isFinite(n) ? n : 0
-    }
-    try {
-      const results = await Promise.all(rowsToSave.map(async (r) => {
-        const payload: any = {
-          date,
-          itemName: r.itemName,
-          employeeId: user.id,
-          openingFull: toNumber(r.openingFull),
-          openingEmpty: toNumber(r.openingEmpty),
-        }
-        if (r.closingFull !== '') payload.closingFull = toNumber(r.closingFull)
-        if (r.closingEmpty !== '') payload.closingEmpty = toNumber(r.closingEmpty)
-        try {
-          const res = await fetch(API_BASE, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
-          if (!res.ok) throw new Error('post failed')
-          const json = await res.json()
-          return json?.data || payload
-        } catch {
-          // offline/local fallback
-          return payload
-        }
-      }))
-
-      // Merge into local state list
-      const merged = [...dsrEntries]
-      results.forEach((d: any) => {
-        const id = d._id || `${d.itemName}-${d.date}`
-        const idx = merged.findIndex(x => (x.itemName === d.itemName && x.date === d.date))
-        const entry = {
-          id,
-          date: d.date,
-          itemName: d.itemName,
-          openingFull: Number(d.openingFull || 0),
-          openingEmpty: Number(d.openingEmpty || 0),
-          refilled: Number(d.refilled || 0),
-          cylinderSales: Number(d.cylinderSales || 0),
-          gasSales: Number(d.gasSales || 0),
-          closingFull: typeof d.closingFull === 'number' ? d.closingFull : undefined,
-          closingEmpty: typeof d.closingEmpty === 'number' ? d.closingEmpty : undefined,
-          createdAt: d.createdAt || new Date().toISOString(),
-        } as DailyStockEntry
-        if (idx >= 0) merged[idx] = entry; else merged.unshift(entry)
-      })
-      setDsrEntries(merged)
-      saveDsrLocal(merged)
-    } finally {
-      setShowDSRForm(false)
-    }
-  }
   // Download the current DSR list as PDF via browser print dialog
   const downloadDsrPdf = () => {
     try {
@@ -1031,15 +794,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       alert('Failed to prepare PDF')
     }
   }
-  const [dsrForm, setDsrForm] = useState({
-    date: new Date().toISOString().slice(0, 10),
-    itemName: "",
-    openingFull: "",
-    openingEmpty: "",
-    refilled: "",
-    cylinderSales: "",
-    gasSales: "",
-  } as Record<string, string>)
+
   // Closing stock dialog state
   const [closingDialog, setClosingDialog] = useState({
     open: false,
@@ -1219,8 +974,10 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 
   // Compute daily aggregates for employee datasets based on selected dsrViewDate
   useEffect(() => {
-    if (!dsrViewDate) return
-    // Helpers
+    if (!dsrViewDate || !user?.id) return
+    
+    setAggReady(false)
+    
     const dayStart = new Date(dsrViewDate + 'T00:00:00').getTime()
     const dayEnd = new Date(dsrViewDate + 'T23:59:59.999').getTime()
     const isOnDay = (t: any) => {
@@ -1239,14 +996,29 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     const deposits: Record<string, number> = {}
     const returns: Record<string, number> = {}
 
-    // Cylinder transactions: items with productName or cylinderSize
+    // Employee cylinder transactions
     ;(employeeCylinders || []).forEach((tx: any) => {
       if (!isOnDay(tx.createdAt || tx.date)) return
       const type = String(tx.type || '').toLowerCase()
-      const items = Array.isArray(tx.items) ? tx.items : []
-      items.forEach((it: any) => {
-        const nameRaw = it?.productName || it?.product?.name || it?.cylinderSize || it?.size || 'cylinder'
-        const qty = Number(it?.quantity || 0)
+      
+      // Handle both single item and items array formats
+      if (Array.isArray(tx.items)) {
+        tx.items.forEach((it: any) => {
+          const nameRaw = it?.productName || it?.product?.name || it?.cylinderSize || it?.size || 'cylinder'
+          const qty = Number(it?.quantity || 0)
+          if (type === 'refill') inc(refills, nameRaw, qty)
+          if (type === 'deposit') {
+            inc(cylSales, nameRaw, qty)
+            inc(deposits, nameRaw, qty)
+          }
+          if (type === 'return') {
+            inc(returns, nameRaw, qty)
+          }
+        })
+      } else {
+        // Single item format
+        const nameRaw = tx?.productName || tx?.product?.name || tx?.cylinderSize || 'cylinder'
+        const qty = Number(tx?.quantity || 0)
         if (type === 'refill') inc(refills, nameRaw, qty)
         if (type === 'deposit') {
           inc(cylSales, nameRaw, qty)
@@ -1255,10 +1027,10 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         if (type === 'return') {
           inc(returns, nameRaw, qty)
         }
-      })
+      }
     })
 
-    // Gas sales: items.product.name -> quantity
+    // Employee gas sales
     ;(employeeSales || []).forEach((sale: any) => {
       if (!isOnDay(sale.createdAt || sale.date)) return
       const items = Array.isArray(sale.items) ? sale.items : []
@@ -1274,131 +1046,19 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     setDailyAggGasSales(gasSales)
     setDailyAggDeposits(deposits)
     setDailyAggReturns(returns)
-  }, [dsrViewDate, employeeSales, employeeCylinders])
+    setAggReady(true)
+  }, [dsrViewDate, employeeSales, employeeCylinders, user?.id])
 
-  // Prefill opening from previous day closing for same item (API first, fallback local)
-  const prefillOpeningFromPrevious = (date: string, itemName: string) => {
-    if (!date || !itemName) return
-    ;(async () => {
-      try {
-        const url = `${API_BASE}/previous?itemName=${encodeURIComponent(itemName)}&date=${encodeURIComponent(date)}&employeeId=${encodeURIComponent(user.id)}`
-        const res = await fetch(url, { cache: "no-store" })
-        if (res.ok) {
-          const json = await res.json()
-          if (json?.data) {
-            setDsrForm(prevState => ({
-              ...prevState,
-              openingFull: String(json.data.closingFull ?? 0),
-              openingEmpty: String(json.data.closingEmpty ?? 0),
-            }))
-            return
-          }
-        }
-      } catch {}
-      // fallback to local mirror
-      const all = loadDsrLocal().filter(e => e.itemName.toLowerCase() === itemName.toLowerCase())
-      if (all.length === 0) return
-      const prev = all
-        .filter(e => e.date < date)
-        .sort((a, b) => b.date.localeCompare(a.date))[0]
-      if (prev) {
-        setDsrForm(prevState => ({
-          ...prevState,
-          openingFull: String(prev.closingFull ?? 0),
-          openingEmpty: String(prev.closingEmpty ?? 0),
-        }))
-      }
-    })()
-  }
+
 
   const parseNum = (v: string) => {
     const n = Number.parseFloat(v)
     return Number.isFinite(n) ? n : 0
   }
 
-  const computeClosing = () => {
-    const openingFull = parseNum(dsrForm.openingFull)
-    const openingEmpty = parseNum(dsrForm.openingEmpty)
-    const refilled = parseNum(dsrForm.refilled)
-    const cylinderSales = parseNum(dsrForm.cylinderSales)
-    const gasSales = parseNum(dsrForm.gasSales)
-    // Business rule (as provided): closing = opening + refilled - sales
-    const closingFull = Math.max(0, openingFull + refilled - cylinderSales)
-    // For empty, a reasonable simple flow: empty increases by sales and decreases by refills
-    const closingEmpty = Math.max(0, openingEmpty + cylinderSales - refilled)
-    return { closingFull, closingEmpty }
-  }
 
-  const handleDsrChange = (field: string, value: string) => {
-    setDsrForm(prev => ({ ...prev, [field]: value }))
-    if (field === "itemName" || field === "date") {
-      const itemName = field === "itemName" ? value : prevItemNameRef.current
-      const date = field === "date" ? value : dsrForm.date
-      // Attempt carry-forward when both are present
-      if ((field === "itemName" && value) || (field === "date" && dsrForm.itemName)) {
-        prefillOpeningFromPrevious(date, field === "itemName" ? value : dsrForm.itemName)
-      }
-      if (field === "itemName") prevItemNameRef.current = value
-    }
-  }
 
-  const prevItemNameRef = React.useRef("")
-
-  const handleDsrSubmit = () => {
-    if (!dsrForm.itemName.trim()) return alert("Please enter item name")
-    const payload = {
-      date: dsrForm.date,
-      itemName: dsrForm.itemName.trim(),
-      employeeId: user.id,
-      openingFull: parseNum(dsrForm.openingFull),
-      openingEmpty: parseNum(dsrForm.openingEmpty),
-      refilled: parseNum(dsrForm.refilled),
-      cylinderSales: parseNum(dsrForm.cylinderSales),
-      gasSales: parseNum(dsrForm.gasSales),
-    }
-    ;(async () => {
-      try {
-        const res = await fetch(API_BASE, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error("post failed")
-        const json = await res.json()
-        const d = json?.data || payload
-        const entry: DailyStockEntry = {
-          id: d._id || `${payload.itemName}-${payload.date}-${Date.now()}`,
-          date: payload.date,
-          itemName: payload.itemName,
-          openingFull: payload.openingFull,
-          openingEmpty: payload.openingEmpty,
-          refilled: payload.refilled,
-          cylinderSales: payload.cylinderSales,
-          gasSales: payload.gasSales,
-          closingFull: typeof d.closingFull === 'number' ? d.closingFull : undefined as any,
-          closingEmpty: typeof d.closingEmpty === 'number' ? d.closingEmpty : undefined as any,
-          createdAt: d.createdAt || new Date().toISOString(),
-        }
-        const updated = [entry, ...dsrEntries]
-        setDsrEntries(updated)
-        saveDsrLocal(updated)
-      } catch (e) {
-        // Offline/local fallback
-        const entry: DailyStockEntry = {
-          id: `${payload.itemName}-${payload.date}-${Date.now()}`,
-          ...payload,
-          createdAt: new Date().toISOString(),
-        }
-        const updated = [entry, ...dsrEntries]
-        setDsrEntries(updated)
-        saveDsrLocal(updated)
-        alert("Saved locally (offline). Will sync when online.")
-      } finally {
-        setShowDSRForm(false)
-      }
-    })()
-  }
-
+  // Clear DSR entries (for maintenance purposes)
   const clearDsr = () => {
     if (!confirm("Clear all Daily Stock Reports?")) return
     setDsrEntries([])
@@ -2001,143 +1661,37 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         <p className="text-white/80 text-sm sm:text-base lg:text-lg">Comprehensive business insights and customer ledger</p>
       </div>
 
-      {/* Daily Stock Report (local model) */}
+      {/* Daily Stock Report (automated) */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle style={{ color: "#2B3068" }}>Daily Stock Report</CardTitle>
-          <p className="text-sm text-gray-600">Track opening/closing stock with daily refills and sales. Stored locally on this device.</p>
+          <p className="text-sm text-gray-600">Automated daily stock tracking with real-time data from your assigned inventory, sales, and cylinder operations.</p>
         </CardHeader>
-        <CardContent className="flex flex-col sm:flex-row gap-3">
-          <Button onClick={() => setShowDSRForm(true)} className="w-full sm:w-auto" style={{ backgroundColor: "#2B3068" }}>
-            <PlusCircle className="h-4 w-4 mr-2" />
-            Daily Stock Report
-          </Button>
-          <Button variant="outline" onClick={() => setShowDSRList(true)} className="w-full sm:w-auto">
+        <CardContent className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          <Button variant="outline" onClick={() => setShowDSRView(true)} className="w-full sm:w-auto" style={{ backgroundColor: "#2B3068", color: "white" }}>
             <ListChecks className="h-4 w-4 mr-2" />
-            View Reports
+            View Daily Stock Report
           </Button>
         </CardContent>
       </Card>
 
-      {/* Daily Stock Report - Excel-like Dialog */}
-      <Dialog open={showDSRForm} onOpenChange={setShowDSRForm}>
-        <DialogContent
-          className="w-screen max-w-screen sm:w-[95vw] sm:max-w-[1000px] p-3 sm:p-6 overflow-x-visible"
-          style={{
-            width: '100vw',
-            maxWidth: '100vw',
-            overflowX: 'visible',
-            WebkitOverflowScrolling: 'touch',
-            overscrollBehaviorX: 'contain',
-            overscrollBehavior: 'contain',
-            touchAction: 'pan-x pan-y',
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Daily Stock Report</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Optional date selector aligned with report */}
-            <div className="flex items-center gap-3">
-              <Label className="w-24">Date</Label>
-              <Input
-                type="date"
-                value={dsrForm.date}
-                onChange={(e) => setDsrForm(prev => ({ ...prev, date: e.target.value }))}
-                className="w-48"
-              />
-            </div>
 
-            <div className="w-screen sm:w-auto px-2 sm:px-0">
-              <div className="overflow-x-scroll sm:overflow-x-auto w-full max-w-full border rounded-md touch-pan-x px-4 pointer-events-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y', overflowX: 'auto', overscrollBehaviorX: 'contain' }}>
-                <table className="min-w-[1200px] sm:min-w-[1000px] border-collapse whitespace-nowrap">
-                  <thead>
-                  <tr>
-                    <th className="border px-3 py-2 text-left bg-gray-50">Items</th>
-                    <th className="border px-3 py-2 text-center bg-gray-50" colSpan={2}>Opening</th>
-                    <th className="border px-3 py-2 text-center bg-gray-50" colSpan={2}>Closing</th>
-                  </tr>
-                  <tr>
-                    <th className="border px-3 py-2 text-left bg-white"></th>
-                    <th className="border px-3 py-2 text-center bg-white">Full</th>
-                    <th className="border px-3 py-2 text-center bg-white">Empty</th>
-                    <th className="border px-3 py-2 text-center bg-white">Full</th>
-                    <th className="border px-3 py-2 text-center bg-white">Empty</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dsrGrid.length === 0 ? (
-                    <tr>
-                      <td className="border px-3 py-3 text-center text-gray-500" colSpan={5}>No products found</td>
-                    </tr>
-                  ) : (
-                    dsrGrid.map(row => (
-                      <tr key={row.itemId}>
-                        <td className="border px-3 py-2 whitespace-nowrap min-w-[12rem]">{row.itemName}</td>
-                        <td className="border px-2 py-1 w-28">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={row.openingFull}
-                            onChange={(e) => updateDsrGridCell(row.itemId, 'openingFull', e.target.value)}
-                            className="w-full min-w-[6.5rem] touch-pan-x"
-                          />
-                        </td>
-                        <td className="border px-2 py-1 w-28">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={row.openingEmpty}
-                            onChange={(e) => updateDsrGridCell(row.itemId, 'openingEmpty', e.target.value)}
-                            className="w-full min-w-[6.5rem] touch-pan-x"
-                          />
-                        </td>
-                        <td className="border px-2 py-1 w-28">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={row.closingFull}
-                            onChange={(e) => updateDsrGridCell(row.itemId, 'closingFull', e.target.value)}
-                            className="w-full min-w-[6.5rem] touch-pan-x"
-                          />
-                        </td>
-                        <td className="border px-2 py-1 w-28">
-                          <Input
-                            type="number"
-                            min={0}
-                            value={row.closingEmpty}
-                            onChange={(e) => updateDsrGridCell(row.itemId, 'closingEmpty', e.target.value)}
-                            className="w-full min-w-[6.5rem] touch-pan-x"
-                          />
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            </div>
 
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowDSRForm(false)}>Cancel</Button>
-              <Button style={{ backgroundColor: '#2B3068' }} onClick={saveDsrGrid}>Save</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* DSR Grid View Dialog (read-only) */}
+      {/* DSR Grid View Dialog (automated) */}
       <Dialog open={showDSRView} onOpenChange={setShowDSRView}>
         <DialogContent className="w-[95vw] max-w-[900px] p-3 sm:p-6 rounded-lg">
           <DialogHeader>
-            <DialogTitle>Daily Stock Report – {dsrViewDate}</DialogTitle>
+            <DialogTitle>Employee Daily Stock Report – {dsrViewDate}</DialogTitle>
           </DialogHeader>
           <div className="mb-3 flex items-center gap-2">
             <Label className="whitespace-nowrap">Date</Label>
             <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[10.5rem]" />
+            <Button variant="outline" onClick={() => downloadDsrGridPdf(dsrViewDate)} className="ml-auto">
+              <FileText className="h-4 w-4 mr-2" /> Download PDF
+            </Button>
           </div>
           <div className="border rounded-lg overflow-x-auto">
-            <Table className="min-w-[1100px] sm:min-w-[1000px] whitespace-nowrap">
+            <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Items</TableHead>
@@ -2160,64 +1714,80 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
               </TableHeader>
               <TableBody>
                 {(() => {
-                  // Build rows from multiple sources to ensure items that only appear in today's aggregates or assignments are shown
+                  // Build rows for employee's assigned products with automated calculations
                   const byKey = new Map<string, DailyStockEntry>()
                   dsrEntries
                     .filter(e => e.date === dsrViewDate)
                     .forEach(e => byKey.set(normalizeName(e.itemName), e))
+                  
+                  // Use employee's assigned products as the base, with fallback to aggregated data
                   const rows = (() => {
-                    // Prefer employee's assigned items over admin products
-                    if (assignedProducts.length > 0) return assignedProducts.map(p => ({ ...p, displayName: p.name }))
+                    if (assignedProducts.length > 0) return assignedProducts
+                    if (dsrProducts.length > 0) return dsrProducts
+                    // Build from aggregated data if no assigned products
                     const nameSet = new Set<string>()
-                    // Names from DSR entries for selected date
-                    dsrEntries.filter(e => e.date === dsrViewDate).forEach(e => nameSet.add(normalizeName(String(e.itemName))))
-                    // Names from daily aggregates (gas, cylinder, refills, deposits, returns)
                     Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
                     Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
                     Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
                     Object.keys(dailyAggDeposits || {}).forEach(k => nameSet.add(k))
                     Object.keys(dailyAggReturns || {}).forEach(k => nameSet.add(k))
-                    // Names from assigned products
-                    assignedProducts.forEach(p => nameSet.add(normalizeName(p.name)))
-                    const arr = Array.from(nameSet)
-                    return arr.map((n, i) => ({ _id: String(i), name: n } as any))
+                    return Array.from(nameSet).map((name, i) => ({ _id: String(i), name }))
                   })()
+                  
                   return rows.length > 0 ? (
                     rows.map(p => {
                       const key = normalizeName(p.name)
                       const e = byKey.get(key)
-                      const refV = (dailyAggRefills[key]
-                        ?? (e ? e.refilled : 0))
-                      const cylV = (dailyAggCylinderSales[key]
-                        ?? (e ? e.cylinderSales : 0))
-                      const gasV = (dailyAggGasSales[key]
-                        ?? (e ? e.gasSales : 0))
-                      const depV = (dailyAggDeposits[key] || 0)
-                      const retV = (dailyAggReturns[key] || 0)
+                      
+                      // Get employee inventory data for this product
+                      const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+                      
+                      // Get aggregated daily data
+                      const refV = dailyAggRefills[key] ?? 0
+                      const cylV = dailyAggCylinderSales[key] ?? 0
+                      const gasV = dailyAggGasSales[key] ?? 0
+                      const depV = dailyAggDeposits[key] ?? 0
+                      const retV = dailyAggReturns[key] ?? 0
+                      
+                      // Calculate opening stock (use stored values or current inventory)
+                      const openingFull = e?.openingFull ?? inventoryInfo.availableFull
+                      const openingEmpty = e?.openingEmpty ?? inventoryInfo.availableEmpty
+                      
+                      // Calculate closing stock using admin formula:
+                      // Closing Full = (Opening Full + Refilled) - Gas Sales
+                      // Closing Empty = Opening Empty + Gas Sales + Cylinder Sales - Refilled + Returns - Deposits
+                      const closingFull = Math.max(0, (openingFull + refV) - gasV)
+                      const closingEmpty = Math.max(0, openingEmpty + gasV + cylV - refV + retV - depV)
+                      
                       return (
                         <TableRow key={p._id || p.name}>
-                          <TableCell className="font-medium">{(p as any).displayName || p.name}</TableCell>
-                          <TableCell>{e ? e.openingFull : 0}</TableCell>
-                          <TableCell>{e ? e.openingEmpty : 0}</TableCell>
-                          <TableCell>{refV}</TableCell>
-                          <TableCell>{cylV}</TableCell>
-                          <TableCell>{gasV}</TableCell>
-                          <TableCell>{depV}</TableCell>
-                          <TableCell>{retV}</TableCell>
-                          <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
-                          <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
+                          <TableCell className="font-medium">{p.name}</TableCell>
+                          <TableCell className="text-blue-600 font-medium">{openingFull}</TableCell>
+                          <TableCell className="text-blue-600 font-medium">{openingEmpty}</TableCell>
+                          <TableCell className="text-green-600">{refV}</TableCell>
+                          <TableCell className="text-orange-600">{cylV}</TableCell>
+                          <TableCell className="text-red-600">{gasV}</TableCell>
+                          <TableCell className="text-purple-600">{depV}</TableCell>
+                          <TableCell className="text-indigo-600">{retV}</TableCell>
+                          <TableCell className="text-blue-800 font-bold">{closingFull}</TableCell>
+                          <TableCell className="text-blue-800 font-bold">{closingEmpty}</TableCell>
                         </TableRow>
                       )
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-6 text-gray-500">No data for selected date</TableCell>
+                      <TableCell colSpan={10} className="text-center py-6 text-gray-500">
+                        No inventory data found. Please ensure you have assigned products or transactions for this date.
+                      </TableCell>
                     </TableRow>
                   )
                 })()}
               </TableBody>
             </Table>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDSRView(false)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       {/* Cash Paper (Employee) */}
@@ -2939,86 +2509,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         </DialogContent>
       </Dialog>
 
-      {/* Removed old DSR Form Dialog (replaced by Excel-like grid dialog) */}
+      {/* DSR is now fully automated - no manual form needed */}
 
-      {/* DSR List Dialog */}
-      <Dialog open={showDSRList} onOpenChange={setShowDSRList}>
-        <DialogContent className="w-[95vw] max-w-[900px] p-3 sm:p-6 rounded-lg">
-          <DialogHeader>
-            <DialogTitle>Daily Stock Reports</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-2">
-            <div className="text-sm text-gray-600">Grid view · Select date to view</div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[9.5rem]" />
-              <Button className="w-full bg-yellow-500 sm:w-auto" variant="outline" onClick={() => downloadDsrGridPdf(dsrViewDate)}>Download PDF</Button>
-            </div>
-          </div>
-          <div className="border rounded-lg overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Items</TableHead>
-                  <TableHead colSpan={2}>Opening</TableHead>
-                  <TableHead colSpan={5}>During the day</TableHead>
-                  <TableHead colSpan={2}>Closing</TableHead>
-                </TableRow>
-                <TableRow>
-                  <TableHead></TableHead>
-                  <TableHead>Full</TableHead>
-                  <TableHead>Empty</TableHead>
-                  <TableHead>Refilled</TableHead>
-                  <TableHead>Cylinder Sales</TableHead>
-                  <TableHead>Gas Sales</TableHead>
-                  <TableHead>Deposit Cylinder</TableHead>
-                  <TableHead>Return Cylinder</TableHead>
-                  <TableHead>Full</TableHead>
-                  <TableHead>Empty</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(() => {
-                  const byKey = new Map<string, DailyStockEntry>()
-                  dsrEntries
-                    .filter(e => e.date === dsrViewDate)
-                    .forEach(e => byKey.set(normalizeName(e.itemName), e))
-                  // Only use employee's assigned products. If none, fall back to dsrProducts populated by the DSR form loader.
-                  const rowsSource = (assignedProducts.length > 0
-                    ? assignedProducts
-                    : (dsrProducts.length > 0 ? dsrProducts : []))
-                  if (rowsSource.length === 0) {
-                    return (
-                      <TableRow>
-                        <TableCell colSpan={10} className="text-center py-6 text-gray-500">
-                          No assigned inventory found for this employee. Please contact admin to assign inventory.
-                        </TableCell>
-                      </TableRow>
-                    )
-                  }
-                  return rowsSource.map((p: any) => {
-                    const key = normalizeName(p.name)
-                    const e = byKey.get(key)
-                    return (
-                      <TableRow key={p._id || p.name}>
-                        <TableCell className="font-medium">{p.name}</TableCell>
-                        <TableCell>{e ? e.openingFull : 0}</TableCell>
-                        <TableCell>{e ? e.openingEmpty : 0}</TableCell>
-                        <TableCell>{(dailyAggRefills[key] ?? (e ? e.refilled : 0))}</TableCell>
-                        <TableCell>{(dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0))}</TableCell>
-                        <TableCell>{(dailyAggGasSales[key] ?? (e ? e.gasSales : 0))}</TableCell>
-                        <TableCell>{(dailyAggDeposits[key] || 0)}</TableCell>
-                        <TableCell>{(dailyAggReturns[key] || 0)}</TableCell>
-                        <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
-                        <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
-                      </TableRow>
-                    )
-                  })
-                })()}
-              </TableBody>
-            </Table>
-          </div>
-        </DialogContent>
-      </Dialog>
+
 
       {/* Closing Stock Dialog */}
       <Dialog open={closingDialog.open} onOpenChange={(v) => setClosingDialog(prev => ({ ...prev, open: v }))}>
