@@ -60,11 +60,14 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
       
       if (response.ok) {
         setInventory(data.data || [])
+        console.log('Employee inventory loaded:', data.data?.length || 0, 'items')
       } else {
-        setError("Failed to load inventory")
+        setError(data.error || "Failed to load inventory")
+        console.error('API Error:', data.error)
       }
     } catch (error: any) {
       setError(`Failed to load inventory: ${error.message}`)
+      console.error('Fetch Error:', error)
       setInventory([])
     } finally {
       setLoading(false)
@@ -80,11 +83,11 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
   const gasItems = receivedItems.filter(item => item.product.category === "gas")
   const fullCylinderItems = receivedItems.filter(item => 
     item.product.category === "cylinder" && 
-    (item.availableFull > 0 || item.currentStock > 0)
+    ((item.availableFull || 0) > 0 || item.currentStock > 0)
   )
   const emptyCylinderItems = receivedItems.filter(item => 
     item.product.category === "cylinder" && 
-    (item.availableEmpty > 0 || (item.currentStock === 0 && item.assignedQuantity > 0))
+    ((item.availableEmpty || 0) > 0 || (item.currentStock === 0 && item.assignedQuantity > 0))
   )
 
   const norm = (v?: string | number) => (v === undefined || v === null ? "" : String(v)).toLowerCase()
@@ -198,11 +201,12 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
         </div>
       )}
 
-      <Tabs defaultValue="assigned" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 h-auto">
-          <TabsTrigger value="assigned" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Assigned ({assignedItems.length})
-          </TabsTrigger>
+      {!error && !loading && (
+        <Tabs defaultValue="assigned" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 h-auto">
+            <TabsTrigger value="assigned" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
+              Assigned ({assignedItems.length})
+            </TabsTrigger>
           <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             My Stock ({receivedItems.length})
           </TabsTrigger>
@@ -311,7 +315,8 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
+        </Tabs>
+      )}
     </div>
   )
 }

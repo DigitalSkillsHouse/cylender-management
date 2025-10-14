@@ -299,8 +299,31 @@ export function Inventory() {
       console.log("Inventory update response:", response)
       
       if (response.data.success) {
-        // Only update stock if the item exists (we already checked it's not received at the start)
-        if (inventoryItem) {
+        // For employee purchases, create EmployeeInventory record
+        if (inventoryItem?.isEmployeePurchase && inventoryItem?.employeeId) {
+          try {
+            const product = products.find(p => p.name === inventoryItem.productName)
+            if (product) {
+              await fetch('/api/employee-inventory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  employeeId: inventoryItem.employeeId,
+                  productId: product._id,
+                  quantity: inventoryItem.quantity,
+                  leastPrice: product.leastPrice || inventoryItem.unitPrice,
+                  type: 'assignment'
+                })
+              })
+              console.log('✅ Employee inventory record created')
+            }
+          } catch (empError) {
+            console.error('Failed to create employee inventory record:', empError)
+          }
+        }
+        
+        // Only update main inventory stock for regular purchases, not employee purchases
+        if (inventoryItem && !inventoryItem.isEmployeePurchase) {
           await updateStockForReceivedItem(inventoryItem)
         }
         

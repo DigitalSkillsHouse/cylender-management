@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
+import dbConnect from "@/lib/mongodb"
 import EmployeeInventory from "@/models/EmployeeInventory"
 import Product from "@/models/Product"
 
 export async function GET(request) {
   try {
-    await connectToDatabase()
+    console.log('Employee inventory API called')
+    await dbConnect()
+    console.log('Database connected')
     
     const { searchParams } = new URL(request.url)
     const employeeId = searchParams.get('employeeId')
     const status = searchParams.get('status')
+    
+    console.log('Employee ID:', employeeId)
     
     if (!employeeId) {
       return NextResponse.json({ error: "Employee ID is required" }, { status: 400 })
@@ -20,21 +24,30 @@ export async function GET(request) {
       query.status = status
     }
 
+    console.log('Query:', query)
+    
+    // Check if EmployeeInventory model exists
+    if (!EmployeeInventory) {
+      console.error('EmployeeInventory model not found')
+      return NextResponse.json({ error: 'EmployeeInventory model not found' }, { status: 500 })
+    }
+    
     const inventory = await EmployeeInventory.find(query)
       .populate('product')
       .populate('employee', 'name email')
       .sort({ lastUpdated: -1 })
 
-    return NextResponse.json({ success: true, data: inventory })
+    console.log('Found inventory items:', inventory?.length || 0)
+    return NextResponse.json({ success: true, data: inventory || [] })
   } catch (error) {
     console.error("Error fetching employee inventory:", error)
-    return NextResponse.json({ error: "Failed to fetch inventory" }, { status: 500 })
+    return NextResponse.json({ error: `Failed to fetch inventory: ${error.message}` }, { status: 500 })
   }
 }
 
 export async function POST(request) {
   try {
-    await connectToDatabase()
+    await dbConnect()
     
     const data = await request.json()
     const { employeeId, productId, quantity, cylinderSize, leastPrice, type = 'assignment' } = data
@@ -97,7 +110,7 @@ export async function POST(request) {
 
 export async function PATCH(request) {
   try {
-    await connectToDatabase()
+    await dbConnect()
     
     const data = await request.json()
     const { inventoryId, action, quantity, notes } = data
