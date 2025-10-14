@@ -41,6 +41,7 @@ interface Product {
   leastPrice: number
   currentStock: number
   cylinderSize?: string
+  productCode?: string
 }
 
 interface EmployeeManagementProps {
@@ -120,19 +121,24 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         // Filter by category
         if (product.category !== stockFormData.category) return false
         
-        // For cylinders, filter based on status and availability
+        // For cylinders, filter based on status and availability from correct inventory tab
         if (stockFormData.category === 'cylinder') {
           if (stockFormData.cylinderStatus === 'empty') {
+            // Fetch from empty cylinder tab data
             const availableEmpty = inventoryAvailability[product._id]?.availableEmpty || 0
             if (availableEmpty <= 0) return false
           } else {
+            // Fetch from full cylinder tab data
             const availableFull = inventoryAvailability[product._id]?.availableFull || 0
             if (availableFull <= 0) return false
           }
         }
         
-        // For gas, check current stock
-        if (stockFormData.category === 'gas' && (product.currentStock || 0) <= 0) return false
+        // For gas, check current stock from gas tab data
+        if (stockFormData.category === 'gas') {
+          const gasStock = inventoryAvailability[product._id]?.currentStock || 0
+          if (gasStock <= 0) return false
+        }
         
         // Filter by search term
         return product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -322,8 +328,19 @@ setStockAssignments(stockData)
         return
       }
 
-      // Check if product has sufficient stock
-      if (selectedProduct.currentStock === 0) {
+      // Check if product has sufficient stock based on category and cylinder status
+      let availableStock = 0
+      if (stockFormData.category === 'cylinder') {
+        if (stockFormData.cylinderStatus === 'empty') {
+          availableStock = inventoryAvailability[selectedProduct._id]?.availableEmpty || 0
+        } else {
+          availableStock = inventoryAvailability[selectedProduct._id]?.availableFull || 0
+        }
+      } else {
+        availableStock = inventoryAvailability[selectedProduct._id]?.currentStock || 0
+      }
+
+      if (availableStock === 0) {
         setUpdateNotification({
           message: `${selectedProduct.name} is out of stock and cannot be assigned`,
           visible: true,
@@ -335,9 +352,9 @@ setStockAssignments(stockData)
         return
       }
 
-      if (stockFormData.quantity > selectedProduct.currentStock) {
+      if (stockFormData.quantity > availableStock) {
         setUpdateNotification({
-          message: `Insufficient stock. Available: ${selectedProduct.currentStock}, Requested: ${stockFormData.quantity}`,
+          message: `Insufficient stock. Available: ${availableStock}, Requested: ${stockFormData.quantity}`,
           visible: true,
           type: 'warning'
         })
@@ -395,7 +412,9 @@ setStockAssignments(stockData)
           },
           body: JSON.stringify({
             userId: selectedEmployee._id,
+            senderId: user.id,
             type: 'stock_assignment',
+            title: 'Stock Updated',
             message: `${productName} stock is added in your inventory. New quantity: ${updatedQuantity}`,
             read: false,
           }),
@@ -431,7 +450,9 @@ setStockAssignments(stockData)
           },
           body: JSON.stringify({
             userId: selectedEmployee._id,
+            senderId: user.id,
             type: 'stock_assignment',
+            title: 'New Stock Assignment',
             message: `${productName} has been assigned to your inventory. Quantity: ${stockFormData.quantity}`,
             read: false,
           }),
@@ -924,8 +945,17 @@ setStockAssignments(stockData)
                             ? `${product.name} - ${(product.cylinderSize || '').charAt(0).toUpperCase()}${(product.cylinderSize || '').slice(1)}`
                             : product.name}
                         </span>
+                        <span className="text-xs text-blue-600 font-medium">
+                          Code: {(product as any).productCode || 'N/A'}
+                        </span>
                         <span className="text-sm text-gray-500">
-                          Available: {product.currentStock} | Cost: AED {product.costPrice}
+                          Available: {
+                            product.category === 'cylinder' 
+                              ? (stockFormData.cylinderStatus === 'empty' 
+                                  ? (inventoryAvailability[product._id]?.availableEmpty || 0)
+                                  : (inventoryAvailability[product._id]?.availableFull || 0))
+                              : (inventoryAvailability[product._id]?.currentStock || 0)
+                          } | Cost: AED {product.costPrice}
                         </span>
                       </div>
                     </div>

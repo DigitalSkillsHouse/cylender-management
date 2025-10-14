@@ -109,12 +109,12 @@ export async function POST(request) {
     if (data.category === 'gas' && data.cylinderProductId) {
       // Gas assignment: deduct gas stock and convert full cylinder to empty
       await InventoryItem.findOneAndUpdate(
-        { product: data.product },
+        { productId: data.product },
         { $inc: { currentStock: -data.quantity } }
       );
       
       await InventoryItem.findOneAndUpdate(
-        { product: data.cylinderProductId },
+        { productId: data.cylinderProductId },
         { 
           $inc: { 
             availableFull: -data.quantity,
@@ -125,27 +125,36 @@ export async function POST(request) {
     } else if (data.category === 'cylinder' && data.cylinderStatus === 'full' && data.gasProductId) {
       // Full cylinder assignment: deduct full cylinders and gas stock
       await InventoryItem.findOneAndUpdate(
-        { product: data.product },
+        { productId: data.product },
         { $inc: { availableFull: -data.quantity } }
       );
       
       await InventoryItem.findOneAndUpdate(
-        { product: data.gasProductId },
+        { productId: data.gasProductId },
         { $inc: { currentStock: -data.quantity } }
       );
     } else if (data.category === 'cylinder' && data.cylinderStatus === 'empty') {
       // Empty cylinder assignment: deduct empty cylinders
       await InventoryItem.findOneAndUpdate(
-        { product: data.product },
+        { productId: data.product },
         { $inc: { availableEmpty: -data.quantity } }
       );
     }
 
     // Create assignment with remainingQuantity initialized to the assigned quantity and include leastPrice
+    // Set proper category based on type and cylinder status
+    let displayCategory = data.category;
+    if (data.category === 'cylinder') {
+      displayCategory = data.cylinderStatus === 'empty' ? 'Empty Cylinder' : 'Full Cylinder';
+    } else if (data.category === 'gas') {
+      displayCategory = 'Gas';
+    }
+    
     const assignmentData = {
       ...data,
       remainingQuantity: data.quantity,
-      leastPrice: product.leastPrice
+      leastPrice: product.leastPrice,
+      displayCategory: displayCategory
     };
     const assignment = await StockAssignment.create(assignmentData);
 
@@ -159,9 +168,11 @@ export async function POST(request) {
       relatedId: assignment._id,
     });
 
+    console.log('✅ Stock assignment created and inventory updated for product:', data.product)
+
     const populatedAssignment = await StockAssignment.findById(assignment._id)
       .populate("employee", "name email")
-      .populate("product", "name category cylinderSize")
+      .populate("product", "name productCode category cylinderSize")
       .populate("assignedBy", "name");
 
     return NextResponse.json(populatedAssignment, { status: 201 });

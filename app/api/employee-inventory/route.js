@@ -19,26 +19,67 @@ export async function GET(request) {
       return NextResponse.json({ error: "Employee ID is required" }, { status: 400 })
     }
 
-    let query = { employee: employeeId }
+    // Fetch from both EmployeeInventory and StockAssignment collections
+    const StockAssignment = (await import("@/models/StockAssignment")).default
+    
+    let employeeInventoryQuery = { employee: employeeId }
+    let stockAssignmentQuery = { employee: employeeId }
+    
     if (status) {
-      query.status = status
+      employeeInventoryQuery.status = status
+      stockAssignmentQuery.status = status
     }
 
-    console.log('Query:', query)
+    console.log('Queries:', { employeeInventoryQuery, stockAssignmentQuery })
     
-    // Check if EmployeeInventory model exists
-    if (!EmployeeInventory) {
-      console.error('EmployeeInventory model not found')
-      return NextResponse.json({ error: 'EmployeeInventory model not found' }, { status: 500 })
-    }
-    
-    const inventory = await EmployeeInventory.find(query)
-      .populate('product')
+    // Get EmployeeInventory records (from approved purchases)
+    const employeeInventory = await EmployeeInventory.find(employeeInventoryQuery)
+      .populate('product', 'name productCode category cylinderSize')
       .populate('employee', 'name email')
       .sort({ lastUpdated: -1 })
 
-    console.log('Found inventory items:', inventory?.length || 0)
-    return NextResponse.json({ success: true, data: inventory || [] })
+    // Get StockAssignment records (from admin assignments)
+    const stockAssignments = await StockAssignment.find(stockAssignmentQuery)
+      .populate('product', 'name productCode category cylinderSize')
+      .populate('employee', 'name email')
+      .sort({ createdAt: -1 })
+
+    // Convert StockAssignment to EmployeeInventory format
+    const convertedAssignments = stockAssignments.map(assignment => {
+      // Use displayCategory if available, otherwise construct from category and cylinderStatus
+      let displayCategory = assignment.displayCategory;
+      if (!displayCategory) {
+        if (assignment.category === 'cylinder') {
+          displayCategory = assignment.cylinderStatus === 'empty' ? 'Empty Cylinder' : 'Full Cylinder';
+        } else if (assignment.category === 'gas') {
+          displayCategory = 'Gas';
+        } else {
+          displayCategory = assignment.category || assignment.product?.category;
+        }
+      }
+      
+      return {
+        _id: assignment._id,
+        product: assignment.product,
+        employee: assignment.employee,
+        assignedQuantity: assignment.quantity,
+        currentStock: assignment.remainingQuantity || assignment.quantity,
+        leastPrice: assignment.leastPrice || assignment.product?.leastPrice || 0,
+        status: assignment.status, // 'assigned', 'received', 'returned'
+        assignedDate: assignment.createdAt,
+        lastUpdated: assignment.updatedAt || assignment.createdAt,
+        category: displayCategory,
+        cylinderStatus: assignment.cylinderStatus,
+        gasProductId: assignment.gasProductId,
+        cylinderProductId: assignment.cylinderProductId
+      }
+    })
+
+    // Combine both sources
+    const combinedInventory = [...employeeInventory, ...convertedAssignments]
+
+    console.log('Found inventory items:', combinedInventory?.length || 0)
+    return NextResponse.json({ success: true, data: combinedInventory || [] })
   } catch (error) {
     console.error("Error fetching employee inventory:", error)
     return NextResponse.json({ error: `Failed to fetch inventory: ${error.message}` }, { status: 500 })

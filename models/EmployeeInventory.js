@@ -47,6 +47,11 @@ const EmployeeInventorySchema = new mongoose.Schema(
       type: String,
       enum: ["small", "large"],
     },
+    // Cylinder status for cylinder products
+    cylinderStatus: {
+      type: String,
+      enum: ["empty", "full"],
+    },
     // Pricing information
     leastPrice: {
       type: Number,

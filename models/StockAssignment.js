@@ -52,6 +52,25 @@ const StockAssignmentSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    category: {
+      type: String,
+      enum: ["gas", "cylinder"],
+    },
+    cylinderStatus: {
+      type: String,
+      enum: ["empty", "full"],
+    },
+    displayCategory: {
+      type: String,
+    },
+    gasProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+    },
+    cylinderProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+    },
   },
   {
     timestamps: true,

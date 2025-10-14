@@ -16,6 +16,7 @@ interface EmployeeInventoryItem {
     name: string
     category: string
     cylinderSize?: string
+    productCode?: string
   }
   assignedQuantity: number
   currentStock: number
@@ -47,6 +48,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
+  const [processingItems, setProcessingItems] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetchEmployeeInventory()
@@ -83,11 +85,11 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
   const gasItems = receivedItems.filter(item => item.product.category === "gas")
   const fullCylinderItems = receivedItems.filter(item => 
     item.product.category === "cylinder" && 
-    ((item.availableFull || 0) > 0 || item.currentStock > 0)
+    ((item as any).cylinderStatus === 'full' || ((item.availableFull || 0) > 0))
   )
   const emptyCylinderItems = receivedItems.filter(item => 
     item.product.category === "cylinder" && 
-    ((item.availableEmpty || 0) > 0 || (item.currentStock === 0 && item.assignedQuantity > 0))
+    ((item as any).cylinderStatus === 'empty' || ((item.availableEmpty || 0) > 0) || (item.currentStock > 0 && !(item as any).cylinderStatus))
   )
 
   const norm = (v?: string | number) => (v === undefined || v === null ? "" : String(v)).toLowerCase()
@@ -99,19 +101,52 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
 
   const q = searchTerm.trim().toLowerCase()
 
+  const handleAcceptAssignment = async (item: EmployeeInventoryItem) => {
+    try {
+      setProcessingItems(prev => new Set(prev).add(item._id))
+      
+      // Update StockAssignment status to 'received' and create EmployeeInventory records
+      const response = await fetch(`/api/stock-assignments/${item._id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          status: 'received',
+          createEmployeeInventory: true,
+          employeeId: user.id
+        })
+      })
+      
+      if (response.ok) {
+        await fetchEmployeeInventory()
+      } else {
+        setError('Failed to accept assignment')
+      }
+    } catch (error: any) {
+      setError(`Failed to accept assignment: ${error.message}`)
+    } finally {
+      setProcessingItems(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(item._id)
+        return newSet
+      })
+    }
+  }
+
   const renderInventoryTable = (items: EmployeeInventoryItem[], showActions: boolean = false) => (
     <div className="w-full overflow-x-auto">
       <div className="w-full min-w-[800px]">
         <Table className="w-full table-fixed">
           <TableHeader>
             <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-              <TableHead className="font-bold text-gray-700 p-4 w-[25%]">Product</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[15%]">Category</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Assigned</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Current Stock</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Price (AED)</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Status</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Date</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[20%]">Product</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Code</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Category</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Assigned</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Current Stock</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Price (AED)</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Status</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Date</TableHead>
+              {showActions && <TableHead className="font-bold text-gray-700 p-4 w-[13%]">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -123,11 +158,24 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
                     {item.product.cylinderSize && (
                       <div className="text-sm text-gray-500">Size: {item.product.cylinderSize}</div>
                     )}
+                    {(item as any).cylinderStatus && (
+                      <div className="text-sm text-blue-600 font-medium">
+                        Status: {(item as any).cylinderStatus === 'empty' ? 'Empty Cylinder' : 'Full Cylinder'}
+                      </div>
+                    )}
+                    {item.product.category === 'cylinder' && !(item as any).cylinderStatus && (
+                      <div className="text-sm text-gray-500">
+                        Cylinder Product
+                      </div>
+                    )}
                   </div>
                 </TableCell>
+                <TableCell className="p-4 text-sm font-mono">
+                  {(item.product as any).productCode || 'N/A'}
+                </TableCell>
                 <TableCell className="p-4">
-                  <Badge variant={item.product.category === "gas" ? "default" : "secondary"}>
-                    {item.product.category}
+                  <Badge variant={(item as any).category === "Gas" ? "default" : "secondary"}>
+                    {(item as any).category || item.product.category}
                   </Badge>
                 </TableCell>
                 <TableCell className="p-4 font-medium">{item.assignedQuantity}</TableCell>
@@ -156,11 +204,43 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
                 <TableCell className="p-4">
                   {new Date(item.assignedDate).toLocaleDateString()}
                 </TableCell>
+                {showActions && (
+                  <TableCell className="p-4">
+                    {item.status === "assigned" && !processingItems.has(item._id) && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleAcceptAssignment(item)}
+                        className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+                      >
+                        Accept
+                      </Button>
+                    )}
+                    {item.status === "assigned" && processingItems.has(item._id) && (
+                      <Button
+                        size="sm"
+                        disabled
+                        className="bg-gray-400 text-white cursor-not-allowed"
+                      >
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Processing...
+                      </Button>
+                    )}
+                    {item.status === "received" && (
+                      <Button
+                        size="sm"
+                        disabled
+                        className="bg-green-500 text-white cursor-not-allowed"
+                      >
+                        ✓ Accepted
+                      </Button>
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
             {items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-gray-500 py-12">
+                <TableCell colSpan={showActions ? 9 : 8} className="text-center text-gray-500 py-12">
                   <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-medium">No items found</p>
                   <p className="text-sm">No inventory items match the current filter</p>
@@ -233,7 +313,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {renderInventoryTable(q ? assignedItems.filter(item => matchesQuery(item, q)) : assignedItems)}
+              {renderInventoryTable(q ? assignedItems.filter(item => matchesQuery(item, q)) : assignedItems, true)}
             </CardContent>
           </Card>
         </TabsContent>

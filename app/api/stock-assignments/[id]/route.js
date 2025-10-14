@@ -1,163 +1,234 @@
 import dbConnect from "@/lib/mongodb";
 import StockAssignment from "@/models/StockAssignment";
-import Product from "@/models/Product";
 import { NextResponse } from "next/server";
 
-export async function GET(request, { params }) {
+export async function PATCH(request, { params }) {
   try {
     await dbConnect();
-  } catch (error) {
-    console.error("Database connection error:", error);
-    return NextResponse.json(
-      { error: "Database connection failed", details: error.message },
-      { status: 500 }
-    );
-  }
-
-  try {
-    const { id } = params;
-    const assignment = await StockAssignment.findById(id)
-      .populate("employee", "name email")
-      .populate("product", "name category cylinderType")
-      .populate("assignedBy", "name");
-
-    if (!assignment) {
-      return NextResponse.json(
-        { error: "Stock assignment not found" },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json(assignment);
-  } catch (error) {
-    console.error("Stock assignment GET error:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch assignment", details: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-export async function PUT(request, { params }) {
-  try {
-    await dbConnect();
-  } catch (error) {
-    console.error("Database connection error:", error);
-    return NextResponse.json(
-      { error: "Database connection failed", details: error.message },
-      { status: 500 }
-    );
-  }
-
-  try {
+    
     const { id } = params;
     const data = await request.json();
-
-    // Find the existing assignment with product details
-    const existingAssignment = await StockAssignment.findById(id)
-      .populate("product", "name currentStock category cylinderType");
-    if (!existingAssignment) {
-      return NextResponse.json(
-        { error: "Stock assignment not found" },
-        { status: 404 }
-      );
+    
+    const assignment = await StockAssignment.findByIdAndUpdate(
+      id,
+      { status: data.status },
+      { new: true }
+    ).populate("product", "name category cylinderSize");
+    
+    if (!assignment) {
+      return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
     }
-
-    // Handle stock synchronization when quantity is being updated
-    if (data.quantity !== undefined && data.quantity !== existingAssignment.quantity) {
-      const product = existingAssignment.product;
-      const oldQuantity = existingAssignment.quantity;
-      const newQuantity = data.quantity;
-      const quantityDifference = newQuantity - oldQuantity;
+    
+    // If accepting assignment, create EmployeeInventory records
+    if (data.status === 'received' && data.createEmployeeInventory) {
+      const EmployeeInventory = (await import("@/models/EmployeeInventory")).default;
       
-      // Calculate new stock (if increasing assignment, reduce stock; if decreasing assignment, increase stock)
-      const newStock = product.currentStock - quantityDifference;
+      // Create main product inventory with proper display category
+      const displayCategory = assignment.displayCategory || 
+        (assignment.category === 'cylinder' 
+          ? (assignment.cylinderStatus === 'empty' ? 'Empty Cylinder' : 'Full Cylinder')
+          : assignment.category === 'gas' ? 'Gas' : assignment.category);
       
-      // Validate stock availability
-      if (newStock < 0) {
-        return NextResponse.json(
-          { error: `Insufficient stock. Available: ${product.currentStock}, Additional needed: ${Math.abs(newStock)}` },
-          { status: 400 }
+      // Check for existing inventory record by product to prevent duplicates
+      const existingInventory = await EmployeeInventory.findOne({
+        employee: assignment.employee,
+        product: assignment.product._id
+      }).populate('product', 'name productCode');
+      
+      // Also check by product name and code as fallback
+      let duplicateByNameCode = null;
+      if (!existingInventory && assignment.product.name && assignment.product.productCode) {
+        const allEmployeeInventory = await EmployeeInventory.find({
+          employee: assignment.employee
+        }).populate('product', 'name productCode');
+        
+        duplicateByNameCode = allEmployeeInventory.find(inv => 
+          inv.product?.name === assignment.product.name && 
+          inv.product?.productCode === assignment.product.productCode
         );
       }
       
-      // Update product stock
-      await Product.findByIdAndUpdate(product._id, {
-        currentStock: newStock
-      });
+      const targetInventory = existingInventory || duplicateByNameCode;
       
-      console.log(`Stock updated for assignment change: Product ${product.name}, Old Qty: ${oldQuantity}, New Qty: ${newQuantity}, New Stock: ${newStock}`);
+      if (targetInventory) {
+        // Update existing record
+        await EmployeeInventory.findByIdAndUpdate(targetInventory._id, {
+          $inc: {
+            assignedQuantity: assignment.quantity,
+            currentStock: assignment.quantity,
+            ...(assignment.category === 'cylinder' && assignment.cylinderStatus === 'empty' && {
+              availableEmpty: assignment.quantity
+            }),
+            ...(assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && {
+              availableFull: assignment.quantity
+            })
+          },
+          category: displayCategory,
+          cylinderStatus: assignment.cylinderStatus,
+          leastPrice: assignment.leastPrice,
+          status: 'received',
+          $push: {
+            transactions: {
+              type: 'assignment',
+              quantity: assignment.quantity,
+              date: new Date(),
+              notes: `Additional stock assignment accepted - ${displayCategory}`
+            }
+          }
+        });
+      } else {
+        // Create new record
+        await EmployeeInventory.create({
+          employee: assignment.employee,
+          product: assignment.product._id,
+          category: displayCategory,
+          cylinderStatus: assignment.cylinderStatus,
+          assignedQuantity: assignment.quantity,
+          currentStock: assignment.quantity,
+          ...(assignment.category === 'cylinder' && assignment.cylinderStatus === 'empty' && {
+            availableEmpty: assignment.quantity
+          }),
+          ...(assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && {
+            availableFull: assignment.quantity
+          }),
+          cylinderSize: assignment.cylinderSize,
+          leastPrice: assignment.leastPrice,
+          status: 'received',
+          transactions: [{
+            type: 'assignment',
+            quantity: assignment.quantity,
+            date: new Date(),
+            notes: `Stock assignment accepted - ${displayCategory}`
+          }]
+        });
+      }
+      
+      // For gas assignments, also create/update cylinder inventory
+      if (assignment.category === 'gas' && assignment.cylinderProductId) {
+        const existingCylinderInventory = await EmployeeInventory.findOne({
+          employee: assignment.employee,
+          product: assignment.cylinderProductId
+        }).populate('product', 'name productCode');
+        
+        // Check by name+code for cylinder
+        let cylinderDuplicateByNameCode = null;
+        if (!existingCylinderInventory) {
+          const cylinderProduct = await Product.findById(assignment.cylinderProductId);
+          if (cylinderProduct?.name && cylinderProduct?.productCode) {
+            const allEmployeeInventory = await EmployeeInventory.find({
+              employee: assignment.employee
+            }).populate('product', 'name productCode');
+            
+            cylinderDuplicateByNameCode = allEmployeeInventory.find(inv => 
+              inv.product?.name === cylinderProduct.name && 
+              inv.product?.productCode === cylinderProduct.productCode
+            );
+          }
+        }
+        
+        const targetCylinderInventory = existingCylinderInventory || cylinderDuplicateByNameCode;
+        
+        if (targetCylinderInventory) {
+          await EmployeeInventory.findByIdAndUpdate(targetCylinderInventory._id, {
+            $inc: {
+              assignedQuantity: assignment.quantity,
+              currentStock: assignment.quantity,
+              availableEmpty: assignment.quantity
+            },
+            $push: {
+              transactions: {
+                type: 'assignment',
+                quantity: assignment.quantity,
+                date: new Date(),
+                notes: `Additional empty cylinders from gas assignment`
+              }
+            }
+          });
+        } else {
+          await EmployeeInventory.create({
+            employee: assignment.employee,
+            product: assignment.cylinderProductId,
+            category: 'Empty Cylinder',
+            assignedQuantity: assignment.quantity,
+            currentStock: assignment.quantity,
+            availableEmpty: assignment.quantity,
+            leastPrice: 0,
+            status: 'received',
+            transactions: [{
+              type: 'assignment',
+              quantity: assignment.quantity,
+              date: new Date(),
+              notes: `Empty cylinders from gas assignment`
+            }]
+          });
+        }
+      }
+      
+      // For full cylinder assignments, also create/update gas inventory
+      if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && assignment.gasProductId) {
+        const existingGasInventory = await EmployeeInventory.findOne({
+          employee: assignment.employee,
+          product: assignment.gasProductId
+        }).populate('product', 'name productCode');
+        
+        // Check by name+code for gas
+        let gasDuplicateByNameCode = null;
+        if (!existingGasInventory) {
+          const gasProduct = await Product.findById(assignment.gasProductId);
+          if (gasProduct?.name && gasProduct?.productCode) {
+            const allEmployeeInventory = await EmployeeInventory.find({
+              employee: assignment.employee
+            }).populate('product', 'name productCode');
+            
+            gasDuplicateByNameCode = allEmployeeInventory.find(inv => 
+              inv.product?.name === gasProduct.name && 
+              inv.product?.productCode === gasProduct.productCode
+            );
+          }
+        }
+        
+        const targetGasInventory = existingGasInventory || gasDuplicateByNameCode;
+        
+        if (targetGasInventory) {
+          await EmployeeInventory.findByIdAndUpdate(targetGasInventory._id, {
+            $inc: {
+              assignedQuantity: assignment.quantity,
+              currentStock: assignment.quantity
+            },
+            $push: {
+              transactions: {
+                type: 'assignment',
+                quantity: assignment.quantity,
+                date: new Date(),
+                notes: `Additional gas from full cylinder assignment`
+              }
+            }
+          });
+        } else {
+          await EmployeeInventory.create({
+            employee: assignment.employee,
+            product: assignment.gasProductId,
+            category: 'Gas',
+            assignedQuantity: assignment.quantity,
+            currentStock: assignment.quantity,
+            leastPrice: assignment.leastPrice,
+            status: 'received',
+            transactions: [{
+              type: 'assignment',
+              quantity: assignment.quantity,
+              date: new Date(),
+              notes: `Gas from full cylinder assignment`
+            }]
+          });
+        }
+      }
     }
-
-    // Update the assignment
-    const updatedAssignment = await StockAssignment.findByIdAndUpdate(
-      id,
-      {
-        ...(data.quantity !== undefined && { quantity: data.quantity }),
-        ...(data.notes !== undefined && { notes: data.notes }),
-        ...(data.status !== undefined && { status: data.status }),
-        updatedAt: new Date(),
-      },
-      { new: true, runValidators: true }
-    )
-      .populate("employee", "name email")
-      .populate("product", "name category cylinderType")
-      .populate("assignedBy", "name");
-
-    return NextResponse.json(updatedAssignment);
+    
+    return NextResponse.json({ success: true, data: assignment });
   } catch (error) {
-    console.error("Stock assignment PUT error:", error);
+    console.error("Stock assignment PATCH error:", error);
     return NextResponse.json(
       { error: "Failed to update assignment", details: error.message },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE(request, { params }) {
-  try {
-    await dbConnect();
-  } catch (error) {
-    console.error("Database connection error:", error);
-    return NextResponse.json(
-      { error: "Database connection failed", details: error.message },
-      { status: 500 }
-    );
-  }
-
-  try {
-    const { id } = params;
-    
-    // Get assignment details before deletion to restore stock
-    const assignmentToDelete = await StockAssignment.findById(id)
-      .populate("product", "name currentStock");
-    
-    if (!assignmentToDelete) {
-      return NextResponse.json(
-        { error: "Stock assignment not found" },
-        { status: 404 }
-      );
-    }
-
-    // Only restore stock if the assignment was still "assigned" (not returned)
-    if (assignmentToDelete.status === "assigned") {
-      const product = assignmentToDelete.product;
-      const restoredStock = product.currentStock + assignmentToDelete.quantity;
-      
-      await Product.findByIdAndUpdate(product._id, {
-        currentStock: restoredStock
-      });
-      
-      console.log(`Stock restored after deletion: Product ${product.name}, Quantity: ${assignmentToDelete.quantity}, New Stock: ${restoredStock}`);
-    }
-    
-    const deletedAssignment = await StockAssignment.findByIdAndDelete(id);
-
-    return NextResponse.json({ message: "Stock assignment deleted successfully" });
-  } catch (error) {
-    console.error("Stock assignment DELETE error:", error);
-    return NextResponse.json(
-      { error: "Failed to delete assignment", details: error.message },
       { status: 500 }
     );
   }
