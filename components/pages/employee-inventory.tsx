@@ -17,15 +17,25 @@ interface EmployeeInventoryItem {
     category: string
     cylinderSize?: string
   }
-  quantity: number
-  remainingQuantity: number
+  assignedQuantity: number
+  currentStock: number
+  availableEmpty?: number
+  availableFull?: number
+  cylinderSize?: string
   leastPrice: number
-  status: "assigned" | "received" | "returned"
-  assignedBy: {
+  status: "assigned" | "received" | "active" | "returned"
+  employee: {
     name: string
+    email: string
   }
-  createdAt: string
-  notes?: string
+  assignedDate: string
+  lastUpdated: string
+  transactions?: Array<{
+    type: string
+    quantity: number
+    date: string
+    notes?: string
+  }>
 }
 
 interface EmployeeInventoryProps {
@@ -45,7 +55,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
   const fetchEmployeeInventory = async () => {
     try {
       setError("")
-      const response = await fetch(`/api/stock-assignments?employeeId=${user.id}`)
+      const response = await fetch(`/api/employee-inventory?employeeId=${user.id}`)
       const data = await response.json()
       
       if (response.ok) {
@@ -63,19 +73,26 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
 
   // Filter inventory by status
   const assignedItems = inventory.filter(item => item.status === "assigned")
-  const receivedItems = inventory.filter(item => item.status === "received")
+  const receivedItems = inventory.filter(item => item.status === "received" || item.status === "active")
   const returnedItems = inventory.filter(item => item.status === "returned")
 
   // Group received items by category for tabs
   const gasItems = receivedItems.filter(item => item.product.category === "gas")
-  const cylinderItems = receivedItems.filter(item => item.product.category === "cylinder")
+  const fullCylinderItems = receivedItems.filter(item => 
+    item.product.category === "cylinder" && 
+    (item.availableFull > 0 || item.currentStock > 0)
+  )
+  const emptyCylinderItems = receivedItems.filter(item => 
+    item.product.category === "cylinder" && 
+    (item.availableEmpty > 0 || (item.currentStock === 0 && item.assignedQuantity > 0))
+  )
 
   const norm = (v?: string | number) => (v === undefined || v === null ? "" : String(v)).toLowerCase()
   const matchesQuery = (item: EmployeeInventoryItem, q: string) =>
     norm(item.product.name).includes(q) ||
     norm(item.product.category).includes(q) ||
-    norm(item.quantity).includes(q) ||
-    norm(item.remainingQuantity).includes(q)
+    norm(item.assignedQuantity).includes(q) ||
+    norm(item.currentStock).includes(q)
 
   const q = searchTerm.trim().toLowerCase()
 
@@ -88,7 +105,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
               <TableHead className="font-bold text-gray-700 p-4 w-[25%]">Product</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[15%]">Category</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Assigned</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Remaining</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Current Stock</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Price (AED)</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Status</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Date</TableHead>
@@ -110,8 +127,8 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
                     {item.product.category}
                   </Badge>
                 </TableCell>
-                <TableCell className="p-4 font-medium">{item.quantity}</TableCell>
-                <TableCell className="p-4 font-medium">{item.remainingQuantity}</TableCell>
+                <TableCell className="p-4 font-medium">{item.assignedQuantity}</TableCell>
+                <TableCell className="p-4 font-medium">{item.currentStock}</TableCell>
                 <TableCell className="p-4">AED {item.leastPrice.toFixed(2)}</TableCell>
                 <TableCell className="p-4">
                   <Badge
@@ -123,7 +140,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
                           : "outline"
                     }
                     className={
-                      item.status === "received"
+                      item.status === "received" || item.status === "active"
                         ? "bg-green-100 text-green-800"
                         : item.status === "assigned"
                           ? "bg-blue-100 text-blue-800"
@@ -134,7 +151,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
                   </Badge>
                 </TableCell>
                 <TableCell className="p-4">
-                  {new Date(item.createdAt).toLocaleDateString()}
+                  {new Date(item.assignedDate).toLocaleDateString()}
                 </TableCell>
               </TableRow>
             ))}
@@ -238,12 +255,15 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
             {/* My Stock Tabs */}
             <Tabs defaultValue="gas" className="w-full">
               <div className="px-4 sm:px-6 pt-4">
-                <TabsList className="grid w-full grid-cols-2 h-auto">
+                <TabsList className="grid w-full grid-cols-3 h-auto">
                   <TabsTrigger value="gas" className="text-xs sm:text-sm font-medium py-2">
                     Gas ({gasItems.length})
                   </TabsTrigger>
-                  <TabsTrigger value="cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Cylinders ({cylinderItems.length})
+                  <TabsTrigger value="full-cylinder" className="text-xs sm:text-sm font-medium py-2">
+                    Full Cylinders ({fullCylinderItems.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="empty-cylinder" className="text-xs sm:text-sm font-medium py-2">
+                    Empty Cylinders ({emptyCylinderItems.length})
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -254,9 +274,15 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
                 </CardContent>
               </TabsContent>
 
-              <TabsContent value="cylinder">
+              <TabsContent value="full-cylinder">
                 <CardContent className="p-0">
-                  {renderInventoryTable(q ? cylinderItems.filter(item => matchesQuery(item, q)) : cylinderItems)}
+                  {renderInventoryTable(q ? fullCylinderItems.filter(item => matchesQuery(item, q)) : fullCylinderItems)}
+                </CardContent>
+              </TabsContent>
+
+              <TabsContent value="empty-cylinder">
+                <CardContent className="p-0">
+                  {renderInventoryTable(q ? emptyCylinderItems.filter(item => matchesQuery(item, q)) : emptyCylinderItems)}
                 </CardContent>
               </TabsContent>
             </Tabs>
