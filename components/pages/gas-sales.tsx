@@ -572,18 +572,35 @@ export function GasSales() {
   useEffect(() => {
     if (allProducts.length > 0) {
       const filteredProducts = allProducts.filter((product: Product) => {
-        // Filter by category
-        if (product.category !== formData.category) return false;
-        // For cylinders, only show full cylinders (available for sale)
-        if (product.category === 'cylinder' && product.cylinderStatus !== 'full') return false;
-        // Always require in-stock products
-        return (product.currentStock || 0) > 0;
+        if (product.category !== formData.category) return false
+        
+        if (product.category === 'cylinder') {
+          // For cylinders, only show full cylinders (available for sale)
+          if (product.cylinderStatus !== 'full') return false
+          // Check cylinder stock from inventory availability
+          const availableFull = inventoryAvailability[product._id]?.availableFull || 0
+          return availableFull > 0
+        } else if (product.category === 'gas') {
+          // For gas, check currentStock from inventory availability (Gas tab)
+          const gasStock = inventoryAvailability[product._id]?.currentStock || 0
+          return gasStock > 0
+        }
+        
+        // Fallback to product.currentStock for other categories
+        return (product.currentStock || 0) > 0
       })
+      
       console.log('GasSales - Category changed to:', formData.category)
       console.log('GasSales - Re-filtered products:', filteredProducts.length)
+      console.log('GasSales - Gas products available:', allProducts.filter(p => p.category === 'gas').map(p => ({
+        name: p.name,
+        productStock: p.currentStock,
+        inventoryStock: inventoryAvailability[p._id]?.currentStock || 0
+      })))
+      
       setProducts(filteredProducts)
     }
-  }, [formData.category, allProducts])
+  }, [formData.category, allProducts, inventoryAvailability])
 
   const fetchData = async () => {
     try {
@@ -636,19 +653,11 @@ export function GasSales() {
       setCustomers(customersData)
       setAllProducts(productsData)
 
-      // Filter by selected category; for cylinders require full status; require in-stock
-      const filteredProducts = productsData.filter((product: Product) => {
-        if (product.category !== formData.category) return false
-        if (product.category === 'cylinder' && product.cylinderStatus !== 'full') return false
-        return (product.currentStock || 0) > 0
-      })
-      setProducts(filteredProducts)
-      
-      // Fetch live inventory-items availability (authoritative for cylinder availability)
+      // Fetch live inventory-items availability (authoritative for gas and cylinder availability)
+      let availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
       try {
         const invRes = await fetch('/api/inventory-items', { cache: 'no-store' })
         const invJson = await (async () => { try { return await invRes.json() } catch { return {} as any } })()
-        const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
         const invArr = Array.isArray(invJson?.data) ? invJson.data : []
         for (const ii of invArr) {
           if (ii?.productId) {
@@ -663,6 +672,37 @@ export function GasSales() {
       } catch (_) {
         // Non-fatal; keep suggestions functional with product.currentStock fallback
       }
+
+      // Filter by selected category using inventory data for accurate stock levels
+      const filteredProducts = productsData.filter((product: Product) => {
+        if (product.category !== formData.category) return false
+        
+        if (product.category === 'cylinder') {
+          // For cylinders, only show full cylinders (available for sale)
+          if (product.cylinderStatus !== 'full') return false
+          // Check cylinder stock from inventory availability
+          const availableFull = availMap[product._id]?.availableFull || 0
+          return availableFull > 0
+        } else if (product.category === 'gas') {
+          // For gas, check currentStock from inventory availability (Gas tab)
+          const gasStock = availMap[product._id]?.currentStock || 0
+          return gasStock > 0
+        }
+        
+        // Fallback to product.currentStock for other categories
+        return (product.currentStock || 0) > 0
+      })
+      
+      console.log('GasSales - Category filter:', formData.category)
+      console.log('GasSales - All products:', productsData.length)
+      console.log('GasSales - Filtered products:', filteredProducts.length)
+      console.log('GasSales - Gas products with stock:', productsData.filter(p => p.category === 'gas').map(p => ({
+        name: p.name,
+        productStock: p.currentStock,
+        inventoryStock: availMap[p._id]?.currentStock || 0
+      })))
+      
+      setProducts(filteredProducts)
     } catch (error) {
       console.error("Failed to fetch data:", error)
       // Type guard to check if error is an axios error
@@ -870,6 +910,28 @@ export function GasSales() {
         }
       } else {
         console.log('GasSales - Creating new sale')
+        console.log('GasSales - Sale data:', saleData)
+        
+        // Debug: Show stock validation data being sent vs frontend data
+        saleData.items.forEach((item, index) => {
+          const product = allProducts.find(p => p._id === item.product)
+          if (product) {
+            console.log(`GasSales - Item ${index} stock validation:`, {
+              productName: product.name,
+              category: product.category,
+              quantity: item.quantity,
+              frontendStock: product.category === 'gas' 
+                ? inventoryAvailability[product._id]?.currentStock || 0
+                : product.category === 'cylinder' 
+                  ? (item.cylinderStatus === 'full' 
+                      ? inventoryAvailability[product._id]?.availableFull || 0
+                      : inventoryAvailability[product._id]?.availableEmpty || 0)
+                  : product.currentStock || 0,
+              productModelStock: product.currentStock || 0,
+              inventoryAvailable: inventoryAvailability[product._id] || null
+            })
+          }
+        })
         savedResponse = await salesAPI.create(saleData)
       }
 
@@ -1205,13 +1267,14 @@ export function GasSales() {
       const cylinderSize = product.cylinderSize as ("large" | "small" | undefined)
       let gasProducts = allProducts.filter((p: Product) => {
         if (p.category !== 'gas') return false
-        const gasStock = p.currentStock || 0
+        // Use inventory availability for gas stock (Gas tab)
+        const gasStock = inventoryAvailability[p._id]?.currentStock || 0
         return gasStock > 0
       })
       // Try to match cylinder size with gas size if available
       const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => (g.cylinderSize as any) === cylinderSize) : []
       const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
-        .sort((a, b) => ((b.currentStock || 0) - (a.currentStock || 0)))[0]
+        .sort((a, b) => ((inventoryAvailability[b._id]?.currentStock || 0) - (inventoryAvailability[a._id]?.currentStock || 0)))[0]
       if (pick) {
         nextItem = { ...nextItem, gasProductId: pick._id }
         setEntryGasSearch(pick.name)
@@ -1239,7 +1302,7 @@ export function GasSales() {
       
       if (currentItem.category === 'gas') {
         // For gas sales, validate gas stock from inventory Gas tab
-        const gasStock = product.currentStock || 0
+        const gasStock = inventoryAvailability[product._id]?.currentStock || 0
         
         if (enteredQuantity > gasStock) {
           setStockErrorMessage(`Insufficient Gas stock for ${product.name}. Available: ${gasStock}, Required: ${enteredQuantity}`)
@@ -1788,7 +1851,7 @@ export function GasSales() {
                             }
                           }
                           // For gas, only show products that are in stock (align with Inventory 'Gas' tab)
-                          if (p.category === 'gas' && (p.currentStock || 0) <= 0) return false;
+                          if (p.category === 'gas' && (inventoryAvailability[p._id]?.currentStock || 0) <= 0) return false;
                           // Filter by search term
                           if (entryProductSearch.trim().length > 0) {
                             const searchTerm = entryProductSearch.toLowerCase().trim()
@@ -1833,6 +1896,11 @@ export function GasSales() {
                                     {product.name}
                                   </span>
                                   <div className="flex items-center gap-2">
+                                    {product.category === 'gas' && (
+                                      <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                                        Stock: {inventoryAvailability[product._id]?.currentStock || 0}
+                                      </span>
+                                    )}
                                     {product.category === 'cylinder' && (
                                       <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
                                         {currentItem.cylinderStatus === 'empty' ? 'Empty' : 'Full'}: {currentItem.cylinderStatus === 'empty' ? (inventoryAvailability[product._id]?.availableEmpty || 0) : (inventoryAvailability[product._id]?.availableFull || 0)}
@@ -1954,7 +2022,7 @@ export function GasSales() {
                                   <span className="font-medium text-gray-900">
                                     {product.name}
                                   </span>
-                                  <span className="text-xs text-gray-500">Stock: {product.currentStock}</span>
+                                  <span className="text-xs text-gray-500">Stock: {inventoryAvailability[product._id]?.currentStock || 0}</span>
                                 </div>
                               </div>
                             ))}

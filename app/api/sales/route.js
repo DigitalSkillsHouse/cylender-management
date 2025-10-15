@@ -85,10 +85,45 @@ export async function POST(request) {
             availableStock = product.currentStock || 0
             stockType = 'Cylinders'
           }
+        } else if (product.category === 'gas') {
+          // For gas products, check inventory availability from InventoryItem
+          let inventoryItem = await InventoryItem.findOne({ product: item.product })
+          
+          // If no inventory item exists, create one with current stock from Product model
+          if (!inventoryItem) {
+            console.log(`No inventory item found for gas product ${product.name}, creating one...`)
+            try {
+              inventoryItem = await InventoryItem.create({
+                product: item.product,
+                category: 'gas',
+                currentStock: product.currentStock || 0,
+                availableEmpty: 0,
+                availableFull: 0,
+              })
+              console.log(`Created inventory item for ${product.name} with stock: ${inventoryItem.currentStock}`)
+            } catch (createError) {
+              console.error(`Failed to create inventory item for ${product.name}:`, createError)
+              // Fallback to product stock
+              availableStock = product.currentStock || 0
+              stockType = 'Gas (fallback)'
+            }
+          }
+          
+          if (inventoryItem) {
+            console.log(`Gas inventory item found for ${product.name}:`, {
+              currentStock: inventoryItem.currentStock,
+              productId: inventoryItem.product,
+              productName: product.name
+            })
+            availableStock = inventoryItem.currentStock || 0
+          } else {
+            availableStock = product.currentStock || 0
+          }
+          stockType = 'Gas'
         } else {
-          // For gas and other products, use currentStock
+          // For other products, use currentStock from Product model
           availableStock = product.currentStock || 0
-          stockType = product.category === 'gas' ? 'Gas' : 'Stock'
+          stockType = 'Stock'
         }
         
         console.log(`Stock check result:`, {
