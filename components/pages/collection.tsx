@@ -62,7 +62,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
     _id: string
     invoiceNumber: string
     customer: { name: string; phone: string; address: string; trNumber?: string }
-    items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number }>
+    items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number; invoiceNumber?: string; invoiceDate?: string; paymentStatus?: string }>
     totalAmount: number
     paymentMethod: string
     paymentStatus: string
@@ -302,7 +302,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
       return
     }
     
-    const totalAmount = selectedInvoices.reduce((sum, inv) => sum + parseFloat(amounts[inv._id] || '0'), 0)
+    const totalAmount = selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0)
     const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
     
     // Open payment collection dialog
@@ -362,19 +362,30 @@ export function CollectionPage({ user }: CollectionPageProps) {
     // Create payments array for API using selected invoices
     const payments: Array<{ model: string; id: string; amount: number }> = []
     
-    // Calculate proportional payment for each selected invoice
-    paymentDialog.selectedInvoices.forEach(invoice => {
-      const invoiceAmount = parseFloat(amounts[invoice._id] || '0')
-      const proportionalAmount = (invoiceAmount / paymentDialog.totalAmount) * add
-      
-      if (proportionalAmount > 0) {
-        payments.push({
-          model: invoice.model,
-          id: invoice._id,
-          amount: proportionalAmount
-        })
-      }
-    })
+    // For single invoice collection, apply the full amount directly
+    if (paymentDialog.selectedInvoices.length === 1) {
+      const invoice = paymentDialog.selectedInvoices[0]
+      payments.push({
+        model: invoice.model,
+        id: invoice._id,
+        amount: add  // Apply the full amount entered in the dialog
+      })
+    } else {
+      // For multiple invoices, calculate proportional payment based on remaining balance
+      paymentDialog.selectedInvoices.forEach(invoice => {
+        const invoiceRemaining = invoice.totalAmount - invoice.receivedAmount
+        const totalRemaining = paymentDialog.selectedInvoices.reduce((sum, inv) => sum + (inv.totalAmount - inv.receivedAmount), 0)
+        const proportionalAmount = (invoiceRemaining / totalRemaining) * add
+        
+        if (proportionalAmount > 0) {
+          payments.push({
+            model: invoice.model,
+            id: invoice._id,
+            amount: proportionalAmount
+          })
+        }
+      })
+    }
     
     console.log('Generated payments array:', payments)
     
@@ -406,7 +417,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
       toast({ title: "Payments collected", description: `${payments.length} invoice(s) updated.` })
       setSelected({})
       setAmounts({})
-      await fetchData(selectedCustomer?._id)
+      await fetchData(selectedCustomer?._id, true) // Force refresh after collection
       // Format receipt data to show invoice numbers instead of individual items
       const receiptItems = payments.map(p => {
         const invoice = invoices.find(inv => inv._id === p.id)
@@ -426,7 +437,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
           invoiceDate: invoice.createdAt,
           paymentStatus: invoice.paymentStatus
         }
-      }).filter(Boolean)
+      }).filter((item): item is NonNullable<typeof item> => item !== null)
 
       // Use collection receipt number instead of individual invoice number
       const invoiceNumber = `COL-${Date.now().toString().slice(-6)}`
@@ -486,7 +497,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
         invoiceDate: invoice.createdAt,
         paymentStatus: invoice.paymentStatus
       }
-    }).filter(Boolean)
+    }).filter((item): item is NonNullable<typeof item> => item !== null)
 
     setReceiptData({
       _id: `preview-${Date.now()}`,
@@ -639,7 +650,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
                             return
                           }
                           
-                          const totalAmount = selectedInvoices.reduce((sum, inv) => sum + parseFloat(amounts[inv._id] || '0'), 0)
+                          const totalAmount = selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0)
                           const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
                           
                           // Open payment collection dialog with selected invoices
