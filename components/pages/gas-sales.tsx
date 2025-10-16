@@ -781,32 +781,19 @@ export function GasSales() {
           return saleItem
         })
 
-      // Also create auxiliary items for backend inventory processing
+      // Check for any auxiliary items (should be none now)
       const auxiliaryItems = formData.items
         .filter((item) => {
           const quantity = Number(item.quantity) || 0
           const price = Number(item.price) || 0
-          // Include auxiliary items (price = 0) for inventory conversion
+          // Find auxiliary items (price = 0) - should be none
           return item.productId && quantity > 0 && price === 0
         })
-        .map((item) => {
-          const quantity = Number(item.quantity) || 1
-          const prod = allProducts.find((p: Product) => p._id === item.productId)
-          const category = (item as any).category || prod?.category || 'cylinder'
-          return {
-            product: item.productId,
-            quantity: quantity,
-            price: 0,
-            total: 0,
-            category: category,
-            cylinderStatus: (item as any).cylinderStatus || 'full_to_empty',
-            cylinderName: (item as any).cylinderName,
-            cylinderSize: prod?.cylinderSize || 'large', // Add cylinder size for backend
-          }
-        })
-
-      // Combine main items and auxiliary items for complete inventory processing
-      const allItems = [...saleItems, ...auxiliaryItems]
+      
+      console.log('🔧 Auxiliary items count (should be 0):', auxiliaryItems.length)
+      if (auxiliaryItems.length > 0) {
+        console.warn('⚠️ Found auxiliary items - this should not happen:', auxiliaryItems)
+      }
 
       if (saleItems.length === 0) {
         alert("Please add at least one item")
@@ -835,22 +822,31 @@ export function GasSales() {
 
       const saleData = {
         customer: formData.customerId,
-        items: saleItems,  // Send only main items - backend should handle cylinder conversion internally
+        items: saleItems,  // Send only main items - backend handles inventory conversion internally
         totalAmount,
         paymentMethod: derivedPaymentMethod,
         paymentStatus: derivedPaymentStatus,
         receivedAmount: derivedReceivedAmount,
         notes: formData.notes,
-        // Include inventory availability data so backend uses same source as frontend
-        inventoryAvailability: inventoryAvailability,
       }
 
-      console.log('GasSales - Submitting sale data:', saleData)
-      console.log('GasSales - Sale items (main):', saleItems)
-      console.log('GasSales - Auxiliary items:', auxiliaryItems)
-      console.log('GasSales - All items (combined):', allItems)
-      console.log('GasSales - Form data items:', formData.items)
-      console.log('GasSales - Inventory availability data:', inventoryAvailability)
+      console.log('🚀 GasSales - Submitting sale data:', saleData)
+      console.log('📦 GasSales - Sale items (main):', saleItems)
+      console.log('🔧 GasSales - Auxiliary items (not sent):', auxiliaryItems)
+      console.log('📋 GasSales - Form data items (all):', formData.items)
+      
+      // Detailed product ID validation
+      console.log('🔍 Product ID Validation:')
+      const allProductIds = allProducts.map(p => p._id)
+      console.log('Available product IDs:', allProductIds)
+      
+      saleItems.forEach((item, index) => {
+        const productExists = allProductIds.includes(item.product)
+        console.log(`Item ${index}: Product ID ${item.product} exists: ${productExists}`)
+        if (!productExists) {
+          console.error(`❌ INVALID PRODUCT ID: ${item.product} not found in products list`)
+        }
+      })
       
       // Debug gas product ID passing
       saleItems.forEach((item, index) => {
@@ -864,15 +860,16 @@ export function GasSales() {
         }
       })
       
-      // Log detailed item structure for debugging
-      allItems.forEach((item, index) => {
-        console.log(`GasSales - Item ${index}:`, {
+      // Log detailed main item structure for debugging
+      saleItems.forEach((item, index) => {
+        console.log(`GasSales - Main Item ${index}:`, {
           product: item.product,
           category: item.category,
           quantity: item.quantity,
           price: item.price,
           cylinderStatus: item.cylinderStatus,
           cylinderProductId: item.cylinderProductId,
+          gasProductId: item.gasProductId,
           cylinderName: item.cylinderName,
           cylinderSize: item.cylinderSize
         })
@@ -932,7 +929,9 @@ export function GasSales() {
             })
           }
         })
+        console.log('🌐 Making API call to create sale...')
         savedResponse = await salesAPI.create(saleData)
+        console.log('✅ Sale created successfully:', savedResponse)
       }
 
       console.log('GasSales - Sale completed successfully, refreshing data...')
@@ -993,7 +992,10 @@ export function GasSales() {
         setShowSignatureDialog(true)
       } catch {}
     } catch (error: any) {
-      console.error("Failed to save sale:", error?.response?.data || error?.message, error)
+      console.error("❌ Failed to save sale:", error?.response?.data || error?.message)
+      console.error("❌ Full error object:", error)
+      console.error("❌ Error response data:", error?.response?.data)
+      console.error("❌ Error response status:", error?.response?.status)
       const errorMessage = error.response?.data?.error || "Failed to save sale"
       
       // Check if it's a stock insufficient error
@@ -1386,7 +1388,10 @@ export function GasSales() {
       
       items.push(itemToAdd)
     }
-    // If cylinder is Full and a gas product is selected, add an auxiliary zero-priced GAS item
+    // TEMPORARILY DISABLED: Auxiliary items creation to test API submission
+    // Backend should handle inventory conversion using cylinderProductId and gasProductId
+    
+    // If cylinder is Full and a gas product is selected, store gasProductId in main item
     if (currentItem.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
       if (!currentItem.gasProductId) {
         setStockErrorMessage('Please select the Gas product for Full cylinder.')
@@ -1402,30 +1407,14 @@ export function GasSales() {
         }
       }
       
-      items.push({
-        productId: currentItem.gasProductId,
-        quantity: currentItem.quantity,
-        price: '0',
-        category: 'gas' as any,
-        gasProductId: currentItem.gasProductId, // Also add to auxiliary item
-      } as any)
+      // DON'T create auxiliary gas item - let backend handle it
+      console.log('🔧 Full cylinder item will include gasProductId for backend processing')
     }
 
-    // If GAS is being sold, add an auxiliary zero-priced CYLINDER item to convert full->empty
-    if (currentItem.category === 'gas') {
-      const cylinderProduct = allProducts.find((p: Product) => p._id === currentItem.cylinderProductId)
-      
-      if (cylinderProduct) {
-        // Skip frontend cylinder validation - let backend handle it with proper inventory data
-        items.push({
-          productId: currentItem.cylinderProductId,
-          quantity: currentItem.quantity,
-          price: '0',
-          category: 'cylinder' as any,
-          cylinderStatus: 'full_to_empty',
-          cylinderName: cylinderProduct.name, // Store cylinder name for display
-        } as any)
-      }
+    // If GAS is being sold, store cylinderProductId in main item
+    if (currentItem.category === 'gas' && currentItem.cylinderProductId) {
+      // DON'T create auxiliary cylinder item - let backend handle it
+      console.log('🔧 Gas item will include cylinderProductId for backend processing')
     }
     setFormData({ ...formData, items })
     resetCurrentItem()

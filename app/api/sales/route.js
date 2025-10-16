@@ -40,9 +40,23 @@ export async function POST(request) {
 
     // Verify all products exist and get their details
     const productIds = items.map((item) => item.product)
-    const products = await Product.find({ _id: { $in: productIds } })
+    const uniqueProductIds = [...new Set(productIds)] // Remove duplicates for validation
+    const products = await Product.find({ _id: { $in: uniqueProductIds } })
 
-    if (products.length !== productIds.length) {
+    console.log(`Product validation:`, {
+      totalItems: items.length,
+      productIds: productIds,
+      uniqueProductIds: uniqueProductIds,
+      foundProducts: products.length,
+      expectedProducts: uniqueProductIds.length
+    })
+
+    if (products.length !== uniqueProductIds.length) {
+      console.error(`Product validation failed:`, {
+        foundProducts: products.map(p => ({ id: p._id.toString(), name: p.name })),
+        requestedProductIds: uniqueProductIds,
+        missingProductIds: uniqueProductIds.filter(id => !products.find(p => p._id.toString() === id))
+      })
       return NextResponse.json({ error: "One or more products not found" }, { status: 404 })
     }
 
