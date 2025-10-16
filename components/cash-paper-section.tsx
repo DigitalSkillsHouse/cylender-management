@@ -68,10 +68,7 @@ export default function CashPaperSection({
     if (!data) return
     try {
       const vat = (n: number) => (Number(n || 0) * 0.05)
-      const creditVatTotal = (data.creditSales || []).reduce((s, r) => s + vat(r.totalAmount), 0)
-      const debitVatTotal = (data.debitSales || []).reduce((s, r) => s + vat(r.totalAmount), 0)
-      const otherVatTotal = (data.otherSales || []).reduce((s: number, r: any) => s + vat(Number((r as any).totalAmount || 0)), 0)
-
+      
       const creditRows = (data.creditSales || [])
         .map(r => `<tr><td>${r.invoiceNumber}</td><td>${r.customerName || "-"}</td><td class='right'>${currency(vat(r.totalAmount))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
@@ -110,9 +107,7 @@ export default function CashPaperSection({
       ${creditRows || `<tr><td colspan='4' style='text-align:center'>No credit sales</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='2'>Total Credit VAT (5%)</td><td class='right'>${currency(creditVatTotal)}</td><td></td></tr>
-      <tr><td colspan='3'>Total Credit</td><td class='right'>${currency(data.totals.totalCredit)}</td></tr>
-      <tr><td colspan='3'><b>Total Credit + VAT</b></td><td class='right'><b>${currency(data.totals.totalCredit + creditVatTotal)}</b></td></tr>
+      <tr><td colspan='3'><b>Total Credit</b></td><td class='right'><b>${currency(data.totals.totalCredit)}</b></td></tr>
     </tfoot>
   </table>
 
@@ -125,9 +120,7 @@ export default function CashPaperSection({
       ${debitRows || `<tr><td colspan='4' style='text-align:center'>No debit sales</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='2'>Total Debit VAT (5%)</td><td class='right'>${currency(debitVatTotal)}</td><td></td></tr>
-      <tr><td colspan='3'>Total Debit</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
-      <tr><td colspan='3'><b>Total Debit + VAT</b></td><td class='right'><b>${currency(data.totals.totalDebit + debitVatTotal)}</b></td></tr>
+      <tr><td colspan='3'><b>Total Debit</b></td><td class='right'><b>${currency(data.totals.totalDebit)}</b></td></tr>
     </tfoot>
   </table>
 
@@ -140,9 +133,7 @@ export default function CashPaperSection({
       ${otherRows || `<tr><td colspan='4' style='text-align:center'>No other sales</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='2'>Total Other VAT (5%)</td><td class='right'>${currency(otherVatTotal)}</td><td></td></tr>
-      <tr><td colspan='3'>Total Other</td><td class='right'>${currency(data.totals.totalOther)}</td></tr>
-      <tr><td colspan='3'><b>Total Other + VAT</b></td><td class='right'><b>${currency(data.totals.totalOther + otherVatTotal)}</b></td></tr>
+      <tr><td colspan='3'><b>Total Other</b></td><td class='right'><b>${currency(data.totals.totalOther)}</b></td></tr>
     </tfoot>
   </table>
 
@@ -152,8 +143,7 @@ export default function CashPaperSection({
       <tr><td>Total Credit</td><td class='right'>${currency(data.totals.totalCredit)}</td></tr>
       <tr><td>Total Debit</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
       <tr><td>Other</td><td class='right'>${currency(data.totals.totalOther)}</td></tr>
-      <tr><td>Total VAT (Credit + Cash + Other)</td><td class='right'>${currency(creditVatTotal + debitVatTotal + otherVatTotal)}</td></tr>
-      <tr><td><b>Grand Total (Incl. VAT)</b></td><td class='right'><b>${currency(data.totals.grandTotal + creditVatTotal + debitVatTotal + otherVatTotal)}</b></td></tr>
+      <tr><td><b>Grand Total</b></td><td class='right'><b>${currency(data.totals.grandTotal)}</b></td></tr>
     </tbody>
   </table>
 </body>
