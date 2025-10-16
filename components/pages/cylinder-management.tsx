@@ -868,7 +868,7 @@ export function CylinderManagement() {
     }
   }
 
-  const totalItemsAmount = () => formData.items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0)
+  const totalItemsAmount = () => formData.items.reduce((sum, it) => sum + ((Number(it.quantity) || 0) * (Number(it.amount) || 0)), 0)
 
   const validateItemStock = (productId: string, qty: number) => {
     const p = allProducts.find(p => p._id === productId)
@@ -880,11 +880,11 @@ export function CylinderManagement() {
     // Return skips stock validation
     if (formData.type === 'return') return true
     
-    // For deposits, validate full cylinder availability
+    // For deposits, validate empty cylinder availability (deposits convert empty->full for customers)
     if (formData.type === 'deposit' && p.category === 'cylinder') {
-      const availableFull = inventoryAvailability[productId]?.availableFull || 0
-      if (qty > availableFull) {
-        setStockValidationMessage(`Insufficient full cylinders! Available: ${availableFull}, Requested: ${qty}`)
+      const availableEmpty = inventoryAvailability[productId]?.availableEmpty || 0
+      if (qty > availableEmpty) {
+        setStockValidationMessage(`Insufficient empty cylinders! Available: ${availableEmpty}, Requested: ${qty}`)
         setShowStockValidationPopup(true)
         return false
       }
@@ -1591,7 +1591,7 @@ export function CylinderManagement() {
       return true
     }
 
-    // For deposits, validate empty cylinder availability
+    // For deposits, validate empty cylinder availability (deposits convert empty->full for customers)
     if (formData.type === 'deposit' && selectedProduct.category === 'cylinder') {
       const availableEmpty = inventoryAvailability[productId]?.availableEmpty || 0
       if (requestedQuantity > availableEmpty) {
@@ -2113,7 +2113,7 @@ export function CylinderManagement() {
                         ))}
                         <TableRow>
                           <TableCell colSpan={3} className="text-right font-semibold">Total</TableCell>
-                          <TableCell className="font-semibold">AED {formData.items.reduce((s, it) => s + (Number(it.amount)||0), 0).toFixed(2)}</TableCell>
+                          <TableCell className="font-semibold">AED {formData.items.reduce((s, it) => s + ((Number(it.quantity)||0) * (Number(it.amount)||0)), 0).toFixed(2)}</TableCell>
                           <TableCell />
                         </TableRow>
                       </TableBody>
