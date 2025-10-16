@@ -288,15 +288,15 @@ export async function POST(request) {
                 })
                 console.log(`✅ Empty cylinder sale: ${product.name} decreased by ${item.quantity}`)
               } else if (item.cylinderStatus === 'full') {
-                // Selling full cylinders - decrease availableFull, increase availableEmpty
+                // Selling full cylinders - only decrease availableFull (customer takes cylinder away)
                 await InventoryItem.findByIdAndUpdate(cylinderInventory._id, {
                   $inc: { 
-                    availableFull: -item.quantity,
-                    availableEmpty: item.quantity 
+                    availableFull: -item.quantity
+                    // Don't add to availableEmpty - customer takes the cylinder
                   },
                   lastUpdatedAt: new Date()
                 })
-                console.log(`✅ Full cylinder sale: ${product.name} - ${item.quantity} moved from Full to Empty`)
+                console.log(`✅ Full cylinder sale: ${product.name} - ${item.quantity} full cylinders sold (customer takes cylinder)`)
                 
                 // Also deduct gas stock since full cylinder contains gas
                 // Try multiple ways to find the gas product ID
