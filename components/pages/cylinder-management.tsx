@@ -773,6 +773,8 @@ export function CylinderManagement() {
     checkNumber: "",
     status: "pending" as "pending" | "cleared" | "overdue",
     notes: "",
+    // Manual date entry for deposits (defaults to today)
+    transactionDate: new Date().toISOString().slice(0, 10), // YYYY-MM-DD format
     // Items support: when items.length > 0, we submit an array of items in a single transaction
     items: [] as Array<{
       productId: string
@@ -1185,6 +1187,8 @@ export function CylinderManagement() {
         depositAmount: formData.type === 'deposit' ? (formData.paymentOption === 'delivery_note' ? 0 : Number(formData.depositAmount) || 0) : 0,
         returnAmount: formData.type === 'return' ? (single ? (Number(formData.amount) || 0) : itemsTotal) : 0,
         paymentOption: formData.paymentOption,
+        // Include custom transaction date for deposits
+        transactionDate: formData.type === 'deposit' ? formData.transactionDate : undefined,
         paymentMethod: formData.paymentOption === 'debit' ? formData.paymentMethod : undefined,
         cashAmount: formData.paymentOption === 'debit' && formData.paymentMethod === 'cash' ? Number(formData.cashAmount) : 0,
         bankName: formData.paymentOption === 'debit' && formData.paymentMethod === 'cheque' ? formData.bankName : undefined,
@@ -1341,6 +1345,8 @@ export function CylinderManagement() {
       checkNumber: "",
       status: "pending" as any, // Default to pending
       notes: "",
+      // Reset transaction date to today's date
+      transactionDate: new Date().toISOString().slice(0, 10),
       items: [],
       linkedDeposit: "",
     })
@@ -1381,6 +1387,8 @@ export function CylinderManagement() {
         amount: it.amount,
       })) : [],
       linkedDeposit: (transaction as any)?.linkedDeposit?._id || (transaction as any)?.linkedDeposit || "",
+      // Extract transaction date from existing transaction or default to today
+      transactionDate: transaction.createdAt ? new Date(transaction.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
     })
     setCustomerSearchTerm(transaction.customer?.name || "")
     setShowCustomerSuggestions(false)
@@ -1869,6 +1877,25 @@ export function CylinderManagement() {
                     </SelectContent>
                   </Select>
                 </div>
+                
+                {/* Date field - only show for deposit transactions */}
+                {formData.type === 'deposit' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="transactionDate">Date *</Label>
+                    <Input
+                      id="transactionDate"
+                      type="date"
+                      value={formData.transactionDate}
+                      onChange={(e) => setFormData({ ...formData, transactionDate: e.target.value })}
+                      required
+                      className="w-full"
+                    />
+                  </div>
+                )}
+              </div>
+              
+              {/* Customer/Supplier section */}
+              <div className="grid grid-cols-1 gap-4">
                 {formData.type !== 'refill' ? (
                   <div className="space-y-2 relative">
                     <Label htmlFor="customer">Customer *</Label>

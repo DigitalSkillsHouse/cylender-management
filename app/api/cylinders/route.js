@@ -189,6 +189,15 @@ export async function POST(request) {
       data.status = 'cleared'
     }
 
+    // Handle custom transaction date for deposits
+    if (data.transactionDate && data.type === 'deposit') {
+      // Convert date string to Date object and set as createdAt
+      const customDate = new Date(data.transactionDate + 'T00:00:00.000Z')
+      data.createdAt = customDate
+      data.updatedAt = customDate
+      console.log('[cylinders][POST] Using custom transaction date:', customDate.toISOString())
+    }
+
     let transaction;
     try {
       transaction = await CylinderTransaction.create(data);
