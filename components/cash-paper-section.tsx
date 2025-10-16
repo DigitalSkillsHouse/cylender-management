@@ -124,7 +124,7 @@ export default function CashPaperSection({
     </tfoot>
   </table>
 
-  <h2>Deposit Cylinder Inovice</h2>
+  <h2>Deposit Cylinder Invoice</h2>
   <table>
     <thead>
       <tr><th>Inv Id</th><th>Customer</th><th class='right'>VAT 5%</th><th class='right'>Amount</th></tr>

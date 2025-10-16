@@ -80,12 +80,18 @@ export async function GET(request) {
       }
     }
 
-    // Aggregate cylinder transactions (count into 'other' by payment method)
+    // Aggregate cylinder transactions - only include DEPOSIT transactions (exclude returns)
     for (const c of cylTxns) {
-      const amount = Number(c.amount || c.depositAmount || c.refillAmount || c.returnAmount || 0);
+      // Skip return transactions - only include deposit and refill
+      if (c.type === 'return') {
+        continue;
+      }
+      
+      const amount = Number(c.amount || c.depositAmount || c.refillAmount || 0);
       const rec = {
         _id: c._id,
         source: employeeId ? 'employee-cylinder' : 'admin-cylinder',
+        invoiceNumber: c.invoiceNumber || '-', // Include invoice number for cylinder transactions
         employeeName: c?.employee?.name || (employeeId ? '-' : 'Admin'),
         customerName: c?.customer?.name || '-',
         totalAmount: amount,
