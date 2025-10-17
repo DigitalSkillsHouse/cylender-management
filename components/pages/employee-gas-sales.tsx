@@ -2199,26 +2199,35 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
 
       {/* Stock Insufficient Popup */}
       {showStockInsufficientPopup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center pointer-events-auto">
           {/* Background blur overlay */}
           <div 
-            className="absolute inset-0 bg-black/20 backdrop-blur-sm" 
-            onClick={() => {
+            className="absolute inset-0 bg-black/20 backdrop-blur-sm pointer-events-auto" 
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              console.log('Background overlay clicked - only closing popup')
               setUserInteractedWithPopup(true)
               setShowStockInsufficientPopup(false)
+              // Only close popup, don't affect form data
             }}
           />
           
           {/* Modal with animations */}
-          <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95">
+          <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95 pointer-events-auto z-10">
             {/* Close button */}
             <button
-              onClick={() => {
+              type="button"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                console.log('Close X button clicked - only closing popup')
                 setUserInteractedWithPopup(true)
                 setShowStockInsufficientPopup(false)
+                // Only close popup, don't affect form data
               }}
               onMouseEnter={() => setUserInteractedWithPopup(true)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors pointer-events-auto"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -2238,27 +2247,33 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
               <p className="text-gray-600 mb-6">{stockErrorMessage}</p>
               
               {/* Action buttons */}
-              <div className="flex gap-3">
+              <div className="flex gap-3 pointer-events-auto">
                 <button
-                  onClick={() => {
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
                     setUserInteractedWithPopup(true)
                     setShowStockInsufficientPopup(false)
                   }}
                   onMouseEnter={() => setUserInteractedWithPopup(true)}
-                  className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200 cursor-pointer"
+                  className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200 cursor-pointer pointer-events-auto relative z-20 select-none"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
                     setUserInteractedWithPopup(true)
                     setShowStockInsufficientPopup(false)
                     // Could add logic to navigate to inventory management
                   }}
                   onMouseEnter={() => setUserInteractedWithPopup(true)}
-                  className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-orange-600 hover:to-red-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer"
+                  className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-orange-600 hover:to-red-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer pointer-events-auto relative z-20 select-none"
                 >
-                  Check Stock
+                  OK
                 </button>
               </div>
             </div>

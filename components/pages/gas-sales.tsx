@@ -93,10 +93,9 @@ export function GasSales() {
   const [products, setProducts] = useState<Product[]>([])
   const [priceAlert, setPriceAlert] = useState<{ message: string; index: number | null }>({ message: '', index: null });
   
-  // Stock insufficient popup state
-  const [showStockInsufficientPopup, setShowStockInsufficientPopup] = useState(false)
+  // Stock insufficient notification state (replacing popup)
+  const [showStockNotification, setShowStockNotification] = useState(false)
   const [stockErrorMessage, setStockErrorMessage] = useState("")
-  const [userInteractedWithPopup, setUserInteractedWithPopup] = useState(false)
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -108,22 +107,15 @@ export function GasSales() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   
-  // Auto-dismiss stock popup after 5s, but only if user hasn't interacted with it
+  // Auto-dismiss stock notification after 5s
   useEffect(() => {
-    if (showStockInsufficientPopup && !userInteractedWithPopup) {
+    if (showStockNotification) {
       const timer = setTimeout(() => {
-        setShowStockInsufficientPopup(false)
-      }, 5000) // Increased from 1s to 5s
+        setShowStockNotification(false)
+      }, 5000)
       return () => clearTimeout(timer)
     }
-  }, [showStockInsufficientPopup, userInteractedWithPopup])
-
-  // Reset interaction state when popup is closed
-  useEffect(() => {
-    if (!showStockInsufficientPopup) {
-      setUserInteractedWithPopup(false)
-    }
-  }, [showStockInsufficientPopup])
+  }, [showStockNotification])
   // Per-item product autocomplete state
   const [productSearchTerms, setProductSearchTerms] = useState<string[]>([])
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
@@ -177,7 +169,7 @@ export function GasSales() {
     
     if (availableStock <= 0) {
       setStockErrorMessage(`No full cylinders available for ${product.name}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}`)
-      setShowStockInsufficientPopup(true)
+      setShowStockNotification(true)
       return
     }
     
@@ -1004,7 +996,7 @@ export function GasSales() {
       // Check if it's a stock insufficient error
       if (errorMessage.toLowerCase().includes('insufficient stock') || errorMessage.toLowerCase().includes('available:')) {
         setStockErrorMessage(errorMessage)
-        setShowStockInsufficientPopup(true)
+        setShowStockNotification(true)
       } else {
         // For other errors, still use alert for now
         alert(errorMessage)
@@ -1374,7 +1366,7 @@ export function GasSales() {
         
         if (enteredQuantity > availableStock) {
           setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${gasStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${enteredQuantity}`)
-          setShowStockInsufficientPopup(true)
+          setShowStockNotification(true)
           return
         }
       } else if (currentItem.category === 'cylinder') {
@@ -1396,7 +1388,7 @@ export function GasSales() {
             ? inventoryAvailability[product._id]?.availableFull || 0
             : inventoryAvailability[product._id]?.availableEmpty || 0
           setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${enteredQuantity}`)
-          setShowStockInsufficientPopup(true)
+          setShowStockNotification(true)
           return
         }
       }
@@ -1468,7 +1460,7 @@ export function GasSales() {
     if (currentItem.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
       if (!currentItem.gasProductId) {
         setStockErrorMessage('Please select the Gas product for Full cylinder.')
-        setShowStockInsufficientPopup(true)
+        setShowStockNotification(true)
         return
       }
       
@@ -2637,76 +2629,29 @@ export function GasSales() {
 
 
 
-      {/* Modern Stock Insufficient Popup */}
-      {showStockInsufficientPopup && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center">
-          {/* Background blur overlay */}
-          <div 
-            className="absolute inset-0 bg-black/20 backdrop-blur-sm" 
-            onClick={() => {
-              setUserInteractedWithPopup(true)
-              setShowStockInsufficientPopup(false)
-            }}
-          />
-          
-          {/* Modal with animations */}
-          <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95">
-            {/* Close button */}
-            <button
-              onClick={() => {
-                setUserInteractedWithPopup(true)
-                setShowStockInsufficientPopup(false)
-              }}
-              onMouseEnter={() => setUserInteractedWithPopup(true)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            
-            {/* Icon */}
-            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-orange-500 to-red-500 rounded-full">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-            </div>
-            
-            {/* Content */}
-            <div className="text-center">
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Insufficient Stock</h3>
-              <p className="text-gray-600 mb-6">{stockErrorMessage}</p>
-              
-              {/* Action buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setUserInteractedWithPopup(true)
-                    console.log('Cancel button clicked')
-                    setShowStockInsufficientPopup(false)
-                  }}
-                  onMouseEnter={() => setUserInteractedWithPopup(true)}
-                  className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setUserInteractedWithPopup(true)
-                    console.log('Check Stock button clicked')
-                    setShowStockInsufficientPopup(false)
-                    // You could add logic here to navigate to inventory management
-                  }}
-                  onMouseEnter={() => setUserInteractedWithPopup(true)}
-                  className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-orange-600 hover:to-red-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer"
-                >
-                  Check Stock
-                </button>
+      {/* Stock Insufficient Notification (Slide-in from right) */}
+      {showStockNotification && (
+        <div className="fixed top-4 right-4 z-[99999] max-w-md">
+          <div className="bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg transform transition-all duration-300 animate-in slide-in-from-right-full">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
               </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-sm mb-1">Insufficient Stock</h4>
+                <p className="text-sm opacity-90">{stockErrorMessage}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStockNotification(false)}
+                className="flex-shrink-0 text-white hover:text-red-200 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           </div>
         </div>

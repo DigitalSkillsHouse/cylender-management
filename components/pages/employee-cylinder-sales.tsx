@@ -2117,23 +2117,32 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
     {/* Stock Validation Popup (Admin-style) */}
     {showStockValidationPopup && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="fixed inset-0 z-[99999] flex items-center justify-center pointer-events-auto">
         <div 
-          className="absolute inset-0 bg-black/20 backdrop-blur-sm" 
-          onClick={() => {
+          className="absolute inset-0 bg-black/20 backdrop-blur-sm pointer-events-auto" 
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            console.log('Background overlay clicked - only closing popup')
             setUserInteractedWithPopup(true)
             setShowStockValidationPopup(false)
+            // Only close popup, don't affect form data
           }} 
         />
-        <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95">
+        <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95 pointer-events-auto z-10">
           {/* Close button */}
           <button
-            onClick={() => {
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              console.log('Close X button clicked - only closing popup')
               setUserInteractedWithPopup(true)
               setShowStockValidationPopup(false)
+              // Only close popup, don't affect form data
             }}
             onMouseEnter={() => setUserInteractedWithPopup(true)}
-            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors pointer-events-auto"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -2150,27 +2159,33 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             <p className="text-gray-600 mb-6">{stockValidationMessage}</p>
             
             {/* Action buttons */}
-            <div className="flex gap-3">
+            <div className="flex gap-3 pointer-events-auto">
               <button
-                onClick={() => {
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
                   setUserInteractedWithPopup(true)
                   setShowStockValidationPopup(false)
                 }}
                 onMouseEnter={() => setUserInteractedWithPopup(true)}
-                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200"
+                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200 pointer-events-auto relative z-20 select-none cursor-pointer"
               >
                 Cancel
               </button>
               <button
-                onClick={() => {
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
                   setUserInteractedWithPopup(true)
                   setShowStockValidationPopup(false)
                   // Could add logic to navigate to inventory management
                 }}
                 onMouseEnter={() => setUserInteractedWithPopup(true)}
-                className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-red-600 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"
+                className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-red-600 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl pointer-events-auto relative z-20 select-none cursor-pointer"
               >
-                Check Stock
+                OK
               </button>
             </div>
           </div>

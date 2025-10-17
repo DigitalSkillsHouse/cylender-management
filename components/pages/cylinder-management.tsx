@@ -196,9 +196,19 @@ export function CylinderManagement() {
   const [draftProductSearchTerm, setDraftProductSearchTerm] = useState("")
   const [showDraftProductSuggestions, setShowDraftProductSuggestions] = useState(false)
 
-  // Stock validation popup state
-  const [showStockValidationPopup, setShowStockValidationPopup] = useState(false)
+  // Stock validation notification state (replacing popup)
+  const [showStockNotification, setShowStockNotification] = useState(false)
   const [stockValidationMessage, setStockValidationMessage] = useState("")
+
+  // Auto-dismiss stock notification after 5s
+  useEffect(() => {
+    if (showStockNotification) {
+      const timer = setTimeout(() => {
+        setShowStockNotification(false)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [showStockNotification])
 
   // Dynamic column visibility based on active tab
   const getVisibleColumns = () => {
@@ -886,7 +896,7 @@ export function CylinderManagement() {
     const p = allProducts.find(p => p._id === productId)
     if (!p) {
       setStockValidationMessage("Product not found")
-      setShowStockValidationPopup(true)
+      setShowStockNotification(true)
       return false
     }
     // Return skips stock validation
@@ -900,7 +910,7 @@ export function CylinderManagement() {
       
       if (qty > availableStock) {
         setStockValidationMessage(`Insufficient empty cylinders! Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Requested: ${qty}`)
-        setShowStockValidationPopup(true)
+        setShowStockNotification(true)
         return false
       }
       return true
@@ -914,7 +924,7 @@ export function CylinderManagement() {
       
       if (qty > availableStock) {
         setStockValidationMessage(`Insufficient full cylinders! Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Requested: ${qty}`)
-        setShowStockValidationPopup(true)
+        setShowStockNotification(true)
         return false
       }
       return true
@@ -926,7 +936,7 @@ export function CylinderManagement() {
     
     if (qty > availableStock) {
       setStockValidationMessage(`Insufficient stock! Available: ${p.currentStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Requested: ${qty}`)
-      setShowStockValidationPopup(true)
+      setShowStockNotification(true)
       return false
     }
     return true
@@ -1621,7 +1631,7 @@ export function CylinderManagement() {
     const selectedProduct = allProducts.find(p => p._id === productId)
     if (!selectedProduct) {
       setStockValidationMessage("Product not found")
-      setShowStockValidationPopup(true)
+      setShowStockNotification(true)
       return false
     }
     // Skip stock validation only for return transactions
@@ -1636,7 +1646,7 @@ export function CylinderManagement() {
         setStockValidationMessage(
           `Insufficient empty cylinders! Available: ${availableEmpty}, Requested: ${requestedQuantity}`
         )
-        setShowStockValidationPopup(true)
+        setShowStockNotification(true)
         return false
       }
       return true
@@ -1647,7 +1657,7 @@ export function CylinderManagement() {
       setStockValidationMessage(
         `Insufficient stock! Available: ${selectedProduct.currentStock}, Requested: ${requestedQuantity}`
       )
-      setShowStockValidationPopup(true)
+      setShowStockNotification(true)
       return false
     }
 
@@ -2123,7 +2133,7 @@ export function CylinderManagement() {
                             
                             if (q > availableStock) {
                               setStockValidationMessage(`Insufficient ${stockType}! Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Requested: ${q}`)
-                              setShowStockValidationPopup(true)
+                              setShowStockNotification(true)
                               return
                             }
                           }
@@ -2405,24 +2415,28 @@ export function CylinderManagement() {
           </DialogContent>
         </Dialog>
 
-        {/* Stock Validation Popup */}
-        {showStockValidationPopup && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={() => setShowStockValidationPopup(false)} />
-            <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95">
-              <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-red-500 to-red-600 rounded-full">
-                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-              </div>
-              <div className="text-center">
-                <h3 className="text-xl font-bold text-gray-900 mb-2">Stock Validation Error</h3>
-                <p className="text-gray-600 mb-6">{stockValidationMessage}</p>
+        {/* Stock Validation Notification (Slide-in from right) */}
+        {showStockNotification && (
+          <div className="fixed top-4 right-4 z-[99999] max-w-md">
+            <div className="bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg transform transition-all duration-300 animate-in slide-in-from-right-full">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-semibold text-sm mb-1">Stock Validation Error</h4>
+                  <p className="text-sm opacity-90">{stockValidationMessage}</p>
+                </div>
                 <button
-                  onClick={() => setShowStockValidationPopup(false)}
-                  className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-red-600 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"
+                  type="button"
+                  onClick={() => setShowStockNotification(false)}
+                  className="flex-shrink-0 text-white hover:text-red-200 transition-colors"
                 >
-                  Got It
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
             </div>
