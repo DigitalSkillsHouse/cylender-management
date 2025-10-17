@@ -44,6 +44,41 @@ async function updateInventoryForDeposit(cylinderProductId, quantity, employeeId
   }
 }
 
+// Helper function to update inventory for return transactions
+async function updateInventoryForReturn(cylinderProductId, quantity, employeeId) {
+  console.log(`[Employee Return] Processing stock addition - Cylinder: ${cylinderProductId}, Quantity: ${quantity}, Employee: ${employeeId}`)
+  
+  // 1. Add back to employee's stock assignment
+  const assignment = await StockAssignment.findOne({ 
+    employee: employeeId, 
+    product: cylinderProductId,
+    status: 'received'
+  })
+  
+  if (assignment) {
+    assignment.remainingQuantity = (assignment.remainingQuantity || 0) + quantity
+    await assignment.save()
+    console.log(`[Employee Return] Updated assignment remaining: ${assignment.remainingQuantity}`)
+  }
+  
+  // 2. Add empty cylinders back to inventory (returned cylinders are empty)
+  const cylinderInventory = await InventoryItem.findOne({ product: cylinderProductId })
+  if (cylinderInventory) {
+    cylinderInventory.availableEmpty = (cylinderInventory.availableEmpty || 0) + quantity
+    cylinderInventory.currentStock = (cylinderInventory.availableFull || 0) + (cylinderInventory.availableEmpty || 0)
+    await cylinderInventory.save()
+    console.log(`[Employee Return] Updated cylinder inventory - Empty: ${cylinderInventory.availableEmpty}, Total: ${cylinderInventory.currentStock}`)
+  }
+  
+  // 3. Sync cylinder product stock with inventory total
+  const cylinderProduct = await Product.findById(cylinderProductId)
+  if (cylinderProduct && cylinderInventory) {
+    cylinderProduct.currentStock = cylinderInventory.currentStock
+    await cylinderProduct.save()
+    console.log(`[Employee Return] Synced cylinder product ${cylinderProduct.name} stock: ${cylinderProduct.currentStock}`)
+  }
+}
+
 export async function GET(request) {
   try {
     await dbConnect()
@@ -259,7 +294,7 @@ export async function POST(request) {
     }
     console.log('[POST /api/employee-cylinders] saved _id=', savedTransaction._id, 'itemsLen=', Array.isArray(savedTransaction.items) ? savedTransaction.items.length : 0)
 
-    // Update inventory for deposit transactions
+    // Update inventory for deposit and return transactions
     if (type === 'deposit') {
       try {
         if (hasItems) {
@@ -273,6 +308,23 @@ export async function POST(request) {
         }
       } catch (error) {
         console.error('[Employee Deposit] Inventory update failed:', error)
+        // Continue without failing the transaction
+      }
+    } else if (type === 'return') {
+      try {
+        console.log(`[Employee Return] Processing stock addition - Employee: ${employeeId}`)
+        
+        if (hasItems) {
+          // Multi-item: update inventory for each item
+          for (const item of items) {
+            await updateInventoryForReturn(item.productId, Number(item.quantity) || 0, employeeId)
+          }
+        } else {
+          // Single item: update inventory
+          await updateInventoryForReturn(product, totalQuantity, employeeId)
+        }
+      } catch (error) {
+        console.error('[Employee Return] Inventory update failed:', error)
         // Continue without failing the transaction
       }
     }

@@ -212,16 +212,20 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       toast.error('Please select product and quantity')
       return
     }
-    // Validate against assigned stock with comprehensive validation
-    const totalStock = inventoryAvailability[draftItem.productId]?.currentStock || 0
-    const reservedStock = calculateReservedStock(draftItem.productId, formData.type as any)
-    const availableStock = totalStock - reservedStock
     
-    if ((Number(draftItem.quantity) || 0) > availableStock) {
-      const selectedProduct = products.find(p => p._id === draftItem.productId)
-      setStockValidationMessage(`Insufficient stock for ${selectedProduct?.name || 'Product'}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${draftItem.quantity}`)
-      setShowStockNotification(true)
-      return
+    // Skip stock validation for return transactions (same as admin cylinder management)
+    if (formData.type !== 'return') {
+      // Validate against assigned stock with comprehensive validation
+      const totalStock = inventoryAvailability[draftItem.productId]?.currentStock || 0
+      const reservedStock = calculateReservedStock(draftItem.productId, formData.type as any)
+      const availableStock = totalStock - reservedStock
+      
+      if ((Number(draftItem.quantity) || 0) > availableStock) {
+        const selectedProduct = products.find(p => p._id === draftItem.productId)
+        setStockValidationMessage(`Insufficient stock for ${selectedProduct?.name || 'Product'}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${draftItem.quantity}`)
+        setShowStockNotification(true)
+        return
+      }
     }
     try {
       setFormData(prev => {
@@ -275,7 +279,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     }
   }
 
-  const totalItemsAmount = () => formData.items.reduce((s, it) => s + (Number(it.amount) || 0), 0)
+  const totalItemsAmount = () => formData.items.reduce((s, it) => s + ((Number(it.quantity) || 0) * (Number(it.amount) || 0)), 0)
   const totalItemsQuantity = () => formData.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
 
   // Assigned availability helper for a specific product and size
@@ -575,7 +579,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         const data = await res.json().catch(() => ([]))
         const list = (data?.data || data || []) as any[]
         const filtered = Array.isArray(list)
-          ? list.filter(r => r && (r.paymentMethod === 'cash' || r.paymentMethod === 'cheque'))
+          ? list.filter(r => r && (r.paymentMethod === 'cash' || r.paymentMethod === 'cheque') && r.status === 'pending')
           : []
         setSecurityRecords(filtered)
         setShowSecurityDialog(true)
@@ -590,19 +594,38 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   }, [formData.type, formData.customer, securityPrompted])
 
   const handleSecuritySelect = (rec: any) => {
+    console.log('🔍 [EmployeeCylinderSales] Security selected:', rec)
+    console.log('🔍 [EmployeeCylinderSales] Security record items:', rec?.items)
+    
     const isCash = rec?.paymentMethod === 'cash'
     // Map items from selected record (if any) into form's items array
     const mappedItems = Array.isArray(rec?.items)
-      ? rec.items.map((it: any) => {
-          const prod = it.productId ? getProductById(it.productId) : undefined
-          return {
-            productId: String(it.productId || ''),
+      ? rec.items.map((it: any, index: number) => {
+          console.log(`🔍 [EmployeeCylinderSales] Processing item ${index}:`, it)
+          console.log(`🔍 [EmployeeCylinderSales] Item productId:`, it.productId, 'type:', typeof it.productId)
+          
+          // Handle nested productId object (extract _id if it's an object)
+          const actualProductId = typeof it.productId === 'object' && it.productId?._id 
+            ? it.productId._id 
+            : String(it.productId || '')
+          
+          const prod = actualProductId ? getProductById(actualProductId) : undefined
+          console.log(`🔍 [EmployeeCylinderSales] Actual productId:`, actualProductId)
+          console.log(`🔍 [EmployeeCylinderSales] Found product:`, prod)
+          
+          const mappedItem = {
+            productId: actualProductId,
             productName: String(it.productName || prod?.name || ''),
             quantity: Number(it.quantity || 0),
             amount: Number(it.amount || 0),
           }
+          
+          console.log(`🔍 [EmployeeCylinderSales] Mapped item ${index}:`, mappedItem)
+          return mappedItem
         })
       : []
+
+    console.log('🔍 [EmployeeCylinderSales] All mapped items:', mappedItems)
 
     setFormData(prev => ({
       ...prev,
@@ -614,6 +637,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       items: mappedItems.length > 0 ? mappedItems : prev.items,
       linkedDeposit: String(rec?._id || ''),
     }))
+    
+    console.log('🔍 [EmployeeCylinderSales] Form data updated with items:', mappedItems.length > 0 ? mappedItems : 'no items')
     // Reset draft UI state
     setDraftItem({ productId: "", productName: "", quantity: 1, amount: 0 })
     setDraftProductSearchTerm("")
@@ -907,8 +932,13 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
 
+    console.log('🚀 [EmployeeCylinderSales] Form submission started')
+    console.log('🚀 [EmployeeCylinderSales] Form data:', formData)
+    console.log('🚀 [EmployeeCylinderSales] Form items:', formData.items)
+
     // Enhanced validation
     if (!formData.customer || (formData.items.length === 0 && (!formData.product || !formData.cylinderSize || formData.quantity <= 0))) {
+      console.log('❌ [EmployeeCylinderSales] Validation failed - missing required fields')
       toast.error("Please fill in all required fields")
       return
     }
@@ -922,29 +952,32 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       }
     }
 
-    // Comprehensive stock validation with reserved stock calculation
-    if (formData.items.length === 0) {
-      // Single item validation
-      const totalStock = inventoryAvailability[formData.product]?.currentStock || 0
-      const reservedStock = calculateReservedStock(formData.product, formData.type as any)
-      const availableStock = totalStock - reservedStock
-      
-      if (formData.quantity > availableStock) {
-        setStockValidationMessage(`Insufficient stock for ${selectedProduct!.name} (${formData.cylinderSize}). Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${formData.quantity}`)
-        setShowStockNotification(true)
-        return
-      }
-    } else {
-      // Multi-item validation per item
-      for (const it of formData.items) {
-        const totalStock = inventoryAvailability[it.productId]?.currentStock || 0
-        const reservedStock = calculateReservedStock(it.productId, formData.type as any)
+    // Skip stock validation for return transactions (same as admin cylinder management)
+    if (formData.type !== 'return') {
+      // Comprehensive stock validation with reserved stock calculation
+      if (formData.items.length === 0) {
+        // Single item validation
+        const totalStock = inventoryAvailability[formData.product]?.currentStock || 0
+        const reservedStock = calculateReservedStock(formData.product, formData.type as any)
         const availableStock = totalStock - reservedStock
         
-        if ((Number(it.quantity) || 0) > availableStock) {
-          setStockValidationMessage(`Insufficient stock for ${it.productName}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${it.quantity}`)
+        if (formData.quantity > availableStock) {
+          setStockValidationMessage(`Insufficient stock for ${selectedProduct!.name} (${formData.cylinderSize}). Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${formData.quantity}`)
           setShowStockNotification(true)
           return
+        }
+      } else {
+        // Multi-item validation per item
+        for (const it of formData.items) {
+          const totalStock = inventoryAvailability[it.productId]?.currentStock || 0
+          const reservedStock = calculateReservedStock(it.productId, formData.type as any)
+          const availableStock = totalStock - reservedStock
+          
+          if ((Number(it.quantity) || 0) > availableStock) {
+            setStockValidationMessage(`Insufficient stock for ${it.productName}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${it.quantity}`)
+            setShowStockNotification(true)
+            return
+          }
         }
       }
     }
@@ -975,12 +1008,22 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       }
 
       if (formData.items.length > 0) {
-        transactionData.items = formData.items.map(it => ({
-          productId: it.productId,
-          productName: it.productName,
-          quantity: Number(it.quantity) || 0,
-          amount: Number(it.amount) || 0,
-        }))
+        console.log('🔧 [EmployeeCylinderSales] Processing items for API:', formData.items)
+        transactionData.items = formData.items.map((it, index) => {
+          console.log(`🔧 [EmployeeCylinderSales] Processing API item ${index}:`, it)
+          console.log(`🔧 [EmployeeCylinderSales] Item productId: "${it.productId}" (type: ${typeof it.productId})`)
+          
+          const apiItem = {
+            productId: it.productId,
+            productName: it.productName,
+            quantity: Number(it.quantity) || 0,
+            amount: Number(it.amount) || 0,
+          }
+          
+          console.log(`🔧 [EmployeeCylinderSales] API item ${index}:`, apiItem)
+          return apiItem
+        })
+        console.log('🔧 [EmployeeCylinderSales] Final API items array:', transactionData.items)
       }
 
       // Attach linkedDeposit only for return transactions
@@ -1006,6 +1049,12 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       const url = isEditing ? `/api/employee-cylinders/${editingTransactionId}` : "/api/employee-cylinders"
       const method = isEditing ? "PUT" : "POST"
 
+      console.log('🌐 [EmployeeCylinderSales] Making API call:', {
+        url,
+        method,
+        transactionData
+      })
+
       const response = await fetch(url, {
         method,
         headers: {
@@ -1013,6 +1062,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         },
         body: JSON.stringify(transactionData),
       })
+
+      console.log('🌐 [EmployeeCylinderSales] API response status:', response.status)
 
       if (response.ok) {
         const actionText = isEditing ? 'updated' : 'created'
@@ -1098,12 +1149,14 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         window.dispatchEvent(new Event('stockUpdated'))
         console.log('✅ Cylinder transaction completed and stock update notification sent to other pages')
       } else {
+        console.log('❌ [EmployeeCylinderSales] API call failed with status:', response.status)
         const errorData = await response.json()
+        console.log('❌ [EmployeeCylinderSales] Error response:', errorData)
         const actionText = isEditing ? 'update' : 'create'
         toast.error(errorData.error || `Failed to ${actionText} transaction`)
       }
     } catch (error) {
-      console.error('Error creating/updating transaction:', error)
+      console.error('❌ [EmployeeCylinderSales] Error creating/updating transaction:', error)
       toast.error('Error creating/updating transaction')
     }
   }
@@ -1854,7 +1907,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
               ))}
               <TableRow>
                 <TableCell colSpan={2} className="text-right font-semibold">Total</TableCell>
-                <TableCell className="font-semibold">AED {totalItemsAmount().toFixed(2)}</TableCell>
+                <TableCell className="font-semibold">AED {formData.items.reduce((s, it) => s + ((Number(it.quantity)||0) * (Number(it.amount)||0)), 0).toFixed(2)}</TableCell>
                 <TableCell />
               </TableRow>
             </TableBody>
