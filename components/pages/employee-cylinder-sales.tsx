@@ -142,10 +142,12 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     requested?: number;
   }>({ open: false })
 
-  // Admin-style popup state
-  const [showStockValidationPopup, setShowStockValidationPopup] = useState(false)
+  // Stock validation notification state (replacing popup)
+  const [showStockNotification, setShowStockNotification] = useState(false)
   const [stockValidationMessage, setStockValidationMessage] = useState("")
-  const [userInteractedWithPopup, setUserInteractedWithPopup] = useState(false)
+  
+  // Inventory availability map for comprehensive validation
+  const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
 
   // Customer search state
   const [customerSearch, setCustomerSearch] = useState("")
@@ -209,11 +211,15 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       toast.error('Please select product and quantity')
       return
     }
-    // Validate against assigned stock
-    const available = getAssignedAvailableFor(draftItem.productId, draftItem.cylinderSize || '')
-    if (available < (Number(draftItem.quantity) || 0)) {
-      setStockValidationMessage(`You requested ${draftItem.quantity} unit(s). Only ${available} unit(s) are available in your assigned inventory.`)
-      setShowStockValidationPopup(true)
+    // Validate against assigned stock with comprehensive validation
+    const totalStock = inventoryAvailability[draftItem.productId]?.currentStock || 0
+    const reservedStock = calculateReservedStock(draftItem.productId, draftItem.cylinderSize || '', formData.type as any)
+    const availableStock = totalStock - reservedStock
+    
+    if ((Number(draftItem.quantity) || 0) > availableStock) {
+      const selectedProduct = products.find(p => p._id === draftItem.productId)
+      setStockValidationMessage(`Insufficient stock for ${selectedProduct?.name || 'Product'} (${draftItem.cylinderSize}). Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${draftItem.quantity}`)
+      setShowStockNotification(true)
       return
     }
     setFormData(prev => {
@@ -277,22 +283,26 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     return product.currentStock || 0
   }
 
-  // Auto-dismiss stock popup after 5s, but only if user hasn't interacted with it
+  // Helper function to calculate reserved stock from current form items
+  const calculateReservedStock = (productId: string, cylinderSize: string, transactionType: 'deposit' | 'refill' | 'return') => {
+    return formData.items.reduce((reserved, item) => {
+      if (item.productId === productId && item.cylinderSize === cylinderSize) {
+        // For cylinder transactions, different types affect different stock
+        return reserved + (Number(item.quantity) || 0)
+      }
+      return reserved
+    }, 0)
+  }
+
+  // Auto-dismiss stock notification after 5s
   useEffect(() => {
-    if (showStockValidationPopup && !userInteractedWithPopup) {
+    if (showStockNotification) {
       const timer = setTimeout(() => {
-        setShowStockValidationPopup(false)
-      }, 5000) // 5 seconds for better user experience
+        setShowStockNotification(false)
+      }, 5000)
       return () => clearTimeout(timer)
     }
-  }, [showStockValidationPopup, userInteractedWithPopup])
-
-  // Reset interaction state when popup is closed
-  useEffect(() => {
-    if (!showStockValidationPopup) {
-      setUserInteractedWithPopup(false)
-    }
-  }, [showStockValidationPopup])
+  }, [showStockNotification])
 
   useEffect(() => {
     fetchData()
@@ -689,11 +699,31 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         cylinderProducts.forEach((p: any) => mergedMap.set(p._id, p))
         setProducts(Array.from(mergedMap.values()))
         
+        // Build inventory availability map for comprehensive validation
+        const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
+        list.forEach((inventoryItem: any) => {
+          if (inventoryItem.product?._id) {
+            availMap[inventoryItem.product._id] = {
+              availableEmpty: Number(inventoryItem.availableEmpty || 0),
+              availableFull: Number(inventoryItem.availableFull || 0),
+              currentStock: Number(inventoryItem.currentStock || 0),
+            }
+          }
+        })
+        setInventoryAvailability(availMap)
+        
         console.log('Employee Cylinder Sales - Loaded inventory:', {
           totalInventoryItems: list.length,
           cylinderProducts: cylinderProducts.length,
-          stockAssignments: stockAssignments.length
+          stockAssignments: stockAssignments.length,
+          availabilityMap: Object.keys(availMap).length
         })
+        console.log('Employee Cylinder Sales - Cylinder products with stock:', cylinderProducts.map(p => ({
+          name: p.name,
+          availableFull: availMap[p._id]?.availableFull || 0,
+          availableEmpty: availMap[p._id]?.availableEmpty || 0,
+          currentStock: availMap[p._id]?.currentStock || 0
+        })))
       } else {
         console.error("Failed to fetch employee inventory:", employeeInventoryResponse.status)
         setStockAssignments([])
@@ -882,35 +912,28 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       }
     }
 
-    // Validate against assigned stock
+    // Comprehensive stock validation with reserved stock calculation
     if (formData.items.length === 0) {
-      const assignedAvailable = getAssignedAvailable()
-      if (assignedAvailable < formData.quantity) {
-        setStockAlert({
-          open: true,
-          productName: selectedProduct!.name,
-          size: formData.cylinderSize,
-          available: assignedAvailable,
-          requested: formData.quantity,
-        })
-        setStockValidationMessage(`You requested ${formData.quantity} unit(s) of ${selectedProduct!.name} (${formData.cylinderSize}). Only ${assignedAvailable} unit(s) are available in your assigned inventory.`)
-        setShowStockValidationPopup(true)
+      // Single item validation
+      const totalStock = inventoryAvailability[formData.product]?.currentStock || 0
+      const reservedStock = calculateReservedStock(formData.product, formData.cylinderSize, formData.type as any)
+      const availableStock = totalStock - reservedStock
+      
+      if (formData.quantity > availableStock) {
+        setStockValidationMessage(`Insufficient stock for ${selectedProduct!.name} (${formData.cylinderSize}). Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${formData.quantity}`)
+        setShowStockNotification(true)
         return
       }
     } else {
       // Multi-item validation per item
       for (const it of formData.items) {
-        const available = getAssignedAvailableFor(it.productId, it.cylinderSize)
-        if (available < (Number(it.quantity) || 0)) {
-          setStockAlert({
-            open: true,
-            productName: it.productName,
-            size: it.cylinderSize,
-            available,
-            requested: it.quantity,
-          })
-          setStockValidationMessage(`You requested ${it.quantity} unit(s) of ${it.productName} (${it.cylinderSize}). Only ${available} unit(s) are available in your assigned inventory.`)
-          setShowStockValidationPopup(true)
+        const totalStock = inventoryAvailability[it.productId]?.currentStock || 0
+        const reservedStock = calculateReservedStock(it.productId, it.cylinderSize, formData.type as any)
+        const availableStock = totalStock - reservedStock
+        
+        if ((Number(it.quantity) || 0) > availableStock) {
+          setStockValidationMessage(`Insufficient stock for ${it.productName} (${it.cylinderSize}). Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${it.quantity}`)
+          setShowStockNotification(true)
           return
         }
       }
@@ -2115,79 +2138,29 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       onSelect={handleSecuritySelect}
     />
 
-    {/* Stock Validation Popup (Admin-style) */}
-    {showStockValidationPopup && (
-      <div className="fixed inset-0 z-[99999] flex items-center justify-center pointer-events-auto">
-        <div 
-          className="absolute inset-0 bg-black/20 backdrop-blur-sm pointer-events-auto" 
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            console.log('Background overlay clicked - only closing popup')
-            setUserInteractedWithPopup(true)
-            setShowStockValidationPopup(false)
-            // Only close popup, don't affect form data
-          }} 
-        />
-        <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95 pointer-events-auto z-10">
-          {/* Close button */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              console.log('Close X button clicked - only closing popup')
-              setUserInteractedWithPopup(true)
-              setShowStockValidationPopup(false)
-              // Only close popup, don't affect form data
-            }}
-            onMouseEnter={() => setUserInteractedWithPopup(true)}
-            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors pointer-events-auto"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-          
-          <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-red-500 to-red-600 rounded-full">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-          <div className="text-center">
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Insufficient Stock</h3>
-            <p className="text-gray-600 mb-6">{stockValidationMessage}</p>
-            
-            {/* Action buttons */}
-            <div className="flex gap-3 pointer-events-auto">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setUserInteractedWithPopup(true)
-                  setShowStockValidationPopup(false)
-                }}
-                onMouseEnter={() => setUserInteractedWithPopup(true)}
-                className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200 pointer-events-auto relative z-20 select-none cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setUserInteractedWithPopup(true)
-                  setShowStockValidationPopup(false)
-                  // Could add logic to navigate to inventory management
-                }}
-                onMouseEnter={() => setUserInteractedWithPopup(true)}
-                className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white font-semibold py-3 px-6 rounded-lg hover:from-red-600 hover:to-red-700 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl pointer-events-auto relative z-20 select-none cursor-pointer"
-              >
-                OK
-              </button>
+    {/* Stock Validation Notification (Slide-in from right) */}
+    {showStockNotification && (
+      <div className="fixed top-4 right-4 z-[99999] max-w-md">
+        <div className="bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg transform transition-all duration-300 animate-in slide-in-from-right-full">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
             </div>
+            <div className="flex-1">
+              <h4 className="font-semibold text-sm mb-1">Insufficient Stock</h4>
+              <p className="text-sm opacity-90">{stockValidationMessage}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowStockNotification(false)}
+              className="flex-shrink-0 text-white hover:text-red-200 transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
       </div>

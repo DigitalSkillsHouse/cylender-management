@@ -164,32 +164,24 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     notes: "",
   })
 
-  // Stock and price validation states
-  const [showStockInsufficientPopup, setShowStockInsufficientPopup] = useState(false)
+  // Stock validation notification state (replacing popup)
+  const [showStockNotification, setShowStockNotification] = useState(false)
   const [stockErrorMessage, setStockErrorMessage] = useState("")
-  const [userInteractedWithPopup, setUserInteractedWithPopup] = useState(false)
   const [showPriceValidationPopup, setShowPriceValidationPopup] = useState(false)
   const [validationMessage, setValidationMessage] = useState("")
 
   // Track expanded invoice groups in Sales History table
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
 
-  // Auto-dismiss stock popup after 5s, but only if user hasn't interacted with it
+  // Auto-dismiss stock notification after 5s
   useEffect(() => {
-    if (showStockInsufficientPopup && !userInteractedWithPopup) {
+    if (showStockNotification) {
       const timer = setTimeout(() => {
-        setShowStockInsufficientPopup(false)
-      }, 5000) // 5 seconds for better user experience
+        setShowStockNotification(false)
+      }, 5000)
       return () => clearTimeout(timer)
     }
-  }, [showStockInsufficientPopup, userInteractedWithPopup])
-
-  // Reset interaction state when popup is closed
-  useEffect(() => {
-    if (!showStockInsufficientPopup) {
-      setUserInteractedWithPopup(false)
-    }
-  }, [showStockInsufficientPopup])
+  }, [showStockNotification])
 
   useEffect(() => {
     fetchData()
@@ -216,22 +208,32 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     setCurrentPage(1)
   }, [searchTerm, statusFilter])
 
-  // Re-filter products when category changes
+  // Re-filter products when category changes (matching admin logic)
   useEffect(() => {
     if (allProducts.length > 0) {
       const filteredProducts = allProducts.filter((product: Product) => {
-        // Filter by category
-        if (product.category !== formData.category) return false;
-        // For cylinders, only show those with stock available
-        if (product.category === 'cylinder' && (product.currentStock || 0) <= 0) return false;
-        // Always require in-stock products
-        return (product.currentStock || 0) > 0;
+        if (product.category !== formData.category) return false
+        
+        if (product.category === 'cylinder') {
+          // For cylinders, only show full cylinders (available for sale) - matching admin logic
+          if ((product as any).cylinderStatus !== 'full') return false
+          // Check cylinder stock from inventory availability
+          const availableFull = inventoryAvailability[product._id]?.availableFull || 0
+          return availableFull > 0
+        } else if (product.category === 'gas') {
+          // For gas, check currentStock from inventory availability (Gas tab) - matching admin logic
+          const gasStock = inventoryAvailability[product._id]?.currentStock || product.currentStock || 0
+          return gasStock > 0
+        }
+        
+        // Fallback to product.currentStock for other categories
+        return (product.currentStock || 0) > 0
       })
       console.log('EmployeeGasSales - Category changed to:', formData.category)
       console.log('EmployeeGasSales - Re-filtered products:', filteredProducts.length)
       setProducts(filteredProducts)
     }
-  }, [formData.category, allProducts])
+  }, [formData.category, allProducts, inventoryAvailability])
 
   // Export customer autocomplete
   useEffect(() => {
@@ -302,15 +304,24 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       const dedupedAllProducts = Array.from(
         new Map(allEmployeeProducts.map(p => [p._id, p])).values()
       )
-      // Filter products for the current category
-      const initialCategory = formData.category || "gas";
+      // Filter by selected category using inventory data for accurate stock levels (matching admin logic)
       const filteredProducts = dedupedAllProducts.filter((product: Product) => {
-        if (product.category === 'gas') return true;
+        if (product.category !== formData.category) return false
+        
         if (product.category === 'cylinder') {
-          // For cylinders, check if they have available stock based on status
-          return (product as any).availableEmpty > 0 || (product as any).availableFull > 0;
+          // For cylinders, only show full cylinders (available for sale) - matching admin logic
+          if ((product as any).cylinderStatus !== 'full') return false
+          // Check cylinder stock from inventory availability
+          const availableFull = availMap[product._id]?.availableFull || 0
+          return availableFull > 0
+        } else if (product.category === 'gas') {
+          // For gas, check currentStock from inventory availability (Gas tab) - matching admin logic
+          const gasStock = availMap[product._id]?.currentStock || 0
+          return gasStock > 0
         }
-        return false;
+        
+        // Fallback to product.currentStock for other categories
+        return (product.currentStock || 0) > 0
       });
       
       // Build inventory availability map from employee inventory
@@ -333,6 +344,20 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       setProducts(filteredProducts)
       setSales(salesArray)
       
+      console.log('Employee Gas Sales - Category filter:', formData.category)
+      console.log('Employee Gas Sales - All products:', dedupedAllProducts.length)
+      console.log('Employee Gas Sales - Filtered products:', filteredProducts.length)
+      console.log('Employee Gas Sales - Gas products with stock:', dedupedAllProducts.filter(p => p.category === 'gas').map(p => ({
+        name: p.name,
+        productStock: p.currentStock,
+        inventoryStock: availMap[p._id]?.currentStock || 0
+      })))
+      console.log('Employee Gas Sales - Cylinder products with stock:', dedupedAllProducts.filter(p => p.category === 'cylinder').map(p => ({
+        name: p.name,
+        status: (p as any).cylinderStatus,
+        availableFull: availMap[p._id]?.availableFull || 0,
+        availableEmpty: availMap[p._id]?.availableEmpty || 0
+      })))
       console.log('Employee Gas Sales - Loaded inventory:', {
         totalItems: employeeInventoryData?.data?.length || 0,
         gasProducts: dedupedAllProducts.filter(p => p.category === 'gas').length,
@@ -492,11 +517,14 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   }
 
   const handleEntryCylinderSelect = (product: Product) => {
-    // Check if cylinder has stock
-    const avail = (inventoryAvailability[product._id]?.availableFull || 0)
-    if (avail <= 0) {
-      setStockErrorMessage(`No full cylinders available for ${product.name}. Available full: ${avail}`)
-      setShowStockInsufficientPopup(true)
+    // Check if cylinder has stock (accounting for reserved stock)
+    const totalStock = inventoryAvailability[product._id]?.availableFull || 0
+    const reservedStock = calculateReservedStock(product._id, 'cylinder', 'full')
+    const availableStock = totalStock - reservedStock
+    
+    if (availableStock <= 0) {
+      setStockErrorMessage(`No full cylinders available for ${product.name}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}`)
+      setShowStockNotification(true)
       return
     }
     
@@ -508,7 +536,23 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     setShowEntryCylinderSuggestions(false)
   }
 
-  // Single-entry item handlers
+  // Helper function to calculate reserved stock from current form items
+  const calculateReservedStock = (productId: string, category: 'gas' | 'cylinder', cylinderStatus?: 'full' | 'empty') => {
+    return formData.items.reduce((reserved, item) => {
+      if (item.productId === productId) {
+        // For cylinders, also match the status
+        if (category === 'cylinder') {
+          const itemStatus = (item as any).cylinderStatus
+          if (cylinderStatus && itemStatus !== cylinderStatus) {
+            return reserved // Don't count if status doesn't match
+          }
+        }
+        return reserved + (Number(item.quantity) || 0)
+      }
+      return reserved
+    }, 0)
+  }
+
   const resetCurrentItem = () => {
     setCurrentItem({ category: "gas", productId: "", quantity: "1", price: "", cylinderStatus: "empty", gasProductId: "", cylinderProductId: "" })
     setEntryProductSearch("")
@@ -605,32 +649,41 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     const product = allProducts.find((p: Product) => p._id === currentItem.productId)
     
     if (product && enteredQuantity > 0) {
-      // Validate stock based on category and inventory data
+      // Comprehensive stock validation with reserved stock calculation
+      let totalStock = 0
+      let reservedStock = 0
       let availableStock = 0
       let stockType = ''
       
       if (currentItem.category === 'gas') {
-        // For gas sales, validate gas stock from employee inventory
-        const gasStock = product.currentStock || 0
+        // For gas sales, validate gas stock from employee inventory with reserved stock
+        totalStock = inventoryAvailability[product._id]?.currentStock || product.currentStock || 0
+        reservedStock = calculateReservedStock(product._id, 'gas')
+        availableStock = totalStock - reservedStock
+        stockType = 'Gas'
         
-        if (enteredQuantity > gasStock) {
-          setStockErrorMessage(`Insufficient Gas stock for ${product.name}. Available: ${gasStock}, Required: ${enteredQuantity}`)
-          setShowStockInsufficientPopup(true)
+        if (enteredQuantity > availableStock) {
+          setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${enteredQuantity}`)
+          setShowStockNotification(true)
           return
         }
       } else if (currentItem.category === 'cylinder') {
-        // For cylinders, check based on cylinderStatus from employee inventory
+        // For cylinders, check based on cylinderStatus with reserved stock
         if (currentItem.cylinderStatus === 'full') {
-          availableStock = (product as any).availableFull || inventoryAvailability[product._id]?.availableFull || 0
+          totalStock = inventoryAvailability[product._id]?.availableFull || 0
+          reservedStock = calculateReservedStock(product._id, 'cylinder', 'full')
+          availableStock = totalStock - reservedStock
           stockType = 'Full Cylinders'
         } else {
-          availableStock = (product as any).availableEmpty || inventoryAvailability[product._id]?.availableEmpty || 0
+          totalStock = inventoryAvailability[product._id]?.availableEmpty || 0
+          reservedStock = calculateReservedStock(product._id, 'cylinder', 'empty')
+          availableStock = totalStock - reservedStock
           stockType = 'Empty Cylinders'
         }
         
         if (enteredQuantity > availableStock) {
-          setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${availableStock}, Required: ${enteredQuantity}`)
-          setShowStockInsufficientPopup(true)
+          setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${enteredQuantity}`)
+          setShowStockNotification(true)
           return
         }
       }
@@ -699,7 +752,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     if (currentItem.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
       if (!currentItem.gasProductId) {
         setStockErrorMessage('Please select the Gas product for Full cylinder.')
-        setShowStockInsufficientPopup(true)
+        setShowStockNotification(true)
         return
       }
       
@@ -1053,7 +1106,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       // Check if it's a stock insufficient error
       if (errorMessage.toLowerCase().includes('insufficient stock') || errorMessage.toLowerCase().includes('available:')) {
         setStockErrorMessage(errorMessage)
-        setShowStockInsufficientPopup(true)
+        setShowStockNotification(true)
       } else {
         // For other errors, still use alert for now
         alert(errorMessage)
@@ -2197,85 +2250,29 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
         />
       )}
 
-      {/* Stock Insufficient Popup */}
-      {showStockInsufficientPopup && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center pointer-events-auto">
-          {/* Background blur overlay */}
-          <div 
-            className="absolute inset-0 bg-black/20 backdrop-blur-sm pointer-events-auto" 
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              console.log('Background overlay clicked - only closing popup')
-              setUserInteractedWithPopup(true)
-              setShowStockInsufficientPopup(false)
-              // Only close popup, don't affect form data
-            }}
-          />
-          
-          {/* Modal with animations */}
-          <div className="relative bg-white rounded-2xl shadow-2xl p-8 mx-4 max-w-md w-full transform transition-all duration-300 scale-100 animate-in fade-in-0 zoom-in-95 pointer-events-auto z-10">
-            {/* Close button */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                console.log('Close X button clicked - only closing popup')
-                setUserInteractedWithPopup(true)
-                setShowStockInsufficientPopup(false)
-                // Only close popup, don't affect form data
-              }}
-              onMouseEnter={() => setUserInteractedWithPopup(true)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors pointer-events-auto"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            
-            {/* Icon */}
-            <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-orange-500 to-red-500 rounded-full">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-            </div>
-            
-            {/* Content */}
-            <div className="text-center">
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Insufficient Stock</h3>
-              <p className="text-gray-600 mb-6">{stockErrorMessage}</p>
-              
-              {/* Action buttons */}
-              <div className="flex gap-3 pointer-events-auto">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setUserInteractedWithPopup(true)
-                    setShowStockInsufficientPopup(false)
-                  }}
-                  onMouseEnter={() => setUserInteractedWithPopup(true)}
-                  className="flex-1 bg-gray-100 text-gray-700 font-semibold py-3 px-6 rounded-lg hover:bg-gray-200 transition-all duration-200 cursor-pointer pointer-events-auto relative z-20 select-none"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setUserInteractedWithPopup(true)
-                    setShowStockInsufficientPopup(false)
-                    // Could add logic to navigate to inventory management
-                  }}
-                  onMouseEnter={() => setUserInteractedWithPopup(true)}
-                  className="flex-1 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold py-3 px-6 rounded-lg hover:from-orange-600 hover:to-red-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl cursor-pointer pointer-events-auto relative z-20 select-none"
-                >
-                  OK
-                </button>
+      {/* Stock Insufficient Notification (Slide-in from right) */}
+      {showStockNotification && (
+        <div className="fixed top-4 right-4 z-[99999] max-w-md">
+          <div className="bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg transform transition-all duration-300 animate-in slide-in-from-right-full">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
               </div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-sm mb-1">Insufficient Stock</h4>
+                <p className="text-sm opacity-90">{stockErrorMessage}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStockNotification(false)}
+                className="flex-shrink-0 text-white hover:text-red-200 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           </div>
         </div>
