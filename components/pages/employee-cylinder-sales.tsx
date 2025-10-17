@@ -46,6 +46,7 @@ interface Product {
   name: string
   category: "gas" | "cylinder"
   cylinderType?: "large" | "small"
+  cylinderSize?: "large" | "small"
   costPrice: number
   leastPrice: number
   currentStock: number
@@ -159,10 +160,9 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [showProductSuggestions, setShowProductSuggestions] = useState<boolean[]>([])
 
   // Single-entry draft item state (2x2 form)
-  const [draftItem, setDraftItem] = useState<{ productId: string; productName: string; cylinderSize: string; quantity: number; amount: number }>({
+  const [draftItem, setDraftItem] = useState<{ productId: string; productName: string; quantity: number; amount: number }>({
     productId: "",
     productName: "",
-    cylinderSize: "",
     quantity: 1,
     amount: 0,
   })
@@ -196,7 +196,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     items: [] as Array<{
       productId: string
       productName: string
-      cylinderSize: string
       quantity: number
       amount: number
     }>
@@ -207,32 +206,43 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
 
   const addItem = () => {
     // Add current draft item to items or save edit
+    console.log('Adding item:', draftItem)
     if (!draftItem.productId || (Number(draftItem.quantity) || 0) <= 0) {
+      console.error('Invalid item data:', { productId: draftItem.productId, quantity: draftItem.quantity })
       toast.error('Please select product and quantity')
       return
     }
     // Validate against assigned stock with comprehensive validation
     const totalStock = inventoryAvailability[draftItem.productId]?.currentStock || 0
-    const reservedStock = calculateReservedStock(draftItem.productId, draftItem.cylinderSize || '', formData.type as any)
+    const reservedStock = calculateReservedStock(draftItem.productId, formData.type as any)
     const availableStock = totalStock - reservedStock
     
     if ((Number(draftItem.quantity) || 0) > availableStock) {
       const selectedProduct = products.find(p => p._id === draftItem.productId)
-      setStockValidationMessage(`Insufficient stock for ${selectedProduct?.name || 'Product'} (${draftItem.cylinderSize}). Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${draftItem.quantity}`)
+      setStockValidationMessage(`Insufficient stock for ${selectedProduct?.name || 'Product'}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${draftItem.quantity}`)
       setShowStockNotification(true)
       return
     }
-    setFormData(prev => {
-      const items = [...prev.items]
-      if (editingIndex !== null) {
-        items[editingIndex] = { ...draftItem, amount: Number(draftItem.amount) || 0 }
-      } else {
-        items.push({ ...draftItem, amount: Number(draftItem.amount) || 0 })
-      }
-      return { ...prev, items }
-    })
+    try {
+      setFormData(prev => {
+        const items = [...prev.items]
+        const itemToAdd = { ...draftItem, amount: Number(draftItem.amount) || 0 }
+        console.log('Item to add/update:', itemToAdd)
+        if (editingIndex !== null) {
+          items[editingIndex] = itemToAdd
+        } else {
+          items.push(itemToAdd)
+        }
+        console.log('Updated items array:', items)
+        return { ...prev, items }
+      })
+    } catch (error) {
+      console.error('Error in addItem:', error)
+      toast.error('Error adding item')
+      return
+    }
     // Reset draft
-    setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+    setDraftItem({ productId: "", productName: "", quantity: 1, amount: 0 })
     setDraftProductSearchTerm("")
     setShowDraftProductSuggestions(false)
     setEditingIndex(null)
@@ -246,7 +256,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       if (field === 'productId') {
         const p = getProductById(value)
         item.productName = p?.name || ''
-        if (p) item.amount = Number((p.leastPrice).toFixed(2))
+        if (p) item.amount = Number((p.leastPrice || 0).toFixed(2))
       }
       items[index] = item
       return { ...prev, items }
@@ -259,7 +269,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     setShowProductSuggestions(prev => prev.filter((_, i) => i !== index))
     if (editingIndex === index) {
       setEditingIndex(null)
-      setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+      setDraftItem({ productId: "", productName: "", quantity: 1, amount: 0 })
       setDraftProductSearchTerm("")
       setShowDraftProductSuggestions(false)
     }
@@ -284,9 +294,9 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   }
 
   // Helper function to calculate reserved stock from current form items
-  const calculateReservedStock = (productId: string, cylinderSize: string, transactionType: 'deposit' | 'refill' | 'return') => {
+  const calculateReservedStock = (productId: string, transactionType: 'deposit' | 'refill' | 'return') => {
     return formData.items.reduce((reserved, item) => {
-      if (item.productId === productId && item.cylinderSize === cylinderSize) {
+      if (item.productId === productId) {
         // For cylinder transactions, different types affect different stock
         return reserved + (Number(item.quantity) || 0)
       }
@@ -588,7 +598,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           return {
             productId: String(it.productId || ''),
             productName: String(it.productName || prod?.name || ''),
-            cylinderSize: String(it.cylinderSize || prod?.cylinderType || ''),
             quantity: Number(it.quantity || 0),
             amount: Number(it.amount || 0),
           }
@@ -606,7 +615,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       linkedDeposit: String(rec?._id || ''),
     }))
     // Reset draft UI state
-    setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+    setDraftItem({ productId: "", productName: "", quantity: 1, amount: 0 })
     setDraftProductSearchTerm("")
     setShowDraftProductSuggestions(false)
     setEditingIndex(null)
@@ -689,6 +698,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           .filter((inv: any) => inv.product && inv.product.category === 'cylinder' && inv.currentStock > 0)
           .map((inv: any) => ({
             ...inv.product,
+            leastPrice: inv.leastPrice || inv.product?.leastPrice || 0,
             currentStock: inv.currentStock,
             availableEmpty: inv.availableEmpty || 0,
             availableFull: inv.availableFull || 0
@@ -827,7 +837,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       if (name === 'product' && newState.items.length === 0) {
         const selectedProduct = products.find(p => p._id === value);
         if (selectedProduct) {
-          const calculatedAmount = selectedProduct.leastPrice * newState.quantity;
+          const calculatedAmount = (selectedProduct.leastPrice || 0) * newState.quantity;
           newState.amount = calculatedAmount;
           
           // Set specific amount fields based on transaction type
@@ -858,7 +868,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       if (name === 'quantity' && newState.product && newState.items.length === 0) {
         const selectedProduct = products.find(p => p._id === newState.product);
         if (selectedProduct) {
-          const calculatedAmount = selectedProduct.leastPrice * numericValue;
+          const calculatedAmount = (selectedProduct.leastPrice || 0) * numericValue;
           newState.amount = calculatedAmount;
           
           // Update specific amount fields based on transaction type
@@ -916,7 +926,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     if (formData.items.length === 0) {
       // Single item validation
       const totalStock = inventoryAvailability[formData.product]?.currentStock || 0
-      const reservedStock = calculateReservedStock(formData.product, formData.cylinderSize, formData.type as any)
+      const reservedStock = calculateReservedStock(formData.product, formData.type as any)
       const availableStock = totalStock - reservedStock
       
       if (formData.quantity > availableStock) {
@@ -928,11 +938,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       // Multi-item validation per item
       for (const it of formData.items) {
         const totalStock = inventoryAvailability[it.productId]?.currentStock || 0
-        const reservedStock = calculateReservedStock(it.productId, it.cylinderSize, formData.type as any)
+        const reservedStock = calculateReservedStock(it.productId, formData.type as any)
         const availableStock = totalStock - reservedStock
         
         if ((Number(it.quantity) || 0) > availableStock) {
-          setStockValidationMessage(`Insufficient stock for ${it.productName} (${it.cylinderSize}). Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${it.quantity}`)
+          setStockValidationMessage(`Insufficient stock for ${it.productName}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${it.quantity}`)
           setShowStockNotification(true)
           return
         }
@@ -940,7 +950,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     }
 
     // Calculate amount based on least price and quantity
-    const calculatedAmount = formData.items.length > 0 ? totalItemsAmount() : (selectedProduct ? selectedProduct.leastPrice * formData.quantity : 0)
+    const calculatedAmount = formData.items.length > 0 ? totalItemsAmount() : (selectedProduct ? (selectedProduct.leastPrice || 0) * formData.quantity : 0)
 
     try {
       const transactionData: any = {
@@ -948,7 +958,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         type: formData.type,
         // party is conditional below
         product: formData.items.length === 0 ? formData.product : (formData.items[0]?.productId || ''),
-        cylinderSize: formData.items.length === 0 ? formData.cylinderSize : (formData.items[0]?.cylinderSize || ''),
         quantity: formData.items.length === 0 ? formData.quantity : totalItemsQuantity(),
         amount: calculatedAmount,
         depositAmount:
@@ -969,7 +978,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         transactionData.items = formData.items.map(it => ({
           productId: it.productId,
           productName: it.productName,
-          cylinderSize: it.cylinderSize,
           quantity: Number(it.quantity) || 0,
           amount: Number(it.amount) || 0,
         }))
@@ -1125,7 +1133,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       items: (transaction.items && transaction.items.length > 0) ? transaction.items.map(it => ({
         productId: (it as any).productId || '',
         productName: it.productName || '',
-        cylinderSize: it.cylinderSize,
         quantity: it.quantity,
         amount: it.amount,
       })) : []
@@ -1729,6 +1736,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             value={draftProductSearchTerm}
             onChange={(e) => {
               const val = e.target.value
+              console.log('Product search change:', val, typeof val)
               setDraftProductSearchTerm(val)
               setShowDraftProductSuggestions(val.trim().length > 0)
             }}
@@ -1746,18 +1754,21 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                     key={p._id}
                     className="p-2 hover:bg-gray-100 cursor-pointer"
                     onMouseDown={() => {
+                      console.log('Product selected:', p)
+                      console.log('Product leastPrice:', p.leastPrice, typeof p.leastPrice)
+                      const price = p.leastPrice || 0
+                      console.log('Using price:', price)
                       setDraftItem(prev => ({ 
                         ...prev, 
                         productId: p._id, 
                         productName: p.name, 
-                        cylinderSize: p.cylinderType || '', 
-                        amount: Number(p.leastPrice.toFixed(2)) 
+                        amount: Number(price.toFixed(2)) 
                       }))
                       setDraftProductSearchTerm(p.name)
                       setShowDraftProductSuggestions(false)
                     }}
                   >
-                    {p.name} - AED {p.leastPrice.toFixed(2)}
+                    {p.name} - AED {(p.leastPrice || 0).toFixed(2)}
                   </li>
                 ))}
               {products.filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes(draftProductSearchTerm.toLowerCase())).length === 0 && (
@@ -1772,13 +1783,23 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         {/* Quantity */}
         <div className="space-y-2">
           <Label>Quantity *</Label>
-          <Input type="number" min={1} value={draftItem.quantity} onChange={(e) => setDraftItem(prev => ({ ...prev, quantity: Number.parseInt(e.target.value) || 1 }))} />
+          <Input type="number" min={1} value={draftItem.quantity} onChange={(e) => {
+            console.log('Quantity input change:', e.target.value, typeof e.target.value)
+            const val = e.target.value === '' ? 1 : parseInt(e.target.value, 10)
+            console.log('Parsed quantity:', val)
+            setDraftItem(prev => ({ ...prev, quantity: val || 1 }))
+          }} />
         </div>
 
         {/* Amount */}
         <div className="space-y-2">
           <Label>Amount *</Label>
-          <Input type="number" step="0.01" min={0} value={draftItem.amount} onChange={(e) => setDraftItem(prev => ({ ...prev, amount: Number.parseFloat(e.target.value) || 0 }))} />
+          <Input type="number" step="0.01" min={0} value={draftItem.amount} onChange={(e) => {
+            console.log('Amount input change:', e.target.value, typeof e.target.value)
+            const val = e.target.value === '' ? 0 : parseFloat(e.target.value)
+            console.log('Parsed amount:', val)
+            setDraftItem(prev => ({ ...prev, amount: val || 0 }))
+          }} />
         </div>
       </div>
 
@@ -1790,7 +1811,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         {editingIndex !== null && (
           <Button type="button" variant="ghost" onClick={() => {
             setEditingIndex(null)
-            setDraftItem({ productId: "", productName: "", cylinderSize: "", quantity: 1, amount: 0 })
+            setDraftItem({ productId: "", productName: "", quantity: 1, amount: 0 })
             setDraftProductSearchTerm("")
             setShowDraftProductSuggestions(false)
           }}>Cancel Edit</Button>
@@ -1804,7 +1825,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             <TableHeader>
               <TableRow>
                 <TableHead>Product</TableHead>
-
                 <TableHead>Qty</TableHead>
                 <TableHead>Amount (AED)</TableHead>
                 <TableHead className="w-32">Actions</TableHead>

@@ -86,7 +86,7 @@ export async function GET(request) {
         employee: assignment.employee,
         assignedQuantity: assignment.quantity,
         currentStock: assignment.remainingQuantity || assignment.quantity,
-        leastPrice: assignment.leastPrice || assignment.product?.leastPrice || 0,
+        leastPrice: Number(assignment.leastPrice || assignment.product?.leastPrice || 0),
         status: assignment.status, // 'assigned', 'received', 'returned'
         assignedDate: assignment.createdAt,
         lastUpdated: assignment.updatedAt || assignment.createdAt,

@@ -39,16 +39,11 @@ const EmployeeCylinderTransactionSchema = new mongoose.Schema(
       {
         productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
         productName: { type: String },
-        cylinderSize: { type: String, enum: ["small", "large"] },
         quantity: { type: Number, min: 1 },
         amount: { type: Number, min: 0 }, // Row amount in AED
       },
     ],
-    cylinderSize: {
-      type: String,
-      required: false,
-      enum: ["small", "large"],
-    },
+
     quantity: {
       type: Number,
       required: true,

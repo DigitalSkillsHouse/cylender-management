@@ -143,11 +143,8 @@ export async function POST(request) {
 
     const hasItems = Array.isArray(items) && items.length > 0
     if (!hasItems) {
-      if (!product || !cylinderSize || !quantity) {
+      if (!product || !quantity) {
         return NextResponse.json({ error: "Missing required fields for single-item transaction" }, { status: 400 })
-      }
-      if (!["small", "large"].includes(cylinderSize)) {
-        return NextResponse.json({ error: "Invalid cylinder size" }, { status: 400 })
       }
       if (!mongoose.isValidObjectId(product)) {
         return NextResponse.json({ error: "Invalid product id" }, { status: 400 })
@@ -155,11 +152,8 @@ export async function POST(request) {
     } else {
       // basic validation on items
       for (const [idx, it] of items.entries()) {
-        if (!it.productId || !it.cylinderSize || !it.quantity) {
+        if (!it.productId || !it.quantity) {
           return NextResponse.json({ error: `Invalid item at index ${idx}` }, { status: 400 })
-        }
-        if (!["small", "large"].includes(it.cylinderSize)) {
-          return NextResponse.json({ error: `Invalid cylinder size for item at index ${idx}` }, { status: 400 })
         }
         if (!mongoose.isValidObjectId(it.productId)) {
           return NextResponse.json({ error: `Invalid product id for item at index ${idx}` }, { status: 400 })
@@ -194,7 +188,6 @@ export async function POST(request) {
       employee: employeeId,
       // Backward-compat single fields: when items present, copy from first item for quick views
       product: hasItems ? items[0].productId : product,
-      cylinderSize: hasItems ? items[0].cylinderSize : cylinderSize,
       quantity: totalQuantity,
       amount: totalAmount,
       depositAmount: depositAmount ? parseFloat(depositAmount) : 0,
@@ -209,7 +202,6 @@ export async function POST(request) {
       items: hasItems ? items.map(it => ({
         productId: it.productId,
         productName: it.productName || '',
-        cylinderSize: it.cylinderSize,
         quantity: Number(it.quantity) || 0,
         amount: Number(it.amount) || 0,
       })) : undefined,
