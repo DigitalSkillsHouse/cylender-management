@@ -98,11 +98,88 @@ export async function GET(request) {
       }
     })
 
-    // Combine both sources
+    // Combine both sources with deduplication
     const combinedInventory = [...employeeInventory, ...convertedAssignments]
+    
+    // Deduplicate by product ID, name, and category
+    const deduplicatedInventory = []
+    const seenProducts = new Map()
+    
+    for (const item of combinedInventory) {
+      const productId = item.product?._id?.toString()
+      const productName = item.product?.name
+      const category = item.category
+      const cylinderStatus = item.cylinderStatus
+      
+      // Create a unique key for deduplication
+      const uniqueKey = `${productId}-${productName}-${category}-${cylinderStatus || 'none'}`
+      
+      console.log('🔍 Processing item:', {
+        productName: productName,
+        productId: productId,
+        category: category,
+        cylinderStatus: cylinderStatus,
+        uniqueKey: uniqueKey,
+        currentStock: item.currentStock,
+        assignedQuantity: item.assignedQuantity
+      })
+      
+      if (seenProducts.has(uniqueKey)) {
+        // Merge with existing item (combine quantities)
+        const existingItemIndex = seenProducts.get(uniqueKey)
+        const existingItem = deduplicatedInventory[existingItemIndex]
+        
+        const oldCurrentStock = existingItem.currentStock || 0
+        const oldAssignedQuantity = existingItem.assignedQuantity || 0
+        
+        existingItem.assignedQuantity = oldAssignedQuantity + (item.assignedQuantity || 0)
+        existingItem.currentStock = oldCurrentStock + (item.currentStock || 0)
+        
+        // Merge transactions
+        if (item.transactions && Array.isArray(item.transactions)) {
+          existingItem.transactions = [...(existingItem.transactions || []), ...item.transactions]
+        }
+        
+        // Use the most recent date
+        if (new Date(item.lastUpdated) > new Date(existingItem.lastUpdated)) {
+          existingItem.lastUpdated = item.lastUpdated
+        }
+        
+        console.log('🔄 Merged duplicate inventory item:', {
+          productName: productName,
+          category: category,
+          cylinderStatus: cylinderStatus,
+          oldCurrentStock: oldCurrentStock,
+          addedCurrentStock: item.currentStock || 0,
+          newCurrentStock: existingItem.currentStock,
+          oldAssignedQuantity: oldAssignedQuantity,
+          addedAssignedQuantity: item.assignedQuantity || 0,
+          newAssignedQuantity: existingItem.assignedQuantity
+        })
+      } else {
+        // Add new item
+        const newIndex = deduplicatedInventory.length
+        seenProducts.set(uniqueKey, newIndex)
+        deduplicatedInventory.push({ ...item })
+        
+        console.log('✅ Added new inventory item:', {
+          productName: productName,
+          category: category,
+          cylinderStatus: cylinderStatus,
+          currentStock: item.currentStock,
+          assignedQuantity: item.assignedQuantity,
+          index: newIndex
+        })
+      }
+    }
 
-    console.log('Found inventory items:', combinedInventory?.length || 0)
-    return NextResponse.json({ success: true, data: combinedInventory || [] })
+    console.log('📊 Inventory deduplication summary:', {
+      originalItems: combinedInventory.length,
+      deduplicatedItems: deduplicatedInventory.length,
+      duplicatesRemoved: combinedInventory.length - deduplicatedInventory.length
+    })
+
+    return NextResponse.json({ success: true, data: deduplicatedInventory || [] })
   } catch (error) {
     console.error("Error fetching employee inventory:", error)
     return NextResponse.json({ error: `Failed to fetch inventory: ${error.message}` }, { status: 500 })
@@ -125,11 +202,32 @@ export async function POST(request) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 })
     }
 
+    // Enhanced duplicate check - look for existing inventory by multiple criteria
     let inventory = await EmployeeInventory.findOne({
       employee: employeeId,
       product: productId,
       ...(cylinderSize && { cylinderSize })
     })
+    
+    // If not found by product ID, try by product name and code (for legacy data)
+    if (!inventory) {
+      const allEmployeeInventory = await EmployeeInventory.find({
+        employee: employeeId
+      }).populate('product', 'name productCode')
+      
+      inventory = allEmployeeInventory.find(inv => {
+        return inv.product?.name === product.name && 
+               inv.product?.productCode === product.productCode
+      })
+      
+      if (inventory) {
+        console.log('🔍 Found existing inventory by name/code match:', {
+          inventoryId: inventory._id,
+          productName: inventory.product?.name,
+          productCode: inventory.product?.productCode
+        })
+      }
+    }
 
     if (inventory) {
       inventory.assignedQuantity += quantity

@@ -12,27 +12,53 @@ export async function PATCH(request, { params }) {
     
     console.log('📝 PATCH request data:', { id, data });
     
+    // First get the assignment to check its current status
+    const originalAssignment = await StockAssignment.findById(id).populate("product", "name category cylinderSize productCode");
+    
+    if (!originalAssignment) {
+      console.error('❌ Assignment not found:', id);
+      return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
+    }
+    
+    console.log('📋 Original assignment status:', {
+      id: originalAssignment._id,
+      product: originalAssignment.product?.name,
+      currentStatus: originalAssignment.status,
+      requestedStatus: data.status
+    });
+    
+    // If accepting assignment, create EmployeeInventory records
+    if (data.status === 'received' && data.createEmployeeInventory) {
+      
+      // Check if this assignment was already processed to prevent duplicates
+      if (originalAssignment.status === 'received') {
+        console.log('⚠️ Assignment already processed as received, skipping inventory creation:', {
+          assignmentId: originalAssignment._id,
+          productName: originalAssignment.product?.name,
+          currentStatus: originalAssignment.status
+        });
+        return NextResponse.json({ success: true, data: originalAssignment, message: "Assignment already processed" });
+      }
+    }
+    
+    // Now update the assignment status
     const assignment = await StockAssignment.findByIdAndUpdate(
       id,
       { status: data.status },
       { new: true }
     ).populate("product", "name category cylinderSize productCode");
     
-    if (!assignment) {
-      console.error('❌ Assignment not found:', id);
-      return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
-    }
-    
-    console.log('✅ Assignment found:', {
+    console.log('✅ Assignment updated:', {
       id: assignment._id,
       product: assignment.product?.name,
       category: assignment.category,
       cylinderStatus: assignment.cylinderStatus,
-      status: assignment.status
+      oldStatus: originalAssignment.status,
+      newStatus: assignment.status
     });
     
-    // If accepting assignment, create EmployeeInventory records
-    if (data.status === 'received' && data.createEmployeeInventory) {
+    // Process inventory creation only if status changed from non-received to received
+    if (data.status === 'received' && data.createEmployeeInventory && originalAssignment.status !== 'received') {
       const EmployeeInventory = (await import("@/models/EmployeeInventory")).default;
       
       // Use the base category for database storage (gas/cylinder)
@@ -60,18 +86,70 @@ export async function PATCH(request, { params }) {
         return NextResponse.json({ error: "Invalid assignment: invalid category" }, { status: 400 });
       }
       
-      // Check for existing inventory by product name and code (primary check)
+      // Check for existing inventory by product ID, name, and code (comprehensive check)
       const allEmployeeInventory = await EmployeeInventory.find({
         employee: assignment.employee
       }).populate('product', 'name productCode');
       
-      const targetInventory = allEmployeeInventory.find(inv => 
-        inv.product?.name === assignment.product.name && 
-        inv.product?.productCode === assignment.product.productCode
-      );
+      const targetInventory = allEmployeeInventory.find(inv => {
+        // Primary check: exact product ID match
+        if (inv.product?._id?.toString() === assignment.product._id.toString()) {
+          return true;
+        }
+        
+        // Secondary check: name and product code match (for legacy data)
+        if (inv.product?.name === assignment.product.name && 
+            inv.product?.productCode === assignment.product.productCode) {
+          return true;
+        }
+        
+        // Tertiary check: name match only (fallback for missing product codes)
+        if (inv.product?.name === assignment.product.name && 
+            !inv.product?.productCode && !assignment.product.productCode) {
+          return true;
+        }
+        
+        return false;
+      });
+      
+      console.log('🔍 Duplicate check result:', {
+        assignmentId: assignment._id,
+        assignmentProduct: {
+          id: assignment.product._id,
+          name: assignment.product.name,
+          code: assignment.product.productCode
+        },
+        category: dbCategory,
+        cylinderStatus: cylinderStatus,
+        quantity: assignment.quantity,
+        existingInventory: allEmployeeInventory.map(inv => ({
+          id: inv.product?._id,
+          name: inv.product?.name,
+          code: inv.product?.productCode,
+          category: inv.category,
+          cylinderStatus: inv.cylinderStatus,
+          currentStock: inv.currentStock
+        })),
+        foundMatch: !!targetInventory,
+        matchedItem: targetInventory ? {
+          id: targetInventory.product?._id,
+          name: targetInventory.product?.name,
+          code: targetInventory.product?.productCode,
+          category: targetInventory.category,
+          cylinderStatus: targetInventory.cylinderStatus,
+          currentStock: targetInventory.currentStock
+        } : null
+      });
       
       if (targetInventory) {
         // Update existing record
+        console.log('✅ Updating existing inventory record:', {
+          inventoryId: targetInventory._id,
+          productName: targetInventory.product?.name,
+          currentStock: targetInventory.currentStock,
+          addingQuantity: assignment.quantity
+        });
+        
         const updateData = {
           $inc: {
             assignedQuantity: assignment.quantity,
@@ -104,10 +182,14 @@ export async function PATCH(request, { params }) {
         await EmployeeInventory.findByIdAndUpdate(targetInventory._id, updateData);
       } else {
         // Create new record with valid enum category
-        console.log('💾 Creating new EmployeeInventory record:', {
+        console.log('💾 Creating new EmployeeInventory record (no existing match found):', {
+          productId: assignment.product._id,
+          productName: assignment.product.name,
+          productCode: assignment.product.productCode,
           category: dbCategory,
           cylinderStatus: assignment.cylinderStatus,
-          quantity: assignment.quantity
+          quantity: assignment.quantity,
+          employeeId: assignment.employee
         });
         
         const newInventoryData = {
@@ -144,10 +226,26 @@ export async function PATCH(request, { params }) {
       // For gas assignments, also create/update cylinder inventory
       if (assignment.category === 'gas' && assignment.cylinderProductId) {
         const cylinderProduct = await Product.findById(assignment.cylinderProductId);
-        const targetCylinderInventory = allEmployeeInventory.find(inv => 
-          inv.product?.name === cylinderProduct?.name && 
-          inv.product?.productCode === cylinderProduct?.productCode
-        );
+        const targetCylinderInventory = allEmployeeInventory.find(inv => {
+          // Primary check: exact product ID match
+          if (inv.product?._id?.toString() === assignment.cylinderProductId.toString()) {
+            return true;
+          }
+          
+          // Secondary check: name and product code match
+          if (cylinderProduct && inv.product?.name === cylinderProduct.name && 
+              inv.product?.productCode === cylinderProduct.productCode) {
+            return true;
+          }
+          
+          // Tertiary check: name match only (fallback)
+          if (cylinderProduct && inv.product?.name === cylinderProduct.name && 
+              !inv.product?.productCode && !cylinderProduct.productCode) {
+            return true;
+          }
+          
+          return false;
+        });
         
         if (targetCylinderInventory) {
           await EmployeeInventory.findByIdAndUpdate(targetCylinderInventory._id, {
@@ -188,10 +286,26 @@ export async function PATCH(request, { params }) {
       // For full cylinder assignments, also create/update gas inventory
       if (dbCategory === 'cylinder' && cylinderStatus === 'full' && assignment.gasProductId) {
         const gasProduct = await Product.findById(assignment.gasProductId);
-        const targetGasInventory = allEmployeeInventory.find(inv => 
-          inv.product?.name === gasProduct?.name && 
-          inv.product?.productCode === gasProduct?.productCode
-        );
+        const targetGasInventory = allEmployeeInventory.find(inv => {
+          // Primary check: exact product ID match
+          if (inv.product?._id?.toString() === assignment.gasProductId.toString()) {
+            return true;
+          }
+          
+          // Secondary check: name and product code match
+          if (gasProduct && inv.product?.name === gasProduct.name && 
+              inv.product?.productCode === gasProduct.productCode) {
+            return true;
+          }
+          
+          // Tertiary check: name match only (fallback)
+          if (gasProduct && inv.product?.name === gasProduct.name && 
+              !inv.product?.productCode && !gasProduct.productCode) {
+            return true;
+          }
+          
+          return false;
+        });
         
         if (targetGasInventory) {
           await EmployeeInventory.findByIdAndUpdate(targetGasInventory._id, {
