@@ -170,10 +170,13 @@ export function GasSales() {
   }
 
   const handleEntryCylinderSelect = (product: Product) => {
-    // Check if cylinder has stock
-    const avail = (inventoryAvailability[product._id]?.availableFull || 0)
-    if (avail <= 0) {
-      setStockErrorMessage(`No full cylinders available for ${product.name}. Available full: ${avail}`)
+    // Check if cylinder has stock (accounting for reserved stock)
+    const totalStock = inventoryAvailability[product._id]?.availableFull || 0
+    const reservedStock = calculateReservedStock(product._id, 'cylinder', 'full')
+    const availableStock = totalStock - reservedStock
+    
+    if (availableStock <= 0) {
+      setStockErrorMessage(`No full cylinders available for ${product.name}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}`)
       setShowStockInsufficientPopup(true)
       return
     }
@@ -1243,16 +1246,33 @@ export function GasSales() {
       const gasSize = product.cylinderSize as ("large" | "small" | undefined)
       let candidates = allProducts.filter((p: Product) => {
         if (p.category !== 'cylinder') return false
-        const avail = inventoryAvailability[p._id]?.availableFull || 0
-        return avail > 0
+        const totalStock = inventoryAvailability[p._id]?.availableFull || 0
+        const reservedStock = calculateReservedStock(p._id, 'cylinder', 'full')
+        const availableStock = totalStock - reservedStock
+        return availableStock > 0
       })
       // Fallback: if none via availability map, use currentStock as a backup
       if (candidates.length === 0) {
-        candidates = allProducts.filter((p: Product) => p.category === 'cylinder' && (p.currentStock || 0) > 0)
+        candidates = allProducts.filter((p: Product) => {
+          if (p.category !== 'cylinder') return false
+          const reservedStock = calculateReservedStock(p._id, 'cylinder', 'full')
+          const availableStock = (p.currentStock || 0) - reservedStock
+          return availableStock > 0
+        })
       }
       const sizeMatched = gasSize ? candidates.filter((c: Product) => (c.cylinderSize as any) === gasSize) : []
       const pick = (sizeMatched.length > 0 ? sizeMatched : candidates)
-        .sort((a, b) => (((inventoryAvailability[b._id]?.availableFull ?? b.currentStock) || 0) - ((inventoryAvailability[a._id]?.availableFull ?? a.currentStock) || 0)))[0]
+        .sort((a, b) => {
+          const aTotal = (inventoryAvailability[a._id]?.availableFull ?? a.currentStock) || 0
+          const aReserved = calculateReservedStock(a._id, 'cylinder', 'full')
+          const aAvailable = aTotal - aReserved
+          
+          const bTotal = (inventoryAvailability[b._id]?.availableFull ?? b.currentStock) || 0
+          const bReserved = calculateReservedStock(b._id, 'cylinder', 'full')
+          const bAvailable = bTotal - bReserved
+          
+          return bAvailable - aAvailable
+        })[0]
       if (pick) {
         nextItem = { ...nextItem, cylinderProductId: pick._id }
         setEntryCylinderSearch(pick.name)
@@ -1269,14 +1289,26 @@ export function GasSales() {
       const cylinderSize = product.cylinderSize as ("large" | "small" | undefined)
       let gasProducts = allProducts.filter((p: Product) => {
         if (p.category !== 'gas') return false
-        // Use inventory availability for gas stock (Gas tab)
-        const gasStock = inventoryAvailability[p._id]?.currentStock || 0
-        return gasStock > 0
+        // Use inventory availability for gas stock (Gas tab) and account for reserved stock
+        const totalStock = inventoryAvailability[p._id]?.currentStock || 0
+        const reservedStock = calculateReservedStock(p._id, 'gas')
+        const availableStock = totalStock - reservedStock
+        return availableStock > 0
       })
       // Try to match cylinder size with gas size if available
       const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => (g.cylinderSize as any) === cylinderSize) : []
       const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
-        .sort((a, b) => ((inventoryAvailability[b._id]?.currentStock || 0) - (inventoryAvailability[a._id]?.currentStock || 0)))[0]
+        .sort((a, b) => {
+          const aTotal = inventoryAvailability[a._id]?.currentStock || 0
+          const aReserved = calculateReservedStock(a._id, 'gas')
+          const aAvailable = aTotal - aReserved
+          
+          const bTotal = inventoryAvailability[b._id]?.currentStock || 0
+          const bReserved = calculateReservedStock(b._id, 'gas')
+          const bAvailable = bTotal - bReserved
+          
+          return bAvailable - aAvailable
+        })[0]
       if (pick) {
         nextItem = { ...nextItem, gasProductId: pick._id }
         setEntryGasSearch(pick.name)
@@ -1293,6 +1325,36 @@ export function GasSales() {
     setShowEntrySuggestions(false)
   }
 
+  // Helper function to calculate reserved stock from current form items
+  const calculateReservedStock = (productId: string, category: 'gas' | 'cylinder', cylinderStatus?: 'full' | 'empty') => {
+    return formData.items.reduce((reserved, item) => {
+      // For gas items, check direct gas usage
+      if (category === 'gas' && (item as any).category === 'gas' && item.productId === productId) {
+        return reserved + (Number(item.quantity) || 0)
+      }
+      
+      // For gas items, also check cylinder conversion (gas sales with cylinderProductId)
+      if (category === 'gas' && (item as any).category === 'gas' && (item as any).cylinderProductId === productId) {
+        return reserved + (Number(item.quantity) || 0)
+      }
+      
+      // For cylinder items, check direct cylinder usage
+      if (category === 'cylinder' && (item as any).category === 'cylinder' && item.productId === productId) {
+        const itemCylinderStatus = (item as any).cylinderStatus || 'empty'
+        if (cylinderStatus === itemCylinderStatus) {
+          return reserved + (Number(item.quantity) || 0)
+        }
+      }
+      
+      // For full cylinders, also check gas sales that use this cylinder (cylinderProductId)
+      if (category === 'cylinder' && cylinderStatus === 'full' && (item as any).category === 'gas' && (item as any).cylinderProductId === productId) {
+        return reserved + (Number(item.quantity) || 0)
+      }
+      
+      return reserved
+    }, 0)
+  }
+
   const handleEntryQuantityChange = (value: string) => {
     const enteredQuantity = parseInt(value) || 0
     const product = allProducts.find((p: Product) => p._id === currentItem.productId)
@@ -1301,28 +1363,39 @@ export function GasSales() {
       // Validate stock based on category and inventory data
       let availableStock = 0
       let stockType = ''
+      let reservedStock = 0
       
       if (currentItem.category === 'gas') {
         // For gas sales, validate gas stock from inventory Gas tab
         const gasStock = inventoryAvailability[product._id]?.currentStock || 0
+        reservedStock = calculateReservedStock(product._id, 'gas')
+        availableStock = gasStock - reservedStock
+        stockType = 'Gas'
         
-        if (enteredQuantity > gasStock) {
-          setStockErrorMessage(`Insufficient Gas stock for ${product.name}. Available: ${gasStock}, Required: ${enteredQuantity}`)
+        if (enteredQuantity > availableStock) {
+          setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${gasStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${enteredQuantity}`)
           setShowStockInsufficientPopup(true)
           return
         }
       } else if (currentItem.category === 'cylinder') {
         // For cylinders, check based on cylinderStatus
         if (currentItem.cylinderStatus === 'full') {
-          availableStock = inventoryAvailability[product._id]?.availableFull || 0
+          const totalStock = inventoryAvailability[product._id]?.availableFull || 0
+          reservedStock = calculateReservedStock(product._id, 'cylinder', 'full')
+          availableStock = totalStock - reservedStock
           stockType = 'Full Cylinders'
         } else {
-          availableStock = inventoryAvailability[product._id]?.availableEmpty || 0
+          const totalStock = inventoryAvailability[product._id]?.availableEmpty || 0
+          reservedStock = calculateReservedStock(product._id, 'cylinder', 'empty')
+          availableStock = totalStock - reservedStock
           stockType = 'Empty Cylinders'
         }
         
         if (enteredQuantity > availableStock) {
-          setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${availableStock}, Required: ${enteredQuantity}`)
+          const totalStock = currentItem.cylinderStatus === 'full' 
+            ? inventoryAvailability[product._id]?.availableFull || 0
+            : inventoryAvailability[product._id]?.availableEmpty || 0
+          setStockErrorMessage(`Insufficient ${stockType} stock for ${product.name}. Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Required: ${enteredQuantity}`)
           setShowStockInsufficientPopup(true)
           return
         }
