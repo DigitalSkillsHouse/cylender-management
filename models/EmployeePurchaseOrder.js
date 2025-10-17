@@ -65,6 +65,15 @@ const employeePurchaseOrderSchema = new mongoose.Schema({
   poNumber: {
     type: String,
     required: true
+  },
+  emptyCylinderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'EmployeeInventory',
+    required: false
+  },
+  emptyCylinderName: {
+    type: String,
+    required: false
   }
 }, {
   timestamps: true

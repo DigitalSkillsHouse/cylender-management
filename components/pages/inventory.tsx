@@ -168,9 +168,18 @@ export function Inventory() {
               
               // Resolve empty cylinder name if present
               let emptyCylinderName = ''
-              if (item.emptyCylinderId) {
-                const emptyCylinder = productsMap.get(item.emptyCylinderId)
-                emptyCylinderName = emptyCylinder?.name || 'Unknown Cylinder'
+              if (item.emptyCylinderId || order.emptyCylinderId) {
+                // First try to get from order data if available
+                if (order.emptyCylinderName) {
+                  emptyCylinderName = order.emptyCylinderName
+                } else if (item.emptyCylinderName) {
+                  emptyCylinderName = item.emptyCylinderName
+                } else {
+                  // Fallback: try to resolve from products map (though this might not work for inventory IDs)
+                  const emptyCylinderId = item.emptyCylinderId || order.emptyCylinderId
+                  const emptyCylinder = productsMap.get(emptyCylinderId)
+                  emptyCylinderName = emptyCylinder?.name || 'Unknown Cylinder'
+                }
               }
 
               return {

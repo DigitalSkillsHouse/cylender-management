@@ -46,6 +46,8 @@ interface PurchaseItem {
   quantity: string
   unitPrice: string
   cylinderSize?: string
+  emptyCylinderId?: string
+  emptyCylinderName?: string
 }
 
 export function PurchaseManagement() {
@@ -61,16 +63,22 @@ export function PurchaseManagement() {
   // Expanded state for grouped invoice rows
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   // Single entry item state (2x2 form)
-  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"; productId: string; quantity: string; unitPrice: string; cylinderSize?: string}>({
+  const [currentItem, setCurrentItem] = useState<{purchaseType: "gas"; productId: string; quantity: string; unitPrice: string; cylinderSize?: string; emptyCylinderId?: string}>({
     purchaseType: "gas",
     productId: "",
     quantity: "",
     unitPrice: "",
     cylinderSize: "",
+    emptyCylinderId: "",
   })
   const [productSearchTerm, setProductSearchTerm] = useState("")
   const [showProductSuggestions, setShowProductSuggestions] = useState(false)
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
+  
+  // Empty cylinder selection state
+  const [emptyCylinders, setEmptyCylinders] = useState<any[]>([])
+  const [cylinderSearchTerm, setCylinderSearchTerm] = useState("")
+  const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
   const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string }>(() => ({
     supplierId: "",
     purchaseDate: new Date().toISOString().split("T")[0],
@@ -98,6 +106,44 @@ export function PurchaseManagement() {
       
       setSuppliers(suppliersData)
       setProducts(productsData)
+      
+      // Fetch employee's empty cylinders from inventory
+      try {
+        // Check both localStorage and sessionStorage for user data
+        let userInfo = typeof window !== 'undefined' ? localStorage.getItem('user') : null
+        if (!userInfo && typeof window !== 'undefined') {
+          userInfo = sessionStorage.getItem('user')
+        }
+        if (userInfo) {
+          const currentUser = JSON.parse(userInfo)
+          if (currentUser?.id) {
+            const employeeInventoryRes = await fetch(`/api/employee-inventory?employeeId=${currentUser.id}`)
+            if (employeeInventoryRes.ok) {
+              const inventoryData = await employeeInventoryRes.json()
+              const inventoryItems = inventoryData.data || []
+              
+              // Filter for empty cylinders only
+              const emptyCylinderItems = inventoryItems.filter((item: any) => {
+                const isEmptyCylinder = (
+                  item.category === 'Empty Cylinder' || 
+                  item.displayCategory === 'Empty Cylinder' ||
+                  (item.category === 'cylinder' && item.cylinderStatus === 'empty')
+                )
+                
+                const hasStock = (item.currentStock > 0 || item.assignedQuantity > 0)
+                const isReceived = (item.status === 'received' || !item.status)
+                
+                return isEmptyCylinder && hasStock && isReceived
+              })
+              
+              setEmptyCylinders(emptyCylinderItems)
+            }
+          }
+        }
+      } catch (cylinderError) {
+        console.warn('Failed to load empty cylinders:', cylinderError)
+        setEmptyCylinders([])
+      }
       
       // Try to fetch employee purchase orders separately (requires auth)
       try {
@@ -203,10 +249,11 @@ export function PurchaseManagement() {
           purchaseDate: formData.purchaseDate,
           purchaseType: item.purchaseType,
           quantity: Number.parseInt(item.quantity),
-          ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
-          // totalAmount computed server-side when not provided
+          unitPrice: Number.parseFloat(item.unitPrice) || 0,
           notes: formData.notes,
-          invoiceNumber: formData.invoiceNumber.trim(),
+          invoiceNumber: formData.invoiceNumber,
+          emptyCylinderId: item.emptyCylinderId,
+          emptyCylinderName: item.emptyCylinderName,
         }
         await employeePurchaseOrdersAPI.update(editingOrder._id, purchaseData)
       } else {
@@ -222,6 +269,8 @@ export function PurchaseManagement() {
             // totalAmount computed server-side when not provided
             notes: formData.notes,
             invoiceNumber: formData.invoiceNumber.trim(),
+            emptyCylinderId: item.emptyCylinderId,
+            emptyCylinderName: item.emptyCylinderName,
           }
           await employeePurchaseOrdersAPI.create(purchaseData)
         }
@@ -247,9 +296,11 @@ export function PurchaseManagement() {
     })
     setEditingOrder(null)
     setError("")
-    setCurrentItem({ purchaseType: "gas", productId: "", quantity: "", unitPrice: "", cylinderSize: "" })
+    setCurrentItem({ purchaseType: "gas", productId: "", quantity: "", unitPrice: "", cylinderSize: "", emptyCylinderId: "" })
     setProductSearchTerm("")
     setShowProductSuggestions(false)
+    setCylinderSearchTerm("")
+    setShowCylinderSuggestions(false)
     setEditingItemIndex(null)
   }
 
@@ -301,17 +352,39 @@ export function PurchaseManagement() {
       setError("Please select a product and enter quantity")
       return
     }
+    
+    // Validate empty cylinder quantity if selected
+    if (currentItem.emptyCylinderId) {
+      const selectedCylinder = emptyCylinders.find(c => c._id === currentItem.emptyCylinderId)
+      if (selectedCylinder) {
+        const availableQuantity = selectedCylinder.currentStock || selectedCylinder.assignedQuantity || 0
+        const requestedQuantity = Number(currentItem.quantity) || 0
+        
+        if (requestedQuantity > availableQuantity) {
+          setError(`Insufficient empty cylinders. Available: ${availableQuantity}, Requested: ${requestedQuantity}`)
+          return
+        }
+      }
+    }
+    // Get cylinder name for display
+    const selectedCylinder = emptyCylinders.find(c => c._id === currentItem.emptyCylinderId)
+    const cylinderName = selectedCylinder?.product?.name || selectedCylinder?.productName || ''
+    
     const nextItems = [...formData.items, {
       purchaseType: currentItem.purchaseType,
       productId: currentItem.productId,
       quantity: currentItem.quantity,
       unitPrice: currentItem.unitPrice,
+      emptyCylinderId: currentItem.emptyCylinderId,
+      emptyCylinderName: cylinderName,
     }]
     setFormData({ ...formData, items: nextItems })
     // Clear inputs for next entry
-    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderSize: "" })
+    setCurrentItem({ purchaseType: currentItem.purchaseType, productId: "", quantity: "", unitPrice: "", cylinderSize: "", emptyCylinderId: "" })
     setProductSearchTerm("")
     setShowProductSuggestions(false)
+    setCylinderSearchTerm("")
+    setShowCylinderSuggestions(false)
     setEditingItemIndex(null)
   }
 
@@ -607,6 +680,60 @@ export function PurchaseManagement() {
                         </div>
                       )}
                     </div>
+                    
+                    {/* Empty Cylinder Selection Field */}
+                    <div className="space-y-2 relative">
+                      <Label>Select Empty Cylinder</Label>
+                      <Input
+                        value={cylinderSearchTerm}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          setCylinderSearchTerm(v)
+                          setShowCylinderSuggestions(v.trim().length > 0)
+                        }}
+                        onFocus={() => setShowCylinderSuggestions((cylinderSearchTerm || '').trim().length > 0)}
+                        onBlur={() => setTimeout(() => setShowCylinderSuggestions(false), 150)}
+                        placeholder="Type to search empty cylinders"
+                        className="h-10"
+                      />
+                      {showCylinderSuggestions && (
+                        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+                          {emptyCylinders
+                            .filter(cylinder => 
+                              cylinderSearchTerm.trim().length === 0 ? true : 
+                              (cylinder.product?.name || cylinder.productName || '').toLowerCase().includes(cylinderSearchTerm.toLowerCase())
+                            )
+                            .slice(0, 8).map((cylinder) => (
+                            <button
+                              type="button"
+                              key={cylinder._id}
+                              onClick={() => {
+                                setCurrentItem((ci) => ({
+                                  ...ci,
+                                  emptyCylinderId: cylinder._id,
+                                }))
+                                setCylinderSearchTerm(cylinder.product?.name || cylinder.productName || '')
+                                setShowCylinderSuggestions(false)
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                            >
+                              <div className="font-medium text-gray-800">
+                                {cylinder.product?.name || cylinder.productName}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Available: {cylinder.currentStock || cylinder.assignedQuantity || 0} • Size: {cylinder.product?.cylinderSize || 'N/A'}
+                              </div>
+                            </button>
+                          ))}
+                          {emptyCylinders.filter(cylinder => 
+                            (cylinder.product?.name || cylinder.productName || '').toLowerCase().includes(cylinderSearchTerm.toLowerCase())
+                          ).length === 0 && (
+                            <div className="px-3 py-2 text-sm text-gray-500">No empty cylinders found</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
                     <div className="space-y-2">
                       <Label>Quantity *</Label>
                       <Input

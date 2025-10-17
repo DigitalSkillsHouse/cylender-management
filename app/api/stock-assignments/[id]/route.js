@@ -28,11 +28,11 @@ export async function PATCH(request, { params }) {
     });
     
     // If accepting assignment, create EmployeeInventory records
-    if (data.status === 'received' && data.createEmployeeInventory) {
+    if ((data.status === 'received' || data.status === 'active') && data.createEmployeeInventory) {
       
       // Check if this assignment was already processed to prevent duplicates
-      if (originalAssignment.status === 'received') {
-        console.log('⚠️ Assignment already processed as received, skipping inventory creation:', {
+      if (originalAssignment.status === 'received' || originalAssignment.status === 'active') {
+        console.log('⚠️ Assignment already processed, skipping inventory creation:', {
           assignmentId: originalAssignment._id,
           productName: originalAssignment.product?.name,
           currentStatus: originalAssignment.status
@@ -57,8 +57,9 @@ export async function PATCH(request, { params }) {
       newStatus: assignment.status
     });
     
-    // Process inventory creation only if status changed from non-received to received
-    if (data.status === 'received' && data.createEmployeeInventory && originalAssignment.status !== 'received') {
+    // Process inventory creation only if status changed to received or active
+    if ((data.status === 'received' || data.status === 'active') && data.createEmployeeInventory && 
+        originalAssignment.status !== 'received' && originalAssignment.status !== 'active') {
       const EmployeeInventory = (await import("@/models/EmployeeInventory")).default;
       
       // Use the base category for database storage (gas/cylinder)
@@ -339,6 +340,45 @@ export async function PATCH(request, { params }) {
             }]
           });
         }
+      }
+    }
+    
+    // Check if employee has accepted all assignments from a purchase order and mark it as completed
+    if ((data.status === 'received' || data.status === 'active') && data.createEmployeeInventory) {
+      try {
+        const EmployeePurchaseOrder = (await import("@/models/EmployeePurchaseOrder")).default;
+        
+        // Find any employee purchase order that might be related to this assignment
+        const relatedPurchaseOrders = await EmployeePurchaseOrder.find({
+          employee: assignment.employee,
+          status: { $ne: "completed" }
+        });
+        
+        for (const purchaseOrder of relatedPurchaseOrders) {
+          // Check if all stock assignments for this employee from this time period are received
+          const StockAssignment = (await import("@/models/StockAssignment")).default;
+          const allAssignments = await StockAssignment.find({
+            employee: assignment.employee,
+            createdAt: { 
+              $gte: new Date(purchaseOrder.createdAt.getTime() - 60000), // Within 1 minute of purchase order
+              $lte: new Date(purchaseOrder.createdAt.getTime() + 60000)
+            }
+          });
+          
+          const allAccepted = allAssignments.every(sa => sa.status === 'received' || sa.status === 'active');
+          
+          if (allAccepted && allAssignments.length > 0) {
+            await EmployeePurchaseOrder.findByIdAndUpdate(
+              purchaseOrder._id,
+              { $set: { status: "completed" } },
+              { new: true }
+            );
+            console.log(`✅ Employee purchase order ${purchaseOrder._id} marked as completed after employee confirmation`);
+          }
+        }
+      } catch (purchaseOrderError) {
+        console.error("Failed to update purchase order status:", purchaseOrderError);
+        // Don't fail the entire operation
       }
     }
     

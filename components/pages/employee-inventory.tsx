@@ -31,6 +31,9 @@ interface EmployeeInventoryItem {
   }
   assignedDate: string
   lastUpdated: string
+  category?: string  // Added this - category from StockAssignment
+  cylinderStatus?: string  // Added this - cylinder status from StockAssignment
+  displayCategory?: string  // Added this - display category from StockAssignment
   transactions?: Array<{
     type: string
     quantity: number
@@ -62,7 +65,19 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
       
       if (response.ok) {
         setInventory(data.data || [])
-        console.log('Employee inventory loaded:', data.data?.length || 0, 'items')
+        console.log('📦 Employee inventory loaded:', {
+          totalItems: data.data?.length || 0,
+          assignedItems: data.data?.filter((item: EmployeeInventoryItem) => item.status === "assigned").length || 0,
+          receivedItems: data.data?.filter((item: EmployeeInventoryItem) => item.status === "received" || item.status === "active").length || 0,
+          items: data.data?.map((item: EmployeeInventoryItem) => ({
+            id: item._id,
+            product: item.product?.name,
+            status: item.status,
+            quantity: item.assignedQuantity,
+            currentStock: item.currentStock,
+            category: item.category
+          })) || []
+        })
       } else {
         setError(data.error || "Failed to load inventory")
         console.error('API Error:', data.error)
@@ -77,6 +92,8 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
   }
 
   // Filter inventory by status
+  // Admin approves employee purchase orders and creates StockAssignment records with status "assigned"
+  // Employee accepts assignments which changes status to "received", then they become active inventory
   const assignedItems = inventory.filter(item => item.status === "assigned")
   const receivedItems = inventory.filter(item => item.status === "received" || item.status === "active")
   const returnedItems = inventory.filter(item => item.status === "returned")
@@ -131,7 +148,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
     try {
       setProcessingItems(prev => new Set(prev).add(item._id))
       
-      // Update StockAssignment status to 'received' and create EmployeeInventory records
+      // Update StockAssignment status to 'received' (employee has accepted the assignment)
       const response = await fetch(`/api/stock-assignments/${item._id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

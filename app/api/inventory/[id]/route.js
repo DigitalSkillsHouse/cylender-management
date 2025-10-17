@@ -238,21 +238,108 @@ export async function PATCH(request, { params }) {
           }
           
           if (product && employeeId) {
-            // Create stock assignment for the employee
-            const stockAssignment = new StockAssignment({
-              employee: employeeId,
-              product: product._id,
-              quantity: updatedOrder.quantity || 0,
-              remainingQuantity: updatedOrder.quantity || 0,
-              assignedBy: user.id, // Admin who received the inventory
-              status: "assigned",
-              notes: `Auto-assigned from purchase order: ${updatedOrder.poNumber}`,
-              leastPrice: product.leastPrice || 0,
-              assignedDate: new Date()
-            })
-            
-            await stockAssignment.save()
-            console.log(`Created stock assignment for employee ${employeeId}: ${updatedOrder.quantity} units of ${product.name}`)
+            // Handle empty cylinder conversion for gas purchases
+            if (updatedOrder.purchaseType === 'gas' && updatedOrder.emptyCylinderId) {
+              console.log("Processing gas purchase with empty cylinder conversion")
+              
+              // 1. Reduce empty cylinder stock from employee inventory
+              try {
+                const EmployeeInventory = require("@/models/EmployeeInventory").default
+                const StockAssignment = require("@/models/StockAssignment").default
+                
+                // Find the empty cylinder assignment/inventory
+                let emptyCylinderRecord = await StockAssignment.findById(updatedOrder.emptyCylinderId)
+                if (emptyCylinderRecord) {
+                  // Reduce empty cylinder quantity
+                  const usedQuantity = updatedOrder.quantity || 0
+                  emptyCylinderRecord.remainingQuantity = Math.max(0, (emptyCylinderRecord.remainingQuantity || 0) - usedQuantity)
+                  await emptyCylinderRecord.save()
+                  console.log(`Reduced empty cylinder stock by ${usedQuantity}`)
+                  
+                  // 2. Create full cylinder assignment (gas + cylinder = full cylinder)
+                  const fullCylinderAssignment = new StockAssignment({
+                    employee: employeeId,
+                    product: emptyCylinderRecord.product, // Same cylinder product but now full
+                    quantity: usedQuantity,
+                    remainingQuantity: usedQuantity,
+                    assignedBy: user.id,
+                    status: "assigned", // Mark as assigned for employee confirmation
+                    notes: `Full cylinder created from gas purchase: ${updatedOrder.poNumber}`,
+                    leastPrice: emptyCylinderRecord.leastPrice || 0,
+                    assignedDate: new Date(),
+                    category: 'cylinder',
+                    cylinderStatus: 'full',
+                    displayCategory: 'Full Cylinder',
+                    gasProductId: product._id // Link to gas used
+                  })
+                  
+                  await fullCylinderAssignment.save()
+                  console.log(`✅ Created full cylinder assignment:`, {
+                    id: fullCylinderAssignment._id,
+                    employee: employeeId,
+                    product: emptyCylinderRecord.product,
+                    quantity: usedQuantity,
+                    status: fullCylinderAssignment.status,
+                    category: fullCylinderAssignment.category,
+                    cylinderStatus: fullCylinderAssignment.cylinderStatus
+                  })
+                  
+                  // 3. Also create gas assignment for tracking
+                  const gasAssignment = new StockAssignment({
+                    employee: employeeId,
+                    product: product._id,
+                    quantity: updatedOrder.quantity || 0,
+                    remainingQuantity: updatedOrder.quantity || 0,
+                    assignedBy: user.id,
+                    status: "assigned", // Mark as assigned for employee confirmation
+                    notes: `Gas assigned from purchase order: ${updatedOrder.poNumber}`,
+                    leastPrice: product.leastPrice || 0,
+                    assignedDate: new Date(),
+                    category: 'gas',
+                    displayCategory: 'Gas',
+                    cylinderProductId: emptyCylinderRecord.product // Link to cylinder used
+                  })
+                  
+                  await gasAssignment.save()
+                  console.log(`✅ Created gas assignment:`, {
+                    id: gasAssignment._id,
+                    employee: employeeId,
+                    product: product._id,
+                    quantity: updatedOrder.quantity || 0,
+                    status: gasAssignment.status,
+                    category: gasAssignment.category
+                  })
+                }
+              } catch (conversionError) {
+                console.error("Empty cylinder conversion error:", conversionError)
+              }
+            } else {
+              // Regular stock assignment (no conversion needed)
+              const stockAssignment = new StockAssignment({
+                employee: employeeId,
+                product: product._id,
+                quantity: updatedOrder.quantity || 0,
+                remainingQuantity: updatedOrder.quantity || 0,
+                assignedBy: user.id,
+                status: "assigned", // Mark as assigned for employee confirmation
+                notes: `Auto-assigned from purchase order: ${updatedOrder.poNumber}`,
+                leastPrice: product.leastPrice || 0,
+                assignedDate: new Date(),
+                category: product.category,
+                displayCategory: product.category === 'gas' ? 'Gas' : 'Empty Cylinder'
+              })
+              
+              await stockAssignment.save()
+              console.log(`✅ Created regular stock assignment:`, {
+                id: stockAssignment._id,
+                employee: employeeId,
+                product: product._id,
+                productName: product.name,
+                quantity: updatedOrder.quantity || 0,
+                status: stockAssignment.status,
+                category: stockAssignment.category
+              })
+            }
             
             // Create notification for employee
             try {

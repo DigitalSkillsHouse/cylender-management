@@ -79,6 +79,9 @@ async function findProductByEnhancedMatching(item) {
 
 // PATCH - Update individual item inventory status with enhanced product matching
 export async function PATCH(request, { params }) {
+  console.log("🔥🔥🔥 API CALLED: /api/inventory/item/[orderId]/[itemIndex] - PATCH")
+  console.log("🔥🔥🔥 PARAMS:", params)
+  
   try {
     const user = await verifyToken(request)
     if (!user) {
@@ -89,6 +92,8 @@ export async function PATCH(request, { params }) {
     
     const body = await request.json()
     const { status } = body
+    
+    console.log("🔥🔥🔥 REQUEST BODY:", body)
     
     console.log("🚫🚫🚫 CRITICAL DEBUG: Inventory item update request:", {
       orderId: params.orderId,
@@ -164,6 +169,8 @@ export async function PATCH(request, { params }) {
     // Handle different structures: admin orders have items array, employee orders have single item
     let updateQuery = {}
     let currentItem = null
+    let originalInventoryStatus = null // Declare at proper scope
+    let employeeStatus = status // Declare at proper scope
     
     if (isEmployeePurchase) {
       // Employee purchase orders use single-item structure (no items array)
@@ -176,10 +183,10 @@ export async function PATCH(request, { params }) {
       
       console.log("Before update - Employee order inventory status:", updatedOrder.inventoryStatus)
       
-      // Handle different scenarios for employee orders:
+      // For employee orders: when admin "approves" them, they go to employee pending inventory
       // 1. Admin approves employee order: "pending" -> "approved" (goes to employee pending)
       // 2. Employee receives approved order: "approved" -> "received" (completes the process)
-      let employeeStatus = status
+      originalInventoryStatus = updatedOrder.inventoryStatus // Store original status
       if (status === "received") {
         if (updatedOrder.inventoryStatus === "pending") {
           // Admin is approving employee order
@@ -324,14 +331,20 @@ export async function PATCH(request, { params }) {
         }
         
         if (allItemsReceived) {
-          console.log("All items received, updating purchase order status to completed")
-          await (isEmployeePurchase ? EmployeePurchaseOrder : PurchaseOrder)
-            .findByIdAndUpdate(
+          if (isEmployeePurchase) {
+            // For employee purchases: Don't mark as completed yet, wait for employee confirmation
+            console.log("All employee purchase items approved by admin, but waiting for employee confirmation")
+            // Purchase order stays in current status until employee accepts assignments
+          } else {
+            // For admin purchases: Mark as completed immediately
+            console.log("All admin purchase items received, updating purchase order status to completed")
+            await PurchaseOrder.findByIdAndUpdate(
               params.orderId,
               { $set: { status: "completed" } },
               { new: true }
             )
-          console.log("Purchase order status updated to completed")
+            console.log("Admin purchase order status updated to completed")
+          }
         }
       } catch (statusUpdateError) {
         console.error("Failed to update purchase order status:", statusUpdateError)
@@ -350,22 +363,114 @@ export async function PATCH(request, { params }) {
         if (isEmployeePurchase && updatedOrder.employee) {
           const employeeId = updatedOrder.employee._id || updatedOrder.employee
           
-          if (updatedOrder.inventoryStatus === "pending" && employeeStatus === "approved") {
-            // Admin is approving employee order - just send notification, no stock assignment yet
-            console.log("Admin approving employee purchase - sending notification")
+          console.log("🔍 Employee purchase approval debug:", {
+            isEmployeePurchase,
+            hasEmployee: !!updatedOrder.employee,
+            employeeId,
+            originalInventoryStatus,
+            currentInventoryStatus: updatedOrder.inventoryStatus,
+            employeeStatus,
+            conditionMet: originalInventoryStatus === "pending" && employeeStatus === "approved"
+          })
+          
+          if (originalInventoryStatus === "pending" && employeeStatus === "approved") {
+            // Admin is approving employee order - create stock assignment with "assigned" status
+            console.log("Admin approving employee purchase - creating stock assignment with assigned status")
             
+            const StockAssignment = require("@/models/StockAssignment").default
+            
+            // ENHANCED PRODUCT MATCHING
+            let product = await findProductByEnhancedMatching(item)
+            
+            if (product && employeeId) {
+              // Check if this is a gas purchase with empty cylinder conversion
+              if (product.category === 'gas' && updatedOrder.emptyCylinderId) {
+                console.log("🔄 Gas purchase with empty cylinder conversion detected")
+                
+                // 1. Create gas assignment
+                const gasAssignment = new StockAssignment({
+                  employee: employeeId,
+                  product: product._id,
+                  quantity: item.quantity || 0,
+                  remainingQuantity: item.quantity || 0,
+                  assignedBy: user.id,
+                  status: "assigned",
+                  notes: `Gas assigned from approved purchase order: ${updatedOrder.poNumber}`,
+                  leastPrice: product.leastPrice || 0,
+                  assignedDate: new Date(),
+                  category: 'gas',
+                  displayCategory: 'Gas'
+                })
+                
+                await gasAssignment.save()
+                console.log(`✅ Created gas assignment: ${item.quantity} units of ${product.name}`)
+                
+                // 2. Find the empty cylinder record and create full cylinder assignment
+                try {
+                  const StockAssignment = require("@/models/StockAssignment").default
+                  const emptyCylinderRecord = await StockAssignment.findById(updatedOrder.emptyCylinderId).populate('product')
+                  
+                  if (emptyCylinderRecord && emptyCylinderRecord.product) {
+                    // Create full cylinder assignment (gas + empty cylinder = full cylinder)
+                    const fullCylinderAssignment = new StockAssignment({
+                      employee: employeeId,
+                      product: emptyCylinderRecord.product._id, // Same cylinder product but now full
+                      quantity: item.quantity || 0,
+                      remainingQuantity: item.quantity || 0,
+                      assignedBy: user.id,
+                      status: "assigned",
+                      notes: `Full cylinder created from gas purchase: ${updatedOrder.poNumber}`,
+                      leastPrice: emptyCylinderRecord.product.leastPrice || 0,
+                      assignedDate: new Date(),
+                      category: 'cylinder',
+                      cylinderStatus: 'full',
+                      displayCategory: 'Full Cylinder',
+                      gasProductId: product._id // Link to gas used
+                    })
+                    
+                    await fullCylinderAssignment.save()
+                    console.log(`✅ Created full cylinder assignment: ${item.quantity} units of ${emptyCylinderRecord.product.name}`)
+                    
+                    // 3. Reduce empty cylinder stock
+                    emptyCylinderRecord.remainingQuantity = Math.max(0, (emptyCylinderRecord.remainingQuantity || 0) - (item.quantity || 0))
+                    await emptyCylinderRecord.save()
+                    console.log(`✅ Reduced empty cylinder stock by ${item.quantity}`)
+                  }
+                } catch (cylinderError) {
+                  console.error("Failed to process empty cylinder conversion:", cylinderError)
+                }
+              } else {
+                // Regular stock assignment (no conversion)
+                const stockAssignment = new StockAssignment({
+                  employee: employeeId,
+                  product: product._id,
+                  quantity: item.quantity || 0,
+                  remainingQuantity: item.quantity || 0,
+                  assignedBy: user.id,
+                  status: "assigned",
+                  notes: `Assigned from approved purchase order: ${updatedOrder.poNumber}`,
+                  leastPrice: product.leastPrice || 0,
+                  assignedDate: new Date(),
+                  category: product.category,
+                  displayCategory: product.category === 'gas' ? 'Gas' : (product.category === 'cylinder' ? 'Empty Cylinder' : product.category)
+                })
+                
+                await stockAssignment.save()
+                console.log(`✅ Created stock assignment for employee ${employeeId}: ${item.quantity} units of ${product.name}`)
+              }
+            }
+            
+            // Also send notification
             try {
               const Notification = require("@/models/Notification").default
               
-              // ENHANCED PRODUCT MATCHING for notification
-              let product = await findProductByEnhancedMatching(item)
               let productName = product?.name || "Unknown Product"
               
               const notification = new Notification({
                 userId: employeeId,
                 type: "purchase_approved",
                 title: "Purchase Order Approved",
-                message: `Your purchase order for ${productName} (Qty: ${item.quantity}) has been approved and is ready for pickup.`,
+                message: `Your purchase order for ${productName} (Qty: ${item.quantity}) has been approved and is ready for confirmation.`,
                 isRead: false,
                 createdBy: user.id
               })
@@ -422,11 +527,10 @@ export async function PATCH(request, { params }) {
                   quantity: item.quantity || 0,
                   remainingQuantity: item.quantity || 0,
                   assignedBy: employeeId, // Set to employee ID since they're receiving it themselves
-                  status: "received", // Directly set to received since employee is receiving it
-                  notes: `Received from approved purchase order: ${updatedOrder.poNumber}`,
+                  status: "assigned", // Mark as assigned for employee confirmation
+                  notes: `Assigned from approved purchase order: ${updatedOrder.poNumber}`,
                   leastPrice: product.leastPrice || 0,
-                  assignedDate: new Date(),
-                  receivedDate: new Date()
+                  assignedDate: new Date()
                 })
                 
                 await stockAssignment.save()

@@ -77,6 +77,7 @@ export async function POST(request) {
       notes,
       status = "pending",
       invoiceNumber,
+      emptyCylinderId,
     } = body
 
     // Validate required fields
@@ -116,6 +117,23 @@ export async function POST(request) {
       ? Number(totalAmount)
       : (qtyNum * unitPriceNum)
 
+    // Resolve empty cylinder name if emptyCylinderId is provided
+    let emptyCylinderName = null
+    if (emptyCylinderId) {
+      try {
+        const StockAssignment = require("@/models/StockAssignment").default
+        const Product = require("@/models/Product").default
+        
+        // Find the stock assignment to get the product ID
+        const stockAssignment = await StockAssignment.findById(emptyCylinderId).populate('product')
+        if (stockAssignment && stockAssignment.product) {
+          emptyCylinderName = stockAssignment.product.name
+        }
+      } catch (cylinderError) {
+        console.warn("Failed to resolve cylinder name:", cylinderError.message)
+      }
+    }
+
     const employeePurchaseOrder = new EmployeePurchaseOrder({
       supplier,
       product,
@@ -128,7 +146,9 @@ export async function POST(request) {
       totalAmount: computedTotal,
       notes: notes || "",
       status,
-      poNumber
+      poNumber,
+      ...(emptyCylinderId ? { emptyCylinderId } : {}),
+      ...(emptyCylinderName ? { emptyCylinderName } : {})
     })
 
     await employeePurchaseOrder.save()

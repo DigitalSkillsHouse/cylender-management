@@ -44,6 +44,22 @@ export async function GET(request) {
       .populate('employee', 'name email')
       .sort({ createdAt: -1 })
 
+    console.log('📊 Raw data fetched:', {
+      employeeId: employeeId,
+      employeeInventoryCount: employeeInventory.length,
+      stockAssignmentsCount: stockAssignments.length,
+      stockAssignments: stockAssignments.map(sa => ({
+        id: sa._id,
+        status: sa.status,
+        product: sa.product?.name,
+        quantity: sa.quantity,
+        remainingQuantity: sa.remainingQuantity,
+        category: sa.category,
+        cylinderStatus: sa.cylinderStatus,
+        displayCategory: sa.displayCategory
+      }))
+    })
+
     // Convert StockAssignment to EmployeeInventory format
     const convertedAssignments = stockAssignments.map(assignment => {
       // Use displayCategory if available, otherwise construct from category and cylinderStatus
