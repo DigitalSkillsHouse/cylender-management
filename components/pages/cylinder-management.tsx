@@ -872,6 +872,16 @@ export function CylinderManagement() {
 
   const totalItemsAmount = () => formData.items.reduce((sum, it) => sum + ((Number(it.quantity) || 0) * (Number(it.amount) || 0)), 0)
 
+  // Helper function to calculate reserved stock from current form items
+  const calculateReservedStock = (productId: string, transactionType: 'deposit' | 'refill' | 'return') => {
+    return formData.items.reduce((reserved, item) => {
+      if (item.productId === productId) {
+        return reserved + (Number(item.quantity) || 0)
+      }
+      return reserved
+    }, 0)
+  }
+
   const validateItemStock = (productId: string, qty: number) => {
     const p = allProducts.find(p => p._id === productId)
     if (!p) {
@@ -884,18 +894,38 @@ export function CylinderManagement() {
     
     // For deposits, validate empty cylinder availability (deposits convert empty->full for customers)
     if (formData.type === 'deposit' && p.category === 'cylinder') {
-      const availableEmpty = inventoryAvailability[productId]?.availableEmpty || 0
-      if (qty > availableEmpty) {
-        setStockValidationMessage(`Insufficient empty cylinders! Available: ${availableEmpty}, Requested: ${qty}`)
+      const totalStock = inventoryAvailability[productId]?.availableEmpty || 0
+      const reservedStock = calculateReservedStock(productId, 'deposit')
+      const availableStock = totalStock - reservedStock
+      
+      if (qty > availableStock) {
+        setStockValidationMessage(`Insufficient empty cylinders! Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Requested: ${qty}`)
         setShowStockValidationPopup(true)
         return false
       }
       return true
     }
     
-    // Fallback validation
-    if (qty > p.currentStock) {
-      setStockValidationMessage(`Insufficient stock! Available: ${p.currentStock}, Requested: ${qty}`)
+    // For refills, validate full cylinder availability (refills convert full->empty for suppliers)
+    if (formData.type === 'refill' && p.category === 'cylinder') {
+      const totalStock = inventoryAvailability[productId]?.availableFull || 0
+      const reservedStock = calculateReservedStock(productId, 'refill')
+      const availableStock = totalStock - reservedStock
+      
+      if (qty > availableStock) {
+        setStockValidationMessage(`Insufficient full cylinders! Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Requested: ${qty}`)
+        setShowStockValidationPopup(true)
+        return false
+      }
+      return true
+    }
+    
+    // Fallback validation with reserved stock calculation
+    const reservedStock = calculateReservedStock(productId, formData.type)
+    const availableStock = p.currentStock - reservedStock
+    
+    if (qty > availableStock) {
+      setStockValidationMessage(`Insufficient stock! Available: ${p.currentStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Requested: ${qty}`)
       setShowStockValidationPopup(true)
       return false
     }
@@ -2069,6 +2099,36 @@ export function CylinderManagement() {
                       value={draftItem.quantity}
                       onChange={(e) => {
                         const q = Number.parseInt(e.target.value) || 1
+                        
+                        // Real-time stock validation for quantity changes
+                        if (draftItem.productId && q > 0 && formData.type !== 'return') {
+                          const p = allProducts.find(p => p._id === draftItem.productId)
+                          if (p) {
+                            let totalStock = 0
+                            let stockType = ''
+                            
+                            if (formData.type === 'deposit' && p.category === 'cylinder') {
+                              totalStock = inventoryAvailability[draftItem.productId]?.availableEmpty || 0
+                              stockType = 'Empty Cylinders'
+                            } else if (formData.type === 'refill' && p.category === 'cylinder') {
+                              totalStock = inventoryAvailability[draftItem.productId]?.availableFull || 0
+                              stockType = 'Full Cylinders'
+                            } else {
+                              totalStock = p.currentStock || 0
+                              stockType = 'Stock'
+                            }
+                            
+                            const reservedStock = calculateReservedStock(draftItem.productId, formData.type)
+                            const availableStock = totalStock - reservedStock
+                            
+                            if (q > availableStock) {
+                              setStockValidationMessage(`Insufficient ${stockType}! Available: ${totalStock}, Reserved: ${reservedStock}, Remaining: ${availableStock}, Requested: ${q}`)
+                              setShowStockValidationPopup(true)
+                              return
+                            }
+                          }
+                        }
+                        
                         setDraftItem(prev => ({ ...prev, quantity: q }))
                       }}
                     />
