@@ -758,41 +758,6 @@ export function CollectionPage({ user }: CollectionPageProps) {
               Selected Invoices: <strong>{totalSelected}</strong> • Total to Collect: <strong>AED {totalToCollect.toFixed(2)}</strong>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" disabled={loading || totalSelected === 0} onClick={() => {
-                // Collect all selected invoices for preview
-                const selectedInvoices: PendingInvoice[] = []
-                
-                filtered.forEach((inv) => {
-                  if (selected[inv._id]) {
-                    const amount = parseFloat(amounts[inv._id] || '0')
-                    if (amount > 0) {
-                      selectedInvoices.push(inv)
-                    }
-                  }
-                })
-                
-                if (selectedInvoices.length === 0) {
-                  toast({ title: "No invoices selected", variant: "destructive" })
-                  return
-                }
-                
-                // Convert to payments format for openPrintWindow
-                const payments: Array<{ model: string; id: string; amount: number }> = []
-                selectedInvoices.forEach(invoice => {
-                  const amount = parseFloat(amounts[invoice._id] || '0')
-                  if (amount > 0) {
-                    payments.push({
-                      model: invoice.model,
-                      id: invoice._id,
-                      amount: amount
-                    })
-                  }
-                })
-                
-                openPrintWindow(payments)
-              }}>
-                <Printer className="w-4 h-4 mr-2" /> Preview Receipt
-              </Button>
               <Button onClick={handleReceiveAmountClick} disabled={loading || totalSelected === 0}>
                 Receive Amount
               </Button>

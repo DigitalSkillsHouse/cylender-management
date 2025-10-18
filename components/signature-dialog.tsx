@@ -16,6 +16,7 @@ interface SignatureDialogProps {
 export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customerName }: SignatureDialogProps) {
   const signatureRef = useRef<SignatureCanvas>(null)
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 600, height: 220 })
+  const [hasSignature, setHasSignature] = useState(false)
 
   // Make the signature area comfortably large on mobile and responsive on resize
   useEffect(() => {
@@ -34,7 +35,16 @@ export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customer
     return () => window.removeEventListener('resize', computeSize)
   }, [])
 
+  // Reset signature state when dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      setHasSignature(false)
+    }
+  }, [isOpen])
+
   const handleSave = () => {
+    if (!hasSignature) return // Don't proceed if no signature
+    
     const signatureData = signatureRef.current?.toDataURL()
     console.log('SignatureDialog - Signature captured:', signatureData)
     console.log('SignatureDialog - Signature length:', signatureData?.length)
@@ -46,6 +56,15 @@ export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customer
 
   const clearSignature = () => {
     signatureRef.current?.clear()
+    setHasSignature(false)
+  }
+
+  // Check if signature exists when user draws
+  const handleSignatureChange = () => {
+    if (signatureRef.current) {
+      const isEmpty = signatureRef.current.isEmpty()
+      setHasSignature(!isEmpty)
+    }
   }
 
   const handleCancel = () => {
@@ -91,6 +110,7 @@ export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customer
                   style: { border: "1px solid #ddd", borderRadius: "6px", width: '100%', height: `${canvasSize.height}px` },
                 }}
                 backgroundColor="white"
+                onEnd={handleSignatureChange}
               />
             </div>
             <div className="flex justify-center mt-3">
@@ -104,7 +124,16 @@ export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customer
             <Button variant="outline" onClick={handleCancel}>
               Cancel
             </Button>
-            <Button onClick={handleSave} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white">
+            <Button 
+              onClick={handleSave} 
+              disabled={!hasSignature}
+              className={`${
+                hasSignature 
+                  ? "bg-[#2B3068] hover:bg-[#1a1f4a] text-white" 
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
+              title={!hasSignature ? "Please provide signature first" : "Continue to receipt"}
+            >
               Continue to Receipt
             </Button>
           </div>
