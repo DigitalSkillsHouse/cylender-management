@@ -5,18 +5,32 @@ import InventoryItem from "@/models/InventoryItem";
 import Customer from "@/models/Customer";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
+import Sale from "@/models/Sale";
+import EmployeeSale from "@/models/EmployeeSale";
 
-// Helper: get next sequential invoice number: INV-<year>-CM-<seq>
+// Helper: get next sequential invoice number using unified system
 async function getNextCylinderInvoice() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const key = 'cylinder_invoice'
-  const updated = await Counter.findOneAndUpdate(
-    { key, year },
-    { $inc: { seq: 1 } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  )
-  return `INV-${year}-CM-${updated.seq}`
+  const settings = await Counter.findOne({ key: 'invoice_start' })
+  const startingNumber = settings?.seq || 0
+
+  // Check all invoice collections for latest number
+  const [latestSale, latestEmpSale, latestCylinder] = await Promise.all([
+    Sale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
+    EmployeeSale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
+    CylinderTransaction.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 })
+  ])
+
+  let nextNumber = startingNumber
+  const saleNumber = latestSale ? parseInt(latestSale.invoiceNumber) || -1 : -1
+  const empSaleNumber = latestEmpSale ? parseInt(latestEmpSale.invoiceNumber) || -1 : -1
+  const cylinderNumber = latestCylinder ? parseInt(latestCylinder.invoiceNumber) || -1 : -1
+  const lastNumber = Math.max(saleNumber, empSaleNumber, cylinderNumber)
+  
+  if (lastNumber >= 0) {
+    nextNumber = Math.max(lastNumber + 1, startingNumber)
+  }
+
+  return nextNumber.toString().padStart(4, '0')
 }
 
 // Helper function to update inventory for deposit transactions
@@ -82,7 +96,7 @@ export async function POST(request) {
       status: data.status || "pending"
     };
 
-    // Assign invoice number if not provided (sequential per year)
+    // Assign invoice number if not provided (sequential unified system)
     if (!transactionData.invoiceNumber) {
       transactionData.invoiceNumber = await getNextCylinderInvoice()
     }

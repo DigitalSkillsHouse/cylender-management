@@ -4,7 +4,8 @@ import EmployeeSale from "@/models/EmployeeSale"
 import Product from "@/models/Product"
 import Customer from "@/models/Customer"
 import User from "@/models/User"
-
+import Counter from "@/models/Counter"
+import Sale from "@/models/Sale"
 
 export async function GET(request) {
   try {
@@ -44,10 +45,26 @@ export async function POST(request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Generate invoice number
-    const lastSale = await EmployeeSale.findOne().sort({ createdAt: -1 })
-    const lastInvoiceNumber = lastSale?.invoiceNumber || "EMP-0000"
-    const invoiceNumber = `EMP-${String(parseInt(lastInvoiceNumber.split("-")[1]) + 1).padStart(4, "0")}`
+    // Generate sequential invoice number using same system as admin sales
+    const settings = await Counter.findOne({ key: 'invoice_start' })
+    const startingNumber = settings?.seq || 0
+
+    // Check both Sale and EmployeeSale collections for latest invoice number
+    const [latestSale, latestEmpSale] = await Promise.all([
+      Sale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
+      EmployeeSale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 })
+    ])
+
+    let nextNumber = startingNumber
+    const saleNumber = latestSale ? parseInt(latestSale.invoiceNumber) || -1 : -1
+    const empSaleNumber = latestEmpSale ? parseInt(latestEmpSale.invoiceNumber) || -1 : -1
+    const lastNumber = Math.max(saleNumber, empSaleNumber)
+    
+    if (lastNumber >= 0) {
+      nextNumber = Math.max(lastNumber + 1, startingNumber)
+    }
+
+    const invoiceNumber = nextNumber.toString().padStart(4, '0')
 
     // Validate stock availability and calculate totals
     let calculatedTotal = 0

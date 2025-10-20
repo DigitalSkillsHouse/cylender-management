@@ -3,6 +3,7 @@ import dbConnect from "@/lib/mongodb"
 import Sale from "@/models/Sale"
 import Customer from "@/models/Customer"
 import Product from "@/models/Product"
+import Counter from "@/models/Counter"
 
 export async function GET() {
   try {
@@ -155,22 +156,21 @@ export async function POST(request) {
       }
     }
 
-    // Generate sequential invoice number like INV-2025-01
-    const currentYear = new Date().getFullYear()
-    const yearPrefix = `INV-${currentYear}-`
-    
-    // Find the latest invoice number for this year
+    // Generate sequential invoice number starting from saved setting
+    const settings = await Counter.findOne({ key: 'invoice_start' })
+    const startingNumber = settings?.seq || 0
+
     const latestSale = await Sale.findOne({
-      invoiceNumber: { $regex: `^${yearPrefix}` }
+      invoiceNumber: { $regex: /^\d{4}$/ }
     }).sort({ invoiceNumber: -1 })
-    
-    let nextNumber = 1
+
+    let nextNumber = startingNumber
     if (latestSale) {
-      const lastNumber = parseInt(latestSale.invoiceNumber.split('-')[2]) || 0
-      nextNumber = lastNumber + 1
+      const lastNumber = parseInt(latestSale.invoiceNumber) || (startingNumber - 1)
+      nextNumber = Math.max(lastNumber + 1, startingNumber)
     }
-    
-    const invoiceNumber = `${yearPrefix}${nextNumber.toString().padStart(2, '0')}`
+
+    const invoiceNumber = nextNumber.toString().padStart(4, '0')
 
     // Enrich items with category, cylinderSize, and cylinderStatus from Product model
     const enrichedItems = (items || []).map((item) => {
@@ -219,7 +219,7 @@ export async function POST(request) {
           
           // Generate a new invoice number with timestamp to ensure uniqueness
           const timestamp = Date.now().toString().slice(-4)
-          const newInvoiceNumber = `${yearPrefix}${nextNumber.toString().padStart(2, '0')}-${timestamp}`
+          const newInvoiceNumber = `${nextNumber.toString().padStart(4, '0')}-${timestamp}`
           sale.invoiceNumber = newInvoiceNumber
           nextNumber++
         } else {

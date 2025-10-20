@@ -26,6 +26,7 @@ import { LogoutConfirmation } from "@/components/logout-confirmation"
 import { authAPI } from "@/lib/api"
 import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
 import { CollectionPage } from "@/components/pages/collection"
+import { InvoiceSettingsDialog } from "@/components/invoice-settings-dialog"
 
 interface MainLayoutProps {
   user: {
@@ -47,6 +48,7 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
   const [creditAmount, setCreditAmount] = useState(0)
   const [debitAmount, setDebitAmount] = useState(0)
   const [showAdminSignatureDialog, setShowAdminSignatureDialog] = useState(false)
+  const [showInvoiceSettings, setShowInvoiceSettings] = useState(false)
 
   useEffect(() => {
     // Initialize current page from URL on mount
@@ -73,6 +75,27 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
       window.history.replaceState({}, '', url)
     }
   }, [currentPage, mounted])
+
+  // Check for invoice settings on admin login
+  useEffect(() => {
+    const checkInvoiceSettings = async () => {
+      if (user?.role === 'admin') {
+        try {
+          const res = await fetch('/api/invoice-settings')
+          const data = await res.json()
+          if (data.needsStartingNumber) {
+            setShowInvoiceSettings(true)
+          }
+        } catch (error) {
+          console.error('Failed to check invoice settings:', error)
+        }
+      }
+    }
+
+    if (mounted) {
+      checkInvoiceSettings()
+    }
+  }, [mounted, user?.role])
 
   // Fetch employee financial data if user is an employee
   useEffect(() => {
@@ -236,6 +259,12 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
           onSave={() => {
             // no-op; saved in component and localStorage
           }}
+        />
+
+        {/* Invoice settings dialog (first time setup) */}
+        <InvoiceSettingsDialog 
+          isOpen={showInvoiceSettings}
+          onClose={() => setShowInvoiceSettings(false)}
         />
       </div>
     </SidebarProvider>
