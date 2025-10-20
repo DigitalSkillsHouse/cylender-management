@@ -622,15 +622,23 @@ export function CylinderManagement() {
       doc.setFillColor(43, 48, 104) // brand-like dark blue
       doc.rect(marginX - 4, headerY - 14, pageWidth - marginX * 2 + 8, headerHeight, 'F')
 
-      // Define columns (expanded set)
+      // Define columns (only specified columns)
       const headers = [
-        'Type','Customer','Product Items / Cylinder Size','Quantity','Amount',
-        'Deposit Amount','Refill Amount','Return Amount','Payment Method','Security Cash','Bank Name','Check Number','Notes','Status','Invoice No.','Date'
+        'Type','Product Items / Cylinder Size','Quantity','Amount',
+        'Deposit Amount','Return Amount','Payment Method','Security Cash','Bank Name','Check Number'
       ]
-      const colWidths = [
-        30, 70, 160, 35, 50,
-        60, 60, 60, 65, 60, 65, 70, 100, 50, 75, 60
+      let colWidths = [
+        35, 150, 40, 50,
+        65, 65, 70, 65, 80, 85
       ]
+      
+      // Ensure all columns fit within page width
+      const totalColWidth = colWidths.reduce((sum, w) => sum + w, 0)
+      const availableWidth = pageWidth - marginX * 2
+      if (totalColWidth > availableWidth) {
+        const scaleFactor = availableWidth / totalColWidth
+        colWidths = colWidths.map(w => Math.floor(w * scaleFactor))
+      }
 
       // Draw header text in white
       doc.setTextColor(255, 255, 255)
@@ -639,7 +647,7 @@ export function CylinderManagement() {
       let xh = marginX
       headers.forEach((h, i) => {
         doc.text(h, xh, headerY)
-        xh += (colWidths[i] || 80)
+        xh += colWidths[i]
       })
       // Reset for body
       doc.setTextColor(0, 0, 0)
@@ -667,7 +675,7 @@ export function CylinderManagement() {
           doc.setTextColor(255, 255, 255)
           doc.setFontSize(7.5)
           let nx = marginX
-          headers.forEach((h, i) => { doc.text(h, nx, newHeaderY); nx += (colWidths[i] || 80) })
+          headers.forEach((h, i) => { doc.text(h, nx, newHeaderY); nx += colWidths[i] })
           doc.setTextColor(0,0,0)
           y += 12
           rowIndex = 0
@@ -731,31 +739,73 @@ export function CylinderManagement() {
         const inv = (t as any).invoiceNumber || ''
         const row = [
           t.type,
-          party,
           `${productOrItems} / ${cylSize}`,
           String(qty),
           Number(amt).toFixed(2),
           t.depositAmount ? Number(t.depositAmount).toFixed(2) : '',
-          t.refillAmount ? Number(t.refillAmount).toFixed(2) : '',
           t.returnAmount ? Number(t.returnAmount).toFixed(2) : '',
           t.paymentMethod || '',
           t.cashAmount ? Number(t.cashAmount).toFixed(2) : '',
           t.bankName || '',
-          t.checkNumber || '',
-          t.notes || '',
-          t.status,
-          inv,
-          new Date(t.createdAt).toLocaleDateString(),
+          t.checkNumber || ''
         ]
         drawRow(row)
       })
 
+      // Add summary table at bottom right
+      const deposits = list.filter(t => t.type === 'deposit')
+      const returns = list.filter(t => t.type === 'return')
+      const totalDeposits = deposits.length
+      const totalReturns = returns.length
+      const totalRemaining = totalDeposits - totalReturns
+
+      // Add some space before summary
+      y += 20
+
+      // Summary table position (right side)
+      const summaryX = pageWidth - 200
+      const summaryY = y
+
+      // Summary table header
+      doc.setFillColor(43, 48, 104)
+      doc.rect(summaryX, summaryY - 14, 180, 16, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(8)
+      doc.text('Summary', summaryX + 5, summaryY)
+      
+      // Summary table content
+      doc.setTextColor(0, 0, 0)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7)
+      let summaryRowY = summaryY + 12
+      
+      const summaryRows = [
+        ['Total Deposits:', String(totalDeposits)],
+        ['Total Returns:', String(totalReturns)],
+        ['Remaining (Not Returned):', String(totalRemaining)]
+      ]
+      
+      summaryRows.forEach((row, idx) => {
+        if (idx % 2 === 1) {
+          doc.setFillColor(245, 247, 250)
+          doc.rect(summaryX, summaryRowY - 8, 180, 12, 'F')
+        }
+        doc.text(row[0], summaryX + 5, summaryRowY)
+        doc.text(row[1], summaryX + 120, summaryRowY)
+        summaryRowY += 12
+      })
+
       const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')
-      const suffix = term ? `-party-${term.replace(/[^a-z0-9-_]+/g,'_')}` : ''
+      let customerName = 'all-customers'
+      if (term) {
+        customerName = term.replace(/[^a-z0-9\s]+/gi,'').replace(/\s+/g,'_')
+      }
       const datePart = (exportStartDate || exportEndDate)
-        ? `-date-${(exportStartDate||'start').replace(/[^0-9-]/g,'')}_to_${(exportEndDate||'end').replace(/[^0-9-]/g,'')}`
+        ? `_${(exportStartDate||'start').replace(/[^0-9-]/g,'')}_to_${(exportEndDate||'end').replace(/[^0-9-]/g,'')}`
         : ''
-      doc.save(`cylinder-transactions${suffix}${datePart}-${ts}.pdf`)
+      const filename = `${customerName}_cylinder_transactions${datePart}_${ts}.pdf`
+      doc.save(filename)
     } catch (e) {
       console.error('[CylinderManagement] PDF export failed:', e)
       alert('Failed to export PDF')
@@ -880,7 +930,7 @@ export function CylinderManagement() {
     }
   }
 
-  const totalItemsAmount = () => formData.items.reduce((sum, it) => sum + ((Number(it.quantity) || 0) * (Number(it.amount) || 0)), 0)
+  const totalItemsAmount = () => formData.items.reduce((sum: number, it) => sum + ((Number(it.quantity) || 0) * (Number(it.amount) || 0)), 0)
 
   // Helper function to calculate reserved stock from current form items
   const calculateReservedStock = (productId: string, transactionType: 'deposit' | 'refill' | 'return') => {
@@ -974,11 +1024,53 @@ export function CylinderManagement() {
         // Fetch previous deposit/security records for this customer
         const res = await cylindersAPI.getAll({ customerId: formData.customerId, type: 'deposit' } as any)
         const list = (res?.data?.data || res?.data || []) as any[]
-        // Keep only records with payment details for clarity
-        const filtered = Array.isArray(list)
-          ? list.filter(r => r && (r.paymentMethod === 'cash' || r.paymentMethod === 'cheque'))
+        
+        // Fetch all return transactions for this customer to check which deposits are already used
+        const returnRes = await cylindersAPI.getAll({ customerId: formData.customerId, type: 'return' } as any)
+        const returnList = (returnRes?.data?.data || returnRes?.data || []) as any[]
+        
+        // Create a map of deposit IDs that have been used in returns
+        const depositReturnQuantities = new Map() // Track quantities returned per deposit
+        
+        if (Array.isArray(returnList)) {
+          returnList.forEach(returnTx => {
+            if (returnTx.linkedDeposit) {
+              const depositId = typeof returnTx.linkedDeposit === 'object' ? returnTx.linkedDeposit._id : returnTx.linkedDeposit
+              if (depositId) {
+                // Calculate returned quantity for this return transaction
+                const returnedQty = Array.isArray(returnTx.items) && returnTx.items.length > 0
+                  ? returnTx.items.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0)
+                  : (Number(returnTx.quantity) || 0)
+                
+                // Add to total returned quantity for this deposit
+                const currentReturned = depositReturnQuantities.get(depositId) || 0
+                depositReturnQuantities.set(depositId, currentReturned + returnedQty)
+              }
+            }
+          })
+        }
+        
+        // Filter deposits to only show those that haven't been fully returned
+        const availableDeposits = Array.isArray(list)
+          ? list.filter(deposit => {
+              if (!deposit || !(deposit.paymentMethod === 'cash' || deposit.paymentMethod === 'cheque')) {
+                return false
+              }
+              
+              // Calculate total deposited quantity
+              const depositedQty = Array.isArray(deposit.items) && deposit.items.length > 0
+                ? deposit.items.reduce((sum: number, item: any) => sum + (Number(item.quantity) || 0), 0)
+                : (Number(deposit.quantity) || 0)
+              
+              // Get total returned quantity for this deposit
+              const returnedQty = depositReturnQuantities.get(deposit._id) || 0
+              
+              // Only show deposits that haven't been fully returned
+              return returnedQty < depositedQty
+            })
           : []
-        setSecurityRecords(filtered)
+        
+        setSecurityRecords(availableDeposits)
         setShowSecurityDialog(true)
       } catch (e) {
         console.error('[CylinderManagement] Failed to fetch security records:', e)
