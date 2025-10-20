@@ -405,7 +405,7 @@ export function CylinderManagement() {
       ),
       invoiceNumber: () => (
         <TableCell className="p-4">
-          {transaction.invoiceNumber || (transaction._id ? `CYL-${transaction._id.slice(-6).toUpperCase()}` : '-')}
+          {transaction.invoiceNumber || '-'}
         </TableCell>
       ),
       date: () => (
@@ -517,7 +517,7 @@ export function CylinderManagement() {
           ? items!.reduce((s, it) => s + (Number(it.amount)||0), 0)
           : (t.amount || 0)
         const party = t.customer?.name || t.supplier?.companyName || ''
-        const inv = (t as any).invoiceNumber || (t?._id ? `CYL-${String(t._id).slice(-6).toUpperCase()}` : '')
+        const inv = (t as any).invoiceNumber || ''
         return [
           new Date(t.createdAt).toLocaleDateString(),
           inv,
@@ -728,7 +728,7 @@ export function CylinderManagement() {
           ? items!.reduce((s, it) => s + (Number(it.amount)||0), 0)
           : (t.amount || 0)
         const party = t.customer?.name || t.supplier?.companyName || ''
-        const inv = (t as any).invoiceNumber || (t?._id ? `CYL-${String(t._id).slice(-6).toUpperCase()}` : '')
+        const inv = (t as any).invoiceNumber || ''
         const row = [
           t.type,
           party,
@@ -1493,7 +1493,7 @@ export function CylinderManagement() {
       
       const saleData = {
         _id: transaction._id,
-        invoiceNumber: `CYL-${transaction._id.slice(-8).toUpperCase()}`,
+        invoiceNumber: transaction.invoiceNumber || `CYL-${transaction._id.slice(-8).toUpperCase()}`,
         customer: {
           name: fullCustomer?.name || transaction.customer?.name || "Unknown Customer",
           phone: fullCustomer?.phone || transaction.customer?.phone || "",
@@ -1559,7 +1559,7 @@ export function CylinderManagement() {
       
       const saleData = {
         _id: pendingTransaction._id,
-        invoiceNumber: `CYL-${pendingTransaction._id.slice(-8).toUpperCase()}`,
+        invoiceNumber: pendingTransaction.invoiceNumber || `CYL-${pendingTransaction._id.slice(-8).toUpperCase()}`,
         customer: {
           name: fullCustomer?.name || pendingTransaction.customer?.name || "Unknown Customer",
           phone: fullCustomer?.phone || pendingTransaction.customer?.phone || "",

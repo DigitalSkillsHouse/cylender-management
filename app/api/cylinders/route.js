@@ -5,17 +5,29 @@ import Supplier from "@/models/Supplier";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
 
-// Helper: get next sequential invoice number: INV-<year>-CM-<seq>
+// Helper: get next sequential invoice number using unified system
 async function getNextCylinderInvoice() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const key = 'cylinder_invoice'
-  const updated = await Counter.findOneAndUpdate(
-    { key, year },
-    { $inc: { seq: 1 } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  )
-  return `INV-${year}-CM-${updated.seq}`
+  const settings = await Counter.findOne({ key: 'invoice_start' })
+  const startingNumber = settings?.seq || 0
+
+  // Check all invoice collections for latest number
+  const [latestSale, latestEmpSale, latestCylinder] = await Promise.all([
+    (await import("@/models/Sale")).default.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
+    (await import("@/models/EmployeeSale")).default.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
+    CylinderTransaction.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 })
+  ])
+
+  let nextNumber = startingNumber
+  const saleNumber = latestSale ? parseInt(latestSale.invoiceNumber) || -1 : -1
+  const empSaleNumber = latestEmpSale ? parseInt(latestEmpSale.invoiceNumber) || -1 : -1
+  const cylinderNumber = latestCylinder ? parseInt(latestCylinder.invoiceNumber) || -1 : -1
+  const lastNumber = Math.max(saleNumber, empSaleNumber, cylinderNumber)
+  
+  if (lastNumber >= 0) {
+    nextNumber = Math.max(lastNumber + 1, startingNumber)
+  }
+
+  return nextNumber.toString().padStart(4, '0')
 }
 
 export async function GET(request) {
