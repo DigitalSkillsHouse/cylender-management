@@ -65,6 +65,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
     items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number; invoiceNumber?: string; invoiceDate?: string; paymentStatus?: string }>
     totalAmount: number
     paymentMethod: string
+    bankName?: string
+    chequeNumber?: string
     paymentStatus: string
     type: string
     createdAt: string
@@ -94,6 +96,13 @@ export function CollectionPage({ user }: CollectionPageProps) {
       amount: number
     }>
   })
+  
+  // Store payment method details for receipt generation
+  const [lastPaymentMethod, setLastPaymentMethod] = useState<{
+    method: 'cash' | 'cheque'
+    bankName: string
+    chequeNumber: string
+  }>({ method: 'cash', bankName: '', chequeNumber: '' })
 
   const fetchCustomers = async () => {
     try {
@@ -397,6 +406,13 @@ export function CollectionPage({ user }: CollectionPageProps) {
     // Cache the payments and payment details for signature
     setPendingPaymentsCache(payments)
     
+    // Store payment method details for receipt generation
+    setLastPaymentMethod({
+      method: paymentDialog.method,
+      bankName: paymentDialog.bankName,
+      chequeNumber: paymentDialog.chequeNumber
+    })
+    
     // Close payment dialog and open signature dialog
     closePaymentDialog()
     setSignatureOpen(true)
@@ -461,7 +477,9 @@ export function CollectionPage({ user }: CollectionPageProps) {
         },
         items: receiptItems,
         totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
-        paymentMethod: paymentDialog.method === 'cheque' ? 'Cheque' : 'Cash',
+        paymentMethod: lastPaymentMethod.method === 'cheque' ? 'Cheque' : 'Cash',
+        bankName: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.bankName : '',
+        chequeNumber: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.chequeNumber : '',
         paymentStatus: 'cleared',
         type: 'collection',
         createdAt: new Date().toISOString(),
@@ -521,6 +539,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
       items: receiptItems,
       totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
       paymentMethod: 'Cash',
+      bankName: '',
+      chequeNumber: '',
       paymentStatus: 'cleared',
       type: 'collection',
       createdAt: new Date().toISOString(),

@@ -27,6 +27,8 @@ interface ReceiptDialogProps {
     }>
     totalAmount: number
     paymentMethod: string
+    bankName?: string
+    chequeNumber?: string
     paymentStatus: string
     // Optional: used for cylinder returns to pick the correct header
     type?: 'deposit' | 'refill' | 'return' | 'collection' | string
@@ -242,6 +244,20 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                       : '-'
                   )}
                 </div>
+                {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
+                  <>
+                    {sale?.bankName && (
+                      <div>
+                        <strong>Bank Name:</strong> {sale.bankName}
+                      </div>
+                    )}
+                    {sale?.chequeNumber && (
+                      <div>
+                        <strong>Cheque Number:</strong> {sale.chequeNumber}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>
