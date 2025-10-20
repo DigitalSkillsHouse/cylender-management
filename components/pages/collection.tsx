@@ -435,7 +435,12 @@ export function CollectionPage({ user }: CollectionPageProps) {
           // Add invoice-specific data for collection receipts
           invoiceNumber: invoice.invoiceNumber,
           invoiceDate: invoice.createdAt,
-          paymentStatus: invoice.paymentStatus
+          paymentStatus: invoice.paymentStatus,
+          // Add received amount information for receipt preview
+          totalAmount: invoice.totalAmount,
+          receivedAmount: invoice.receivedAmount + p.amount, // Current received + new payment
+          previousReceived: invoice.receivedAmount,
+          remainingAmount: invoice.totalAmount - (invoice.receivedAmount + p.amount) // Remaining after this payment
         }
       }).filter((item): item is NonNullable<typeof item> => item !== null)
 
@@ -495,7 +500,12 @@ export function CollectionPage({ user }: CollectionPageProps) {
         // Add invoice-specific data for collection receipts
         invoiceNumber: invoice.invoiceNumber,
         invoiceDate: invoice.createdAt,
-        paymentStatus: invoice.paymentStatus
+        paymentStatus: invoice.paymentStatus,
+        // Add received amount information for receipt preview
+        totalAmount: invoice.totalAmount,
+        receivedAmount: invoice.receivedAmount + p.amount, // Current received + new payment
+        previousReceived: invoice.receivedAmount,
+        remainingAmount: invoice.totalAmount - (invoice.receivedAmount + p.amount) // Remaining after this payment
       }
     }).filter((item): item is NonNullable<typeof item> => item !== null)
 

@@ -260,6 +260,8 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                         <th className="text-center p-2 border">Date</th>
                         <th className="text-right p-2 border">Type</th>
                         <th className="text-right p-2 border">Total</th>
+                        <th className="text-right p-2 border">Received</th>
+                        <th className="text-right p-2 border">Remaining</th>
                       </>
                     ) : (
                       <>
@@ -307,7 +309,9 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                             (sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-')
                           }</td>
                           <td className="text-right p-2 border">{(item as any)?.paymentStatus || 'pending'}</td>
-                          <td className="text-right p-2 border">AED {itemTotal.toFixed(2)}</td>
+                          <td className="text-right p-2 border">AED {((item as any)?.totalAmount || itemTotal).toFixed(2)}</td>
+                          <td className="text-right p-2 border">AED {((item as any)?.receivedAmount || itemTotal).toFixed(2)}</td>
+                          <td className="text-right p-2 border">AED {((item as any)?.remainingAmount !== undefined ? (item as any).remainingAmount : (((item as any)?.totalAmount || itemTotal) - ((item as any)?.receivedAmount || itemTotal))).toFixed(2)}</td>
                         </>
                       ) : (
                         <>
