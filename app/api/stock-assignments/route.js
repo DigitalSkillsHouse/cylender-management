@@ -189,6 +189,7 @@ export async function POST(request) {
     
     const assignmentData = {
       ...data,
+      status: 'assigned', // Always start with assigned status
       remainingQuantity: data.quantity,
       leastPrice: product.leastPrice,
       displayCategory: displayCategory,
@@ -211,7 +212,7 @@ export async function POST(request) {
       sender: data.assignedBy,
       type: "stock_assignment",
       title: "New Stock Assignment",
-      message: `You have been assigned new stock. Please check your dashboard.`,
+      message: `${product.name} (${data.quantity} units) has been assigned to you. Please accept to add to your inventory.`,
       relatedId: assignment._id,
     });
 

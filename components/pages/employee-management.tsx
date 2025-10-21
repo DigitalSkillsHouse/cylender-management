@@ -404,7 +404,7 @@ setStockAssignments(stockData)
           setUpdateNotification({ message: '', visible: false, type: 'success' })
         }, 3000)
 
-        // Send notification to employee
+        // Send notification to employee about assignment update
         await fetch('/api/notifications', {
           method: 'POST',
           headers: {
@@ -414,8 +414,8 @@ setStockAssignments(stockData)
             userId: selectedEmployee._id,
             senderId: user.id,
             type: 'stock_assignment',
-            title: 'Stock Updated',
-            message: `${productName} stock is added in your inventory. New quantity: ${updatedQuantity}`,
+            title: 'Stock Assignment Updated',
+            message: `${productName} assignment updated. New quantity: ${updatedQuantity}. Please accept to add to your inventory.`,
             read: false,
           }),
         })

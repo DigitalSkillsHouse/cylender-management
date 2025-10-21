@@ -29,6 +29,13 @@ export async function PATCH(request, { params }) {
     
     // If accepting assignment, create EmployeeInventory records
     if ((data.status === 'received' || data.status === 'active') && data.createEmployeeInventory) {
+      console.log('🔄 Processing assignment acceptance:', {
+        assignmentId: originalAssignment._id,
+        productName: originalAssignment.product?.name,
+        currentStatus: originalAssignment.status,
+        requestedStatus: data.status,
+        createEmployeeInventory: data.createEmployeeInventory
+      });
       
       // Check if this assignment was already processed to prevent duplicates
       if (originalAssignment.status === 'received' || originalAssignment.status === 'active') {
@@ -190,7 +197,8 @@ export async function PATCH(request, { params }) {
           category: dbCategory,
           cylinderStatus: assignment.cylinderStatus,
           quantity: assignment.quantity,
-          employeeId: assignment.employee
+          employeeId: assignment.employee,
+          leastPrice: assignment.leastPrice
         });
         
         const newInventoryData = {
@@ -221,7 +229,15 @@ export async function PATCH(request, { params }) {
           newInventoryData.cylinderStatus = cylinderStatus;
         }
         
-        await EmployeeInventory.create(newInventoryData);
+        const createdInventory = await EmployeeInventory.create(newInventoryData);
+        console.log('✅ EmployeeInventory record created successfully:', {
+          inventoryId: createdInventory._id,
+          productName: assignment.product.name,
+          category: dbCategory,
+          currentStock: createdInventory.currentStock,
+          assignedQuantity: createdInventory.assignedQuantity,
+          status: createdInventory.status
+        });
       }
       
       // For gas assignments, also create/update cylinder inventory

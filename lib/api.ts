@@ -132,6 +132,15 @@ export const inventoryAPI = {
   receiveInventory: (id: string) => api.patch(`/inventory/${id}`, { status: "received" }),
 }
 
+// Employee Inventory API
+export const employeeInventoryAPI = {
+  getAll: (params?: any) => api.get("/employee-inventory", { params }),
+  getById: (id: string) => api.get(`/employee-inventory/${id}`),
+  create: (data: any) => api.post("/employee-inventory", data),
+  update: (id: string, data: any) => api.put(`/employee-inventory/${id}`, data),
+  delete: (id: string) => api.delete(`/employee-inventory/${id}`),
+}
+
 // Employee Cylinders API
 export const employeeCylindersAPI = {
   getAll: (params?: any) => api.get("/employee-cylinders", { params }),

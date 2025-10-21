@@ -5,9 +5,9 @@ import Product from "@/models/Product"
 
 export async function GET(request) {
   try {
-    console.log('Employee inventory API called')
+    console.log('🔍 Employee inventory API called')
     await dbConnect()
-    console.log('Database connected')
+    console.log('✅ Database connected')
     
     const { searchParams } = new URL(request.url)
     const employeeId = searchParams.get('employeeId')
@@ -37,17 +37,28 @@ export async function GET(request) {
       .populate('product', 'name productCode category cylinderSize')
       .populate('employee', 'name email')
       .sort({ lastUpdated: -1 })
+      .lean() // Convert to plain objects
 
     // Get StockAssignment records (from admin assignments)
     const stockAssignments = await StockAssignment.find(stockAssignmentQuery)
       .populate('product', 'name productCode category cylinderSize')
       .populate('employee', 'name email')
       .sort({ createdAt: -1 })
+      .lean() // Convert to plain objects
 
     console.log('📊 Raw data fetched:', {
       employeeId: employeeId,
       employeeInventoryCount: employeeInventory.length,
       stockAssignmentsCount: stockAssignments.length,
+      employeeInventoryItems: employeeInventory.map(ei => ({
+        id: ei._id,
+        status: ei.status,
+        product: ei.product?.name,
+        currentStock: ei.currentStock,
+        assignedQuantity: ei.assignedQuantity,
+        hasProduct: !!ei.product,
+        productId: ei.product?._id
+      })),
       stockAssignments: stockAssignments.map(sa => ({
         id: sa._id,
         status: sa.status,
@@ -56,12 +67,20 @@ export async function GET(request) {
         remainingQuantity: sa.remainingQuantity,
         category: sa.category,
         cylinderStatus: sa.cylinderStatus,
-        displayCategory: sa.displayCategory
+        displayCategory: sa.displayCategory,
+        hasProduct: !!sa.product,
+        productId: sa.product?._id
       }))
     })
 
     // Convert StockAssignment to EmployeeInventory format
     const convertedAssignments = stockAssignments.map(assignment => {
+      // Validate assignment has required data
+      if (!assignment || !assignment._id) {
+        console.warn('⚠️ Invalid assignment found:', assignment)
+        return null
+      }
+      
       // Use displayCategory if available, otherwise construct from category and cylinderStatus
       let displayCategory = assignment.displayCategory;
       if (!displayCategory) {
@@ -93,48 +112,93 @@ export async function GET(request) {
         cylinderStatus: assignment.cylinderStatus,
         displayCategory: displayCategory,
         productName: assignment.product?.name,
+        hasProduct: !!assignment.product,
+        productId: assignment.product?._id,
         hasGasProduct: !!assignment.gasProductId
       });
       
-      return {
+      const convertedItem = {
         _id: assignment._id,
-        product: assignment.product,
+        product: assignment.product || { _id: null, name: 'Unknown Product', category: 'unknown' },
         employee: assignment.employee,
-        assignedQuantity: assignment.quantity,
-        currentStock: assignment.remainingQuantity || assignment.quantity,
+        assignedQuantity: assignment.quantity || 0,
+        currentStock: assignment.remainingQuantity || assignment.quantity || 0,
         leastPrice: Number(assignment.leastPrice || assignment.product?.leastPrice || 0),
-        status: assignment.status, // 'assigned', 'received', 'returned'
-        assignedDate: assignment.createdAt,
-        lastUpdated: assignment.updatedAt || assignment.createdAt,
+        status: assignment.status || 'assigned', // 'assigned', 'received', 'returned'
+        assignedDate: assignment.createdAt || new Date(),
+        lastUpdated: assignment.updatedAt || assignment.createdAt || new Date(),
         category: displayCategory,
         displayCategory: displayCategory, // Add displayCategory field
         cylinderStatus: assignment.cylinderStatus,
         gasProductId: assignment.gasProductId,
         cylinderProductId: assignment.cylinderProductId
       }
-    })
+      
+      console.log('🔄 Converted assignment item:', {
+        originalId: assignment._id,
+        convertedId: convertedItem._id,
+        hasProduct: !!convertedItem.product,
+        productName: convertedItem.product?.name,
+        status: convertedItem.status
+      })
+      
+      return convertedItem
+    }).filter(Boolean) // Remove null entries
 
-    // Combine both sources with deduplication
-    const combinedInventory = [...employeeInventory, ...convertedAssignments]
+    // Combine both sources with deduplication (filter out null entries)
+    const validEmployeeInventory = employeeInventory.filter(item => {
+      const isValid = item && item._id && item.product
+      if (!isValid) {
+        console.warn('⚠️ Invalid EmployeeInventory item:', {
+          hasItem: !!item,
+          hasId: !!item?._id,
+          hasProduct: !!item?.product,
+          item: item
+        })
+      }
+      return isValid
+    })
     
-    // Deduplicate by product ID, name, and category
+    const validConvertedAssignments = convertedAssignments.filter(item => {
+      const isValid = item && item._id && item.product
+      if (!isValid) {
+        console.warn('⚠️ Invalid converted assignment:', {
+          hasItem: !!item,
+          hasId: !!item?._id,
+          hasProduct: !!item?.product,
+          item: item
+        })
+      }
+      return isValid
+    })
+    
+    console.log('🔍 Data validation results:', {
+      originalEmployeeInventory: employeeInventory.length,
+      validEmployeeInventory: validEmployeeInventory.length,
+      originalConvertedAssignments: convertedAssignments.length,
+      validConvertedAssignments: validConvertedAssignments.length,
+      invalidEmployeeItems: employeeInventory.length - validEmployeeInventory.length,
+      invalidConvertedItems: convertedAssignments.length - validConvertedAssignments.length
+    })
+    
+    const combinedInventory = [...validEmployeeInventory, ...validConvertedAssignments]
+    
+    // Deduplicate by product ID and name only (not by category/cylinderStatus)
     const deduplicatedInventory = []
     const seenProducts = new Map()
     
     for (const item of combinedInventory) {
       const productId = item.product?._id?.toString()
       const productName = item.product?.name
-      const category = item.category
-      const cylinderStatus = item.cylinderStatus
       
-      // Create a unique key for deduplication
-      const uniqueKey = `${productId}-${productName}-${category}-${cylinderStatus || 'none'}`
+      // Create a unique key for deduplication based on product only
+      const uniqueKey = `${productId}-${productName}`
       
       console.log('🔍 Processing item:', {
         productName: productName,
         productId: productId,
-        category: category,
-        cylinderStatus: cylinderStatus,
+        category: item.category,
+        cylinderStatus: item.cylinderStatus,
         uniqueKey: uniqueKey,
         currentStock: item.currentStock,
         assignedQuantity: item.assignedQuantity
@@ -163,8 +227,6 @@ export async function GET(request) {
         
         console.log('🔄 Merged duplicate inventory item:', {
           productName: productName,
-          category: category,
-          cylinderStatus: cylinderStatus,
           oldCurrentStock: oldCurrentStock,
           addedCurrentStock: item.currentStock || 0,
           newCurrentStock: existingItem.currentStock,
@@ -180,8 +242,8 @@ export async function GET(request) {
         
         console.log('✅ Added new inventory item:', {
           productName: productName,
-          category: category,
-          cylinderStatus: cylinderStatus,
+          category: item.category,
+          cylinderStatus: item.cylinderStatus,
           currentStock: item.currentStock,
           assignedQuantity: item.assignedQuantity,
           index: newIndex
@@ -192,9 +254,29 @@ export async function GET(request) {
     console.log('📊 Inventory deduplication summary:', {
       originalItems: combinedInventory.length,
       deduplicatedItems: deduplicatedInventory.length,
-      duplicatesRemoved: combinedInventory.length - deduplicatedInventory.length
+      duplicatesRemoved: combinedInventory.length - deduplicatedInventory.length,
+      finalItems: deduplicatedInventory.map(item => ({
+        name: item.product?.name,
+        category: item.category,
+        currentStock: item.currentStock,
+        assignedQuantity: item.assignedQuantity
+      }))
     })
 
+    console.log('📤 Returning employee inventory data:', {
+      totalItems: deduplicatedInventory.length,
+      assignedItems: deduplicatedInventory.filter(item => item.status === 'assigned').length,
+      receivedItems: deduplicatedInventory.filter(item => item.status === 'received' || item.status === 'active').length,
+      items: deduplicatedInventory.map(item => ({
+        id: item._id,
+        product: item.product?.name,
+        status: item.status,
+        currentStock: item.currentStock,
+        assignedQuantity: item.assignedQuantity,
+        category: item.category
+      }))
+    })
+    
     return NextResponse.json({ success: true, data: deduplicatedInventory || [] })
   } catch (error) {
     console.error("Error fetching employee inventory:", error)
@@ -249,7 +331,7 @@ export async function POST(request) {
       inventory.assignedQuantity += quantity
       inventory.currentStock += quantity
       inventory.leastPrice = leastPrice
-      inventory.status = 'received'
+      inventory.status = 'assigned' // Start as assigned, not received
       inventory.transactions.push({
         type,
         quantity,
@@ -265,7 +347,7 @@ export async function POST(request) {
         currentStock: quantity,
         cylinderSize,
         leastPrice,
-        status: 'received',
+        status: 'assigned', // Start as assigned, not received
         transactions: [{
           type,
           quantity,
