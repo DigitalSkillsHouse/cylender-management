@@ -131,6 +131,9 @@ export async function POST(request) {
         total: itemTotal,
         category,
         cylinderSize,
+        cylinderStatus: item.cylinderStatus,
+        cylinderProductId: item.cylinderProductId,
+        gasProductId: item.gasProductId,
       })
     }
 
@@ -150,38 +153,204 @@ export async function POST(request) {
 
     const savedSale = await newSale.save()
 
-    // Update employee inventory
+    // Update employee inventory with cylinder conversion logic (matching admin sales logic)
     const EmployeeInventory = (await import("@/models/EmployeeInventory")).default
+    const StockAssignment = (await import("@/models/StockAssignment")).default
+    
     for (const item of validatedItems) {
-      const employeeInventory = await EmployeeInventory.findOne({
-        employee: employeeId,
-        product: item.product
-      })
-      
-      if (employeeInventory) {
-        const updateData = {
-          $inc: { currentStock: -item.quantity },
-          $push: {
-            transactions: {
-              type: 'sale',
-              quantity: -item.quantity,
-              date: new Date(),
-              notes: `Sale - Invoice: ${invoiceNumber}`
+      const product = await Product.findById(item.product)
+      if (product) {
+        console.log(`🔄 EMPLOYEE SALE: Processing ${item.quantity} units of ${product.name} (${product.category})`)
+        
+        if (product.category === 'gas') {
+          // Update gas inventory - decrease gas stock from employee inventory
+          const gasInventory = await EmployeeInventory.findOne({
+            employee: employeeId,
+            product: item.product
+          })
+          
+          if (gasInventory) {
+            await EmployeeInventory.findByIdAndUpdate(gasInventory._id, {
+              $inc: { currentStock: -item.quantity },
+              $push: {
+                transactions: {
+                  type: 'sale',
+                  quantity: -item.quantity,
+                  date: new Date(),
+                  notes: `Gas Sale - Invoice: ${invoiceNumber}`
+                }
+              }
+            })
+            console.log(`✅ Employee gas inventory updated: ${product.name} decreased by ${item.quantity}`)
+          }
+          
+          // Also update StockAssignment for employee
+          const stockAssignment = await StockAssignment.findOne({
+            employee: employeeId,
+            product: item.product,
+            status: 'received'
+          })
+          
+          if (stockAssignment) {
+            stockAssignment.remainingQuantity = Math.max(0, (stockAssignment.remainingQuantity || 0) - item.quantity)
+            await stockAssignment.save()
+            console.log(`✅ Employee stock assignment updated: remaining ${stockAssignment.remainingQuantity}`)
+          }
+          
+          // Handle cylinder conversion for gas sales (from cylinderProductId)
+          if (item.cylinderProductId) {
+            const cylinderInventory = await EmployeeInventory.findOne({
+              employee: employeeId,
+              product: item.cylinderProductId
+            })
+            
+            if (cylinderInventory) {
+              // Move cylinders from Full to Empty in employee inventory
+              await EmployeeInventory.findByIdAndUpdate(cylinderInventory._id, {
+                $inc: { 
+                  availableFull: -item.quantity,
+                  availableEmpty: item.quantity 
+                },
+                $push: {
+                  transactions: {
+                    type: 'conversion',
+                    quantity: 0, // Net quantity change is 0 (Full→Empty)
+                    date: new Date(),
+                    notes: `Cylinder conversion Full→Empty - Gas Sale Invoice: ${invoiceNumber}`
+                  }
+                }
+              })
+              
+              // Also update cylinder StockAssignment
+              const cylinderAssignment = await StockAssignment.findOne({
+                employee: employeeId,
+                product: item.cylinderProductId,
+                status: 'received'
+              })
+              
+              if (cylinderAssignment) {
+                // No change to remainingQuantity for conversions, just log
+                console.log(`✅ Cylinder conversion: ${product.name} - ${item.quantity} moved from Full to Empty`)
+              }
             }
           }
-        }
-        
-        // For cylinders, also update specific availability
-        if (item.category === 'cylinder') {
-          if (item.cylinderStatus === 'full') {
-            updateData.$inc.availableFull = -item.quantity
-          } else {
-            updateData.$inc.availableEmpty = -item.quantity
+          
+        } else if (product.category === 'cylinder') {
+          // Handle cylinder sales - update employee inventory based on status
+          const cylinderInventory = await EmployeeInventory.findOne({
+            employee: employeeId,
+            product: item.product
+          })
+          
+          if (cylinderInventory) {
+            const updateData = {
+              $inc: { currentStock: -item.quantity },
+              $push: {
+                transactions: {
+                  type: 'sale',
+                  quantity: -item.quantity,
+                  date: new Date(),
+                  notes: `Cylinder Sale - Invoice: ${invoiceNumber}`
+                }
+              }
+            }
+            
+            if (item.cylinderStatus === 'empty') {
+              // Selling empty cylinders - decrease availableEmpty
+              updateData.$inc.availableEmpty = -item.quantity
+              console.log(`✅ Employee empty cylinder sale: ${product.name} decreased by ${item.quantity}`)
+            } else if (item.cylinderStatus === 'full') {
+              // Selling full cylinders - only decrease availableFull (customer takes cylinder away)
+              updateData.$inc.availableFull = -item.quantity
+              // Don't add to availableEmpty - customer takes the cylinder
+              console.log(`✅ Employee full cylinder sale: ${product.name} - ${item.quantity} full cylinders sold`)
+              
+              // Also deduct gas stock if gasProductId is provided
+              if (item.gasProductId) {
+                const gasInventory = await EmployeeInventory.findOne({
+                  employee: employeeId,
+                  product: item.gasProductId
+                })
+                
+                if (gasInventory) {
+                  await EmployeeInventory.findByIdAndUpdate(gasInventory._id, {
+                    $inc: { currentStock: -item.quantity },
+                    $push: {
+                      transactions: {
+                        type: 'deduction',
+                        quantity: -item.quantity,
+                        date: new Date(),
+                        notes: `Gas deduction from full cylinder sale - Invoice: ${invoiceNumber}`
+                      }
+                    }
+                  })
+                  
+                  // Update gas StockAssignment
+                  const gasAssignment = await StockAssignment.findOne({
+                    employee: employeeId,
+                    product: item.gasProductId,
+                    status: 'received'
+                  })
+                  
+                  if (gasAssignment) {
+                    gasAssignment.remainingQuantity = Math.max(0, (gasAssignment.remainingQuantity || 0) - item.quantity)
+                    await gasAssignment.save()
+                  }
+                  
+                  console.log(`✅ Gas stock deducted from employee inventory: ${item.quantity} units`)
+                }
+              }
+            }
+            
+            await EmployeeInventory.findByIdAndUpdate(cylinderInventory._id, updateData)
+            
+            // Update cylinder StockAssignment
+            const cylinderAssignment = await StockAssignment.findOne({
+              employee: employeeId,
+              product: item.product,
+              status: 'received'
+            })
+            
+            if (cylinderAssignment) {
+              cylinderAssignment.remainingQuantity = Math.max(0, (cylinderAssignment.remainingQuantity || 0) - item.quantity)
+              await cylinderAssignment.save()
+            }
+          }
+        } else {
+          // Handle other products (regular stock deduction from employee inventory)
+          const employeeInventory = await EmployeeInventory.findOne({
+            employee: employeeId,
+            product: item.product
+          })
+          
+          if (employeeInventory) {
+            await EmployeeInventory.findByIdAndUpdate(employeeInventory._id, {
+              $inc: { currentStock: -item.quantity },
+              $push: {
+                transactions: {
+                  type: 'sale',
+                  quantity: -item.quantity,
+                  date: new Date(),
+                  notes: `Sale - Invoice: ${invoiceNumber}`
+                }
+              }
+            })
+            
+            // Update StockAssignment
+            const stockAssignment = await StockAssignment.findOne({
+              employee: employeeId,
+              product: item.product,
+              status: 'received'
+            })
+            
+            if (stockAssignment) {
+              stockAssignment.remainingQuantity = Math.max(0, (stockAssignment.remainingQuantity || 0) - item.quantity)
+              await stockAssignment.save()
+            }
+            
+            console.log(`✅ Updated employee inventory for ${product.name}: reduced by ${item.quantity}`)
           }
         }
-        
-        await EmployeeInventory.findByIdAndUpdate(employeeInventory._id, updateData)
-        console.log(`Updated employee inventory for ${item.product}: reduced by ${item.quantity}`)
       }
     }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, Fragment } from "react"
+import { useState, useEffect, useMemo, Fragment } from "react"
 
 import type { SVGProps } from "react"
 
@@ -98,7 +98,6 @@ type FormState = {
 export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [sales, setSales] = useState<Sale[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [products, setProducts] = useState<Product[]>([])
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -208,31 +207,32 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     setCurrentPage(1)
   }, [searchTerm, statusFilter])
 
-  // Re-filter products when category changes (matching admin logic)
-  useEffect(() => {
-    if (allProducts.length > 0) {
-      const filteredProducts = allProducts.filter((product: Product) => {
-        if (product.category !== formData.category) return false
-        
-        if (product.category === 'cylinder') {
-          // For cylinders, only show full cylinders (available for sale) - matching admin logic
-          if ((product as any).cylinderStatus !== 'full') return false
-          // Check cylinder stock from inventory availability
-          const availableFull = inventoryAvailability[product._id]?.availableFull || 0
-          return availableFull > 0
-        } else if (product.category === 'gas') {
-          // For gas, check currentStock from inventory availability (Gas tab) - matching admin logic
-          const gasStock = inventoryAvailability[product._id]?.currentStock || product.currentStock || 0
-          return gasStock > 0
-        }
-        
-        // Fallback to product.currentStock for other categories
-        return (product.currentStock || 0) > 0
-      })
-      console.log('EmployeeGasSales - Category changed to:', formData.category)
-      console.log('EmployeeGasSales - Re-filtered products:', filteredProducts.length)
-      setProducts(filteredProducts)
-    }
+  // Compute filtered products based on category (using useMemo to avoid render-phase updates)
+  const filteredProducts = useMemo(() => {
+    if (allProducts.length === 0) return []
+    
+    const filtered = allProducts.filter((product: Product) => {
+      if (product.category !== formData.category) return false
+      
+      if (product.category === 'cylinder') {
+        // For cylinders, only show full cylinders (available for sale) - matching admin logic
+        if ((product as any).cylinderStatus !== 'full') return false
+        // Check cylinder stock from inventory availability
+        const availableFull = inventoryAvailability[product._id]?.availableFull || 0
+        return availableFull > 0
+      } else if (product.category === 'gas') {
+        // For gas, check currentStock from inventory availability (Gas tab) - matching admin logic
+        const gasStock = inventoryAvailability[product._id]?.currentStock || product.currentStock || 0
+        return gasStock > 0
+      }
+      
+      // Fallback to product.currentStock for other categories
+      return (product.currentStock || 0) > 0
+    })
+    
+    console.log('EmployeeGasSales - Category changed to:', formData.category)
+    console.log('EmployeeGasSales - Re-filtered products:', filtered.length)
+    return filtered
   }, [formData.category, allProducts, inventoryAvailability])
 
   // Export customer autocomplete
@@ -282,21 +282,75 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       const employeeInventoryData = await employeeInventoryResponse.json()
       console.log('Employee inventory response:', employeeInventoryData)
       
-      // Extract products from employee inventory with current stock
+      // Debug: Log each inventory item structure
+      if (employeeInventoryData?.data && Array.isArray(employeeInventoryData.data)) {
+        console.log('🔍 DEBUG: Employee inventory items:')
+        employeeInventoryData.data.forEach((item:any, index:any) => {
+          console.log(`Item ${index}:`, {
+            id: item._id,
+            productId: item.product?._id,
+            productName: item.product?.name,
+            productCategory: item.product?.category,
+            inventoryCategory: item.category,
+            currentStock: item.currentStock,
+            availableEmpty: item.availableEmpty,
+            availableFull: item.availableFull,
+            cylinderStatus: item.cylinderStatus,
+            displayCategory: item.displayCategory
+          })
+        })
+      }
+      
+      // Extract products from employee inventory with any stock (gas, full cylinders, or empty cylinders)
       const allEmployeeProducts: Product[] = [];
       if (employeeInventoryData?.data && Array.isArray(employeeInventoryData.data)) {
         employeeInventoryData.data.forEach((inventoryItem: any) => {
-          if (inventoryItem.product && inventoryItem.currentStock > 0) {
-            const productWithStock = {
-              ...inventoryItem.product,
-              currentStock: inventoryItem.currentStock,
-              // Add inventory-specific fields for availability checking
-              availableEmpty: inventoryItem.availableEmpty || 0,
-              availableFull: inventoryItem.availableFull || 0,
-              category: inventoryItem.category || inventoryItem.product.category,
-              cylinderStatus: inventoryItem.cylinderStatus
+          if (inventoryItem.product) {
+            // Include products that have any stock (gas, full cylinders, or empty cylinders)
+            const currentStock = inventoryItem.currentStock || 0
+            const availableEmpty = inventoryItem.availableEmpty || 0
+            const availableFull = inventoryItem.availableFull || 0
+            
+            // Only include if there's any stock available
+            if (currentStock > 0 || availableEmpty > 0 || availableFull > 0) {
+              // Map inventory categories to product categories for proper filtering
+              let productCategory = inventoryItem.product.category || 'gas'
+              if (inventoryItem.category) {
+                // Convert inventory display categories to product categories
+                if (inventoryItem.category === 'Gas') {
+                  productCategory = 'gas'
+                } else if (inventoryItem.category === 'Full Cylinder' || inventoryItem.category === 'Empty Cylinder') {
+                  productCategory = 'cylinder'
+                }
+              }
+              
+              const productWithStock = {
+                ...inventoryItem.product,
+                currentStock: currentStock,
+                // Add inventory-specific fields for availability checking
+                availableEmpty: availableEmpty,
+                availableFull: availableFull,
+                category: productCategory,
+                cylinderStatus: inventoryItem.cylinderStatus
+              }
+              console.log(`✅ Including product:`, {
+                name: productWithStock.name,
+                category: productWithStock.category,
+                currentStock: currentStock,
+                availableEmpty: availableEmpty,
+                availableFull: availableFull,
+                cylinderStatus: inventoryItem.cylinderStatus
+              })
+              allEmployeeProducts.push(productWithStock)
+            } else {
+              console.log(`❌ Excluding product (no stock):`, {
+                name: inventoryItem.product?.name,
+                category: inventoryItem.category || inventoryItem.product?.category,
+                currentStock: currentStock,
+                availableEmpty: availableEmpty,
+                availableFull: availableFull
+              })
             }
-            allEmployeeProducts.push(productWithStock)
           }
         })
       }
@@ -304,27 +358,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       const dedupedAllProducts = Array.from(
         new Map(allEmployeeProducts.map(p => [p._id, p])).values()
       )
-      // Filter by selected category using inventory data for accurate stock levels (matching admin logic)
-      const filteredProducts = dedupedAllProducts.filter((product: Product) => {
-        if (product.category !== formData.category) return false
-        
-        if (product.category === 'cylinder') {
-          // For cylinders, only show full cylinders (available for sale) - matching admin logic
-          if ((product as any).cylinderStatus !== 'full') return false
-          // Check cylinder stock from inventory availability
-          const availableFull = availMap[product._id]?.availableFull || 0
-          return availableFull > 0
-        } else if (product.category === 'gas') {
-          // For gas, check currentStock from inventory availability (Gas tab) - matching admin logic
-          const gasStock = availMap[product._id]?.currentStock || 0
-          return gasStock > 0
-        }
-        
-        // Fallback to product.currentStock for other categories
-        return (product.currentStock || 0) > 0
-      });
       
-      // Build inventory availability map from employee inventory
+      // Build inventory availability map from employee inventory FIRST (before filtering)
       const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
       if (employeeInventoryData?.data && Array.isArray(employeeInventoryData.data)) {
         employeeInventoryData.data.forEach((inventoryItem: any) => {
@@ -337,11 +372,49 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
           }
         })
       }
+      
+      // Filter by selected category using inventory data for accurate stock levels (matching admin logic)
+      const filteredProducts = dedupedAllProducts.filter((product: Product) => {
+        console.log(`🔍 Filtering product:`, {
+          name: product.name,
+          productCategory: product.category,
+          selectedCategory: formData.category,
+          cylinderStatus: (product as any).cylinderStatus,
+          availMapStock: availMap[product._id],
+          productStock: product.currentStock
+        })
+        
+        if (product.category !== formData.category) {
+          console.log(`❌ Category mismatch: ${product.category} !== ${formData.category}`)
+          return false
+        }
+        
+        if (product.category === 'cylinder') {
+          // For cylinders, only show full cylinders (available for sale) - matching admin logic
+          if ((product as any).cylinderStatus !== 'full') {
+            console.log(`❌ Cylinder not full: ${(product as any).cylinderStatus}`)
+            return false
+          }
+          // Check cylinder stock from inventory availability
+          const availableFull = availMap[product._id]?.availableFull || 0
+          console.log(`🔍 Cylinder full stock check: ${availableFull}`)
+          return availableFull > 0
+        } else if (product.category === 'gas') {
+          // For gas, check currentStock from inventory availability (Gas tab) - matching admin logic
+          const gasStock = availMap[product._id]?.currentStock || 0
+          console.log(`🔍 Gas stock check: ${gasStock}`)
+          return gasStock > 0
+        }
+        
+        // Fallback to product.currentStock for other categories
+        const fallbackStock = (product.currentStock || 0)
+        console.log(`🔍 Fallback stock check: ${fallbackStock}`)
+        return fallbackStock > 0
+      });
       setInventoryAvailability(availMap)
       
       setCustomers(customersData)
       setAllProducts(dedupedAllProducts)
-      setProducts(filteredProducts)
       setSales(salesArray)
       
       console.log('Employee Gas Sales - Category filter:', formData.category)
@@ -368,7 +441,6 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       console.error("Failed to fetch data:", error)
       setSales([])
       setCustomers([])
-      setProducts([])
       setAllProducts([])
     } finally {
       setLoading(false)
@@ -705,7 +777,32 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const addOrUpdateItem = () => {
     const qty = Number(currentItem.quantity) || 0
     const pr = Number(currentItem.price) || 0
-    if (!currentItem.productId || qty <= 0 || pr <= 0) return
+    
+    console.log('🔍 AddOrUpdateItem - Validation check:', {
+      productId: currentItem.productId,
+      quantity: currentItem.quantity,
+      price: currentItem.price,
+      qty: qty,
+      pr: pr,
+      hasProductId: !!currentItem.productId,
+      qtyValid: qty > 0,
+      priceValid: pr > 0
+    })
+    
+    if (!currentItem.productId) {
+      console.log('❌ AddOrUpdateItem failed: No product selected')
+      return
+    }
+    if (qty <= 0) {
+      console.log('❌ AddOrUpdateItem failed: Invalid quantity:', qty)
+      return
+    }
+    if (pr <= 0) {
+      console.log('❌ AddOrUpdateItem failed: Invalid price:', pr)
+      return
+    }
+    
+    console.log('✅ AddOrUpdateItem validation passed, proceeding...')
     const items = [...formData.items]
     if (editingItemIndex !== null && editingItemIndex >= 0 && editingItemIndex <= items.length) {
       // For editing, also include cylinder name for gas sales
@@ -1954,7 +2051,7 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                                       {currentItem.cylinderStatus === 'empty' ? 'Empty' : 'Full'}: {currentItem.cylinderStatus === 'empty' ? (inventoryAvailability[product._id]?.availableEmpty || 0) : (inventoryAvailability[product._id]?.availableFull || 0)}
                                     </span>
                                   )}
-                                  <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
+                                  <span className="text-xs text-gray-500">Min AED {(product.leastPrice || 0).toFixed(2)}</span>
                                 </div>
                               </div>
                             </div>
