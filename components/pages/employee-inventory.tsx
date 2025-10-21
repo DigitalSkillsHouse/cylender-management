@@ -54,14 +54,43 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
   const [processingItems, setProcessingItems] = useState<Set<string>>(new Set())
 
   useEffect(() => {
+    console.log('🚀 Employee inventory component mounted, setting up event listeners...')
     fetchEmployeeInventory()
+    
+    // Listen for employee inventory updates from admin assignments
+    const handleInventoryUpdate = () => {
+      console.log('🔄 Employee inventory update event received, refreshing...')
+      console.log('🕐 Current timestamp:', Date.now())
+      console.log('🎯 User ID:', user.id)
+      fetchEmployeeInventory()
+    }
+    
+    // Also listen for general stock updates
+    const handleStockUpdate = () => {
+      console.log('📦 General stock update event received, refreshing employee inventory...')
+      fetchEmployeeInventory()
+    }
+    
+    window.addEventListener('employeeInventoryUpdated', handleInventoryUpdate)
+    window.addEventListener('stockUpdated', handleStockUpdate)
+    
+    console.log('✅ Event listeners added for employeeInventoryUpdated and stockUpdated')
+    
+    return () => {
+      console.log('🧹 Cleaning up event listeners...')
+      window.removeEventListener('employeeInventoryUpdated', handleInventoryUpdate)
+      window.removeEventListener('stockUpdated', handleStockUpdate)
+    }
   }, [])
 
   const fetchEmployeeInventory = async () => {
     try {
       setError("")
-      const response = await fetch(`/api/employee-inventory?employeeId=${user.id}`)
+      const apiUrl = `/api/employee-inventory?employeeId=${user.id}&t=${Date.now()}`
+      console.log('🌐 Fetching employee inventory from:', apiUrl)
+      const response = await fetch(apiUrl)
       const data = await response.json()
+      console.log('📡 Raw API response:', data)
       
       if (response.ok) {
         setInventory(data.data || [])
@@ -70,6 +99,20 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
           assignedItems: data.data?.filter((item: EmployeeInventoryItem) => item.status === "assigned").length || 0,
           receivedItems: data.data?.filter((item: EmployeeInventoryItem) => item.status === "received" || item.status === "active").length || 0,
           allStatuses: data.data?.map((item: EmployeeInventoryItem) => item.status) || [],
+          statusBreakdown: {
+            assigned: data.data?.filter((item: EmployeeInventoryItem) => item.status === "assigned").map((item: EmployeeInventoryItem) => ({
+              id: item._id,
+              product: item.product?.name,
+              status: item.status,
+              quantity: item.assignedQuantity
+            })) || [],
+            received: data.data?.filter((item: EmployeeInventoryItem) => item.status === "received").map((item: EmployeeInventoryItem) => ({
+              id: item._id,
+              product: item.product?.name,
+              status: item.status,
+              quantity: item.assignedQuantity
+            })) || []
+          },
           items: data.data?.map((item: EmployeeInventoryItem) => ({
             id: item._id,
             product: item.product?.name,
@@ -82,7 +125,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
         
         // Debug individual items to see data structure
         if (data.data && data.data.length > 0) {
-          data.data.forEach((item, index) => {
+          data.data.forEach((item:any, index:any) => {
             console.log(`🔍 Inventory item ${index + 1} structure:`, {
               rawItem: item,
               hasId: !!item._id,
@@ -588,6 +631,17 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-10 text-gray-800"
                   />
+                  <Button 
+                    onClick={() => {
+                      console.log('🔄 Manual refresh triggered')
+                      fetchEmployeeInventory()
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="h-10 px-3"
+                  >
+                    🔄
+                  </Button>
                 </div>
               </div>
             </CardHeader>

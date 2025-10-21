@@ -74,7 +74,17 @@ export async function GET(request) {
     })
 
     // Convert StockAssignment to EmployeeInventory format
-    const convertedAssignments = stockAssignments.map(assignment => {
+    // ONLY convert assignments with status "assigned" - "received" assignments already have EmployeeInventory records
+    const assignedOnlyAssignments = stockAssignments.filter(assignment => assignment.status === 'assigned')
+    console.log('🔍 Filtering assignments:', {
+      totalAssignments: stockAssignments.length,
+      assignedAssignments: assignedOnlyAssignments.length,
+      receivedAssignments: stockAssignments.filter(sa => sa.status === 'received').length,
+      assignedIds: assignedOnlyAssignments.map(sa => sa._id),
+      receivedIds: stockAssignments.filter(sa => sa.status === 'received').map(sa => sa._id)
+    })
+    
+    const convertedAssignments = assignedOnlyAssignments.map(assignment => {
       // Validate assignment has required data
       if (!assignment || !assignment._id) {
         console.warn('⚠️ Invalid assignment found:', assignment)
@@ -139,7 +149,9 @@ export async function GET(request) {
         convertedId: convertedItem._id,
         hasProduct: !!convertedItem.product,
         productName: convertedItem.product?.name,
-        status: convertedItem.status
+        originalStatus: assignment.status,
+        convertedStatus: convertedItem.status,
+        statusSource: assignment.status ? 'from_assignment' : 'default_assigned'
       })
       
       return convertedItem
@@ -175,6 +187,8 @@ export async function GET(request) {
     console.log('🔍 Data validation results:', {
       originalEmployeeInventory: employeeInventory.length,
       validEmployeeInventory: validEmployeeInventory.length,
+      totalStockAssignments: stockAssignments.length,
+      assignedOnlyAssignments: assignedOnlyAssignments.length,
       originalConvertedAssignments: convertedAssignments.length,
       validConvertedAssignments: validConvertedAssignments.length,
       invalidEmployeeItems: employeeInventory.length - validEmployeeInventory.length,
@@ -183,7 +197,7 @@ export async function GET(request) {
     
     const combinedInventory = [...validEmployeeInventory, ...validConvertedAssignments]
     
-    // Deduplicate by product ID and name only (not by category/cylinderStatus)
+    // Deduplicate by product ID, name, and status (keeps assigned/received separate)
     const deduplicatedInventory = []
     const seenProducts = new Map()
     
@@ -191,8 +205,9 @@ export async function GET(request) {
       const productId = item.product?._id?.toString()
       const productName = item.product?.name
       
-      // Create a unique key for deduplication based on product only
-      const uniqueKey = `${productId}-${productName}`
+      // Create a unique key for deduplication based on product AND status
+      // This prevents merging assigned and received items of the same product
+      const uniqueKey = `${productId}-${productName}-${item.status}`
       
       console.log('🔍 Processing item:', {
         productName: productName,

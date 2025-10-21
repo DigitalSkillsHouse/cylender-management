@@ -364,100 +364,50 @@ setStockAssignments(stockData)
         return
       }
 
-      // Check if this product is already assigned to this employee
-      const existingAssignment = stockAssignments.find(
-        (assignment) => 
-          assignment.employee?._id === selectedEmployee._id && 
-          assignment.product?._id === stockFormData.productId &&
-          assignment.status === 'assigned'
-      )
-
-      if (existingAssignment) {
-        // Product already assigned - update the quantity instead
-        const updatedQuantity = existingAssignment.quantity + stockFormData.quantity
-        
-        // Update the existing assignment
-        await fetch(`/api/stock-assignments/${existingAssignment._id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            quantity: updatedQuantity,
-            notes: stockFormData.notes || existingAssignment.notes,
-          }),
-        })
-
-        // Get product name for notifications
-        const product = products.find(p => p._id === stockFormData.productId)
-        const productName = product?.name || 'Product'
-
-        // Show success notification
-        setUpdateNotification({
-          message: 'Stock updated successfully!',
-          visible: true,
-          type: 'success'
-        })
-
-        // Auto-hide notification after 3 seconds
-        setTimeout(() => {
-          setUpdateNotification({ message: '', visible: false, type: 'success' })
-        }, 3000)
-
-        // Send notification to employee about assignment update
-        await fetch('/api/notifications', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: selectedEmployee._id,
-            senderId: user.id,
-            type: 'stock_assignment',
-            title: 'Stock Assignment Updated',
-            message: `${productName} assignment updated. New quantity: ${updatedQuantity}. Please accept to add to your inventory.`,
-            read: false,
-          }),
-        })
-      } else {
-        // No existing assignment - create new one
-        const assignmentData = {
-          employee: selectedEmployee._id,
-          product: stockFormData.productId,
-          quantity: stockFormData.quantity,
-          assignedBy: user.id,
-          notes: stockFormData.notes,
-          leastPrice: selectedProduct.leastPrice,
-          category: stockFormData.category,
-          cylinderStatus: stockFormData.cylinderStatus,
-          gasProductId: stockFormData.gasProductId,
-          cylinderProductId: stockFormData.cylinderProductId,
-          // Include inventory availability for backend processing
-          inventoryAvailability: inventoryAvailability,
-        }
-
-        await stockAssignmentsAPI.create(assignmentData)
-
-        // Get product name for notification
-        const product = products.find(p => p._id === stockFormData.productId)
-        const productName = product?.name || 'Product'
-
-        // Send notification to employee
-        await fetch('/api/notifications', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: selectedEmployee._id,
-            senderId: user.id,
-            type: 'stock_assignment',
-            title: 'New Stock Assignment',
-            message: `${productName} has been assigned to your inventory. Quantity: ${stockFormData.quantity}`,
-            read: false,
-          }),
-        })
+      // ALWAYS CREATE NEW ASSIGNMENT - No duplicate checking
+      // This ensures that every admin assignment creates a new pending entry
+      // even if database is cleared or employee hasn't received stock before
+      console.log('🔄 Creating new stock assignment for employee:', selectedEmployee.name)
+      console.log('📦 Product:', selectedProduct.name, 'Quantity:', stockFormData.quantity)
+      
+      const assignmentData = {
+        employee: selectedEmployee._id,
+        product: stockFormData.productId,
+        quantity: stockFormData.quantity,
+        assignedBy: user.id,
+        notes: stockFormData.notes,
+        leastPrice: selectedProduct.leastPrice,
+        category: stockFormData.category,
+        cylinderStatus: stockFormData.cylinderStatus,
+        gasProductId: stockFormData.gasProductId,
+        cylinderProductId: stockFormData.cylinderProductId,
+        // Include inventory availability for backend processing
+        inventoryAvailability: inventoryAvailability,
       }
+
+      console.log('🚀 Sending assignment data to API:', assignmentData)
+      const createdAssignment = await stockAssignmentsAPI.create(assignmentData)
+      console.log('✅ Assignment created successfully:', createdAssignment.data)
+
+      // Get product name for notification
+      const product = products.find(p => p._id === stockFormData.productId)
+      const productName = product?.name || 'Product'
+
+      // Send notification to employee
+      await fetch('/api/notifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: selectedEmployee._id,
+          senderId: user.id,
+          type: 'stock_assignment',
+          title: 'New Stock Assignment',
+          message: `${productName} has been assigned to your inventory. Quantity: ${stockFormData.quantity}`,
+          read: false,
+        }),
+      })
 
       // Reset form and close dialog
       setStockFormData({
@@ -484,10 +434,16 @@ setStockAssignments(stockData)
       await fetchData()
       await fetchStockAssignments()
       
+      // Force refresh employee inventory to show new assignment immediately
+      const timestamp = Date.now().toString()
+      localStorage.setItem('employeeInventoryUpdated', timestamp)
+      console.log('📡 Dispatching employeeInventoryUpdated event with timestamp:', timestamp)
+      window.dispatchEvent(new Event('employeeInventoryUpdated'))
+      
       // Notify other pages about stock update
       localStorage.setItem('stockUpdated', Date.now().toString())
       window.dispatchEvent(new Event('stockUpdated'))
-      console.log('✅ Stock assignment notification sent to other pages')
+      console.log('✅ Stock assignment created and notifications sent to employee and other pages')
     } catch (error: any) {
       setUpdateNotification({
         message: error.response?.data?.error || "Failed to assign stock",

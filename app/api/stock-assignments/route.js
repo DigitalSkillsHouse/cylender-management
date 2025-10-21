@@ -114,69 +114,18 @@ export async function POST(request) {
       }
     }
 
-    // Perform inventory deduction from admin inventory
-    console.log('🔄 Deducting inventory for assignment:', { category: data.category, cylinderStatus: data.cylinderStatus, quantity: data.quantity });
-    
-    if (data.category === 'gas' && data.cylinderProductId) {
-      // Gas assignment: deduct gas stock and convert full cylinder to empty
-      const gasUpdate = await InventoryItem.findOneAndUpdate(
-        { product: data.product },
-        { $inc: { currentStock: -data.quantity } },
-        { new: true }
-      );
-      console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
-      
-      const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-        { product: data.cylinderProductId },
-        { 
-          $inc: { 
-            availableFull: -data.quantity,
-            availableEmpty: data.quantity 
-          }
-        },
-        { new: true }
-      );
-      console.log('✅ Cylinder converted full->empty:', cylinderUpdate?.availableFull, '->', cylinderUpdate?.availableEmpty);
-    } else if (data.category === 'cylinder' && data.cylinderStatus === 'full' && data.gasProductId) {
-      // Full cylinder assignment: deduct full cylinders and gas stock (same as Gas Sales)
-      const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-        { product: data.product },
-        { $inc: { availableFull: -data.quantity } },
-        { new: true }
-      );
-      console.log('✅ Full cylinders deducted:', cylinderUpdate?.availableFull);
-      
-      const gasUpdate = await InventoryItem.findOneAndUpdate(
-        { product: data.gasProductId },
-        { $inc: { currentStock: -data.quantity } },
-        { new: true }
-      );
-      console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
-    } else if (data.category === 'cylinder' && data.cylinderStatus === 'empty') {
-      // Empty cylinder assignment: deduct empty cylinders
-      const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-        { product: data.product },
-        { $inc: { availableEmpty: -data.quantity } },
-        { new: true }
-      );
-      console.log('✅ Empty cylinders deducted:', cylinderUpdate?.availableEmpty);
-    } else if (data.category === 'cylinder' && data.cylinderStatus === 'full') {
-      // Full cylinder only assignment (no gas product)
-      const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-        { product: data.product },
-        { $inc: { availableFull: -data.quantity } },
-        { new: true }
-      );
-      console.log('✅ Full cylinders deducted (no gas):', cylinderUpdate?.availableFull);
-    } else if (data.category === 'gas') {
-      // Gas only assignment (no cylinder product)
-      const gasUpdate = await InventoryItem.findOneAndUpdate(
-        { product: data.product },
-        { $inc: { currentStock: -data.quantity } },
-        { new: true }
-      );
-      console.log('✅ Gas stock deducted (no cylinder):', gasUpdate?.currentStock);
-    }
+    // DO NOT UPDATE INVENTORY WHEN ASSIGNMENT IS CREATED
+    // Inventory should only be deducted when employee ACCEPTS the assignment
+    console.log('📋 Assignment created with status "assigned" - inventory will be deducted when employee accepts');
+    console.log('🔄 Assignment details:', {
+      category: data.category,
+      cylinderStatus: data.cylinderStatus,
+      product: data.product,
+      quantity: data.quantity,
+      cylinderProductId: data.cylinderProductId,
+      gasProductId: data.gasProductId,
+      status: 'assigned'
+    });
 
     // Create assignment with remainingQuantity initialized to the assigned quantity and include leastPrice
     // Set proper category based on type and cylinder status
@@ -189,11 +138,13 @@ export async function POST(request) {
     
     const assignmentData = {
       ...data,
-      status: 'assigned', // Always start with assigned status
+      status: 'assigned', // Always start with assigned status - employee must accept
       remainingQuantity: data.quantity,
       leastPrice: product.leastPrice,
       displayCategory: displayCategory,
-      cylinderStatus: data.cylinderStatus // Explicitly save cylinder status
+      cylinderStatus: data.cylinderStatus, // Explicitly save cylinder status
+      assignedDate: new Date(), // Ensure fresh timestamp for each assignment
+      createdAt: new Date(), // Force new creation timestamp
     };
     
     // Remove empty string ObjectId fields to prevent validation errors
@@ -204,7 +155,26 @@ export async function POST(request) {
       delete assignmentData.cylinderProductId;
     }
     console.log('🔍 Creating assignment with data:', { category: data.category, cylinderStatus: data.cylinderStatus, displayCategory });
+    console.log('📝 Full assignment data being created:', {
+      employee: data.employee,
+      product: data.product,
+      quantity: data.quantity,
+      status: assignmentData.status,
+      assignedDate: assignmentData.assignedDate,
+      createdAt: assignmentData.createdAt
+    });
+    
     const assignment = await StockAssignment.create(assignmentData);
+    console.log('✅ Assignment created successfully with ID:', assignment._id);
+    console.log('🔍 CRITICAL DEBUG - Assignment status after creation:', {
+      assignmentId: assignment._id,
+      status: assignment.status,
+      employee: assignment.employee,
+      product: assignment.product,
+      quantity: assignment.quantity,
+      assignedDate: assignment.assignedDate,
+      createdAt: assignment.createdAt
+    });
 
     // Create notification for employee
     await Notification.create({

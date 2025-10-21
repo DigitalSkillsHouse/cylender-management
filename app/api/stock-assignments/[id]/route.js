@@ -64,9 +64,84 @@ export async function PATCH(request, { params }) {
       newStatus: assignment.status
     });
     
-    // Process inventory creation only if status changed to received or active
+    // Process inventory deduction and creation only if status changed to received or active
     if ((data.status === 'received' || data.status === 'active') && data.createEmployeeInventory && 
         originalAssignment.status !== 'received' && originalAssignment.status !== 'active') {
+      
+      // FIRST: Deduct from admin inventory when employee accepts assignment
+      const InventoryItem = (await import("@/models/InventoryItem")).default;
+      
+      console.log('🔄 Deducting admin inventory for accepted assignment:', {
+        category: assignment.category,
+        cylinderStatus: assignment.cylinderStatus,
+        product: assignment.product._id,
+        quantity: assignment.quantity,
+        cylinderProductId: assignment.cylinderProductId,
+        gasProductId: assignment.gasProductId
+      });
+      
+      if (assignment.category === 'gas' && assignment.cylinderProductId) {
+        // Gas assignment: deduct gas stock and convert full cylinder to empty
+        const gasUpdate = await InventoryItem.findOneAndUpdate(
+          { product: assignment.product._id },
+          { $inc: { currentStock: -assignment.quantity } },
+          { new: true }
+        );
+        console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+        
+        const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+          { product: assignment.cylinderProductId },
+          { 
+            $inc: { 
+              availableFull: -assignment.quantity,
+              availableEmpty: assignment.quantity 
+            }
+          },
+          { new: true }
+        );
+        console.log('✅ Cylinder converted full->empty:', cylinderUpdate?.availableFull, '->', cylinderUpdate?.availableEmpty);
+      } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && assignment.gasProductId) {
+        // Full cylinder assignment: deduct full cylinders and gas stock
+        const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+          { product: assignment.product._id },
+          { $inc: { availableFull: -assignment.quantity } },
+          { new: true }
+        );
+        console.log('✅ Full cylinders deducted:', cylinderUpdate?.availableFull);
+        
+        const gasUpdate = await InventoryItem.findOneAndUpdate(
+          { product: assignment.gasProductId },
+          { $inc: { currentStock: -assignment.quantity } },
+          { new: true }
+        );
+        console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+      } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'empty') {
+        // Empty cylinder assignment: deduct empty cylinders
+        const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+          { product: assignment.product._id },
+          { $inc: { availableEmpty: -assignment.quantity } },
+          { new: true }
+        );
+        console.log('✅ Empty cylinders deducted:', cylinderUpdate?.availableEmpty);
+      } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full') {
+        // Full cylinder only assignment (no gas product)
+        const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+          { product: assignment.product._id },
+          { $inc: { availableFull: -assignment.quantity } },
+          { new: true }
+        );
+        console.log('✅ Full cylinders deducted (no gas):', cylinderUpdate?.availableFull);
+      } else if (assignment.category === 'gas') {
+        // Gas only assignment (no cylinder product)
+        const gasUpdate = await InventoryItem.findOneAndUpdate(
+          { product: assignment.product._id },
+          { $inc: { currentStock: -assignment.quantity } },
+          { new: true }
+        );
+        console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+      }
+      
+      // SECOND: Create employee inventory records
       const EmployeeInventory = (await import("@/models/EmployeeInventory")).default;
       
       // Use the base category for database storage (gas/cylinder)
