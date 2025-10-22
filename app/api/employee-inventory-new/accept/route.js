@@ -39,14 +39,106 @@ export async function POST(request) {
       quantity: purchaseOrder.quantity,
       purchaseType: purchaseOrder.purchaseType,
       cylinderStatus: purchaseOrder.cylinderStatus,
-      productCategory: purchaseOrder.product?.category
+      productCategory: purchaseOrder.product?.category,
+      emptyCylinderId: purchaseOrder.emptyCylinderId
     })
 
     // Update purchase order status to 'received'
     purchaseOrder.inventoryStatus = 'received'
     await purchaseOrder.save()
 
-    // Create or update employee inventory item
+    // Handle gas purchase with empty cylinder - create BOTH gas and cylinder inventory
+    if (purchaseOrder.purchaseType === 'gas' && purchaseOrder.emptyCylinderId) {
+      console.log('🔄 Gas purchase with empty cylinder - creating BOTH gas and full cylinder inventory')
+      
+      // Get the empty cylinder inventory to find the cylinder product
+      const emptyCylinderInventory = await EmployeeInventoryItem.findById(purchaseOrder.emptyCylinderId)
+      if (!emptyCylinderInventory) {
+        return NextResponse.json({ error: "Empty cylinder not found" }, { status: 404 })
+      }
+
+      // 1. Create/update GAS inventory (original gas product)
+      let gasInventoryItem = await EmployeeInventoryItem.findOne({
+        employee: employeeId,
+        product: purchaseOrder.product._id
+      })
+
+      if (gasInventoryItem) {
+        console.log('📦 Updating existing gas inventory')
+        gasInventoryItem.currentStock += purchaseOrder.quantity
+        gasInventoryItem.lastUpdatedAt = new Date()
+        await gasInventoryItem.save()
+      } else {
+        console.log('📦 Creating new gas inventory')
+        gasInventoryItem = await EmployeeInventoryItem.create({
+          employee: employeeId,
+          product: purchaseOrder.product._id,
+          category: 'gas',
+          currentStock: purchaseOrder.quantity,
+          availableEmpty: 0,
+          availableFull: 0,
+          cylinderSize: purchaseOrder.product.cylinderSize,
+          gasType: purchaseOrder.gasType,
+          lastUpdatedAt: new Date()
+        })
+      }
+
+      // 2. Create/update FULL CYLINDER inventory (cylinder product)
+      let cylinderInventoryItem = await EmployeeInventoryItem.findOne({
+        employee: employeeId,
+        product: emptyCylinderInventory.product
+      })
+
+      if (cylinderInventoryItem) {
+        console.log('📦 Updating existing cylinder inventory - adding full cylinders')
+        cylinderInventoryItem.availableFull += purchaseOrder.quantity
+        cylinderInventoryItem.lastUpdatedAt = new Date()
+        await cylinderInventoryItem.save()
+      } else {
+        console.log('📦 Creating new cylinder inventory with full cylinders')
+        const targetProduct = await Product.findById(emptyCylinderInventory.product)
+        cylinderInventoryItem = await EmployeeInventoryItem.create({
+          employee: employeeId,
+          product: emptyCylinderInventory.product,
+          category: 'cylinder',
+          currentStock: 0,
+          availableEmpty: 0,
+          availableFull: purchaseOrder.quantity,
+          cylinderSize: targetProduct?.cylinderSize,
+          gasType: purchaseOrder.gasType,
+          lastUpdatedAt: new Date()
+        })
+      }
+
+      // 3. Reduce empty cylinder stock
+      emptyCylinderInventory.availableEmpty = Math.max(0, emptyCylinderInventory.availableEmpty - purchaseOrder.quantity)
+      emptyCylinderInventory.lastUpdatedAt = new Date()
+      await emptyCylinderInventory.save()
+
+      console.log('✅ Gas + Cylinder inventory created/updated:', {
+        gasInventory: {
+          id: gasInventoryItem._id,
+          currentStock: gasInventoryItem.currentStock
+        },
+        cylinderInventory: {
+          id: cylinderInventoryItem._id,
+          availableFull: cylinderInventoryItem.availableFull
+        },
+        emptyReduced: purchaseOrder.quantity
+      })
+
+      return NextResponse.json({ 
+        success: true, 
+        message: "Order accepted and added to inventory (gas + full cylinder)",
+        data: {
+          orderId: orderId,
+          gasInventoryItem: gasInventoryItem,
+          cylinderInventoryItem: cylinderInventoryItem
+        }
+      })
+    }
+
+    // Handle regular purchases (gas only or cylinder only)
     let inventoryItem = await EmployeeInventoryItem.findOne({
       employee: employeeId,
       product: purchaseOrder.product._id

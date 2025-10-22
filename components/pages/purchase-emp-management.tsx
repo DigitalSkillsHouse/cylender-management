@@ -117,8 +117,8 @@ export function PurchaseManagement() {
         if (userInfo) {
           const currentUser = JSON.parse(userInfo)
           if (currentUser?.id) {
-            // Fetch from employee-inventory-items to get current inventory without duplicates
-            const employeeInventoryRes = await fetch(`/api/employee-inventory-items?employeeId=${currentUser.id}`)
+            // Fetch from employee received inventory to get current inventory
+            const employeeInventoryRes = await fetch(`/api/employee-inventory-new/received?employeeId=${currentUser.id}&t=${Date.now()}`)
             if (employeeInventoryRes.ok) {
               const inventoryData = await employeeInventoryRes.json()
               const inventoryItems = inventoryData.data || []
@@ -127,12 +127,10 @@ export function PurchaseManagement() {
               const emptyCylinderItems = inventoryItems.filter((item: any) => {
                 const isEmptyCylinder = (
                   item.category === 'cylinder' && 
-                  item.cylinderStatus === 'empty'
+                  item.availableEmpty > 0
                 )
                 
-                const hasStock = (item.availableEmpty > 0 || item.currentStock > 0)
-                
-                return isEmptyCylinder && hasStock
+                return isEmptyCylinder
               })
               
               console.log('🔍 Empty cylinders loaded:', {
@@ -372,7 +370,7 @@ export function PurchaseManagement() {
     if (currentItem.emptyCylinderId) {
       const selectedCylinder = emptyCylinders.find(c => c._id === currentItem.emptyCylinderId)
       if (selectedCylinder) {
-        const availableQuantity = selectedCylinder.availableEmpty || selectedCylinder.currentStock || 0
+        const availableQuantity = selectedCylinder.availableEmpty || 0
         const requestedQuantity = Number(currentItem.quantity) || 0
         
         if (requestedQuantity > availableQuantity) {
@@ -383,7 +381,7 @@ export function PurchaseManagement() {
     }
     // Get cylinder name for display
     const selectedCylinder = emptyCylinders.find(c => c._id === currentItem.emptyCylinderId)
-    const cylinderName = selectedCylinder?.product?.name || selectedCylinder?.productName || ''
+    const cylinderName = selectedCylinder?.productName || ''
     
     const nextItems = [...formData.items, {
       purchaseType: currentItem.purchaseType,
@@ -716,7 +714,7 @@ export function PurchaseManagement() {
                           {emptyCylinders
                             .filter(cylinder => 
                               cylinderSearchTerm.trim().length === 0 ? true : 
-                              (cylinder.product?.name || cylinder.productName || '').toLowerCase().includes(cylinderSearchTerm.toLowerCase())
+                              (cylinder.productName || '').toLowerCase().includes(cylinderSearchTerm.toLowerCase())
                             )
                             .slice(0, 8).map((cylinder) => (
                             <button
@@ -727,21 +725,21 @@ export function PurchaseManagement() {
                                   ...ci,
                                   emptyCylinderId: cylinder._id,
                                 }))
-                                setCylinderSearchTerm(cylinder.product?.name || cylinder.productName || '')
+                                setCylinderSearchTerm(cylinder.productName || '')
                                 setShowCylinderSuggestions(false)
                               }}
                               className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
                             >
                               <div className="font-medium text-gray-800">
-                                {cylinder.product?.name || cylinder.productName}
+                                {cylinder.productName}
                               </div>
                               <div className="text-xs text-gray-500">
-                                Available: {cylinder.availableEmpty || cylinder.currentStock || 0} • Size: {cylinder.cylinderSize || cylinder.product?.cylinderSize || 'N/A'}
+                                Available: {cylinder.availableEmpty || 0} • Size: {cylinder.cylinderSize || 'N/A'}
                               </div>
                             </button>
                           ))}
                           {emptyCylinders.filter(cylinder => 
-                            (cylinder.product?.name || cylinder.productName || '').toLowerCase().includes(cylinderSearchTerm.toLowerCase())
+                            (cylinder.productName || '').toLowerCase().includes(cylinderSearchTerm.toLowerCase())
                           ).length === 0 && (
                             <div className="px-3 py-2 text-sm text-gray-500">No empty cylinders found</div>
                           )}

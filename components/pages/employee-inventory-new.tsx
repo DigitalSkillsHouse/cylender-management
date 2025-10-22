@@ -206,8 +206,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
     ? pendingOrders.filter(item => 
         item.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.productCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.supplierName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.poNumber.toLowerCase().includes(searchTerm.toLowerCase())
+        item.purchaseType.toLowerCase().includes(searchTerm.toLowerCase())
       )
     : pendingOrders
 
@@ -217,8 +216,6 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
         <TableHeader>
           <TableRow className="bg-gray-50 border-b-2 border-gray-200">
             <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
-            <TableHead className="font-bold text-gray-700 p-4">PO Number</TableHead>
-            <TableHead className="font-bold text-gray-700 p-4">Supplier</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Type</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Quantity</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Unit Price</TableHead>
@@ -238,8 +235,6 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
                   <div className="text-sm text-blue-600">Empty Cylinder: {item.emptyCylinderName}</div>
                 )}
               </TableCell>
-              <TableCell className="p-4 font-mono text-sm">{item.poNumber}</TableCell>
-              <TableCell className="p-4">{item.supplierName}</TableCell>
               <TableCell className="p-4">
                 <Badge variant={item.purchaseType === "gas" ? "default" : "secondary"}>
                   {item.purchaseType}
@@ -273,7 +268,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
           ))}
           {items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} className="text-center text-gray-500 py-12">
+              <TableCell colSpan={6} className="text-center text-gray-500 py-12">
                 <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium">No pending orders</p>
                 <p className="text-sm">You have no purchase orders awaiting acceptance</p>
@@ -294,7 +289,6 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
             <TableHead className="font-bold text-gray-700 p-4">Code</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Category</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Available Stock</TableHead>
-            <TableHead className="font-bold text-gray-700 p-4">Size</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Last Updated</TableHead>
           </TableRow>
         </TableHeader>
@@ -322,9 +316,6 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
                 <TableCell className="p-4 font-bold text-lg">
                   {availableQuantity}
                 </TableCell>
-                <TableCell className="p-4">
-                  {item.cylinderSize || 'N/A'}
-                </TableCell>
                 <TableCell className="p-4 text-sm text-gray-600">
                   {new Date(item.updatedAt).toLocaleDateString()}
                 </TableCell>
@@ -333,7 +324,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
           })}
           {items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-gray-500 py-12">
+              <TableCell colSpan={5} className="text-center text-gray-500 py-12">
                 <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium">No stock available</p>
                 <p className="text-sm">You have no {stockType} stock assigned</p>
