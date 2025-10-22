@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, Edit, Trash2, Receipt, Search, Filter } from "lucide-react"
-import { salesAPI, customersAPI, employeeSalesAPI, productsAPI, employeeInventoryAPI } from "@/lib/api"
+import { salesAPI, customersAPI, employeeSalesAPI, productsAPI } from "@/lib/api"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { SignatureDialog } from "@/components/signature-dialog"
 import { CustomerDropdown } from "@/components/ui/customer-dropdown"
@@ -629,7 +629,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       const [employeeSalesResponse, customersResponse, employeeInventoryResponse] = await Promise.all([
         employeeSalesAPI.getAll(), // Only fetch employee sales
         customersAPI.getAll(),
-        fetch(`/api/employee-inventory?employeeId=${employeeId}`), // Use direct API call
+        fetch(`/api/employee-inventory-new/received?employeeId=${employeeId}`), // Use new employee inventory API
       ])
 
       // Normalize sales and customers - only show employee sales
@@ -647,84 +647,78 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
             ? customersResponse
             : []
 
-      // Fetch employee's own inventory
+      // Fetch employee's own inventory using new API format
       const employeeInventoryData = await employeeInventoryResponse.json()
-      console.log('Employee inventory response:', employeeInventoryData)
+      console.log('Employee inventory response (new API):', employeeInventoryData)
+      console.log('🔍 Raw inventory items:', employeeInventoryData?.data?.map((item: any) => ({
+        productId: item.productId,
+        productName: item.productName,
+        category: item.category,
+        currentStock: item.currentStock,
+        availableEmpty: item.availableEmpty,
+        availableFull: item.availableFull
+      })))
       
       // Extract products from employee inventory with any stock (gas, full cylinders, or empty cylinders)
       const allEmployeeProducts: Product[] = [];
+      const inventoryAvailability: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
+      
       if (employeeInventoryData?.data && Array.isArray(employeeInventoryData.data)) {
         employeeInventoryData.data.forEach((inventoryItem: any) => {
-          if (inventoryItem.product) {
+          if (inventoryItem.productId) {
             // Include products that have any stock (gas, full cylinders, or empty cylinders)
             const currentStock = inventoryItem.currentStock || 0
             const availableEmpty = inventoryItem.availableEmpty || 0
             const availableFull = inventoryItem.availableFull || 0
             
-            // Only include if there's any stock available
-            if (currentStock > 0 || availableEmpty > 0 || availableFull > 0) {
-              // Map inventory categories to product categories for proper filtering
-              let productCategory = inventoryItem.product.category || 'gas'
-              if (inventoryItem.category) {
-                // Convert inventory display categories to product categories
-                if (inventoryItem.category === 'Gas') {
-                  productCategory = 'gas'
-                } else if (inventoryItem.category === 'Full Cylinder' || inventoryItem.category === 'Empty Cylinder') {
-                  productCategory = 'cylinder'
-                }
-              }
-              
-              const productWithStock = {
-                ...inventoryItem.product,
-                currentStock: currentStock,
-                // Add inventory-specific fields for availability checking
-                availableEmpty: availableEmpty,
-                availableFull: availableFull,
-                category: productCategory,
-                cylinderStatus: inventoryItem.cylinderStatus
-              }
-              allEmployeeProducts.push(productWithStock)
+            // Store inventory availability for stock validation
+            inventoryAvailability[inventoryItem.productId] = {
+              currentStock,
+              availableEmpty,
+              availableFull
             }
+            
+            // Include ALL products (even with 0 stock) so filtering can work properly
+            const productWithStock = {
+              _id: inventoryItem.productId,
+              name: inventoryItem.productName,
+              productCode: inventoryItem.productCode,
+              category: inventoryItem.category,
+              currentStock: currentStock,
+              // Add inventory-specific fields for availability checking
+              availableEmpty: availableEmpty,
+              availableFull: availableFull,
+              cylinderSize: inventoryItem.cylinderSize,
+              costPrice: 0, // Will be populated if needed
+              leastPrice: 0, // Will be populated if needed
+            }
+            allEmployeeProducts.push(productWithStock)
           }
         })
       }
+      
       // Deduplicate products by _id
       const productsData = Array.from(
         new Map(allEmployeeProducts.map(p => [p._id, p])).values()
       )
-
+      
       setSales(salesData)
       setCustomers(customersData)
       setAllProducts(productsData)
-
-      // Build inventory availability map from employee inventory FIRST (before filtering)
-      const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
-      if (employeeInventoryData?.data && Array.isArray(employeeInventoryData.data)) {
-        employeeInventoryData.data.forEach((inventoryItem: any) => {
-          if (inventoryItem.product?._id) {
-            availMap[inventoryItem.product._id] = {
-              availableEmpty: Number(inventoryItem.availableEmpty || 0),
-              availableFull: Number(inventoryItem.availableFull || 0),
-              currentStock: Number(inventoryItem.currentStock || 0),
-            }
-          }
-        })
-      }
-      setInventoryAvailability(availMap)
+      setInventoryAvailability(inventoryAvailability)
 
       // Filter by selected category using inventory data for accurate stock levels (matching admin logic)
       const filteredProducts = productsData.filter((product: Product) => {
         if (product.category !== formData.category) return false
         
         if (product.category === 'cylinder') {
-          // For cylinders, only show full cylinders (available for sale) - matching admin logic
-          if ((product as any).cylinderStatus !== 'full') return false
-          // Check cylinder stock from inventory availability
-          const availableFull = availMap[product._id]?.availableFull || 0
-          return availableFull > 0
+          // For cylinders, show based on available stock (both full and empty)
+          const availableFull = inventoryAvailability[product._id]?.availableFull || 0
+          const availableEmpty = inventoryAvailability[product._id]?.availableEmpty || 0
+          return availableFull > 0 || availableEmpty > 0
         } else if (product.category === 'gas') {
           // For gas, check currentStock from inventory availability (Gas tab) - matching admin logic
-          const gasStock = availMap[product._id]?.currentStock || 0
+          const gasStock = inventoryAvailability[product._id]?.currentStock || 0
           return gasStock > 0
         }
         
@@ -738,19 +732,20 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       console.log('Employee Gas Sales - Gas products with stock:', productsData.filter(p => p.category === 'gas').map(p => ({
         name: p.name,
         productStock: p.currentStock,
-        inventoryStock: availMap[p._id]?.currentStock || 0
+        inventoryStock: inventoryAvailability[p._id]?.currentStock || 0
       })))
       console.log('Employee Gas Sales - Cylinder products with stock:', productsData.filter(p => p.category === 'cylinder').map(p => ({
         name: p.name,
         status: (p as any).cylinderStatus,
-        availableFull: availMap[p._id]?.availableFull || 0,
-        availableEmpty: availMap[p._id]?.availableEmpty || 0
+        availableFull: inventoryAvailability[p._id]?.availableFull || 0,
+        availableEmpty: inventoryAvailability[p._id]?.availableEmpty || 0
       })))
       console.log('Employee Gas Sales - Loaded inventory:', {
         totalItems: employeeInventoryData?.data?.length || 0,
         gasProducts: productsData.filter(p => p.category === 'gas').length,
         cylinderProducts: productsData.filter(p => p.category === 'cylinder').length,
-        availabilityMap: Object.keys(availMap).length
+        availabilityMap: Object.keys(inventoryAvailability).length,
+        inventoryAvailability: inventoryAvailability
       })
       
       setProducts(filteredProducts)
