@@ -1098,8 +1098,8 @@ export function PurchaseManagement() {
                             group.status === "completed"
                               ? "bg-green-600"
                               : group.status === "pending"
-                                ? "bg-yellow-100"
-                                : "bg-red-100"
+                                ? "bg-yellow-700"
+                                : "bg-red-800"
                           } text-white font-medium px-2 py-1 rounded-full text-xs`}
                         >
                           {group.status}

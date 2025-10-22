@@ -45,6 +45,7 @@ export async function POST(request) {
 
     // Update purchase order status to 'received'
     purchaseOrder.inventoryStatus = 'received'
+    purchaseOrder.status = 'completed'  // Update main status so it shows as completed in Employee Purchase Management
     await purchaseOrder.save()
 
     // Handle gas purchase with empty cylinder - create BOTH gas and cylinder inventory
@@ -213,6 +214,11 @@ export async function POST(request) {
 
       inventoryItem = await EmployeeInventoryItem.create(newInventoryData)
     }
+
+    // Update purchase order status to completed for regular purchases
+    purchaseOrder.inventoryStatus = 'received'
+    purchaseOrder.status = 'completed'  // Update main status so it shows as completed in Employee Purchase Management
+    await purchaseOrder.save()
 
     console.log('✅ Order accepted and inventory updated:', {
       orderId: orderId,
