@@ -24,6 +24,26 @@ export async function GET(request) {
 
     // Also get StockAssignments for this employee (only pending assignments, not converted ones)
     const StockAssignment = (await import("@/models/StockAssignment")).default
+    
+    // First, let's see ALL StockAssignments for this employee for debugging
+    const allStockAssignments = await StockAssignment.find({ employee: employeeId })
+      .populate("product", "name productCode category costPrice leastPrice cylinderSize")
+      .sort({ createdAt: -1 })
+      .lean()
+    
+    console.log('🔍 All StockAssignments for employee:', {
+      employeeId,
+      totalAssignments: allStockAssignments.length,
+      assignments: allStockAssignments.map(sa => ({
+        id: sa._id,
+        product: sa.product?.name,
+        status: sa.status,
+        quantity: sa.quantity,
+        remainingQuantity: sa.remainingQuantity,
+        createdAt: sa.createdAt
+      }))
+    })
+    
     const stockAssignments = await StockAssignment.find({ 
       employee: employeeId,
       status: 'assigned' // Only show assignments that haven't been accepted yet

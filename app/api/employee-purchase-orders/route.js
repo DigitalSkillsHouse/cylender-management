@@ -148,8 +148,8 @@ export async function POST(request) {
       unitPrice: unitPriceNum,
       totalAmount: computedTotal,
       notes: notes || "",
-      status: "pending", // Pending until EMPLOYEE accepts from their inventory
-      inventoryStatus: "pending", // Pending until EMPLOYEE accepts
+      status: "assigned", // Direct assignment - no admin approval needed
+      inventoryStatus: "assigned", // Stock assignments created, awaiting employee acceptance
       poNumber,
       ...(emptyCylinderId ? { emptyCylinderId } : {}),
       ...(emptyCylinderName ? { emptyCylinderName } : {})
@@ -166,9 +166,9 @@ export async function POST(request) {
     console.log(`📋 Purchase Type: ${purchaseType}`)
     console.log(`📊 Quantity: ${qtyNum}`)
     console.log(`💰 Total Amount: AED ${computedTotal}`)
-    console.log(`⏳ Status: PENDING (Awaiting EMPLOYEE confirmation - no admin involved)`)
-    console.log(`⏳ Inventory Status: PENDING (Will be approved when employee accepts)`)
-    console.log(`📍 Stock assignments created - appearing in employee's Assigned Stock`)
+    console.log(`✅ Status: ASSIGNED (Direct assignment - no admin approval needed)`)
+    console.log(`✅ Inventory Status: ASSIGNED (Stock assignments created, awaiting employee acceptance)`)
+    console.log(`📍 Stock assignments created - appearing in employee's "Assigned Stock Awaiting Acceptance"`)
     console.log('🔵 ====================================================\n')
     
     // If this is a gas purchase with empty cylinder, create stock assignments
@@ -179,53 +179,53 @@ export async function POST(request) {
       try {
         const StockAssignment = require("@/models/StockAssignment").default
         
-        // Get the empty cylinder record to reduce its quantity
+        // Get the empty cylinder record from EmployeeInventory (not StockAssignment)
         console.log(`   🔍 Looking for empty cylinder record with ID: ${emptyCylinderId}`)
-        const emptyCylinderRecord = await StockAssignment.findById(emptyCylinderId)
+        const EmployeeInventory = require("@/models/EmployeeInventory").default
+        const Product = require("@/models/Product").default
+        const emptyCylinderRecord = await EmployeeInventory.findById(emptyCylinderId).populate('product')
+        const gasProduct = await Product.findById(product)
         console.log(`   📦 Empty cylinder record found:`, emptyCylinderRecord ? 'YES' : 'NO')
+        console.log(`   📦 Gas product found:`, gasProduct ? gasProduct.name : 'NO')
         
         if (emptyCylinderRecord) {
           console.log(`   ✅ Empty cylinder record details:`, {
             id: emptyCylinderRecord._id,
             product: emptyCylinderRecord.product,
-            remainingQuantity: emptyCylinderRecord.remainingQuantity,
+            currentStock: emptyCylinderRecord.currentStock,
+            availableEmpty: emptyCylinderRecord.availableEmpty,
             status: emptyCylinderRecord.status
           })
-          // 1. Reduce empty cylinder quantity in StockAssignment
+          // 1. Reduce empty cylinder quantity in EmployeeInventory
           const usedQuantity = qtyNum
-          const previousQty = emptyCylinderRecord.remainingQuantity || 0
-          emptyCylinderRecord.remainingQuantity = Math.max(0, previousQty - usedQuantity)
-          await emptyCylinderRecord.save()
+          const previousQty = emptyCylinderRecord.currentStock || 0
+          emptyCylinderRecord.currentStock = Math.max(0, previousQty - usedQuantity)
+          emptyCylinderRecord.availableEmpty = Math.max(0, (emptyCylinderRecord.availableEmpty || 0) - usedQuantity)
           
-          // Also reduce in EmployeeInventory if exists
-          const EmployeeInventory = require("@/models/EmployeeInventory").default
-          const employeeEmptyCylinder = await EmployeeInventory.findOne({
-            employee: user.id,
-            product: emptyCylinderRecord.product,
-            cylinderStatus: 'empty'
+          // Add transaction record
+          emptyCylinderRecord.transactions.push({
+            type: 'sale',
+            quantity: -usedQuantity,
+            date: new Date(),
+            notes: `Used for gas purchase: ${poNumber}`
           })
           
-          if (employeeEmptyCylinder) {
-            employeeEmptyCylinder.currentStock = Math.max(0, (employeeEmptyCylinder.currentStock || 0) - usedQuantity)
-            employeeEmptyCylinder.availableEmpty = Math.max(0, (employeeEmptyCylinder.availableEmpty || 0) - usedQuantity)
-            await employeeEmptyCylinder.save()
-            console.log(`   ✅ Also reduced EmployeeInventory empty cylinder stock`)
-          }
+          await emptyCylinderRecord.save()
           
           console.log(`\n📉 Step 1: Reduced Empty Cylinder Stock`)
           console.log(`   Previous: ${previousQty} units`)
           console.log(`   Used: ${usedQuantity} units`)
-          console.log(`   Remaining: ${emptyCylinderRecord.remainingQuantity} units`)
+          console.log(`   Remaining: ${emptyCylinderRecord.currentStock} units`)
           
           // 2. Create full cylinder assignment (pending employee acceptance)
           const fullCylinderAssignment = new StockAssignment({
             employee: user.id,
-            product: emptyCylinderRecord.product, // Same cylinder product but now full
+            product: emptyCylinderRecord.product._id, // Same cylinder product but now full
             quantity: usedQuantity,
             remainingQuantity: usedQuantity,
             assignedBy: user.id, // Self-assigned
             status: "assigned", // Employee needs to accept from pending inventory
-            notes: `Full cylinder (${product.name || 'gas'}) from direct purchase: ${poNumber}`,
+            notes: `Full cylinder (${gasProduct?.name || 'gas'}) from direct purchase: ${poNumber}`,
             leastPrice: Math.max(emptyCylinderRecord.leastPrice || 0, unitPriceNum || 0),
             assignedDate: new Date(),
             category: 'cylinder',
@@ -240,7 +240,7 @@ export async function POST(request) {
           console.log(`   Assignment ID: ${fullCylinderAssignment._id}`)
           console.log(`   Employee ID: ${user.id}`)
           console.log(`   Cylinder Product: ${emptyCylinderRecord.product?.name || 'Cylinder'}`)
-          console.log(`   Gas Product: ${product.name || 'Gas'}`)
+          console.log(`   Gas Product: ${gasProduct?.name || 'Gas'}`)
           console.log(`   Quantity: ${usedQuantity} units`)
           console.log(`   Status: ASSIGNED (Pending Employee Acceptance)`)
           console.log(`   Location: Will appear in "Assigned Stock" as Full Cylinder`)
@@ -311,11 +311,13 @@ export async function POST(request) {
           await stockAssignment.save()
           
           console.log(`\n🔵 Step 1: Created Stock Assignment`)
+          console.log(`   Assignment ID: ${stockAssignment._id}`)
           console.log(`   Product: ${productDetails.name}`)
           console.log(`   Category: ${productDetails.category}`)
           console.log(`   Quantity: ${qtyNum} units`)
           console.log(`   Status: ASSIGNED (Pending Employee Acceptance)`)
           console.log(`   Location: Will appear in "Assigned Stock" section`)
+          console.log(`   Employee ID: ${user.id}`)
           
           // Create notification
           try {

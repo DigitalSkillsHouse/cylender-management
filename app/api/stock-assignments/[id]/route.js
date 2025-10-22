@@ -396,15 +396,47 @@ export async function PATCH(request, { params }) {
         });
         
         try {
-          // Use upsert to avoid duplicate key errors
+          // Check if record exists first to avoid MongoDB conflicts
           const query = {
             employee: assignment.employee,
             product: assignment.product._id,
             ...(cylinderStatus && { cylinderStatus })
           };
           
-          const updateData = {
-            $inc: {
+          let createdInventory = await EmployeeInventory.findOne(query);
+          
+          if (createdInventory) {
+            // Update existing record
+            createdInventory = await EmployeeInventory.findByIdAndUpdate(
+              createdInventory._id,
+              {
+                $inc: {
+                  assignedQuantity: assignment.quantity,
+                  currentStock: assignment.quantity,
+                  ...(dbCategory === 'cylinder' && cylinderStatus === 'empty' && {
+                    availableEmpty: assignment.quantity
+                  }),
+                  ...(dbCategory === 'cylinder' && cylinderStatus === 'full' && {
+                    availableFull: assignment.quantity
+                  })
+                },
+                $push: {
+                  transactions: {
+                    type: 'assignment',
+                    quantity: assignment.quantity,
+                    date: new Date(),
+                    notes: `Stock assignment accepted - ${dbCategory} ${cylinderStatus || ''}`
+                  }
+                }
+              },
+              { new: true, runValidators: true }
+            );
+          } else {
+            // Create new record
+            createdInventory = await EmployeeInventory.create({
+              employee: assignment.employee,
+              product: assignment.product._id,
+              category: dbCategory,
               assignedQuantity: assignment.quantity,
               currentStock: assignment.quantity,
               ...(dbCategory === 'cylinder' && cylinderStatus === 'empty' && {
@@ -412,12 +444,7 @@ export async function PATCH(request, { params }) {
               }),
               ...(dbCategory === 'cylinder' && cylinderStatus === 'full' && {
                 availableFull: assignment.quantity
-              })
-            },
-            $setOnInsert: {
-              employee: assignment.employee,
-              product: assignment.product._id,
-              category: dbCategory,
+              }),
               cylinderSize: assignment.cylinderSize,
               leastPrice: assignment.leastPrice || 0,
               status: 'received',
@@ -428,22 +455,8 @@ export async function PATCH(request, { params }) {
                 date: new Date(),
                 notes: `Stock assignment accepted - ${dbCategory} ${cylinderStatus || ''}`
               }]
-            },
-            $push: {
-              transactions: {
-                type: 'assignment',
-                quantity: assignment.quantity,
-                date: new Date(),
-                notes: `Stock assignment accepted - ${dbCategory} ${cylinderStatus || ''}`
-              }
-            }
-          };
-          
-          const createdInventory = await EmployeeInventory.findOneAndUpdate(
-            query,
-            updateData,
-            { upsert: true, new: true, runValidators: true }
-          );
+            });
+          }
           
           console.log('✅ EmployeeInventory record created/updated successfully:', {
             inventoryId: createdInventory._id,

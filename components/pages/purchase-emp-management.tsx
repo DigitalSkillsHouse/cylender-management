@@ -117,23 +117,34 @@ export function PurchaseManagement() {
         if (userInfo) {
           const currentUser = JSON.parse(userInfo)
           if (currentUser?.id) {
-            // Fetch from stock-assignments to get correct StockAssignment IDs
-            const stockAssignmentsRes = await fetch(`/api/stock-assignments?employeeId=${currentUser.id}`)
-            if (stockAssignmentsRes.ok) {
-              const assignmentsData = await stockAssignmentsRes.json()
-              const assignments = assignmentsData.data || []
+            // Fetch from employee-inventory-items to get current inventory without duplicates
+            const employeeInventoryRes = await fetch(`/api/employee-inventory-items?employeeId=${currentUser.id}`)
+            if (employeeInventoryRes.ok) {
+              const inventoryData = await employeeInventoryRes.json()
+              const inventoryItems = inventoryData.data || []
               
-              // Filter for empty cylinders with received status
-              const emptyCylinderItems = assignments.filter((item: any) => {
+              // Filter for empty cylinders with available stock
+              const emptyCylinderItems = inventoryItems.filter((item: any) => {
                 const isEmptyCylinder = (
                   item.category === 'cylinder' && 
                   item.cylinderStatus === 'empty'
                 )
                 
-                const hasStock = (item.remainingQuantity > 0)
-                const isReceived = (item.status === 'received')
+                const hasStock = (item.availableEmpty > 0 || item.currentStock > 0)
                 
-                return isEmptyCylinder && hasStock && isReceived
+                return isEmptyCylinder && hasStock
+              })
+              
+              console.log('🔍 Empty cylinders loaded:', {
+                totalInventoryItems: inventoryItems.length,
+                emptyCylinderItems: emptyCylinderItems.length,
+                items: emptyCylinderItems.map((item: any) => ({
+                  id: item._id,
+                  name: item.productName,
+                  stock: item.availableEmpty || item.currentStock,
+                  category: item.category,
+                  cylinderStatus: item.cylinderStatus
+                }))
               })
               
               setEmptyCylinders(emptyCylinderItems)
@@ -279,6 +290,10 @@ export function PurchaseManagement() {
       await fetchData()
       resetForm()
       setIsDialogOpen(false)
+      
+      // Notify other pages that a purchase order was created
+      localStorage.setItem('purchaseOrderCreated', Date.now().toString())
+      window.dispatchEvent(new CustomEvent('purchaseOrderCreated'))
     } catch (error: any) {
       setError(error.response?.data?.error || "Failed to save purchase order")
     } finally {
@@ -357,7 +372,7 @@ export function PurchaseManagement() {
     if (currentItem.emptyCylinderId) {
       const selectedCylinder = emptyCylinders.find(c => c._id === currentItem.emptyCylinderId)
       if (selectedCylinder) {
-        const availableQuantity = selectedCylinder.remainingQuantity || 0
+        const availableQuantity = selectedCylinder.availableEmpty || selectedCylinder.currentStock || 0
         const requestedQuantity = Number(currentItem.quantity) || 0
         
         if (requestedQuantity > availableQuantity) {
@@ -721,7 +736,7 @@ export function PurchaseManagement() {
                                 {cylinder.product?.name || cylinder.productName}
                               </div>
                               <div className="text-xs text-gray-500">
-                                Available: {cylinder.remainingQuantity || 0} • Size: {cylinder.product?.cylinderSize || 'N/A'}
+                                Available: {cylinder.availableEmpty || cylinder.currentStock || 0} • Size: {cylinder.cylinderSize || cylinder.product?.cylinderSize || 'N/A'}
                               </div>
                             </button>
                           ))}

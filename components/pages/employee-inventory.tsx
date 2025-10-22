@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, Loader2, Edit, ChevronDown } from "lucide-react"
+import { Package, Loader2, Edit, ChevronDown, RefreshCw } from "lucide-react"
 import { purchaseOrdersAPI, inventoryAPI, productsAPI, suppliersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 
@@ -69,6 +69,25 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
 
   useEffect(() => {
     fetchInventoryData()
+    
+    // Listen for purchase order creation events
+    const handlePurchaseOrderCreated = () => {
+      console.log('🔄 Purchase order created, refreshing employee inventory...')
+      fetchInventoryData()
+    }
+    
+    // Listen for storage events (when purchase orders are created)
+    window.addEventListener('purchaseOrderCreated', handlePurchaseOrderCreated)
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'purchaseOrderCreated') {
+        handlePurchaseOrderCreated()
+      }
+    })
+    
+    return () => {
+      window.removeEventListener('purchaseOrderCreated', handlePurchaseOrderCreated)
+      window.removeEventListener('storage', handlePurchaseOrderCreated)
+    }
   }, [])
 
   const fetchInventoryData = async () => {
@@ -89,7 +108,19 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
       try {
         const res = await employeePurchaseOrdersAPI.getAll()
         employeePurchaseOrdersData = res.data?.data || res.data || []
-      } catch (_) {}
+        console.log('🔍 Employee purchase orders fetched:', {
+          totalOrders: employeePurchaseOrdersData.length,
+          orders: employeePurchaseOrdersData.map((order: any) => ({
+            id: order._id,
+            employee: order.employee?._id || order.employee,
+            status: order.status,
+            product: order.product?.name,
+            createdAt: order.createdAt
+          }))
+        })
+      } catch (error) {
+        console.error('❌ Failed to fetch employee purchase orders:', error)
+      }
       try {
         const res = await productsAPI.getAll()
         productsData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
@@ -101,12 +132,28 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
 
       // Filter purchase orders to show only employee's orders
       // Employee inventory should ONLY show employee's own purchase orders, NOT admin orders
+      const filteredEmployeeOrders = employeePurchaseOrdersData.filter((order: any) => {
+        // Only show employee's own purchase orders
+        const orderEmployeeId = order.employee?._id || order.employee
+        const isMyOrder = orderEmployeeId === user.id
+        console.log('🔍 Filtering order:', {
+          orderId: order._id,
+          orderEmployeeId,
+          currentUserId: user.id,
+          isMyOrder,
+          status: order.status
+        })
+        return isMyOrder
+      })
+      
+      console.log('🔍 Filtered employee orders:', {
+        totalEmployeeOrders: employeePurchaseOrdersData.length,
+        myOrders: filteredEmployeeOrders.length,
+        currentUserId: user.id
+      })
+      
       const allPurchaseOrders = [
-        ...employeePurchaseOrdersData.filter((order: any) => {
-          // Only show employee's own purchase orders
-          const orderEmployeeId = order.employee?._id || order.employee
-          return orderEmployeeId === user.id
-        }).map((order: any) => ({ ...order, isEmployeePurchase: true }))
+        ...filteredEmployeeOrders.map((order: any) => ({ ...order, isEmployeePurchase: true }))
       ]
 
       const productsMap = new Map<string, any>(
@@ -432,7 +479,12 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
     }
   }
 
-  const pendingItems = inventory.filter(item => item.status === "pending")
+  // Only show purchase orders that are actually pending admin approval
+  // Direct employee purchases now go straight to "Assigned Stock" with status "assigned"
+  const pendingItems = inventory.filter(item => 
+    item.status === "pending" && 
+    !item.isEmployeePurchase // Exclude employee purchases as they are direct assignments
+  )
   const receivedItemsRaw = inventory.filter(item => item.status === "received")
 
   // Build aggregated lists for Received tabs from live inventory to avoid duplicates
@@ -822,11 +874,32 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
     <div className="pt-16 lg:pt-0 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 text-white">
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 flex items-center gap-3">
-          <Package className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10" />
-          My Inventory
-        </h1>
-        <p className="text-white/80 text-sm sm:text-base lg:text-lg">Track your assigned stock and purchase orders</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 flex items-center gap-3">
+              <Package className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10" />
+              My Inventory
+            </h1>
+            <p className="text-white/80 text-sm sm:text-base lg:text-lg">Track your assigned stock and purchase orders</p>
+          </div>
+          <Button
+            onClick={() => {
+              console.log('🔄 Manual refresh triggered')
+              fetchInventoryData()
+            }}
+            variant="outline"
+            size="sm"
+            className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white"
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            <span className="ml-2 hidden sm:inline">Refresh</span>
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -841,7 +914,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
             Assigned Stock ({inventoryList.filter(item => item.status === 'assigned').length})
           </TabsTrigger>
           <TabsTrigger value="pending" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            My Pending Orders ({pendingItems.length})
+            Admin Approved Orders ({pendingItems.length})
           </TabsTrigger>
           <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             My Stock ({inventoryList.filter(item => item.status === 'received').length})
@@ -868,7 +941,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
             <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
               <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
                 <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">
-                  My Pending Purchase Orders ({filteredPending.length}/{pendingItems.length})
+                  Admin Approved Purchase Orders ({filteredPending.length}/{pendingItems.length})
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
