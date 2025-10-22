@@ -70,66 +70,135 @@ export async function POST(request) {
     let calculatedTotal = 0
     const validatedItems = []
 
+    // Get employee's inventory first
+    const EmployeeInventoryModel = (await import("@/models/EmployeeInventory")).default
+    const StockAssignmentModel = (await import("@/models/StockAssignment")).default
+    
+    // Fetch employee's available inventory (empty cylinders only)
+    const employeeInventoryItems = await EmployeeInventoryModel.find({
+      employee: employeeId,
+      $or: [
+        { category: { $ne: 'cylinder' }, currentStock: { $gt: 0 } }, // Non-cylinder items
+        { category: 'cylinder', availableEmpty: { $gt: 0 } }, // Only empty cylinders
+        { category: 'Gas', currentStock: { $gt: 0 } } // Gas items
+      ]
+    }).populate('product')
+    
+    const stockAssignments = await StockAssignmentModel.find({
+      employee: employeeId,
+      status: { $in: ['assigned', 'received'] },
+      remainingQuantity: { $gt: 0 },
+      $or: [
+        { displayCategory: { $ne: 'Full Cylinder' } }, // Exclude full cylinders
+        { displayCategory: 'Empty Cylinder' }, // Only empty cylinders
+        { displayCategory: 'Gas' } // Include gas
+      ]
+    }).populate('product')
+    
+    // Build employee inventory map
+    const employeeStockMap = new Map()
+    
+    // Add from EmployeeInventory
+    employeeInventoryItems.forEach(item => {
+      const key = `${item.product._id}-${item.category || item.product.category}`
+      if (!employeeStockMap.has(key)) {
+        employeeStockMap.set(key, {
+          product: item.product,
+          currentStock: 0,
+          availableEmpty: 0,
+          availableFull: 0,
+          leastPrice: item.leastPrice
+        })
+      }
+      const existing = employeeStockMap.get(key)
+      existing.currentStock += item.currentStock || 0
+      existing.availableEmpty += item.availableEmpty || 0
+      existing.availableFull += item.availableFull || 0
+    })
+    
+    // Add from StockAssignments
+    stockAssignments.forEach(assignment => {
+      const assignmentCategory = assignment.displayCategory || assignment.category || assignment.product.category
+      const key = `${assignment.product._id}-${assignmentCategory}`
+      if (!employeeStockMap.has(key)) {
+        employeeStockMap.set(key, {
+          product: assignment.product,
+          currentStock: 0,
+          availableEmpty: 0,
+          availableFull: 0,
+          leastPrice: assignment.leastPrice
+        })
+      }
+      const existing = employeeStockMap.get(key)
+      
+      if (assignmentCategory === 'Gas') {
+        existing.currentStock += assignment.remainingQuantity || 0
+      } else if (assignmentCategory === 'Empty Cylinder') {
+        existing.availableEmpty += assignment.remainingQuantity || 0
+      } else if (assignmentCategory !== 'Full Cylinder') {
+        // Exclude full cylinders, include other categories
+        existing.currentStock += assignment.remainingQuantity || 0
+      }
+      // Skip Full Cylinder assignments - don't add to availableFull
+    })
+
     for (const item of items) {
       const product = await Product.findById(item.product)
       if (!product) {
         return NextResponse.json({ error: `Product not found: ${item.product}` }, { status: 400 })
       }
 
-      // Check stock availability
-      if (product.currentStock < item.quantity) {
-        return NextResponse.json({ 
-          error: `Insufficient stock for ${product.name}. Available: ${product.currentStock}, Requested: ${item.quantity}` 
-        }, { status: 400 })
-      }
-
-      // Get least price from employee's inventory
-      const EmployeeInventory = (await import("@/models/EmployeeInventory")).default
-      const employeeInventory = await EmployeeInventory.findOne({
-        employee: employeeId,
-        product: item.product,
-        currentStock: { $gt: 0 }
-      })
-
-      if (!employeeInventory) {
+      // Find employee's inventory for this product
+      const itemCategory = item.category || product.category
+      const key = `${item.product}-${itemCategory}`
+      const employeeStock = employeeStockMap.get(key)
+      
+      if (!employeeStock) {
         return NextResponse.json({ 
           error: `No inventory found for ${product.name} for this employee` 
         }, { status: 400 })
       }
 
-      // Check specific stock availability for cylinders
+      // Check specific stock availability (empty cylinders only)
+      let availableStock = 0
       if (item.category === 'cylinder') {
-        const availableStock = item.cylinderStatus === 'full' 
-          ? (employeeInventory.availableFull || 0)
-          : (employeeInventory.availableEmpty || 0)
-        
-        if (availableStock < item.quantity) {
-          const statusLabel = item.cylinderStatus === 'full' ? 'full' : 'empty'
+        if (item.cylinderStatus === 'full') {
           return NextResponse.json({ 
-            error: `Insufficient ${statusLabel} cylinder stock for ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}` 
+            error: `Full cylinder sales not allowed. Only empty cylinders can be sold.` 
           }, { status: 400 })
         }
-      } else if (employeeInventory.currentStock < item.quantity) {
-        return NextResponse.json({ 
-          error: `Insufficient stock for ${product.name}. Available: ${employeeInventory.currentStock}, Requested: ${item.quantity}` 
-        }, { status: 400 })
+        
+        availableStock = employeeStock.availableEmpty
+        
+        if (availableStock < item.quantity) {
+          return NextResponse.json({ 
+            error: `Insufficient empty cylinder stock for ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}` 
+          }, { status: 400 })
+        }
+      } else {
+        availableStock = employeeStock.currentStock
+        if (availableStock < item.quantity) {
+          return NextResponse.json({ 
+            error: `Insufficient stock for ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}` 
+          }, { status: 400 })
+        }
       }
 
       // Use least price from employee inventory
-      const leastPrice = employeeInventory.leastPrice
+      const leastPrice = employeeStock.leastPrice
       const itemTotal = leastPrice * item.quantity
       calculatedTotal += itemTotal
 
       // Derive category and cylinder size from product (trust server data)
-      const category = product.category || (item.category || 'gas')
-      const cylinderSize = category === 'cylinder' ? product.cylinderSize : undefined
+      const productCategory = product.category || (item.category || 'gas')
+      const cylinderSize = productCategory === 'cylinder' ? product.cylinderSize : undefined
 
       validatedItems.push({
         product: item.product,
         quantity: item.quantity,
         price: leastPrice,
         total: itemTotal,
-        category,
+        category: productCategory,
         cylinderSize,
         cylinderStatus: item.cylinderStatus,
         cylinderProductId: item.cylinderProductId,
@@ -154,23 +223,30 @@ export async function POST(request) {
     const savedSale = await newSale.save()
 
     // Update employee inventory with cylinder conversion logic (matching admin sales logic)
-    const EmployeeInventory = (await import("@/models/EmployeeInventory")).default
-    const StockAssignment = (await import("@/models/StockAssignment")).default
+    // Reuse the already imported models
     
     for (const item of validatedItems) {
       const product = await Product.findById(item.product)
       if (product) {
         console.log(`🔄 EMPLOYEE SALE: Processing ${item.quantity} units of ${product.name} (${product.category})`)
+        console.log(`📋 Sale Details: PaymentMethod=${paymentMethod}, PaymentStatus=${paymentStatus}, Notes="${notes || ''}"`)
+        console.log(`📦 Item Details:`, {
+          category: item.category,
+          cylinderStatus: item.cylinderStatus,
+          saleType: item.saleType,
+          gasProductId: item.gasProductId,
+          cylinderProductId: item.cylinderProductId
+        })
         
         if (product.category === 'gas') {
           // Update gas inventory - decrease gas stock from employee inventory
-          const gasInventory = await EmployeeInventory.findOne({
+          const gasInventory = await EmployeeInventoryModel.findOne({
             employee: employeeId,
             product: item.product
           })
           
           if (gasInventory) {
-            await EmployeeInventory.findByIdAndUpdate(gasInventory._id, {
+            await EmployeeInventoryModel.findByIdAndUpdate(gasInventory._id, {
               $inc: { currentStock: -item.quantity },
               $push: {
                 transactions: {
@@ -184,11 +260,13 @@ export async function POST(request) {
             console.log(`✅ Employee gas inventory updated: ${product.name} decreased by ${item.quantity}`)
           }
           
-          // Also update StockAssignment for employee
-          const stockAssignment = await StockAssignment.findOne({
+          // Also update StockAssignment for employee (find by Gas category)
+          const stockAssignment = await StockAssignmentModel.findOne({
             employee: employeeId,
             product: item.product,
-            status: 'received'
+            status: { $in: ['assigned', 'received'] },
+            displayCategory: 'Gas',
+            remainingQuantity: { $gte: item.quantity }
           })
           
           if (stockAssignment) {
@@ -199,14 +277,14 @@ export async function POST(request) {
           
           // Handle cylinder conversion for gas sales (from cylinderProductId)
           if (item.cylinderProductId) {
-            const cylinderInventory = await EmployeeInventory.findOne({
+            const cylinderInventory = await EmployeeInventoryModel.findOne({
               employee: employeeId,
               product: item.cylinderProductId
             })
             
             if (cylinderInventory) {
               // Move cylinders from Full to Empty in employee inventory
-              await EmployeeInventory.findByIdAndUpdate(cylinderInventory._id, {
+              await EmployeeInventoryModel.findByIdAndUpdate(cylinderInventory._id, {
                 $inc: { 
                   availableFull: -item.quantity,
                   availableEmpty: item.quantity 
@@ -220,24 +298,58 @@ export async function POST(request) {
                   }
                 }
               })
-              
-              // Also update cylinder StockAssignment
-              const cylinderAssignment = await StockAssignment.findOne({
+            }
+            
+            // Update Full Cylinder StockAssignment
+            const fullCylinderAssignment = await StockAssignmentModel.findOne({
+              employee: employeeId,
+              product: item.cylinderProductId,
+              status: { $in: ['assigned', 'received'] },
+              displayCategory: 'Full Cylinder',
+              remainingQuantity: { $gte: item.quantity }
+            })
+            
+            if (fullCylinderAssignment) {
+              fullCylinderAssignment.remainingQuantity = Math.max(0, (fullCylinderAssignment.remainingQuantity || 0) - item.quantity)
+              await fullCylinderAssignment.save()
+              console.log(`✅ Full Cylinder assignment updated: remaining ${fullCylinderAssignment.remainingQuantity}`)
+            }
+            
+            // Add to Empty Cylinder StockAssignment or create new one
+            let emptyCylinderAssignment = await StockAssignmentModel.findOne({
+              employee: employeeId,
+              product: item.cylinderProductId,
+              status: { $in: ['assigned', 'received'] },
+              displayCategory: 'Empty Cylinder'
+            })
+            
+            if (emptyCylinderAssignment) {
+              emptyCylinderAssignment.remainingQuantity = (emptyCylinderAssignment.remainingQuantity || 0) + item.quantity
+              await emptyCylinderAssignment.save()
+            } else {
+              // Create new empty cylinder assignment
+              emptyCylinderAssignment = new StockAssignmentModel({
                 employee: employeeId,
                 product: item.cylinderProductId,
-                status: 'received'
+                quantity: item.quantity,
+                remainingQuantity: item.quantity,
+                assignedBy: employeeId,
+                status: 'received',
+                category: 'cylinder',
+                cylinderStatus: 'empty',
+                displayCategory: 'Empty Cylinder',
+                leastPrice: fullCylinderAssignment?.leastPrice || 0,
+                notes: `Created from gas sale conversion - Invoice: ${invoiceNumber}`
               })
-              
-              if (cylinderAssignment) {
-                // No change to remainingQuantity for conversions, just log
-                console.log(`✅ Cylinder conversion: ${product.name} - ${item.quantity} moved from Full to Empty`)
-              }
+              await emptyCylinderAssignment.save()
             }
+            
+            console.log(`✅ Cylinder conversion: ${product.name} - ${item.quantity} moved from Full to Empty`)
           }
           
         } else if (product.category === 'cylinder') {
-          // Handle cylinder sales - update employee inventory based on status
-          const cylinderInventory = await EmployeeInventory.findOne({
+          // Handle cylinder sales - update employee inventory based on status and sale type
+          const cylinderInventory = await EmployeeInventoryModel.findOne({
             employee: employeeId,
             product: item.product
           })
@@ -255,76 +367,129 @@ export async function POST(request) {
               }
             }
             
+            // Only handle empty cylinder sales
             if (item.cylinderStatus === 'empty') {
               // Selling empty cylinders - decrease availableEmpty
               updateData.$inc.availableEmpty = -item.quantity
               console.log(`✅ Employee empty cylinder sale: ${product.name} decreased by ${item.quantity}`)
-            } else if (item.cylinderStatus === 'full') {
-              // Selling full cylinders - only decrease availableFull (customer takes cylinder away)
-              updateData.$inc.availableFull = -item.quantity
-              // Don't add to availableEmpty - customer takes the cylinder
-              console.log(`✅ Employee full cylinder sale: ${product.name} - ${item.quantity} full cylinders sold`)
-              
-              // Also deduct gas stock if gasProductId is provided
-              if (item.gasProductId) {
-                const gasInventory = await EmployeeInventory.findOne({
-                  employee: employeeId,
-                  product: item.gasProductId
-                })
-                
-                if (gasInventory) {
-                  await EmployeeInventory.findByIdAndUpdate(gasInventory._id, {
-                    $inc: { currentStock: -item.quantity },
-                    $push: {
-                      transactions: {
-                        type: 'deduction',
-                        quantity: -item.quantity,
-                        date: new Date(),
-                        notes: `Gas deduction from full cylinder sale - Invoice: ${invoiceNumber}`
-                      }
-                    }
-                  })
-                  
-                  // Update gas StockAssignment
-                  const gasAssignment = await StockAssignment.findOne({
-                    employee: employeeId,
-                    product: item.gasProductId,
-                    status: 'received'
-                  })
-                  
-                  if (gasAssignment) {
-                    gasAssignment.remainingQuantity = Math.max(0, (gasAssignment.remainingQuantity || 0) - item.quantity)
-                    await gasAssignment.save()
-                  }
-                  
-                  console.log(`✅ Gas stock deducted from employee inventory: ${item.quantity} units`)
-                }
-              }
+            } else {
+              console.error(`❌ ERROR: Full cylinder sales not allowed for ${product.name}`)
+              return NextResponse.json({ error: "Full cylinder sales not allowed" }, { status: 400 })
             }
             
-            await EmployeeInventory.findByIdAndUpdate(cylinderInventory._id, updateData)
+            await EmployeeInventoryModel.findByIdAndUpdate(cylinderInventory._id, updateData)
+            console.log(`📋 Stock Update Applied:`, {
+              productName: product.name,
+              updateData: updateData,
+              cylinderStatus: item.cylinderStatus,
+              isDepositSale: item.cylinderStatus === 'full' ? (item.saleType === 'deposit' || 
+                                   (item.notes && item.notes.toLowerCase().includes('deposit')) ||
+                                   (savedSale.paymentMethod === 'deposit') ||
+                                   (savedSale.paymentMethod === 'credit' && savedSale.paymentStatus === 'pending') ||
+                                   (savedSale.notes && savedSale.notes.toLowerCase().includes('deposit')) ||
+                                   (notes && notes.toLowerCase().includes('deposit')) ||
+                                   (paymentMethod === 'deposit') ||
+                                   (paymentMethod === 'credit' && paymentStatus === 'pending')) : false
+            })
+          } else {
+            console.error(`❌ ERROR: No cylinder inventory found for employee ${employeeId} and product ${item.product}`)
+            console.error(`Available inventory items:`, await EmployeeInventoryModel.find({ employee: employeeId }).populate('product', 'name'))
             
-            // Update cylinder StockAssignment
-            const cylinderAssignment = await StockAssignment.findOne({
+            // Try to create inventory record from stock assignment if it exists
+            const stockAssignment = await StockAssignmentModel.findOne({
               employee: employeeId,
               product: item.product,
-              status: 'received'
+              status: { $in: ['assigned', 'received'] },
+              remainingQuantity: { $gte: item.quantity }
             })
             
-            if (cylinderAssignment) {
-              cylinderAssignment.remainingQuantity = Math.max(0, (cylinderAssignment.remainingQuantity || 0) - item.quantity)
-              await cylinderAssignment.save()
+            if (stockAssignment) {
+              console.log(`🔄 Creating inventory record from stock assignment for ${product.name}`)
+              const newInventory = new EmployeeInventoryModel({
+                employee: employeeId,
+                product: item.product,
+                currentStock: item.quantity, // Will be reduced to 0 after this sale
+                availableEmpty: item.cylinderStatus === 'empty' ? item.quantity : 0,
+                availableFull: item.cylinderStatus === 'full' ? item.quantity : 0,
+                leastPrice: stockAssignment.leastPrice || 0,
+                category: stockAssignment.displayCategory || product.category,
+                transactions: [{
+                  type: 'initial',
+                  quantity: item.quantity,
+                  date: new Date(),
+                  notes: `Created from stock assignment for sale - Invoice: ${invoiceNumber}`
+                }]
+              })
+              
+              await newInventory.save()
+              
+              // Now apply the sale deduction
+              const updateData = {
+                $inc: { currentStock: -item.quantity },
+                $push: {
+                  transactions: {
+                    type: 'sale',
+                    quantity: -item.quantity,
+                    date: new Date(),
+                    notes: `Cylinder Sale - Invoice: ${invoiceNumber}`
+                  }
+                }
+              }
+              
+              if (item.cylinderStatus === 'empty') {
+                updateData.$inc.availableEmpty = -item.quantity
+              } else if (item.cylinderStatus === 'full') {
+                updateData.$inc.availableFull = -item.quantity
+              }
+              
+              await EmployeeInventoryModel.findByIdAndUpdate(newInventory._id, updateData)
+              console.log(`✅ Created and updated inventory for ${product.name}`)
             }
+          }
+          
+          // Update empty cylinder StockAssignment only
+          const cylinderAssignment = await StockAssignmentModel.findOne({
+            employee: employeeId,
+            product: item.product,
+            status: { $in: ['assigned', 'received'] },
+            displayCategory: 'Empty Cylinder',
+            remainingQuantity: { $gte: item.quantity }
+          })
+          
+          if (cylinderAssignment) {
+            cylinderAssignment.remainingQuantity = Math.max(0, (cylinderAssignment.remainingQuantity || 0) - item.quantity)
+            await cylinderAssignment.save()
+            console.log(`✅ Empty Cylinder assignment updated: remaining ${cylinderAssignment.remainingQuantity}`)
+          } else {
+            console.error(`❌ ERROR: No Empty Cylinder stock assignment found - Employee: ${employeeId}, Product: ${item.product}`)
+            console.error(`Available assignments:`, await StockAssignmentModel.find({ employee: employeeId }).populate('product', 'name'))
+          }
+          
+          // Final validation: Check if stock was actually deducted
+          const postSaleInventory = await EmployeeInventoryModel.findOne({
+            employee: employeeId,
+            product: item.product
+          })
+          
+          if (postSaleInventory) {
+            console.log(`📋 POST-SALE INVENTORY CHECK for ${product.name}:`, {
+              currentStock: postSaleInventory.currentStock,
+              availableEmpty: postSaleInventory.availableEmpty,
+              availableFull: postSaleInventory.availableFull,
+              lastTransaction: postSaleInventory.transactions[postSaleInventory.transactions.length - 1]
+            })
+          } else {
+            console.error(`❌ CRITICAL: No inventory record found after sale for ${product.name}`)
           }
         } else {
           // Handle other products (regular stock deduction from employee inventory)
-          const employeeInventory = await EmployeeInventory.findOne({
+          const employeeInventory = await EmployeeInventoryModel.findOne({
             employee: employeeId,
             product: item.product
           })
           
           if (employeeInventory) {
-            await EmployeeInventory.findByIdAndUpdate(employeeInventory._id, {
+            await EmployeeInventoryModel.findByIdAndUpdate(employeeInventory._id, {
               $inc: { currentStock: -item.quantity },
               $push: {
                 transactions: {
@@ -337,10 +502,11 @@ export async function POST(request) {
             })
             
             // Update StockAssignment
-            const stockAssignment = await StockAssignment.findOne({
+            const stockAssignment = await StockAssignmentModel.findOne({
               employee: employeeId,
               product: item.product,
-              status: 'received'
+              status: { $in: ['assigned', 'received'] },
+              remainingQuantity: { $gte: item.quantity }
             })
             
             if (stockAssignment) {

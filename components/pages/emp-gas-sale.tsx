@@ -1947,17 +1947,37 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                       className="pr-10"
                     />
                     {showEntrySuggestions && (() => {
+                      const searchTerm = entryProductSearch.toLowerCase().trim()
+                      const isDepositSearch = searchTerm === 'deposit'
+                      
                       const filteredProducts = allProducts
                         .filter((p: Product) => {
+                          // Special handling for "deposit" search - show all products with quantities
+                          if (isDepositSearch) {
+                            const gasStock = inventoryAvailability[p._id]?.currentStock || 0
+                            const emptyStock = inventoryAvailability[p._id]?.availableEmpty || 0
+                            const fullStock = inventoryAvailability[p._id]?.availableFull || 0
+                            return gasStock > 0 || emptyStock > 0 || fullStock > 0
+                          }
+                          
                           // Handle case-insensitive category matching
                           const productCategory = (p.category || '').toLowerCase()
                           const filterCategory = currentItem.category.toLowerCase()
+                          
+                          console.log('🔍 Product suggestion filter:', {
+                            productName: p.name,
+                            productCategory: productCategory,
+                            filterCategory: filterCategory,
+                            cylinderStatus: currentItem.cylinderStatus,
+                            inventoryData: inventoryAvailability[p._id]
+                          })
                           
                           // Match gas categories
                           if (filterCategory === 'gas') {
                             if (!productCategory.includes('gas')) return false
                             // For gas, check currentStock from inventory availability
                             const gasStock = inventoryAvailability[p._id]?.currentStock || 0
+                            console.log('🔍 Gas suggestion check:', { productName: p.name, gasStock })
                             if (gasStock <= 0) return false
                           }
                           
@@ -1968,10 +1988,12 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                             if (currentItem.cylinderStatus === 'empty') {
                               // Show cylinders with empty stock available
                               const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0
+                              console.log('🔍 Empty cylinder suggestion check:', { productName: p.name, availableEmpty })
                               if (availableEmpty <= 0) return false
                             } else {
                               // Show cylinders with full stock available
                               const availableFull = inventoryAvailability[p._id]?.availableFull || 0
+                              console.log('🔍 Full cylinder suggestion check:', { productName: p.name, availableFull })
                               if (availableFull <= 0) return false
                             }
                           }
@@ -1982,13 +2004,12 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                           
                           // Filter by search term
                           if (entryProductSearch.trim().length > 0) {
-                            const searchTerm = entryProductSearch.toLowerCase().trim()
                             const productName = p.name.toLowerCase().trim()
                             if (!productName.includes(searchTerm)) return false
                           }
                           return true
                         })
-                        .slice(0, 8)
+                        .slice(0, isDepositSearch ? 20 : 8)
                       
 
                       

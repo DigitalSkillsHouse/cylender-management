@@ -89,11 +89,9 @@ export async function PATCH(request, { params }) {
       }
       
       if (status === "received" && isEmployeePurchaseCheck) {
-        // For employee purchases: Don't update inventoryStatus to "received"
-        // Instead, mark the purchase order as completed but keep inventory status as "pending"
-        // This prevents it from showing in "Received Inventory Items"
-        updateData.status = "completed"
-        console.log("Employee purchase order - updating status to completed but keeping inventory as pending")
+        // For employee purchases: Mark as approved for employee to accept
+        updateData.status = "approved"
+        console.log("Employee purchase order - updating status to approved for employee acceptance")
       } else {
         // For admin purchases: Normal flow
         updateData.inventoryStatus = status
@@ -222,153 +220,25 @@ export async function PATCH(request, { params }) {
         console.log("Processing received inventory for:", updatedOrder.product?._id || updatedOrder.productName)
         
         if (isEmployeePurchaseCheck && (updatedOrder.employee || employeePurchaseOrder)) {
-          // For employee purchases: Create stock assignment instead of updating main stock
-          const employeeId = updatedOrder.employee?._id || updatedOrder.employee || employeePurchaseOrder.employee
-          console.log("Creating stock assignment for employee:", employeeId)
+          // For employee purchases: Just mark as approved, employee will accept in new system
+          console.log("Employee purchase order approved - employee will accept in new inventory system")
           
-          const StockAssignment = require("@/models/StockAssignment").default
-          
-          let product = null
-          
-          // Get product information
-          if (updatedOrder.product && updatedOrder.product._id) {
-            product = await Product.findById(updatedOrder.product._id)
-          } else if (updatedOrder.productName) {
-            product = await Product.findOne({ name: updatedOrder.productName })
-          }
-          
-          if (product && employeeId) {
-            // Handle empty cylinder conversion for gas purchases
-            if (updatedOrder.purchaseType === 'gas' && updatedOrder.emptyCylinderId) {
-              console.log("Processing gas purchase with empty cylinder conversion")
-              
-              // 1. Reduce empty cylinder stock from employee inventory
-              try {
-                const EmployeeInventory = require("@/models/EmployeeInventory").default
-                const StockAssignment = require("@/models/StockAssignment").default
-                
-                // Find the empty cylinder assignment/inventory
-                let emptyCylinderRecord = await StockAssignment.findById(updatedOrder.emptyCylinderId)
-                if (emptyCylinderRecord) {
-                  // Reduce empty cylinder quantity
-                  const usedQuantity = updatedOrder.quantity || 0
-                  emptyCylinderRecord.remainingQuantity = Math.max(0, (emptyCylinderRecord.remainingQuantity || 0) - usedQuantity)
-                  await emptyCylinderRecord.save()
-                  console.log(`Reduced empty cylinder stock by ${usedQuantity}`)
-                  
-                  // 2. Create full cylinder assignment (empty cylinder + gas = full cylinder ready for sale)
-                  const fullCylinderAssignment = new StockAssignment({
-                    employee: employeeId,
-                    product: emptyCylinderRecord.product, // Same cylinder product but now full
-                    quantity: usedQuantity,
-                    remainingQuantity: usedQuantity,
-                    assignedBy: user.id,
-                    status: "assigned", // Mark as assigned for employee confirmation
-                    notes: `Full cylinder (${product.name} gas) from purchase order: ${updatedOrder.poNumber}`,
-                    leastPrice: Math.max(emptyCylinderRecord.leastPrice || 0, product.leastPrice || 0), // Use higher price
-                    assignedDate: new Date(),
-                    category: 'cylinder',
-                    cylinderStatus: 'full',
-                    displayCategory: 'Full Cylinder',
-                    gasProductId: product._id // Link to gas used for reference
-                  })
-                  
-                  await fullCylinderAssignment.save()
-                  console.log(`✅ Created full cylinder assignment:`, {
-                    id: fullCylinderAssignment._id,
-                    employee: employeeId,
-                    product: emptyCylinderRecord.product,
-                    quantity: usedQuantity,
-                    status: fullCylinderAssignment.status,
-                    category: fullCylinderAssignment.category,
-                    cylinderStatus: fullCylinderAssignment.cylinderStatus
-                  })
-                  
-                  // 3. Also create gas assignment for Gas tab visibility (linked to cylinder)
-                  const gasAssignment = new StockAssignment({
-                    employee: employeeId,
-                    product: product._id,
-                    quantity: updatedOrder.quantity || 0,
-                    remainingQuantity: updatedOrder.quantity || 0,
-                    assignedBy: user.id,
-                    status: "assigned", // Mark as assigned for employee confirmation
-                    notes: `Gas (filled in ${emptyCylinderRecord.product?.name || 'cylinder'}) from purchase order: ${updatedOrder.poNumber}`,
-                    leastPrice: product.leastPrice || 0,
-                    assignedDate: new Date(),
-                    category: 'gas',
-                    displayCategory: 'Gas',
-                    cylinderProductId: emptyCylinderRecord.product, // Link to cylinder containing this gas
-                    cylinderStatus: 'full' // Indicate gas is in full cylinder
-                  })
-                  
-                  await gasAssignment.save()
-                  console.log(`✅ Created gas assignment for Gas tab:`, {
-                    id: gasAssignment._id,
-                    employee: employeeId,
-                    product: product._id,
-                    quantity: updatedOrder.quantity || 0,
-                    status: gasAssignment.status,
-                    category: gasAssignment.category,
-                    cylinderProductId: gasAssignment.cylinderProductId
-                  })
-                  
-                  console.log(`✅ Gas purchase with empty cylinder conversion completed:`, {
-                    emptyCylinderUsed: usedQuantity,
-                    fullCylinderCreated: usedQuantity,
-                    gasCreated: usedQuantity,
-                    gasProduct: product.name,
-                    cylinderProduct: emptyCylinderRecord.product
-                  })
-                }
-              } catch (conversionError) {
-                console.error("Empty cylinder conversion error:", conversionError)
-              }
-            } else {
-              // Regular stock assignment (no conversion needed)
-              const stockAssignment = new StockAssignment({
-                employee: employeeId,
-                product: product._id,
-                quantity: updatedOrder.quantity || 0,
-                remainingQuantity: updatedOrder.quantity || 0,
-                assignedBy: user.id,
-                status: "assigned", // Mark as assigned for employee confirmation
-                notes: `Auto-assigned from purchase order: ${updatedOrder.poNumber}`,
-                leastPrice: product.leastPrice || 0,
-                assignedDate: new Date(),
-                category: product.category,
-                displayCategory: product.category === 'gas' ? 'Gas' : 'Empty Cylinder'
-              })
-              
-              await stockAssignment.save()
-              console.log(`✅ Created regular stock assignment:`, {
-                id: stockAssignment._id,
-                employee: employeeId,
-                product: product._id,
-                productName: product.name,
-                quantity: updatedOrder.quantity || 0,
-                status: stockAssignment.status,
-                category: stockAssignment.category
-              })
-            }
-            
-            // Create notification for employee
-            try {
-              const Notification = require("@/models/Notification").default
-              const notification = new Notification({
-                userId: employeeId,
-                type: "stock_assignment",
-                title: "New Stock Assignment",
-                message: `${product.name} has been assigned to your inventory. Quantity: ${updatedOrder.quantity}`,
-                isRead: false,
-                createdBy: user.id
-              })
-              await notification.save()
-              console.log("Created notification for employee stock assignment")
-            } catch (notificationError) {
-              console.warn("Failed to create notification:", notificationError.message)
-            }
-          } else {
-            console.warn("Product or employee not found for stock assignment. Product ID:", updatedOrder.product?._id, "Product Name:", updatedOrder.productName, "Employee ID:", employeeId)
+          // Create notification for employee
+          try {
+            const employeeId = updatedOrder.employee?._id || updatedOrder.employee || employeePurchaseOrder.employee
+            const Notification = require("@/models/Notification").default
+            const notification = new Notification({
+              userId: employeeId,
+              type: "purchase_approved",
+              title: "Purchase Order Approved",
+              message: `Your purchase order ${updatedOrder.poNumber || 'N/A'} has been approved. Please accept it in your inventory.`,
+              isRead: false,
+              createdBy: user.id
+            })
+            await notification.save()
+            console.log("Created notification for employee purchase approval")
+          } catch (notificationError) {
+            console.warn("Failed to create notification:", notificationError.message)
           }
         } else {
           // For admin purchases: Update main product stock as before

@@ -738,9 +738,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
         list.forEach((inventoryItem: any) => {
           if (inventoryItem.product?._id) {
+            // For empty cylinders, use currentStock as availableEmpty
+            const isEmptyCylinder = inventoryItem.category?.includes('Empty') || inventoryItem.cylinderStatus === 'empty'
             availMap[inventoryItem.product._id] = {
-              availableEmpty: Number(inventoryItem.availableEmpty || 0),
-              availableFull: Number(inventoryItem.availableFull || 0),
+              availableEmpty: isEmptyCylinder ? Number(inventoryItem.currentStock || 0) : 0,
+              availableFull: !isEmptyCylinder ? Number(inventoryItem.currentStock || 0) : 0,
               currentStock: Number(inventoryItem.currentStock || 0),
             }
           }
@@ -751,7 +753,13 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           totalInventoryItems: list.length,
           cylinderProducts: cylinderProducts.length,
           stockAssignments: stockAssignments.length,
-          availabilityMap: Object.keys(availMap).length
+          availabilityMap: Object.keys(availMap).length,
+          inventoryItems: list.map(item => ({
+            productName: item.product?.name,
+            category: item.category,
+            currentStock: item.currentStock,
+            cylinderStatus: item.cylinderStatus
+          }))
         })
         console.log('Employee Cylinder Sales - Cylinder products with stock:', cylinderProducts.map(p => ({
           name: p.name,
@@ -759,6 +767,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           availableEmpty: availMap[p._id]?.availableEmpty || 0,
           currentStock: availMap[p._id]?.currentStock || 0
         })))
+        console.log('Employee Cylinder Sales - Full availability map:', availMap)
       } else {
         console.error("Failed to fetch employee inventory:", employeeInventoryResponse.status)
         setStockAssignments([])
@@ -1142,7 +1151,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         // Preserve existing flow
         resetForm()
         setIsDialogOpen(false)
-        fetchData()
+        await fetchData() // Refresh data to get updated inventory
         
         // Notify other pages about stock update
         localStorage.setItem('stockUpdated', Date.now().toString())
@@ -1154,6 +1163,8 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         console.log('❌ [EmployeeCylinderSales] Error response:', errorData)
         const actionText = isEditing ? 'update' : 'create'
         toast.error(errorData.error || `Failed to ${actionText} transaction`)
+        // Refresh data even on error to ensure UI is in sync
+        await fetchData()
       }
     } catch (error) {
       console.error('❌ [EmployeeCylinderSales] Error creating/updating transaction:', error)
@@ -1802,33 +1813,45 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
               {products
                 .filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes(draftProductSearchTerm.toLowerCase()))
                 .slice(0, 5)
-                .map(p => (
-                  <li
-                    key={p._id}
-                    className="p-2 hover:bg-gray-100 cursor-pointer"
-                    onMouseDown={() => {
-                      console.log('Product selected:', p)
-                      console.log('Product leastPrice:', p.leastPrice, typeof p.leastPrice)
-                      const price = p.leastPrice || 0
-                      console.log('Using price:', price)
-                      setDraftItem(prev => ({ 
-                        ...prev, 
-                        productId: p._id, 
-                        productName: p.name, 
-                        amount: Number(price.toFixed(2)) 
-                      }))
-                      setDraftProductSearchTerm(p.name)
-                      setShowDraftProductSuggestions(false)
-                    }}
-                  >
-                    {p.name} - AED {(p.leastPrice || 0).toFixed(2)}
-                  </li>
-                ))}
+                .map(p => {
+                  const availability = inventoryAvailability[p._id] || { availableEmpty: 0, availableFull: 0, currentStock: 0 }
+                  return (
+                    <li
+                      key={p._id}
+                      className="p-3 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                      onMouseDown={() => {
+                        console.log('Product selected:', p)
+                        console.log('Product leastPrice:', p.leastPrice, typeof p.leastPrice)
+                        const price = p.leastPrice || 0
+                        console.log('Using price:', price)
+                        setDraftItem(prev => ({ 
+                          ...prev, 
+                          productId: p._id, 
+                          productName: p.name, 
+                          amount: Number(price.toFixed(2)) 
+                        }))
+                        setDraftProductSearchTerm(p.name)
+                        setShowDraftProductSuggestions(false)
+                      }}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{p.name}</p>
+                          <p className="text-sm text-gray-600">Price: AED {(p.leastPrice || 0).toFixed(2)}</p>
+                          {formData.type === 'deposit' && (
+                            <p className="text-xs text-gray-500 mt-1">Available Empty: {availability.availableEmpty}</p>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
               {products.filter(p => p.category === 'cylinder' && p.name.toLowerCase().includes(draftProductSearchTerm.toLowerCase())).length === 0 && (
                 <li className="p-2 text-gray-500">No matches</li>
               )}
             </ul>
           )}
+
         </div>
 
 

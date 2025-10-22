@@ -13,34 +13,28 @@ import mongoose from "mongoose"
 async function updateInventoryForDeposit(cylinderProductId, quantity, employeeId) {
   console.log(`[Employee Deposit] Processing stock deduction - Cylinder: ${cylinderProductId}, Quantity: ${quantity}, Employee: ${employeeId}`)
   
-  // 1. Deduct from employee's stock assignment
+  // 1. Find all assignments for this employee and product
+  const allAssignments = await StockAssignment.find({ 
+    employee: employeeId, 
+    product: cylinderProductId
+  })
+  console.log(`[Employee Deposit] Found ${allAssignments.length} assignments for employee ${employeeId} and product ${cylinderProductId}:`, 
+    allAssignments.map(a => ({ id: a._id, status: a.status, remaining: a.remainingQuantity, category: a.category, cylinderStatus: a.cylinderStatus })))
+  
+  // 2. Deduct from employee's stock assignment (this is what shows in employee inventory)
   const assignment = await StockAssignment.findOne({ 
     employee: employeeId, 
     product: cylinderProductId,
-    status: 'received'
+    status: { $in: ['assigned', 'received'] }
   })
   
   if (assignment) {
-    assignment.remainingQuantity = Math.max(0, (assignment.remainingQuantity || 0) - quantity)
+    const oldQuantity = assignment.remainingQuantity || 0
+    assignment.remainingQuantity = Math.max(0, oldQuantity - quantity)
     await assignment.save()
-    console.log(`[Employee Deposit] Updated assignment remaining: ${assignment.remainingQuantity}`)
-  }
-  
-  // 2. Deduct empty cylinders from inventory
-  const cylinderInventory = await InventoryItem.findOne({ product: cylinderProductId })
-  if (cylinderInventory) {
-    cylinderInventory.availableEmpty = Math.max(0, (cylinderInventory.availableEmpty || 0) - quantity)
-    cylinderInventory.currentStock = (cylinderInventory.availableFull || 0) + (cylinderInventory.availableEmpty || 0)
-    await cylinderInventory.save()
-    console.log(`[Employee Deposit] Updated cylinder inventory - Empty: ${cylinderInventory.availableEmpty}, Total: ${cylinderInventory.currentStock}`)
-  }
-  
-  // 3. Sync cylinder product stock with inventory total
-  const cylinderProduct = await Product.findById(cylinderProductId)
-  if (cylinderProduct && cylinderInventory) {
-    cylinderProduct.currentStock = cylinderInventory.currentStock
-    await cylinderProduct.save()
-    console.log(`[Employee Deposit] Synced cylinder product ${cylinderProduct.name} stock: ${cylinderProduct.currentStock}`)
+    console.log(`[Employee Deposit] Updated assignment ${assignment._id} remaining: ${oldQuantity} -> ${assignment.remainingQuantity} (deducted ${quantity})`)
+  } else {
+    console.log(`[Employee Deposit] No assignment found for employee ${employeeId} and product ${cylinderProductId} with status assigned/received`)
   }
 }
 
@@ -48,34 +42,19 @@ async function updateInventoryForDeposit(cylinderProductId, quantity, employeeId
 async function updateInventoryForReturn(cylinderProductId, quantity, employeeId) {
   console.log(`[Employee Return] Processing stock addition - Cylinder: ${cylinderProductId}, Quantity: ${quantity}, Employee: ${employeeId}`)
   
-  // 1. Add back to employee's stock assignment
+  // 1. Add back to employee's stock assignment (this is what shows in employee inventory)
   const assignment = await StockAssignment.findOne({ 
     employee: employeeId, 
     product: cylinderProductId,
-    status: 'received'
+    status: { $in: ['assigned', 'received'] }
   })
   
   if (assignment) {
     assignment.remainingQuantity = (assignment.remainingQuantity || 0) + quantity
     await assignment.save()
     console.log(`[Employee Return] Updated assignment remaining: ${assignment.remainingQuantity}`)
-  }
-  
-  // 2. Add empty cylinders back to inventory (returned cylinders are empty)
-  const cylinderInventory = await InventoryItem.findOne({ product: cylinderProductId })
-  if (cylinderInventory) {
-    cylinderInventory.availableEmpty = (cylinderInventory.availableEmpty || 0) + quantity
-    cylinderInventory.currentStock = (cylinderInventory.availableFull || 0) + (cylinderInventory.availableEmpty || 0)
-    await cylinderInventory.save()
-    console.log(`[Employee Return] Updated cylinder inventory - Empty: ${cylinderInventory.availableEmpty}, Total: ${cylinderInventory.currentStock}`)
-  }
-  
-  // 3. Sync cylinder product stock with inventory total
-  const cylinderProduct = await Product.findById(cylinderProductId)
-  if (cylinderProduct && cylinderInventory) {
-    cylinderProduct.currentStock = cylinderInventory.currentStock
-    await cylinderProduct.save()
-    console.log(`[Employee Return] Synced cylinder product ${cylinderProduct.name} stock: ${cylinderProduct.currentStock}`)
+  } else {
+    console.log(`[Employee Return] No assignment found for employee ${employeeId} and product ${cylinderProductId}`)
   }
 }
 
@@ -296,16 +275,21 @@ export async function POST(request) {
 
     // Update inventory for deposit and return transactions
     if (type === 'deposit') {
+      console.log(`[POST /api/employee-cylinders] Starting inventory update for deposit - hasItems: ${hasItems}, employeeId: ${employeeId}`)
       try {
         if (hasItems) {
           // Multi-item: update inventory for each item
+          console.log(`[POST /api/employee-cylinders] Processing ${items.length} items for inventory update`)
           for (const item of items) {
+            console.log(`[POST /api/employee-cylinders] Updating inventory for item: ${item.productId}, quantity: ${item.quantity}`)
             await updateInventoryForDeposit(item.productId, Number(item.quantity) || 0, employeeId)
           }
         } else {
           // Single item: update inventory
+          console.log(`[POST /api/employee-cylinders] Updating inventory for single product: ${product}, quantity: ${totalQuantity}`)
           await updateInventoryForDeposit(product, totalQuantity, employeeId)
         }
+        console.log(`[POST /api/employee-cylinders] Inventory update completed successfully`)
       } catch (error) {
         console.error('[Employee Deposit] Inventory update failed:', error)
         // Continue without failing the transaction

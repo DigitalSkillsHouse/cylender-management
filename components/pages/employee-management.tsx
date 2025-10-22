@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, Edit, Trash2, Search, Filter, UserCheck, CheckCircle, Bell } from "lucide-react"
-import { employeesAPI, productsAPI, stockAssignmentsAPI } from "@/lib/api"
+import { employeesAPI, productsAPI } from "@/lib/api"
 
 interface Employee {
   _id: string
@@ -58,7 +58,6 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [stockAssignments, setStockAssignments] = useState<any[]>([])
   const [notification, setNotification] = useState<{ message: string; visible: boolean }>({ message: "", visible: false })
   const [isProductListDialogOpen, setIsProductListDialogOpen] = useState(false)
   const [selectedEmployeeProducts, setSelectedEmployeeProducts] = useState<any[]>([])
@@ -228,7 +227,6 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
 
   useEffect(() => {
     fetchData()
-    fetchStockAssignments()
     // Note: Notifications are now handled by the useNotifications hook
   }, [])
 
@@ -268,15 +266,6 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
     }
   }
 
-  const fetchStockAssignments = async () => {
-    try {
-      const response = await stockAssignmentsAPI.getAll()
-      const stockData = Array.isArray(response.data) ? response.data : (response.data?.data || []);
-setStockAssignments(stockData)
-    } catch (error) {
-      setStockAssignments([])
-    }
-  }
 
   // Notification functions replaced by useNotifications hook
   // All old fetchAdminNotifications and checkForNewNotifications functions removed
@@ -364,30 +353,42 @@ setStockAssignments(stockData)
         return
       }
 
-      // ALWAYS CREATE NEW ASSIGNMENT - No duplicate checking
-      // This ensures that every admin assignment creates a new pending entry
-      // even if database is cleared or employee hasn't received stock before
-      console.log('🔄 Creating new stock assignment for employee:', selectedEmployee.name)
+      // CREATE EMPLOYEE PURCHASE ORDER - This will show in employee's pending inventory
+      console.log('🔄 Creating employee purchase order for:', selectedEmployee.name)
       console.log('📦 Product:', selectedProduct.name, 'Quantity:', stockFormData.quantity)
       
-      const assignmentData = {
+      const purchaseOrderData = {
         employee: selectedEmployee._id,
         product: stockFormData.productId,
-        quantity: stockFormData.quantity,
-        assignedBy: user.id,
-        notes: stockFormData.notes,
-        leastPrice: selectedProduct.leastPrice,
-        category: stockFormData.category,
+        supplier: null, // Admin assignment, no supplier
+        purchaseDate: new Date().toISOString().split('T')[0],
+        purchaseType: stockFormData.category,
         cylinderStatus: stockFormData.cylinderStatus,
-        gasProductId: stockFormData.gasProductId,
-        cylinderProductId: stockFormData.cylinderProductId,
-        // Include inventory availability for backend processing
-        inventoryAvailability: inventoryAvailability,
+        quantity: stockFormData.quantity,
+        unitPrice: selectedProduct.leastPrice || 0,
+        notes: stockFormData.notes || `Stock assigned by admin: ${user.name}`,
+        invoiceNumber: `ADMIN-${Date.now()}`, // Admin assignment invoice
+        status: 'approved' // Pre-approved since admin is assigning directly
       }
 
-      console.log('🚀 Sending assignment data to API:', assignmentData)
-      const createdAssignment = await stockAssignmentsAPI.create(assignmentData)
-      console.log('✅ Assignment created successfully:', createdAssignment.data)
+      console.log('🚀 Sending purchase order data to API:', purchaseOrderData)
+      
+      // Create employee purchase order
+      const response = await fetch('/api/employee-purchase-orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(purchaseOrderData)
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create purchase order')
+      }
+      
+      const createdOrder = await response.json()
+      console.log('✅ Purchase order created successfully:', createdOrder.data)
 
       // Get product name for notification
       const product = products.find(p => p._id === stockFormData.productId)
@@ -404,10 +405,20 @@ setStockAssignments(stockData)
           senderId: user.id,
           type: 'stock_assignment',
           title: 'New Stock Assignment',
-          message: `${productName} has been assigned to your inventory. Quantity: ${stockFormData.quantity}`,
+          message: `${productName} (Qty: ${stockFormData.quantity}) has been assigned to you. Please accept it in your inventory.`,
           read: false,
         }),
       })
+
+      // Show success notification
+      setUpdateNotification({
+        message: `Stock assigned successfully! ${productName} (Qty: ${stockFormData.quantity}) sent to ${selectedEmployee.name}. Employee will see it in their pending inventory.`,
+        visible: true,
+        type: 'success'
+      })
+      setTimeout(() => {
+        setUpdateNotification({ message: '', visible: false, type: 'success' })
+      }, 5000)
 
       // Reset form and close dialog
       setStockFormData({
@@ -430,9 +441,8 @@ setStockAssignments(stockData)
       setIsStockDialogOpen(false)
       setSelectedEmployee(null)
 
-      // Refresh both employee data and stock assignments
+      // Refresh employee data
       await fetchData()
-      await fetchStockAssignments()
       
       // Force refresh employee inventory to show new assignment immediately
       const timestamp = Date.now().toString()
@@ -672,29 +682,17 @@ setStockAssignments(stockData)
               </TableHeader>
               <TableBody>
                 {filteredEmployees.map((employee) => {
-                  // Assigned Stock = Total cumulative stock ever assigned (all statuses except returned)
-                  const assignedStock = stockAssignments
-                    .filter((a) => a.employee?._id === employee._id && a.status !== "returned")
-                    .reduce((sum, a) => sum + (a.quantity || 0), 0)
+                  // Using new employee inventory system - simplified display
+                  const assignedStock = 0 // Will be shown in employee's pending inventory
+                  const remainingStock = 0 // Will be shown in employee's current stock
+                  const receivedBackStock = 0 // Not applicable in new system
                   
-                  // Remaining Stock = Current stock employee has after sales (using remainingQuantity)
-                  const remainingStock = stockAssignments
-                    .filter((a) => a.employee?._id === employee._id && a.status === "received")
-                    .reduce((sum, a) => sum + (a.remainingQuantity || a.quantity || 0), 0)
-                  
-                  const receivedBackStock = stockAssignments
-                    .filter((a) => a.employee?._id === employee._id && a.status === "returned")
-                    .reduce((sum, a) => sum + (a.quantity || 0), 0)
-                  
-                  // Get unique products assigned to this employee
-                  const employeeProducts = stockAssignments
-                    .filter((a) => a.employee?._id === employee._id)
-                    .map((a) => a.product?.name)
-                    .filter((name, index, arr) => name && arr.indexOf(name) === index)
+                  // Simplified products display
+                  const employeeProducts: string[] = []
                   
                   const handleViewProducts = () => {
-                    const employeeAssignments = stockAssignments.filter((a) => a.employee?._id === employee._id)
-                    setSelectedEmployeeProducts(employeeAssignments)
+                    // In new system, employees view their own inventory
+                    setSelectedEmployeeProducts([])
                     setIsProductListDialogOpen(true)
                   }
                   
@@ -731,18 +729,18 @@ setStockAssignments(stockData)
                           </Button>
                         )}
                       </TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">{assignedStock}</TableCell>
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        {(() => {
-                          const assignment = stockAssignments.find(
-                            (a) => a.employee?._id === employee._id && a.status !== 'returned'
-                          );
-                          const leastPrice = assignment?.leastPrice ?? assignment?.product?.leastPrice;
-                          return leastPrice ? `AED ${leastPrice}` : <span className="text-gray-400">N/A</span>;
-                        })()}
+                        <span className="text-gray-500">View in Employee Panel</span>
                       </TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">{remainingStock}</TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">{receivedBackStock}</TableCell>
+                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
+                        <span className="text-gray-400">N/A</span>
+                      </TableCell>
+                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
+                        <span className="text-gray-500">View in Employee Panel</span>
+                      </TableCell>
+                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
+                        <span className="text-gray-500">N/A</span>
+                      </TableCell>
                       <TableCell className="p-2 sm:p-4">
                         <div className="flex space-x-1 sm:space-x-2">
                           <Button
