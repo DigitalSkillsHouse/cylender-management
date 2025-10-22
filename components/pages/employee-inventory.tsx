@@ -81,15 +81,11 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
       const invItemsJson = await (async () => { try { return await invItemsRes.json() } catch { return {} as any } })()
       const invItemsData = Array.isArray(invItemsJson?.data) ? invItemsJson.data : []
 
-      // Best-effort fetch for POs, products, suppliers (may 401). Fall back to [] on error.
-      let purchaseOrdersData: any[] = []
+      // Best-effort fetch for employee POs, products, suppliers (may 401). Fall back to [] on error.
+      // Note: We don't fetch admin purchaseOrdersData since employees should only see their own orders
       let employeePurchaseOrdersData: any[] = []
       let productsData: any[] = []
       let suppliersData: any[] = []
-      try {
-        const res = await purchaseOrdersAPI.getAll()
-        purchaseOrdersData = res.data?.data || res.data || []
-      } catch (_) {}
       try {
         const res = await employeePurchaseOrdersAPI.getAll()
         employeePurchaseOrdersData = res.data?.data || res.data || []
@@ -104,8 +100,8 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
       } catch (_) {}
 
       // Filter purchase orders to show only employee's orders
+      // Employee inventory should ONLY show employee's own purchase orders, NOT admin orders
       const allPurchaseOrders = [
-        ...purchaseOrdersData.filter((order: any) => !order.isEmployeePurchase), // Keep admin orders for context
         ...employeePurchaseOrdersData.filter((order: any) => {
           // Only show employee's own purchase orders
           const orderEmployeeId = order.employee?._id || order.employee

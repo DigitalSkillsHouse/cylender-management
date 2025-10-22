@@ -395,43 +395,102 @@ export async function PATCH(request, { params }) {
           leastPrice: assignment.leastPrice
         });
         
-        const newInventoryData = {
-          employee: assignment.employee,
-          product: assignment.product._id,
-          category: dbCategory,
-          assignedQuantity: assignment.quantity,
-          currentStock: assignment.quantity,
-          ...(dbCategory === 'cylinder' && cylinderStatus === 'empty' && {
-            availableEmpty: assignment.quantity
-          }),
-          ...(dbCategory === 'cylinder' && cylinderStatus === 'full' && {
-            availableFull: assignment.quantity
-          }),
-          cylinderSize: assignment.cylinderSize,
-          leastPrice: assignment.leastPrice || 0,
-          status: 'received',
-          transactions: [{
-            type: 'assignment',
-            quantity: assignment.quantity,
-            date: new Date(),
-            notes: `Stock assignment accepted - ${dbCategory} ${cylinderStatus || ''}`
-          }]
-        };
-        
-        // Only set cylinderStatus if it's defined
-        if (cylinderStatus) {
-          newInventoryData.cylinderStatus = cylinderStatus;
+        try {
+          // Use upsert to avoid duplicate key errors
+          const query = {
+            employee: assignment.employee,
+            product: assignment.product._id,
+            ...(cylinderStatus && { cylinderStatus })
+          };
+          
+          const updateData = {
+            $inc: {
+              assignedQuantity: assignment.quantity,
+              currentStock: assignment.quantity,
+              ...(dbCategory === 'cylinder' && cylinderStatus === 'empty' && {
+                availableEmpty: assignment.quantity
+              }),
+              ...(dbCategory === 'cylinder' && cylinderStatus === 'full' && {
+                availableFull: assignment.quantity
+              })
+            },
+            $setOnInsert: {
+              employee: assignment.employee,
+              product: assignment.product._id,
+              category: dbCategory,
+              cylinderSize: assignment.cylinderSize,
+              leastPrice: assignment.leastPrice || 0,
+              status: 'received',
+              ...(cylinderStatus && { cylinderStatus }),
+              transactions: [{
+                type: 'assignment',
+                quantity: assignment.quantity,
+                date: new Date(),
+                notes: `Stock assignment accepted - ${dbCategory} ${cylinderStatus || ''}`
+              }]
+            },
+            $push: {
+              transactions: {
+                type: 'assignment',
+                quantity: assignment.quantity,
+                date: new Date(),
+                notes: `Stock assignment accepted - ${dbCategory} ${cylinderStatus || ''}`
+              }
+            }
+          };
+          
+          const createdInventory = await EmployeeInventory.findOneAndUpdate(
+            query,
+            updateData,
+            { upsert: true, new: true, runValidators: true }
+          );
+          
+          console.log('✅ EmployeeInventory record created/updated successfully:', {
+            inventoryId: createdInventory._id,
+            productName: assignment.product.name,
+            category: dbCategory,
+            currentStock: createdInventory.currentStock,
+            assignedQuantity: createdInventory.assignedQuantity,
+            cylinderStatus: createdInventory.cylinderStatus
+          });
+        } catch (duplicateError) {
+          console.error('❌ Error creating EmployeeInventory record:', duplicateError);
+          // If it's a duplicate key error, try to find and update the existing record
+          if (duplicateError.code === 11000) {
+            console.log('🔄 Attempting to update existing record due to duplicate key error');
+            const existingRecord = await EmployeeInventory.findOne({
+              employee: assignment.employee,
+              product: assignment.product._id,
+              ...(cylinderStatus && { cylinderStatus })
+            });
+            
+            if (existingRecord) {
+              await EmployeeInventory.findByIdAndUpdate(existingRecord._id, {
+                $inc: {
+                  assignedQuantity: assignment.quantity,
+                  currentStock: assignment.quantity,
+                  ...(dbCategory === 'cylinder' && cylinderStatus === 'empty' && {
+                    availableEmpty: assignment.quantity
+                  }),
+                  ...(dbCategory === 'cylinder' && cylinderStatus === 'full' && {
+                    availableFull: assignment.quantity
+                  })
+                },
+                $push: {
+                  transactions: {
+                    type: 'assignment',
+                    quantity: assignment.quantity,
+                    date: new Date(),
+                    notes: `Stock assignment accepted (duplicate resolved) - ${dbCategory} ${cylinderStatus || ''}`
+                  }
+                }
+              });
+              console.log('✅ Updated existing record after duplicate key error');
+            }
+          } else {
+            throw duplicateError; // Re-throw if it's not a duplicate key error
+          }
         }
-        
-        const createdInventory = await EmployeeInventory.create(newInventoryData);
-        console.log('✅ EmployeeInventory record created successfully:', {
-          inventoryId: createdInventory._id,
-          productName: assignment.product.name,
-          category: dbCategory,
-          currentStock: createdInventory.currentStock,
-          assignedQuantity: createdInventory.assignedQuantity,
-          cylinderStatus: createdInventory.cylinderStatus
-        });
       }
       
       // For gas assignments, also create/update cylinder inventory
@@ -534,24 +593,54 @@ export async function PATCH(request, { params }) {
             }
           });
         } else {
-          await EmployeeInventory.create({
-            employee: assignment.employee,
-            product: assignment.gasProductId,
-            category: 'gas',
-            assignedQuantity: assignment.quantity,
-            currentStock: assignment.quantity,
-            leastPrice: assignment.leastPrice || 0,
-            status: 'received',
-            transactions: [{
-              type: 'assignment',
-              quantity: assignment.quantity,
-              date: new Date(),
-              notes: `Gas from full cylinder assignment`
-            }]
-          });
+          try {
+            await EmployeeInventory.create({
+              employee: assignment.employee,
+              product: assignment.gasProductId,
+              category: 'gas',
+              assignedQuantity: assignment.quantity,
+              currentStock: assignment.quantity,
+              leastPrice: assignment.leastPrice || 0,
+              status: 'received',
+              transactions: [{
+                type: 'assignment',
+                quantity: assignment.quantity,
+                date: new Date(),
+                notes: `Gas from full cylinder assignment`
+              }]
+            });
+          } catch (gasInventoryError) {
+            console.error('❌ Error creating gas inventory record:', gasInventoryError);
+            // If duplicate key error, try to update existing record
+            if (gasInventoryError.code === 11000) {
+              const existingGasRecord = await EmployeeInventory.findOne({
+                employee: assignment.employee,
+                product: assignment.gasProductId
+              });
+              
+              if (existingGasRecord) {
+                await EmployeeInventory.findByIdAndUpdate(existingGasRecord._id, {
+                  $inc: {
+                    assignedQuantity: assignment.quantity,
+                    currentStock: assignment.quantity
+                  },
+                  $push: {
+                    transactions: {
+                      type: 'assignment',
+                      quantity: assignment.quantity,
+                      date: new Date(),
+                      notes: `Gas from full cylinder assignment (duplicate resolved)`
+                    }
+                  }
+                });
+                console.log('✅ Updated existing gas record after duplicate key error');
+              }
+            } else {
+              throw gasInventoryError;
+            }
+          }
         }
       }
-      } // Close the else block for regular inventory creation
     }
     
     // Check if employee has accepted all assignments from a purchase order and mark it as completed
@@ -596,7 +685,9 @@ export async function PATCH(request, { params }) {
         // Don't fail the entire operation
       }
     }
+    } // Close the main createEmployeeInventory conditional block
     
+    // Return success response
     return NextResponse.json({ success: true, data: assignment });
   } catch (error) {
     console.error("Stock assignment PATCH error:", error);
