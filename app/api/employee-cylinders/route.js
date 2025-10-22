@@ -6,55 +6,62 @@ import User from "@/models/User"
 import Counter from "@/models/Counter"
 import Product from "@/models/Product"
 import InventoryItem from "@/models/InventoryItem"
-import StockAssignment from "@/models/StockAssignment"
+import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import mongoose from "mongoose"
 
-// Helper function to update inventory for deposit transactions
+// Helper function to update inventory for deposit transactions (NEW SYSTEM)
 async function updateInventoryForDeposit(cylinderProductId, quantity, employeeId) {
   console.log(`[Employee Deposit] Processing stock deduction - Cylinder: ${cylinderProductId}, Quantity: ${quantity}, Employee: ${employeeId}`)
   
-  // 1. Find all assignments for this employee and product
-  const allAssignments = await StockAssignment.find({ 
-    employee: employeeId, 
-    product: cylinderProductId
-  })
-  console.log(`[Employee Deposit] Found ${allAssignments.length} assignments for employee ${employeeId} and product ${cylinderProductId}:`, 
-    allAssignments.map(a => ({ id: a._id, status: a.status, remaining: a.remainingQuantity, category: a.category, cylinderStatus: a.cylinderStatus })))
-  
-  // 2. Deduct from employee's stock assignment (this is what shows in employee inventory)
-  const assignment = await StockAssignment.findOne({ 
-    employee: employeeId, 
-    product: cylinderProductId,
-    status: { $in: ['assigned', 'received'] }
-  })
-  
-  if (assignment) {
-    const oldQuantity = assignment.remainingQuantity || 0
-    assignment.remainingQuantity = Math.max(0, oldQuantity - quantity)
-    await assignment.save()
-    console.log(`[Employee Deposit] Updated assignment ${assignment._id} remaining: ${oldQuantity} -> ${assignment.remainingQuantity} (deducted ${quantity})`)
-  } else {
-    console.log(`[Employee Deposit] No assignment found for employee ${employeeId} and product ${cylinderProductId} with status assigned/received`)
+  try {
+    // Find employee's inventory item for this product
+    const inventoryItem = await EmployeeInventoryItem.findOne({
+      employee: employeeId,
+      product: cylinderProductId
+    })
+    
+    if (inventoryItem) {
+      const oldEmpty = inventoryItem.availableEmpty || 0
+      // For deposits, decrease availableEmpty (employee is giving empty cylinders to customer)
+      inventoryItem.availableEmpty = Math.max(0, oldEmpty - quantity)
+      inventoryItem.lastUpdatedAt = new Date()
+      await inventoryItem.save()
+      
+      console.log(`[Employee Deposit] Updated inventory ${inventoryItem._id} availableEmpty: ${oldEmpty} -> ${inventoryItem.availableEmpty} (deducted ${quantity})`)
+    } else {
+      console.log(`[Employee Deposit] No inventory item found for employee ${employeeId} and product ${cylinderProductId}`)
+    }
+  } catch (error) {
+    console.error(`[Employee Deposit] Error updating inventory:`, error)
+    throw error
   }
 }
 
-// Helper function to update inventory for return transactions
+// Helper function to update inventory for return transactions (NEW SYSTEM)
 async function updateInventoryForReturn(cylinderProductId, quantity, employeeId) {
   console.log(`[Employee Return] Processing stock addition - Cylinder: ${cylinderProductId}, Quantity: ${quantity}, Employee: ${employeeId}`)
   
-  // 1. Add back to employee's stock assignment (this is what shows in employee inventory)
-  const assignment = await StockAssignment.findOne({ 
-    employee: employeeId, 
-    product: cylinderProductId,
-    status: { $in: ['assigned', 'received'] }
-  })
-  
-  if (assignment) {
-    assignment.remainingQuantity = (assignment.remainingQuantity || 0) + quantity
-    await assignment.save()
-    console.log(`[Employee Return] Updated assignment remaining: ${assignment.remainingQuantity}`)
-  } else {
-    console.log(`[Employee Return] No assignment found for employee ${employeeId} and product ${cylinderProductId}`)
+  try {
+    // Find employee's inventory item for this product
+    const inventoryItem = await EmployeeInventoryItem.findOne({
+      employee: employeeId,
+      product: cylinderProductId
+    })
+    
+    if (inventoryItem) {
+      const oldEmpty = inventoryItem.availableEmpty || 0
+      // For returns, increase availableEmpty (customer is returning empty cylinders to employee)
+      inventoryItem.availableEmpty = oldEmpty + quantity
+      inventoryItem.lastUpdatedAt = new Date()
+      await inventoryItem.save()
+      
+      console.log(`[Employee Return] Updated inventory ${inventoryItem._id} availableEmpty: ${oldEmpty} -> ${inventoryItem.availableEmpty} (added ${quantity})`)
+    } else {
+      console.log(`[Employee Return] No inventory item found for employee ${employeeId} and product ${cylinderProductId}`)
+    }
+  } catch (error) {
+    console.error(`[Employee Return] Error updating inventory:`, error)
+    throw error
   }
 }
 

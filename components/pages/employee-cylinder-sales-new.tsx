@@ -1,3 +1,6 @@
+// ⚠️ DEPRECATED: This file uses the old inventory system and should not be used.
+// Use employee-cylinder-sales.tsx instead, which has been updated to work with the new inventory system.
+
 "use client"
 
 import React, { useState, useEffect } from "react"
