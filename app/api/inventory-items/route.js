@@ -71,3 +71,68 @@ export async function POST(request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
+
+// PUT /api/inventory-items
+// Updates inventory stock (for deductions/additions)
+export async function PUT(request) {
+  try {
+    await dbConnect()
+    const body = await request.json()
+    const { productId, action, category, cylinderStatus, quantity, reason } = body || {}
+
+    console.log('📦 [INVENTORY UPDATE] Request:', { productId, action, category, cylinderStatus, quantity, reason })
+
+    if (!productId || !action || !quantity) {
+      return NextResponse.json({ success: false, error: "productId, action, and quantity are required" }, { status: 400 })
+    }
+
+    const item = await InventoryItem.findOne({ product: productId })
+    if (!item) {
+      return NextResponse.json({ success: false, error: "Inventory item not found" }, { status: 404 })
+    }
+
+    const quantityNum = Number(quantity)
+    
+    if (action === 'deduct') {
+      if (category === 'gas') {
+        if (item.currentStock < quantityNum) {
+          return NextResponse.json({ success: false, error: "Insufficient gas stock" }, { status: 400 })
+        }
+        item.currentStock -= quantityNum
+        console.log('📉 [INVENTORY UPDATE] Deducted gas stock:', quantityNum, 'New stock:', item.currentStock)
+      } else if (category === 'cylinder') {
+        if (cylinderStatus === 'empty') {
+          if (item.availableEmpty < quantityNum) {
+            return NextResponse.json({ success: false, error: "Insufficient empty cylinder stock" }, { status: 400 })
+          }
+          item.availableEmpty -= quantityNum
+          console.log('📉 [INVENTORY UPDATE] Deducted empty cylinders:', quantityNum, 'New stock:', item.availableEmpty)
+        } else if (cylinderStatus === 'full') {
+          if (item.availableFull < quantityNum) {
+            return NextResponse.json({ success: false, error: "Insufficient full cylinder stock" }, { status: 400 })
+          }
+          item.availableFull -= quantityNum
+          console.log('📉 [INVENTORY UPDATE] Deducted full cylinders:', quantityNum, 'New stock:', item.availableFull)
+        }
+      }
+    } else if (action === 'add') {
+      if (category === 'gas') {
+        item.currentStock += quantityNum
+      } else if (category === 'cylinder') {
+        if (cylinderStatus === 'empty') {
+          item.availableEmpty += quantityNum
+        } else if (cylinderStatus === 'full') {
+          item.availableFull += quantityNum
+        }
+      }
+    }
+
+    await item.save()
+    
+    console.log('✅ [INVENTORY UPDATE] Successfully updated inventory for product:', productId)
+    return NextResponse.json({ success: true, data: item })
+  } catch (error) {
+    console.error('❌ [INVENTORY UPDATE] Error:', error)
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+  }
+}

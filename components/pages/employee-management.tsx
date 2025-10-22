@@ -354,8 +354,11 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       }
 
       // CREATE EMPLOYEE PURCHASE ORDER - This will show in employee's pending inventory
-      console.log('🔄 Creating employee purchase order for:', selectedEmployee.name)
-      console.log('📦 Product:', selectedProduct.name, 'Quantity:', stockFormData.quantity)
+      console.log('🔄 [STOCK ASSIGNMENT] Starting assignment process')
+      console.log('👤 [STOCK ASSIGNMENT] Employee:', selectedEmployee.name, 'ID:', selectedEmployee._id)
+      console.log('📦 [STOCK ASSIGNMENT] Product:', selectedProduct.name, 'ID:', stockFormData.productId)
+      console.log('🔢 [STOCK ASSIGNMENT] Quantity:', stockFormData.quantity)
+      console.log('🏷️ [STOCK ASSIGNMENT] Category:', stockFormData.category)
       
       const purchaseOrderData = {
         employee: selectedEmployee._id,
@@ -364,14 +367,16 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         purchaseDate: new Date().toISOString().split('T')[0],
         purchaseType: stockFormData.category,
         cylinderStatus: stockFormData.cylinderStatus,
+        cylinderSize: selectedProduct.cylinderSize || 'large', // Add cylinderSize from product
         quantity: stockFormData.quantity,
         unitPrice: selectedProduct.leastPrice || 0,
         notes: stockFormData.notes || `Stock assigned by admin: ${user.name}`,
         invoiceNumber: `ADMIN-${Date.now()}`, // Admin assignment invoice
-        status: 'approved' // Pre-approved since admin is assigning directly
+        status: 'assigned', // Admin has assigned this to employee
+        inventoryStatus: 'approved' // Pre-approved for employee to accept
       }
 
-      console.log('🚀 Sending purchase order data to API:', purchaseOrderData)
+      console.log('📤 [STOCK ASSIGNMENT] Request payload:', JSON.stringify(purchaseOrderData, null, 2))
       
       // Create employee purchase order
       const response = await fetch('/api/employee-purchase-orders', {
@@ -382,20 +387,52 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         body: JSON.stringify(purchaseOrderData)
       })
       
+      console.log('📡 [STOCK ASSIGNMENT] API Response status:', response.status, response.ok)
+      
       if (!response.ok) {
         const errorData = await response.json()
+        console.error('❌ [STOCK ASSIGNMENT] API Error:', errorData)
         throw new Error(errorData.error || 'Failed to create purchase order')
       }
       
       const createdOrder = await response.json()
-      console.log('✅ Purchase order created successfully:', createdOrder.data)
+      console.log('✅ [STOCK ASSIGNMENT] Purchase order created:', createdOrder)
+
+      // Deduct stock from admin inventory
+      console.log('📉 [STOCK DEDUCTION] Deducting stock from admin inventory')
+      try {
+        const inventoryResponse = await fetch('/api/inventory-items', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            productId: stockFormData.productId,
+            action: 'deduct',
+            category: stockFormData.category,
+            cylinderStatus: stockFormData.cylinderStatus,
+            quantity: stockFormData.quantity,
+            reason: `Stock assigned to employee: ${selectedEmployee.name}`
+          })
+        })
+
+        if (inventoryResponse.ok) {
+          console.log('✅ [STOCK DEDUCTION] Admin inventory updated successfully')
+        } else {
+          console.error('❌ [STOCK DEDUCTION] Failed to update admin inventory')
+        }
+      } catch (inventoryError) {
+        console.error('❌ [STOCK DEDUCTION] Error updating inventory:', inventoryError)
+      }
 
       // Get product name for notification
       const product = products.find(p => p._id === stockFormData.productId)
       const productName = product?.name || 'Product'
 
       // Send notification to employee
-      await fetch('/api/notifications', {
+      console.log('📢 [NOTIFICATION] Sending notification to employee:', selectedEmployee._id)
+      
+      const notificationResponse = await fetch('/api/notifications', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -409,6 +446,8 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
           read: false,
         }),
       })
+      
+      console.log('📢 [NOTIFICATION] Response status:', notificationResponse.status, notificationResponse.ok)
 
       // Show success notification
       setUpdateNotification({
@@ -442,21 +481,29 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       setSelectedEmployee(null)
 
       // Refresh employee data
+      console.log('🔄 [REFRESH] Refreshing employee data')
       await fetchData()
       
       // Force refresh employee inventory to show new assignment immediately
       const timestamp = Date.now().toString()
       localStorage.setItem('employeeInventoryUpdated', timestamp)
-      console.log('📡 Dispatching employeeInventoryUpdated event with timestamp:', timestamp)
+      console.log('📡 [REFRESH] Dispatching employeeInventoryUpdated event with timestamp:', timestamp)
       window.dispatchEvent(new Event('employeeInventoryUpdated'))
       
       // Notify other pages about stock update
       localStorage.setItem('stockUpdated', Date.now().toString())
       window.dispatchEvent(new Event('stockUpdated'))
-      console.log('✅ Stock assignment created and notifications sent to employee and other pages')
+      console.log('✅ [STOCK ASSIGNMENT] Complete! Assignment created and all notifications sent')
     } catch (error: any) {
+      console.error('❌ [STOCK ASSIGNMENT] Failed with error:', error)
+      console.error('❌ [STOCK ASSIGNMENT] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response
+      })
+      
       setUpdateNotification({
-        message: error.response?.data?.error || "Failed to assign stock",
+        message: error.response?.data?.error || error.message || "Failed to assign stock",
         visible: true,
         type: 'warning'
       })
@@ -682,13 +729,14 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
               </TableHeader>
               <TableBody>
                 {filteredEmployees.map((employee) => {
-                  // Using new employee inventory system - simplified display
-                  const assignedStock = 0 // Will be shown in employee's pending inventory
-                  const remainingStock = 0 // Will be shown in employee's current stock
-                  const receivedBackStock = 0 // Not applicable in new system
+                  // For employee management, we show placeholder values since this is admin inventory
+                  // Employee-specific data is managed in the employee's own inventory panel
+                  const totalAssignedStock = 0 // Employee-specific assignments shown in employee panel
+                  const totalCurrentStock = 0 // Employee-specific stock shown in employee panel
+                  const employeeProducts: string[] = [] // Employee manages their own products
                   
-                  // Simplified products display
-                  const employeeProducts: string[] = []
+                  // Note: This table shows admin's view of employees, not employee inventory
+                  // Employee inventory is managed separately in the employee panel
                   
                   const handleViewProducts = () => {
                     // In new system, employees view their own inventory
@@ -730,16 +778,16 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                         )}
                       </TableCell>
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        <span className="text-gray-500">View in Employee Panel</span>
+                        <span className="text-gray-500 italic">View in Employee Panel</span>
                       </TableCell>
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        <span className="text-gray-400">N/A</span>
+                        <span className="text-gray-500 italic">View in Employee Panel</span>
                       </TableCell>
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        <span className="text-gray-500">View in Employee Panel</span>
+                        <span className="text-gray-500 italic">View in Employee Panel</span>
                       </TableCell>
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        <span className="text-gray-500">N/A</span>
+                        <span className="text-gray-500 italic">View in Employee Panel</span>
                       </TableCell>
                       <TableCell className="p-2 sm:p-4">
                         <div className="flex space-x-1 sm:space-x-2">

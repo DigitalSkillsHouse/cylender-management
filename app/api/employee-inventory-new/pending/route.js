@@ -18,10 +18,33 @@ export async function GET(request) {
 
     console.log('📋 Fetching pending purchase orders for employee:', employeeId)
     
+    // First, let's see ALL orders for this employee to debug
+    const allOrders = await EmployeePurchaseOrder.find({
+      employee: employeeId
+    })
+    .populate('product', 'name productCode category cylinderSize')
+    .populate('supplier', 'name')
+    .populate('employee', 'name email')
+    .sort({ createdAt: -1 })
+    .lean()
+
+    console.log('🔍 [DEBUG] All orders for employee:', {
+      employeeId: employeeId,
+      totalOrders: allOrders.length,
+      orders: allOrders.map(order => ({
+        id: order._id,
+        product: order.product?.name,
+        status: order.status,
+        inventoryStatus: order.inventoryStatus,
+        quantity: order.quantity,
+        createdAt: order.createdAt
+      }))
+    })
+    
     // Fetch employee's pending purchase orders (approved by admin but not yet accepted by employee)
     const pendingOrders = await EmployeePurchaseOrder.find({
       employee: employeeId,
-      status: 'approved' // Admin approved but employee hasn't accepted yet
+      inventoryStatus: 'approved' // Admin approved but employee hasn't accepted yet
     })
     .populate('product', 'name productCode category cylinderSize')
     .populate('supplier', 'name')
@@ -35,6 +58,7 @@ export async function GET(request) {
         id: order._id,
         product: order.product?.name,
         status: order.status,
+        inventoryStatus: order.inventoryStatus,
         quantity: order.quantity
       }))
     })

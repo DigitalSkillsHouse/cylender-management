@@ -68,23 +68,35 @@ export async function POST(request) {
     await dbConnect()
     
     const body = await request.json()
+    console.log('📥 [EMPLOYEE PURCHASE ORDER] Received request:', JSON.stringify(body, null, 2))
     const {
       supplier,
       product,
+      employee, // Target employee ID (for admin assignments)
       purchaseDate,
       purchaseType,
       cylinderSize,
+      cylinderStatus, // Extract cylinderStatus from request
       quantity,
       unitPrice,
       totalAmount,
       notes,
       status = "pending",
+      inventoryStatus = "pending", // Extract inventoryStatus from request
       invoiceNumber,
       emptyCylinderId,
     } = body
 
-    // Validate required fields
-    if (!supplier || !product || !purchaseDate || !purchaseType || !quantity || !invoiceNumber) {
+    // Validate required fields (supplier can be null for admin assignments)
+    if (!product || !purchaseDate || !purchaseType || !quantity || !invoiceNumber) {
+      console.log('❌ [EMPLOYEE PURCHASE ORDER] Missing required fields:', {
+        product: !!product,
+        purchaseDate: !!purchaseDate,
+        purchaseType: !!purchaseType,
+        quantity: !!quantity,
+        invoiceNumber: !!invoiceNumber,
+        supplier: !!supplier
+      })
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -137,19 +149,28 @@ export async function POST(request) {
       }
     }
 
+    // Determine target employee ID (for admin assignments vs employee self-orders)
+    const targetEmployeeId = employee || user.id
+    console.log('👤 [EMPLOYEE PURCHASE ORDER] Target employee ID:', targetEmployeeId)
+    console.log('👤 [EMPLOYEE PURCHASE ORDER] Requesting user ID:', user.id)
+    console.log('👤 [EMPLOYEE PURCHASE ORDER] Is admin assignment:', !!employee)
+    console.log('📋 [EMPLOYEE PURCHASE ORDER] Status values:', { status, inventoryStatus })
+    console.log('🔧 [EMPLOYEE PURCHASE ORDER] Cylinder details:', { cylinderStatus, cylinderSize: effectiveCylinderSize, purchaseType })
+    
     const employeePurchaseOrder = new EmployeePurchaseOrder({
       supplier,
       product,
-      employee: user.id, // Always use the logged-in employee's ID
+      employee: targetEmployeeId, // Use target employee ID (from request or logged-in user)
       purchaseDate,
       purchaseType,
       ...(purchaseType === 'cylinder' ? { cylinderSize: effectiveCylinderSize } : {}),
+      ...(purchaseType === 'cylinder' && cylinderStatus ? { cylinderStatus } : {}), // Include cylinderStatus for cylinders
       quantity: qtyNum,
       unitPrice: unitPriceNum,
       totalAmount: computedTotal,
       notes: notes || "",
-      status: "assigned", // Direct assignment - no admin approval needed
-      inventoryStatus: "assigned", // Stock assignments created, awaiting employee acceptance
+      status: status || "pending", // Use provided status or default to pending
+      inventoryStatus: inventoryStatus || "pending", // Use provided inventoryStatus or default to pending
       poNumber,
       ...(emptyCylinderId ? { emptyCylinderId } : {}),
       ...(emptyCylinderName ? { emptyCylinderName } : {})
@@ -157,18 +178,26 @@ export async function POST(request) {
 
     await employeePurchaseOrder.save()
     
+    console.log('💾 [EMPLOYEE PURCHASE ORDER] Saved to database:', {
+      id: employeePurchaseOrder._id,
+      cylinderStatus: employeePurchaseOrder.cylinderStatus,
+      cylinderSize: employeePurchaseOrder.cylinderSize,
+      purchaseType: employeePurchaseOrder.purchaseType,
+      status: employeePurchaseOrder.status,
+      inventoryStatus: employeePurchaseOrder.inventoryStatus
+    })
+    
     console.log('\n🔵 ========== EMPLOYEE PURCHASE ORDER CREATED ==========')
     console.log(`📦 PO Number: ${poNumber}`)
-    console.log(`👤 Employee ID: ${user.id}`)
-    console.log(`👤 Employee Name: ${user.name}`)
-    console.log(`📧 Employee Email: ${user.email}`)
-    console.log(`🎭 Employee Role: ${user.role}`)
+    console.log(`👤 Target Employee ID: ${targetEmployeeId}`)
+    console.log(`👤 Requesting User: ${user.name} (${user.email})`)
+    console.log(`🎭 Requesting User Role: ${user.role}`)
     console.log(`📋 Purchase Type: ${purchaseType}`)
     console.log(`📊 Quantity: ${qtyNum}`)
     console.log(`💰 Total Amount: AED ${computedTotal}`)
-    console.log(`✅ Status: ASSIGNED (Direct assignment - no admin approval needed)`)
-    console.log(`✅ Inventory Status: ASSIGNED (Stock assignments created, awaiting employee acceptance)`)
-    console.log(`📍 Stock assignments created - appearing in employee's "Assigned Stock Awaiting Acceptance"`)
+    console.log(`✅ Status: ${status || "pending"}`)
+    console.log(`✅ Inventory Status: pending`)
+    console.log(`📍 Purchase order created - will appear in employee's pending inventory`)
     console.log('🔵 ====================================================\n')
     
     // If this is a gas purchase with empty cylinder, create stock assignments
@@ -356,9 +385,16 @@ export async function POST(request) {
       .populate('product', 'name')
       .populate('employee', 'name email')
     
+    console.log('✅ [EMPLOYEE PURCHASE ORDER] Successfully created and returning response')
     return NextResponse.json({ data: populatedOrder }, { status: 201 })
   } catch (error) {
-    console.error("Error creating employee purchase order:", error)
-    return NextResponse.json({ error: "Failed to create employee purchase order" }, { status: 500 })
+    console.error("❌ [EMPLOYEE PURCHASE ORDER] Error creating purchase order:", error)
+    console.error("❌ [EMPLOYEE PURCHASE ORDER] Error stack:", error.stack)
+    console.error("❌ [EMPLOYEE PURCHASE ORDER] Error message:", error.message)
+    return NextResponse.json({ 
+      error: "Failed to create employee purchase order", 
+      details: error.message,
+      stack: error.stack 
+    }, { status: 500 })
   }
 }

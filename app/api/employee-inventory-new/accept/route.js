@@ -29,7 +29,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Unauthorized access to this order" }, { status: 403 })
     }
 
-    if (purchaseOrder.status !== 'approved') {
+    if (purchaseOrder.inventoryStatus !== 'approved') {
       return NextResponse.json({ error: "Order is not approved for acceptance" }, { status: 400 })
     }
 
@@ -37,11 +37,13 @@ export async function POST(request) {
       poNumber: purchaseOrder.poNumber,
       product: purchaseOrder.product?.name,
       quantity: purchaseOrder.quantity,
-      purchaseType: purchaseOrder.purchaseType
+      purchaseType: purchaseOrder.purchaseType,
+      cylinderStatus: purchaseOrder.cylinderStatus,
+      productCategory: purchaseOrder.product?.category
     })
 
     // Update purchase order status to 'received'
-    purchaseOrder.status = 'received'
+    purchaseOrder.inventoryStatus = 'received'
     await purchaseOrder.save()
 
     // Create or update employee inventory item
@@ -54,6 +56,15 @@ export async function POST(request) {
       console.log('📦 Updating existing inventory item')
       
       // Update existing inventory based on purchase type
+      console.log('📦 [UPDATE] Before update:', {
+        currentStock: inventoryItem.currentStock,
+        availableFull: inventoryItem.availableFull,
+        availableEmpty: inventoryItem.availableEmpty,
+        purchaseType: purchaseOrder.purchaseType,
+        cylinderStatus: purchaseOrder.cylinderStatus,
+        quantity: purchaseOrder.quantity
+      })
+      
       if (purchaseOrder.purchaseType === 'gas') {
         inventoryItem.currentStock += purchaseOrder.quantity
       } else if (purchaseOrder.purchaseType === 'cylinder') {
@@ -63,6 +74,12 @@ export async function POST(request) {
           inventoryItem.availableEmpty += purchaseOrder.quantity
         }
       }
+      
+      console.log('📦 [UPDATE] After update:', {
+        currentStock: inventoryItem.currentStock,
+        availableFull: inventoryItem.availableFull,
+        availableEmpty: inventoryItem.availableEmpty
+      })
       
       inventoryItem.lastUpdatedAt = new Date()
       await inventoryItem.save()
@@ -84,6 +101,12 @@ export async function POST(request) {
       }
 
       // Set stock based on purchase type
+      console.log('📦 [CREATE] Setting stock for new item:', {
+        purchaseType: purchaseOrder.purchaseType,
+        cylinderStatus: purchaseOrder.cylinderStatus,
+        quantity: purchaseOrder.quantity
+      })
+      
       if (purchaseOrder.purchaseType === 'gas') {
         newInventoryData.currentStock = purchaseOrder.quantity
       } else if (purchaseOrder.purchaseType === 'cylinder') {
@@ -93,6 +116,8 @@ export async function POST(request) {
           newInventoryData.availableEmpty = purchaseOrder.quantity
         }
       }
+      
+      console.log('📦 [CREATE] New inventory data:', newInventoryData)
 
       inventoryItem = await EmployeeInventoryItem.create(newInventoryData)
     }

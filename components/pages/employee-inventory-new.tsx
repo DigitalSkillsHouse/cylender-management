@@ -61,35 +61,65 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
     fetchEmployeeInventoryData()
   }, [])
 
+  // Listen for stock assignment events
+  useEffect(() => {
+    const handleStockUpdate = () => {
+      console.log('🔄 [EMPLOYEE INVENTORY] Stock update event received, refreshing...')
+      setTimeout(() => {
+        fetchEmployeeInventoryData()
+      }, 1000) // Small delay to ensure database is updated
+    }
+
+    window.addEventListener('employeeInventoryUpdated', handleStockUpdate)
+    window.addEventListener('stockUpdated', handleStockUpdate)
+
+    return () => {
+      window.removeEventListener('employeeInventoryUpdated', handleStockUpdate)
+      window.removeEventListener('stockUpdated', handleStockUpdate)
+    }
+  }, [])
+
   const fetchEmployeeInventoryData = async () => {
     try {
       setError("")
       setLoading(true)
       
-      console.log('🔄 Fetching employee inventory data for user:', user.id)
+      console.log('🔍 [EMPLOYEE INVENTORY] Starting fetch for employee:', user.id)
       
       // Fetch employee's pending purchase orders
-      const pendingRes = await fetch(`/api/employee-inventory-new/pending?employeeId=${user.id}&t=${Date.now()}`, { 
-        cache: 'no-store' 
-      })
+      const pendingUrl = `/api/employee-inventory-new/pending?employeeId=${user.id}&t=${Date.now()}`
+      console.log('📡 [PENDING] Fetching from:', pendingUrl)
+      
+      const pendingRes = await fetch(pendingUrl, { cache: 'no-store' })
+      console.log('📡 [PENDING] Response status:', pendingRes.status, pendingRes.ok)
+      
+      if (!pendingRes.ok) {
+        const errorText = await pendingRes.text()
+        console.error('📡 [PENDING] Error response:', errorText)
+      }
+      
       const pendingData = pendingRes.ok ? await pendingRes.json() : { data: [] }
+      console.log('📊 [PENDING] Data received:', pendingData)
+      console.log('📊 [PENDING] Orders count:', pendingData.data?.length || 0)
+      console.log('📊 [PENDING] Individual orders:', pendingData.data)
       
       // Fetch employee's received inventory stock
-      const receivedRes = await fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`, { 
-        cache: 'no-store' 
-      })
-      const receivedData = receivedRes.ok ? await receivedRes.json() : { data: [] }
+      const receivedUrl = `/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`
+      console.log('📡 [RECEIVED] Fetching from:', receivedUrl)
       
-      console.log('📊 Employee inventory data fetched:', {
-        pendingOrders: pendingData.data?.length || 0,
-        receivedStock: receivedData.data?.length || 0
-      })
+      const receivedRes = await fetch(receivedUrl, { cache: 'no-store' })
+      console.log('📡 [RECEIVED] Response status:', receivedRes.status, receivedRes.ok)
+      
+      const receivedData = receivedRes.ok ? await receivedRes.json() : { data: [] }
+      console.log('📊 [RECEIVED] Data received:', receivedData)
       
       setPendingOrders(pendingData.data || [])
       setReceivedStock(receivedData.data || [])
       
+      console.log('✅ [EMPLOYEE INVENTORY] Fetch completed successfully')
+      
     } catch (error: any) {
-      console.error('❌ Failed to fetch employee inventory:', error)
+      console.error('❌ [EMPLOYEE INVENTORY] Fetch failed:', error)
       setError(`Failed to load inventory: ${error.message}`)
       setPendingOrders([])
       setReceivedStock([])
@@ -103,27 +133,32 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
       setError("")
       setProcessingItems(prev => new Set(prev).add(orderId))
       
-      console.log('🔄 Accepting order:', orderId)
+      console.log('🔄 [ACCEPT ORDER] Starting acceptance for order:', orderId)
+      console.log('👤 [ACCEPT ORDER] Employee ID:', user.id)
+      
+      const requestBody = { orderId, employeeId: user.id }
+      console.log('📤 [ACCEPT ORDER] Request body:', requestBody)
       
       const response = await fetch(`/api/employee-inventory-new/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          orderId,
-          employeeId: user.id
-        })
+        body: JSON.stringify(requestBody)
       })
       
+      console.log('📡 [ACCEPT ORDER] Response status:', response.status, response.ok)
+      
       if (response.ok) {
-        console.log('✅ Order accepted successfully')
+        const responseData = await response.json()
+        console.log('✅ [ACCEPT ORDER] Success response:', responseData)
         await fetchEmployeeInventoryData() // Refresh data
       } else {
         const errorData = await response.json()
+        console.error('❌ [ACCEPT ORDER] Error response:', errorData)
         setError(errorData.error || 'Failed to accept order')
       }
       
     } catch (error: any) {
-      console.error('❌ Failed to accept order:', error)
+      console.error('❌ [ACCEPT ORDER] Exception:', error)
       setError(`Failed to accept order: ${error.message}`)
     } finally {
       setProcessingItems(prev => {
@@ -135,17 +170,36 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
   }
 
   // Filter functions for received inventory tabs
-  const getGasStock = () => receivedStock.filter(item => 
-    item.category === 'gas' && item.currentStock > 0
-  )
+  const getGasStock = () => {
+    const gasItems = receivedStock.filter(item => 
+      item.category === 'gas' && item.currentStock > 0
+    )
+    console.log('🔍 [GAS FILTER] Gas items:', gasItems)
+    return gasItems
+  }
   
-  const getFullCylinderStock = () => receivedStock.filter(item => 
-    item.category === 'cylinder' && item.availableFull > 0
-  )
+  const getFullCylinderStock = () => {
+    const fullItems = receivedStock.filter(item => 
+      item.category === 'cylinder' && item.availableFull > 0
+    )
+    console.log('🔍 [FULL FILTER] Full cylinder items:', fullItems)
+    return fullItems
+  }
   
-  const getEmptyCylinderStock = () => receivedStock.filter(item => 
-    item.category === 'cylinder' && item.availableEmpty > 0
-  )
+  const getEmptyCylinderStock = () => {
+    const emptyItems = receivedStock.filter(item => 
+      item.category === 'cylinder' && item.availableEmpty > 0
+    )
+    console.log('🔍 [EMPTY FILTER] Empty cylinder items:', emptyItems)
+    console.log('🔍 [EMPTY FILTER] All received stock:', receivedStock.map(item => ({
+      category: item.category,
+      currentStock: item.currentStock,
+      availableFull: item.availableFull,
+      availableEmpty: item.availableEmpty,
+      productName: item.productName
+    })))
+    return emptyItems
+  }
 
   // Search filtering
   const filteredPendingOrders = searchTerm 

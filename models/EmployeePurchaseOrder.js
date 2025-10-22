@@ -4,7 +4,7 @@ const employeePurchaseOrderSchema = new mongoose.Schema({
   supplier: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Supplier',
-    required: true
+    required: false // Allow null for admin assignments
   },
   product: {
     type: mongoose.Schema.Types.ObjectId,
@@ -28,6 +28,13 @@ const employeePurchaseOrderSchema = new mongoose.Schema({
   cylinderSize: {
     type: String,
     enum: ['5kg', '10kg', '15kg', '20kg', '25kg', '45kg'],
+    required: function () {
+      return this.purchaseType === 'cylinder'
+    },
+  },
+  cylinderStatus: {
+    type: String,
+    enum: ['empty', 'full'],
     required: function () {
       return this.purchaseType === 'cylinder'
     },
