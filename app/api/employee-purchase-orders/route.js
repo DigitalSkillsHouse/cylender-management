@@ -23,21 +23,24 @@ export async function GET(request) {
 
     // Normalize role to avoid case mismatches
     const role = String(user.role || '').trim().toLowerCase()
+    
     // For employees, ALWAYS show only their own purchase orders
     // For admins, show all unless explicitly forced to "meOnly"
     let filter = {}
     if (role === 'employee') {
-      // Employees can ONLY see their own orders, no exceptions
       filter = { employee: user.id }
-      console.log(`Employee ${user.email} requesting their own orders only. Filter:`, filter)
+      console.log(`\n📋 Fetching Employee Purchase Orders`)
+      console.log(`   Employee: ${user.name} (${user.email})`)
+      console.log(`   Filter: Own orders only`)
     } else if (meOnly) {
-      // Admin requesting only their own orders (if any)
       filter = { employee: user.id }
-      console.log(`Admin ${user.email} requesting meOnly. Filter:`, filter)
+      console.log(`\n📋 Fetching Admin's Own Purchase Orders`)
+      console.log(`   Admin: ${user.name} (${user.email})`)
     } else {
-      // Admin requesting all employee orders
       filter = {}
-      console.log(`Admin ${user.email} requesting all employee orders. No filter applied.`)
+      console.log(`\n📋 Fetching All Employee Purchase Orders`)
+      console.log(`   Admin: ${user.name} (${user.email})`)
+      console.log(`   Filter: All employees`)
     }
     
     const purchaseOrders = await EmployeePurchaseOrder.find(filter)
@@ -145,13 +148,205 @@ export async function POST(request) {
       unitPrice: unitPriceNum,
       totalAmount: computedTotal,
       notes: notes || "",
-      status,
+      status: "pending", // Pending until EMPLOYEE accepts from their inventory
+      inventoryStatus: "pending", // Pending until EMPLOYEE accepts
       poNumber,
       ...(emptyCylinderId ? { emptyCylinderId } : {}),
       ...(emptyCylinderName ? { emptyCylinderName } : {})
     })
 
     await employeePurchaseOrder.save()
+    
+    console.log('\n🔵 ========== EMPLOYEE PURCHASE ORDER CREATED ==========')
+    console.log(`📦 PO Number: ${poNumber}`)
+    console.log(`👤 Employee ID: ${user.id}`)
+    console.log(`👤 Employee Name: ${user.name}`)
+    console.log(`📧 Employee Email: ${user.email}`)
+    console.log(`🎭 Employee Role: ${user.role}`)
+    console.log(`📋 Purchase Type: ${purchaseType}`)
+    console.log(`📊 Quantity: ${qtyNum}`)
+    console.log(`💰 Total Amount: AED ${computedTotal}`)
+    console.log(`⏳ Status: PENDING (Awaiting EMPLOYEE confirmation - no admin involved)`)
+    console.log(`⏳ Inventory Status: PENDING (Will be approved when employee accepts)`)
+    console.log(`📍 Stock assignments created - appearing in employee's Assigned Stock`)
+    console.log('🔵 ====================================================\n')
+    
+    // If this is a gas purchase with empty cylinder, create stock assignments
+    if (purchaseType === 'gas' && emptyCylinderId) {
+      console.log('🔄 Processing Gas Purchase with Empty Cylinder Conversion...')
+      console.log(`   Empty Cylinder ID: ${emptyCylinderId}`)
+      console.log(`   Product ID: ${product}`)
+      try {
+        const StockAssignment = require("@/models/StockAssignment").default
+        
+        // Get the empty cylinder record to reduce its quantity
+        console.log(`   🔍 Looking for empty cylinder record with ID: ${emptyCylinderId}`)
+        const emptyCylinderRecord = await StockAssignment.findById(emptyCylinderId)
+        console.log(`   📦 Empty cylinder record found:`, emptyCylinderRecord ? 'YES' : 'NO')
+        
+        if (emptyCylinderRecord) {
+          console.log(`   ✅ Empty cylinder record details:`, {
+            id: emptyCylinderRecord._id,
+            product: emptyCylinderRecord.product,
+            remainingQuantity: emptyCylinderRecord.remainingQuantity,
+            status: emptyCylinderRecord.status
+          })
+          // 1. Reduce empty cylinder quantity in StockAssignment
+          const usedQuantity = qtyNum
+          const previousQty = emptyCylinderRecord.remainingQuantity || 0
+          emptyCylinderRecord.remainingQuantity = Math.max(0, previousQty - usedQuantity)
+          await emptyCylinderRecord.save()
+          
+          // Also reduce in EmployeeInventory if exists
+          const EmployeeInventory = require("@/models/EmployeeInventory").default
+          const employeeEmptyCylinder = await EmployeeInventory.findOne({
+            employee: user.id,
+            product: emptyCylinderRecord.product,
+            cylinderStatus: 'empty'
+          })
+          
+          if (employeeEmptyCylinder) {
+            employeeEmptyCylinder.currentStock = Math.max(0, (employeeEmptyCylinder.currentStock || 0) - usedQuantity)
+            employeeEmptyCylinder.availableEmpty = Math.max(0, (employeeEmptyCylinder.availableEmpty || 0) - usedQuantity)
+            await employeeEmptyCylinder.save()
+            console.log(`   ✅ Also reduced EmployeeInventory empty cylinder stock`)
+          }
+          
+          console.log(`\n📉 Step 1: Reduced Empty Cylinder Stock`)
+          console.log(`   Previous: ${previousQty} units`)
+          console.log(`   Used: ${usedQuantity} units`)
+          console.log(`   Remaining: ${emptyCylinderRecord.remainingQuantity} units`)
+          
+          // 2. Create full cylinder assignment (pending employee acceptance)
+          const fullCylinderAssignment = new StockAssignment({
+            employee: user.id,
+            product: emptyCylinderRecord.product, // Same cylinder product but now full
+            quantity: usedQuantity,
+            remainingQuantity: usedQuantity,
+            assignedBy: user.id, // Self-assigned
+            status: "assigned", // Employee needs to accept from pending inventory
+            notes: `Full cylinder (${product.name || 'gas'}) from direct purchase: ${poNumber}`,
+            leastPrice: Math.max(emptyCylinderRecord.leastPrice || 0, unitPriceNum || 0),
+            assignedDate: new Date(),
+            category: 'cylinder',
+            cylinderStatus: 'full',
+            displayCategory: 'Full Cylinder',
+            gasProductId: product // Link to gas used
+          })
+          
+          await fullCylinderAssignment.save()
+          
+          console.log(`\n🔵 Step 2: Created Full Cylinder Assignment (Contains Gas)`)
+          console.log(`   Assignment ID: ${fullCylinderAssignment._id}`)
+          console.log(`   Employee ID: ${user.id}`)
+          console.log(`   Cylinder Product: ${emptyCylinderRecord.product?.name || 'Cylinder'}`)
+          console.log(`   Gas Product: ${product.name || 'Gas'}`)
+          console.log(`   Quantity: ${usedQuantity} units`)
+          console.log(`   Status: ASSIGNED (Pending Employee Acceptance)`)
+          console.log(`   Location: Will appear in "Assigned Stock" as Full Cylinder`)
+          console.log(`   Note: Gas is inside cylinder, will be tracked when accepted`)
+          
+          // 3. Create notification for employee
+          try {
+            const Notification = require("@/models/Notification").default
+            const notification = new Notification({
+              recipient: user.id,
+              sender: user.id,
+              type: "stock_assignment",
+              title: "New Purchase - Pending Confirmation",
+              message: `Your gas purchase (${usedQuantity} units) is ready. Please accept it from your Assigned Stock to add to inventory.`,
+              isRead: false
+            })
+            await notification.save()
+            
+            console.log(`\n🔔 Step 3: Notification Sent`)
+            console.log(`   Title: "${notification.title}"`)
+            console.log(`   Message: "${notification.message}"`)
+            console.log(`   Recipient: ${user.name}`)
+            
+            console.log('\n✅ ========== GAS PURCHASE PROCESSING COMPLETE ==========')
+            console.log('📍 Next Step: Employee must accept Full Cylinder from "Assigned Stock"')
+            console.log('📍 When accepted: Gas inventory will be created/updated automatically')
+            console.log('✅ ======================================================\n')
+          } catch (notificationError) {
+            console.error('❌ Failed to create notification:', notificationError.message)
+          }
+        } else {
+          console.error('❌ Empty cylinder record NOT FOUND!')
+          console.error(`   Searched for ID: ${emptyCylinderId}`)
+          console.error('   This means the emptyCylinderId does not exist in StockAssignment collection')
+          console.error('   Purchase order created but stock assignments NOT created')
+        }
+      } catch (assignmentError) {
+        console.error('❌ Failed to create stock assignments:', assignmentError)
+        console.error('   Error details:', assignmentError.message)
+        console.error('   Stack trace:', assignmentError.stack)
+        console.error('   Purchase order created but assignments failed')
+      }
+    } else {
+      console.log('🔄 Processing Regular Purchase (No Empty Cylinder)...')
+      // For regular purchases (without empty cylinder), create stock assignment pending acceptance
+      try {
+        const StockAssignment = require("@/models/StockAssignment").default
+        const Product = require("@/models/Product").default
+        
+        // Get product details
+        const productDetails = await Product.findById(product)
+        if (productDetails) {
+          const stockAssignment = new StockAssignment({
+            employee: user.id,
+            product: product,
+            quantity: qtyNum,
+            remainingQuantity: qtyNum,
+            assignedBy: user.id, // Self-assigned
+            status: "assigned", // Employee needs to accept from pending inventory
+            notes: `Direct purchase: ${poNumber}`,
+            leastPrice: unitPriceNum || 0,
+            assignedDate: new Date(),
+            category: productDetails.category || 'gas',
+            cylinderStatus: productDetails.cylinderStatus,
+            displayCategory: productDetails.category === 'cylinder' ? 'Cylinder' : 'Gas'
+          })
+          
+          await stockAssignment.save()
+          
+          console.log(`\n🔵 Step 1: Created Stock Assignment`)
+          console.log(`   Product: ${productDetails.name}`)
+          console.log(`   Category: ${productDetails.category}`)
+          console.log(`   Quantity: ${qtyNum} units`)
+          console.log(`   Status: ASSIGNED (Pending Employee Acceptance)`)
+          console.log(`   Location: Will appear in "Assigned Stock" section`)
+          
+          // Create notification
+          try {
+            const Notification = require("@/models/Notification").default
+            const notification = new Notification({
+              recipient: user.id,
+              sender: user.id,
+              type: "stock_assignment",
+              title: "New Purchase - Pending Confirmation",
+              message: `Your purchase of ${productDetails.name} (${qtyNum} units) is ready. Please accept it from your Assigned Stock to add to inventory.`,
+              isRead: false
+            })
+            await notification.save()
+            
+            console.log(`\n🔔 Step 2: Notification Sent`)
+            console.log(`   Title: "${notification.title}"`)
+            console.log(`   Message: "${notification.message}"`)
+            console.log(`   Recipient: ${user.name}`)
+            
+            console.log('\n✅ ========== PURCHASE PROCESSING COMPLETE ==========')
+            console.log('📍 Next Step: Employee must accept from "Assigned Stock"')
+            console.log('✅ =================================================\n')
+          } catch (notificationError) {
+            console.error('❌ Failed to create notification:', notificationError.message)
+          }
+        }
+      } catch (assignmentError) {
+        console.error('❌ Failed to create stock assignment:', assignmentError)
+        console.error('   Purchase order created but assignment failed')
+      }
+    }
     
     // Populate the saved order before returning
     const populatedOrder = await EmployeePurchaseOrder.findById(employeePurchaseOrder._id)

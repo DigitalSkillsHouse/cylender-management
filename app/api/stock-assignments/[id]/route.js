@@ -101,20 +101,127 @@ export async function PATCH(request, { params }) {
         );
         console.log('✅ Cylinder converted full->empty:', cylinderUpdate?.availableFull, '->', cylinderUpdate?.availableEmpty);
       } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && assignment.gasProductId) {
-        // Full cylinder assignment: deduct full cylinders and gas stock
-        const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-          { product: assignment.product._id },
-          { $inc: { availableFull: -assignment.quantity } },
-          { new: true }
-        );
-        console.log('✅ Full cylinders deducted:', cylinderUpdate?.availableFull);
-        
-        const gasUpdate = await InventoryItem.findOneAndUpdate(
-          { product: assignment.gasProductId },
-          { $inc: { currentStock: -assignment.quantity } },
-          { new: true }
-        );
-        console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+        try {
+          // Full cylinder assignment: deduct full cylinders and gas stock
+          const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+            { product: assignment.product._id },
+            { $inc: { availableFull: -assignment.quantity } },
+            { new: true }
+          );
+          console.log('✅ Full cylinders deducted:', cylinderUpdate?.availableFull);
+          
+          const gasUpdate = await InventoryItem.findOneAndUpdate(
+            { product: assignment.gasProductId },
+            { $inc: { currentStock: -assignment.quantity } },
+            { new: true }
+          );
+          console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+          
+          // Also create/update employee gas inventory for the gas inside the cylinder
+          console.log('🔄 Creating/updating employee gas inventory for gas inside full cylinder');
+          const EmployeeInventory = (await import("@/models/EmployeeInventory")).default;
+          const Product = (await import("@/models/Product")).default;
+          const gasProduct = await Product.findById(assignment.gasProductId);
+          
+          if (gasProduct) {
+            const existingGasInventory = await EmployeeInventory.findOne({
+              employee: assignment.employee,
+              product: assignment.gasProductId
+            });
+            
+            if (existingGasInventory) {
+              // Update existing gas inventory
+              await EmployeeInventory.findByIdAndUpdate(existingGasInventory._id, {
+                $inc: {
+                  assignedQuantity: assignment.quantity,
+                  currentStock: assignment.quantity
+                },
+                $push: {
+                  transactions: {
+                    type: 'assignment',
+                    quantity: assignment.quantity,
+                    date: new Date(),
+                    notes: `Gas from full cylinder acceptance`
+                  }
+                }
+              });
+              console.log('✅ Updated existing gas inventory:', existingGasInventory._id);
+            } else {
+              // Create new gas inventory
+              const newGasInventory = new EmployeeInventory({
+                employee: assignment.employee,
+                product: assignment.gasProductId,
+                assignedQuantity: assignment.quantity,
+                currentStock: assignment.quantity,
+                category: 'gas',
+                leastPrice: assignment.leastPrice || 0,
+                status: 'received',
+                transactions: [{
+                  type: 'assignment',
+                  quantity: assignment.quantity,
+                  date: new Date(),
+                  notes: `Gas from full cylinder acceptance`
+                }]
+              });
+              await newGasInventory.save();
+              console.log('✅ Created new gas inventory:', newGasInventory._id);
+            }
+          }
+          
+          // Also create/update cylinder inventory for the full cylinder itself
+          console.log('🔄 Creating/updating employee cylinder inventory for the full cylinder');
+          // EmployeeInventory is already imported above
+          const existingCylinderInventory = await EmployeeInventory.findOne({
+            employee: assignment.employee,
+            product: assignment.product._id
+          });
+          
+          if (existingCylinderInventory) {
+            // Update existing cylinder inventory
+            await EmployeeInventory.findByIdAndUpdate(existingCylinderInventory._id, {
+              $inc: {
+                assignedQuantity: assignment.quantity,
+                currentStock: assignment.quantity,
+                availableFull: assignment.quantity
+              },
+              category: 'cylinder',
+              cylinderStatus: 'full',
+              $push: {
+                transactions: {
+                  type: 'assignment',
+                  quantity: assignment.quantity,
+                  date: new Date(),
+                  notes: `Full cylinder assignment accepted`
+                }
+              }
+            });
+            console.log('✅ Updated existing cylinder inventory:', existingCylinderInventory._id);
+          } else {
+            // Create new cylinder inventory
+            const newCylinderInventory = new EmployeeInventory({
+              employee: assignment.employee,
+              product: assignment.product._id,
+              assignedQuantity: assignment.quantity,
+              currentStock: assignment.quantity,
+              availableFull: assignment.quantity,
+              category: 'cylinder',
+              cylinderStatus: 'full',
+              leastPrice: assignment.leastPrice || 0,
+              status: 'received',
+              transactions: [{
+                type: 'assignment',
+                quantity: assignment.quantity,
+                date: new Date(),
+                notes: `Full cylinder assignment accepted`
+              }]
+            });
+            await newCylinderInventory.save();
+            console.log('✅ Created new cylinder inventory:', newCylinderInventory._id);
+          }
+        } catch (fullCylinderError) {
+          console.error('❌ Error in full cylinder with gas processing:', fullCylinderError);
+          throw fullCylinderError; // Re-throw to be caught by main error handler
+        }
       } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'empty') {
         // Empty cylinder assignment: deduct empty cylinders
         const cylinderUpdate = await InventoryItem.findOneAndUpdate(
@@ -142,10 +249,15 @@ export async function PATCH(request, { params }) {
       }
       
       // SECOND: Create employee inventory records
-      const EmployeeInventory = (await import("@/models/EmployeeInventory")).default;
-      
-      // Use the base category for database storage (gas/cylinder)
-      const dbCategory = assignment.category || (assignment.product?.category === 'gas' ? 'gas' : 'cylinder');
+      // Skip this for full cylinders with gas - already handled above
+      if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && assignment.gasProductId) {
+        console.log('⏭️ Skipping regular inventory creation - already handled for full cylinder with gas');
+        // Continue to purchase order status update
+      } else {
+        const EmployeeInventory = (await import("@/models/EmployeeInventory")).default;
+        
+        // Use the base category for database storage (gas/cylinder)
+        const dbCategory = assignment.category || (assignment.product?.category === 'gas' ? 'gas' : 'cylinder');
       
       // Handle undefined cylinderStatus for cylinder products
       const cylinderStatus = assignment.cylinderStatus || (assignment.product?.category === 'cylinder' ? 'empty' : undefined);
@@ -175,21 +287,28 @@ export async function PATCH(request, { params }) {
       }).populate('product', 'name productCode');
       
       const targetInventory = allEmployeeInventory.find(inv => {
-        // Primary check: exact product ID match
-        if (inv.product?._id?.toString() === assignment.product._id.toString()) {
-          return true;
+        // For cylinders, must match both product AND cylinderStatus to avoid converting empty to full
+        if (dbCategory === 'cylinder') {
+          const productMatch = inv.product?._id?.toString() === assignment.product._id.toString();
+          const statusMatch = inv.cylinderStatus === cylinderStatus;
+          console.log('🔍 Cylinder duplicate check:', {
+            productMatch,
+            statusMatch,
+            invCylinderStatus: inv.cylinderStatus,
+            assignmentCylinderStatus: cylinderStatus,
+            productId: assignment.product._id.toString()
+          });
+          return productMatch && statusMatch;
         }
         
-        // Secondary check: name and product code match (for legacy data)
-        if (inv.product?.name === assignment.product.name && 
-            inv.product?.productCode === assignment.product.productCode) {
-          return true;
-        }
-        
-        // Tertiary check: name match only (fallback for missing product codes)
-        if (inv.product?.name === assignment.product.name && 
-            !inv.product?.productCode && !assignment.product.productCode) {
-          return true;
+        // For gas, just match product ID
+        if (dbCategory === 'gas') {
+          const productMatch = inv.product?._id?.toString() === assignment.product._id.toString();
+          console.log('🔍 Gas duplicate check:', {
+            productMatch,
+            productId: assignment.product._id.toString()
+          });
+          return productMatch;
         }
         
         return false;
@@ -311,7 +430,7 @@ export async function PATCH(request, { params }) {
           category: dbCategory,
           currentStock: createdInventory.currentStock,
           assignedQuantity: createdInventory.assignedQuantity,
-          status: createdInventory.status
+          cylinderStatus: createdInventory.cylinderStatus
         });
       }
       
@@ -432,6 +551,7 @@ export async function PATCH(request, { params }) {
           });
         }
       }
+      } // Close the else block for regular inventory creation
     }
     
     // Check if employee has accepted all assignments from a purchase order and mark it as completed
@@ -461,10 +581,14 @@ export async function PATCH(request, { params }) {
           if (allAccepted && allAssignments.length > 0) {
             await EmployeePurchaseOrder.findByIdAndUpdate(
               purchaseOrder._id,
-              { $set: { status: "completed" } },
+              { $set: { 
+                status: "completed",
+                inventoryStatus: "received"
+              } },
               { new: true }
             );
             console.log(`✅ Employee purchase order ${purchaseOrder._id} marked as completed after employee confirmation`);
+            console.log(`✅ Inventory status updated to "received"`);
           }
         }
       } catch (purchaseOrderError) {

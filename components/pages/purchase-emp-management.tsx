@@ -117,21 +117,21 @@ export function PurchaseManagement() {
         if (userInfo) {
           const currentUser = JSON.parse(userInfo)
           if (currentUser?.id) {
-            const employeeInventoryRes = await fetch(`/api/employee-inventory?employeeId=${currentUser.id}`)
-            if (employeeInventoryRes.ok) {
-              const inventoryData = await employeeInventoryRes.json()
-              const inventoryItems = inventoryData.data || []
+            // Fetch from stock-assignments to get correct StockAssignment IDs
+            const stockAssignmentsRes = await fetch(`/api/stock-assignments?employeeId=${currentUser.id}`)
+            if (stockAssignmentsRes.ok) {
+              const assignmentsData = await stockAssignmentsRes.json()
+              const assignments = assignmentsData.data || []
               
-              // Filter for empty cylinders only
-              const emptyCylinderItems = inventoryItems.filter((item: any) => {
+              // Filter for empty cylinders with received status
+              const emptyCylinderItems = assignments.filter((item: any) => {
                 const isEmptyCylinder = (
-                  item.category === 'Empty Cylinder' || 
-                  item.displayCategory === 'Empty Cylinder' ||
-                  (item.category === 'cylinder' && item.cylinderStatus === 'empty')
+                  item.category === 'cylinder' && 
+                  item.cylinderStatus === 'empty'
                 )
                 
-                const hasStock = (item.currentStock > 0 || item.assignedQuantity > 0)
-                const isReceived = (item.status === 'received' || !item.status)
+                const hasStock = (item.remainingQuantity > 0)
+                const isReceived = (item.status === 'received')
                 
                 return isEmptyCylinder && hasStock && isReceived
               })
@@ -357,7 +357,7 @@ export function PurchaseManagement() {
     if (currentItem.emptyCylinderId) {
       const selectedCylinder = emptyCylinders.find(c => c._id === currentItem.emptyCylinderId)
       if (selectedCylinder) {
-        const availableQuantity = selectedCylinder.currentStock || selectedCylinder.assignedQuantity || 0
+        const availableQuantity = selectedCylinder.remainingQuantity || 0
         const requestedQuantity = Number(currentItem.quantity) || 0
         
         if (requestedQuantity > availableQuantity) {
@@ -721,7 +721,7 @@ export function PurchaseManagement() {
                                 {cylinder.product?.name || cylinder.productName}
                               </div>
                               <div className="text-xs text-gray-500">
-                                Available: {cylinder.currentStock || cylinder.assignedQuantity || 0} • Size: {cylinder.product?.cylinderSize || 'N/A'}
+                                Available: {cylinder.remainingQuantity || 0} • Size: {cylinder.product?.cylinderSize || 'N/A'}
                               </div>
                             </button>
                           ))}

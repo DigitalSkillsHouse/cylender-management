@@ -256,7 +256,7 @@ export async function PATCH(request, { params }) {
                   await emptyCylinderRecord.save()
                   console.log(`Reduced empty cylinder stock by ${usedQuantity}`)
                   
-                  // 2. Create full cylinder assignment (gas + cylinder = full cylinder)
+                  // 2. Create full cylinder assignment (empty cylinder + gas = full cylinder ready for sale)
                   const fullCylinderAssignment = new StockAssignment({
                     employee: employeeId,
                     product: emptyCylinderRecord.product, // Same cylinder product but now full
@@ -264,13 +264,13 @@ export async function PATCH(request, { params }) {
                     remainingQuantity: usedQuantity,
                     assignedBy: user.id,
                     status: "assigned", // Mark as assigned for employee confirmation
-                    notes: `Full cylinder created from gas purchase: ${updatedOrder.poNumber}`,
-                    leastPrice: emptyCylinderRecord.leastPrice || 0,
+                    notes: `Full cylinder (${product.name} gas) from purchase order: ${updatedOrder.poNumber}`,
+                    leastPrice: Math.max(emptyCylinderRecord.leastPrice || 0, product.leastPrice || 0), // Use higher price
                     assignedDate: new Date(),
                     category: 'cylinder',
                     cylinderStatus: 'full',
                     displayCategory: 'Full Cylinder',
-                    gasProductId: product._id // Link to gas used
+                    gasProductId: product._id // Link to gas used for reference
                   })
                   
                   await fullCylinderAssignment.save()
@@ -284,7 +284,7 @@ export async function PATCH(request, { params }) {
                     cylinderStatus: fullCylinderAssignment.cylinderStatus
                   })
                   
-                  // 3. Also create gas assignment for tracking
+                  // 3. Also create gas assignment for Gas tab visibility (linked to cylinder)
                   const gasAssignment = new StockAssignment({
                     employee: employeeId,
                     product: product._id,
@@ -292,22 +292,32 @@ export async function PATCH(request, { params }) {
                     remainingQuantity: updatedOrder.quantity || 0,
                     assignedBy: user.id,
                     status: "assigned", // Mark as assigned for employee confirmation
-                    notes: `Gas assigned from purchase order: ${updatedOrder.poNumber}`,
+                    notes: `Gas (filled in ${emptyCylinderRecord.product?.name || 'cylinder'}) from purchase order: ${updatedOrder.poNumber}`,
                     leastPrice: product.leastPrice || 0,
                     assignedDate: new Date(),
                     category: 'gas',
                     displayCategory: 'Gas',
-                    cylinderProductId: emptyCylinderRecord.product // Link to cylinder used
+                    cylinderProductId: emptyCylinderRecord.product, // Link to cylinder containing this gas
+                    cylinderStatus: 'full' // Indicate gas is in full cylinder
                   })
                   
                   await gasAssignment.save()
-                  console.log(`✅ Created gas assignment:`, {
+                  console.log(`✅ Created gas assignment for Gas tab:`, {
                     id: gasAssignment._id,
                     employee: employeeId,
                     product: product._id,
                     quantity: updatedOrder.quantity || 0,
                     status: gasAssignment.status,
-                    category: gasAssignment.category
+                    category: gasAssignment.category,
+                    cylinderProductId: gasAssignment.cylinderProductId
+                  })
+                  
+                  console.log(`✅ Gas purchase with empty cylinder conversion completed:`, {
+                    emptyCylinderUsed: usedQuantity,
+                    fullCylinderCreated: usedQuantity,
+                    gasCreated: usedQuantity,
+                    gasProduct: product.name,
+                    cylinderProduct: emptyCylinderRecord.product
                   })
                 }
               } catch (conversionError) {

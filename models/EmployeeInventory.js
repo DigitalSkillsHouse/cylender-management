@@ -98,8 +98,9 @@ const EmployeeInventorySchema = new mongoose.Schema(
   }
 )
 
-// Compound index for employee + product uniqueness
-EmployeeInventorySchema.index({ employee: 1, product: 1, cylinderSize: 1 }, { unique: true })
+// Compound index for employee + product + cylinderStatus uniqueness
+// This allows the same product to have separate empty and full cylinder records
+EmployeeInventorySchema.index({ employee: 1, product: 1, cylinderStatus: 1 }, { unique: true })
 
 // Update lastUpdated on save
 EmployeeInventorySchema.pre('save', function(next) {

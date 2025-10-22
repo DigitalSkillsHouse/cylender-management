@@ -40,8 +40,11 @@ export async function GET(request) {
       .lean() // Convert to plain objects
 
     // Get StockAssignment records (from admin assignments)
+    console.log('🔍 Fetching StockAssignments with query:', JSON.stringify(stockAssignmentQuery))
     const stockAssignments = await StockAssignment.find(stockAssignmentQuery)
       .populate('product', 'name productCode category cylinderSize')
+      .populate('cylinderProductId', 'name productCode category cylinderSize') // Populate cylinder product for gas items
+      .populate('gasProductId', 'name productCode category') // Populate gas product for cylinder items
       .populate('employee', 'name email')
       .sort({ createdAt: -1 })
       .lean() // Convert to plain objects
@@ -74,17 +77,20 @@ export async function GET(request) {
     })
 
     // Convert StockAssignment to EmployeeInventory format
-    // ONLY convert assignments with status "assigned" - "received" assignments already have EmployeeInventory records
-    const assignedOnlyAssignments = stockAssignments.filter(assignment => assignment.status === 'assigned')
+    // Include BOTH assigned AND received assignments to ensure all inventory shows up
+    const relevantAssignments = stockAssignments.filter(assignment => 
+      assignment.status === 'assigned' || assignment.status === 'received'
+    )
     console.log('🔍 Filtering assignments:', {
       totalAssignments: stockAssignments.length,
-      assignedAssignments: assignedOnlyAssignments.length,
+      relevantAssignments: relevantAssignments.length,
+      assignedAssignments: stockAssignments.filter(sa => sa.status === 'assigned').length,
       receivedAssignments: stockAssignments.filter(sa => sa.status === 'received').length,
-      assignedIds: assignedOnlyAssignments.map(sa => sa._id),
-      receivedIds: stockAssignments.filter(sa => sa.status === 'received').map(sa => sa._id)
+      relevantIds: relevantAssignments.map(sa => sa._id),
+      otherStatuses: stockAssignments.filter(sa => sa.status !== 'assigned' && sa.status !== 'received').map(sa => sa.status)
     })
     
-    const convertedAssignments = assignedOnlyAssignments.map(assignment => {
+    const convertedAssignments = relevantAssignments.map(assignment => {
       // Validate assignment has required data
       if (!assignment || !assignment._id) {
         console.warn('⚠️ Invalid assignment found:', assignment)
@@ -141,7 +147,10 @@ export async function GET(request) {
         displayCategory: displayCategory, // Add displayCategory field
         cylinderStatus: assignment.cylinderStatus,
         gasProductId: assignment.gasProductId,
-        cylinderProductId: assignment.cylinderProductId
+        cylinderProductId: assignment.cylinderProductId,
+        // Add populated product names for display
+        gasProductName: assignment.gasProductId?.name || null,
+        cylinderProductName: assignment.cylinderProductId?.name || null
       }
       
       console.log('🔄 Converted assignment item:', {
@@ -188,7 +197,7 @@ export async function GET(request) {
       originalEmployeeInventory: employeeInventory.length,
       validEmployeeInventory: validEmployeeInventory.length,
       totalStockAssignments: stockAssignments.length,
-      assignedOnlyAssignments: assignedOnlyAssignments.length,
+      relevantAssignments: relevantAssignments.length,
       originalConvertedAssignments: convertedAssignments.length,
       validConvertedAssignments: validConvertedAssignments.length,
       invalidEmployeeItems: employeeInventory.length - validEmployeeInventory.length,

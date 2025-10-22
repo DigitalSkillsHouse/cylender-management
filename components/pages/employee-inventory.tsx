@@ -6,40 +6,50 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Package, Loader2, ArrowLeft } from "lucide-react"
+import { Label } from "@/components/ui/label"
+import { Package, Loader2, Edit, ChevronDown } from "lucide-react"
+import { purchaseOrdersAPI, inventoryAPI, productsAPI, suppliersAPI } from "@/lib/api"
+import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 
-interface EmployeeInventoryItem {
+interface InventoryItem {
+  id: string
+  poNumber: string
+  productName: string
+  productCode?: string
+  supplierName: string
+  purchaseDate: string
+  quantity: number
+  unitPrice: number
+  totalAmount: number
+  status: "pending" | "received"
+  purchaseType: "gas" | "cylinder" | "multiple"
+  cylinderStatus?: "empty" | "full"
+  gasType?: string
+  emptyCylinderId?: string
+  emptyCylinderName?: string
+  isEmployeePurchase?: boolean
+  employeeName?: string
+  employeeId?: string
+  groupedItems?: InventoryItem[]
+  originalOrderId?: string
+  itemIndex?: number
+}
+
+interface Product {
   _id: string
-  product: {
-    _id: string
-    name: string
-    category: string
-    cylinderSize?: string
-    productCode?: string
-  }
-  assignedQuantity: number
-  currentStock: number
-  availableEmpty?: number
-  availableFull?: number
-  cylinderSize?: string
+  name: string
+  category: "gas" | "cylinder"
+  cylinderStatus?: "empty" | "full"
+  costPrice: number
   leastPrice: number
-  status: "assigned" | "received" | "active" | "returned"
-  employee: {
-    name: string
-    email: string
-  }
-  assignedDate: string
-  lastUpdated: string
-  category?: string  // Added this - category from StockAssignment
-  cylinderStatus?: string  // Added this - cylinder status from StockAssignment
-  displayCategory?: string  // Added this - display category from StockAssignment
-  transactions?: Array<{
-    type: string
-    quantity: number
-    date: string
-    notes?: string
-  }>
+  currentStock: number
+}
+
+interface Supplier {
+  _id: string
+  name: string
 }
 
 interface EmployeeInventoryProps {
@@ -47,262 +57,468 @@ interface EmployeeInventoryProps {
 }
 
 export function EmployeeInventory({ user }: EmployeeInventoryProps) {
-  const [inventory, setInventory] = useState<EmployeeInventoryItem[]>([])
+  const [inventory, setInventory] = useState<InventoryItem[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
+  const [inventoryList, setInventoryList] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
   const [processingItems, setProcessingItems] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    console.log('🚀 Employee inventory component mounted, setting up event listeners...')
-    fetchEmployeeInventory()
-    
-    // Listen for employee inventory updates from admin assignments
-    const handleInventoryUpdate = () => {
-      console.log('🔄 Employee inventory update event received, refreshing...')
-      console.log('🕐 Current timestamp:', Date.now())
-      console.log('🎯 User ID:', user.id)
-      fetchEmployeeInventory()
-    }
-    
-    // Also listen for general stock updates
-    const handleStockUpdate = () => {
-      console.log('📦 General stock update event received, refreshing employee inventory...')
-      fetchEmployeeInventory()
-    }
-    
-    window.addEventListener('employeeInventoryUpdated', handleInventoryUpdate)
-    window.addEventListener('stockUpdated', handleStockUpdate)
-    
-    console.log('✅ Event listeners added for employeeInventoryUpdated and stockUpdated')
-    
-    return () => {
-      console.log('🧹 Cleaning up event listeners...')
-      window.removeEventListener('employeeInventoryUpdated', handleInventoryUpdate)
-      window.removeEventListener('stockUpdated', handleStockUpdate)
-    }
+    fetchInventoryData()
   }, [])
 
-  const fetchEmployeeInventory = async () => {
+  const fetchInventoryData = async () => {
     try {
       setError("")
-      const apiUrl = `/api/employee-inventory?employeeId=${user.id}&t=${Date.now()}`
-      console.log('🌐 Fetching employee inventory from:', apiUrl)
-      const response = await fetch(apiUrl)
-      const data = await response.json()
-      console.log('📡 Raw API response:', data)
+      console.log('🔄 Fetching employee inventory data for user:', user.id)
       
-      if (response.ok) {
-        setInventory(data.data || [])
-        console.log('📦 Employee inventory loaded:', {
-          totalItems: data.data?.length || 0,
-          assignedItems: data.data?.filter((item: EmployeeInventoryItem) => item.status === "assigned").length || 0,
-          receivedItems: data.data?.filter((item: EmployeeInventoryItem) => item.status === "received" || item.status === "active").length || 0,
-          allStatuses: data.data?.map((item: EmployeeInventoryItem) => item.status) || [],
-          statusBreakdown: {
-            assigned: data.data?.filter((item: EmployeeInventoryItem) => item.status === "assigned").map((item: EmployeeInventoryItem) => ({
-              id: item._id,
-              product: item.product?.name,
-              status: item.status,
-              quantity: item.assignedQuantity
-            })) || [],
-            received: data.data?.filter((item: EmployeeInventoryItem) => item.status === "received").map((item: EmployeeInventoryItem) => ({
-              id: item._id,
-              product: item.product?.name,
-              status: item.status,
-              quantity: item.assignedQuantity
-            })) || []
-          },
-          items: data.data?.map((item: EmployeeInventoryItem) => ({
-            id: item._id,
-            product: item.product?.name,
-            status: item.status,
-            quantity: item.assignedQuantity,
-            currentStock: item.currentStock,
-            category: item.category
-          })) || []
-        })
-        
-        // Debug individual items to see data structure
-        if (data.data && data.data.length > 0) {
-          data.data.forEach((item:any, index:any) => {
-            console.log(`🔍 Inventory item ${index + 1} structure:`, {
-              rawItem: item,
-              hasId: !!item._id,
-              id: item._id,
-              hasProduct: !!item.product,
-              productStructure: item.product,
-              hasStatus: !!item.status,
-              status: item.status,
-              assignedQuantity: item.assignedQuantity,
-              currentStock: item.currentStock,
-              category: item.category,
-              isMongooseDoc: item.constructor?.name === 'model'
+      // Load employee-specific inventory items (like admin inventory-items but filtered by employee)
+      const invItemsRes = await fetch(`/api/employee-inventory-items?employeeId=${user.id}&t=${Date.now()}`, { cache: 'no-store' })
+      const invItemsJson = await (async () => { try { return await invItemsRes.json() } catch { return {} as any } })()
+      const invItemsData = Array.isArray(invItemsJson?.data) ? invItemsJson.data : []
+
+      // Best-effort fetch for POs, products, suppliers (may 401). Fall back to [] on error.
+      let purchaseOrdersData: any[] = []
+      let employeePurchaseOrdersData: any[] = []
+      let productsData: any[] = []
+      let suppliersData: any[] = []
+      try {
+        const res = await purchaseOrdersAPI.getAll()
+        purchaseOrdersData = res.data?.data || res.data || []
+      } catch (_) {}
+      try {
+        const res = await employeePurchaseOrdersAPI.getAll()
+        employeePurchaseOrdersData = res.data?.data || res.data || []
+      } catch (_) {}
+      try {
+        const res = await productsAPI.getAll()
+        productsData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
+      } catch (_) {}
+      try {
+        const res = await suppliersAPI.getAll()
+        suppliersData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
+      } catch (_) {}
+
+      // Filter purchase orders to show only employee's orders
+      const allPurchaseOrders = [
+        ...purchaseOrdersData.filter((order: any) => !order.isEmployeePurchase), // Keep admin orders for context
+        ...employeePurchaseOrdersData.filter((order: any) => {
+          // Only show employee's own purchase orders
+          const orderEmployeeId = order.employee?._id || order.employee
+          return orderEmployeeId === user.id
+        }).map((order: any) => ({ ...order, isEmployeePurchase: true }))
+      ]
+
+      const productsMap = new Map<string, any>(
+        (productsData as any[]).filter(Boolean).map((p: any) => [p._id, p])
+      )
+      const suppliersMap = new Map<string, any>(
+        (suppliersData as any[]).filter(Boolean).map((s: any) => [s._id, s])
+      )
+
+      const inventoryItems = Array.isArray(allPurchaseOrders)
+        ? allPurchaseOrders.flatMap((order: any, idx: number) => {
+            const supplierRef = order.supplier ?? order.supplierId ?? order.vendor
+
+            let resolvedSupplierName = 'Unknown Supplier'
+            if (supplierRef && typeof supplierRef === 'object') {
+              resolvedSupplierName = supplierRef.name || supplierRef.companyName || supplierRef.supplierName || order.supplierName || order.vendorName || resolvedSupplierName
+            } else if (typeof supplierRef === 'string') {
+              const s = suppliersMap.get(supplierRef)
+              if (s) resolvedSupplierName = s.name || s.companyName || s.supplierName || resolvedSupplierName
+              else resolvedSupplierName = order.supplierName || order.vendorName || resolvedSupplierName
+            } else {
+              resolvedSupplierName = order.supplierName || order.vendorName || resolvedSupplierName
+            }
+            if (resolvedSupplierName === 'Unknown Supplier' && typeof supplierRef === 'string') {
+              resolvedSupplierName = supplierRef
+            }
+
+            let employeeName = ''
+            if (order.isEmployeePurchase && order.employee) {
+              if (typeof order.employee === 'object') {
+                employeeName = order.employee.name || order.employee.email || ''
+              } else if (typeof order.employee === 'string') {
+                employeeName = `Employee ${order.employee.slice(-6)}`
+              }
+            }
+
+            const items = order.items && Array.isArray(order.items) ? order.items : [order]
+            
+            return items.map((item: any, itemIndex: number) => {
+              const productRef = item.product ?? item.productId ?? order.product ?? order.productId
+
+              let resolvedProductName = 'Unknown Product'
+              let resolvedProductCode = ''
+              if (productRef && typeof productRef === 'object') {
+                resolvedProductName = productRef.name || productRef.title || item.productName || order.productName || resolvedProductName
+                resolvedProductCode = productRef.productCode || productRef.code || item.productCode || order.productCode || ''
+              } else if (typeof productRef === 'string') {
+                const p = productsMap.get(productRef)
+                if (p) {
+                  resolvedProductName = p.name || p.title || resolvedProductName
+                  resolvedProductCode = p.productCode || p.code || ''
+                } else {
+                  resolvedProductName = item.productName || order.productName || resolvedProductName
+                  resolvedProductCode = item.productCode || order.productCode || ''
+                }
+              } else {
+                resolvedProductName = item.productName || order.productName || resolvedProductName
+                resolvedProductCode = item.productCode || order.productCode || ''
+              }
+              
+              if (resolvedProductName === 'Unknown Product' && typeof productRef === 'string') {
+                resolvedProductName = productRef
+              }
+
+              const itemStatus = item.inventoryStatus || order.inventoryStatus || 'pending'
+              
+              // Resolve empty cylinder name if present
+              let emptyCylinderName = ''
+              if (item.emptyCylinderId || order.emptyCylinderId) {
+                // First try to get from order data if available
+                if (order.emptyCylinderName) {
+                  emptyCylinderName = order.emptyCylinderName
+                } else if (item.emptyCylinderName) {
+                  emptyCylinderName = item.emptyCylinderName
+                } else {
+                  // Fallback: try to resolve from products map (though this might not work for inventory IDs)
+                  const emptyCylinderId = item.emptyCylinderId || order.emptyCylinderId
+                  const emptyCylinder = productsMap.get(emptyCylinderId)
+                  emptyCylinderName = emptyCylinder?.name || 'Unknown Cylinder'
+                }
+              }
+
+              return {
+                id: `${order._id}-${itemIndex}`,
+                poNumber: order.poNumber || `PO-${order._id?.slice(-6) || 'UNKNOWN'}`,
+                productName: resolvedProductName,
+                productCode: resolvedProductCode,
+                supplierName: resolvedSupplierName,
+                purchaseDate: order.purchaseDate || order.createdAt,
+                quantity: item.quantity || order.quantity || 0,
+                unitPrice: item.unitPrice || order.unitPrice || 0,
+                totalAmount: item.itemTotal || item.totalAmount || order.totalAmount || 0,
+                status: itemStatus,
+                purchaseType: item.purchaseType || order.purchaseType || 'gas',
+                cylinderStatus: item.cylinderStatus,
+                gasType: item.gasType,
+                emptyCylinderId: item.emptyCylinderId,
+                emptyCylinderName: emptyCylinderName,
+                isEmployeePurchase: order.isEmployeePurchase || false,
+                employeeName: employeeName,
+                employeeId: order.isEmployeePurchase ? (order.employee?._id || order.employee) : null,
+                originalOrderId: order._id,
+                itemIndex: itemIndex
+              } as InventoryItem
             })
           })
+        : []
+
+      setInventory(inventoryItems)
+      setProducts(productsData)
+      setSuppliers(suppliersData)
+      
+      // Filter out items with zero stock for employee inventory
+      const filteredInventoryData = invItemsData.filter((item: any) => {
+        const hasStock = (item.currentStock > 0) || (item.availableEmpty > 0) || (item.availableFull > 0)
+        return hasStock
+      })
+      
+      console.log('📊 Employee inventory filtering:', {
+        totalItems: invItemsData.length,
+        itemsWithStock: filteredInventoryData.length,
+        filteredOut: invItemsData.length - filteredInventoryData.length,
+        items: invItemsData.map((item: any) => ({
+          product: item.productName,
+          currentStock: item.currentStock,
+          availableEmpty: item.availableEmpty,
+          availableFull: item.availableFull,
+          status: item.status,
+          hasStock: (item.currentStock > 0) || (item.availableEmpty > 0) || (item.availableFull > 0)
+        }))
+      })
+      
+      setInventoryList(filteredInventoryData)
+      
+      // Build availability map by productId
+      const availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
+      for (const ii of filteredInventoryData) {
+        if (ii?.productId) {
+          availMap[ii.productId] = {
+            availableEmpty: Number(ii.availableEmpty || 0),
+            availableFull: Number(ii.availableFull || 0),
+            currentStock: Number(ii.currentStock || 0),
+          }
         }
-      } else {
-        setError(data.error || "Failed to load inventory")
-        console.error('API Error:', data.error)
       }
+      setInventoryAvailability(availMap)
     } catch (error: any) {
       setError(`Failed to load inventory: ${error.message}`)
-      console.error('Fetch Error:', error)
       setInventory([])
+      setProducts([])
+      setSuppliers([])
     } finally {
       setLoading(false)
     }
   }
 
-  // Filter inventory by status with null checks
-  // Admin approves employee purchase orders and creates StockAssignment records with status "assigned"
-  // Employee accepts assignments which changes status to "received", then they become active inventory
-  const assignedItems = inventory.filter(item => {
-    const isValid = item && item._id && item.product && item.status === "assigned"
-    if (item && !isValid) {
-      console.warn('⚠️ Filtering out invalid assigned item:', {
-        hasId: !!item._id,
-        hasProduct: !!item.product,
-        status: item.status,
-        item: item
-      })
-    }
-    return isValid
-  })
-  
-  const receivedItems = inventory.filter(item => {
-    const isValid = item && item._id && item.product && (item.status === "received" || item.status === "active")
-    if (item && !isValid) {
-      console.warn('⚠️ Filtering out invalid received item:', {
-        hasId: !!item._id,
-        hasProduct: !!item.product,
-        status: item.status,
-        item: item
-      })
-    }
-    return isValid
-  })
-  
-  const returnedItems = inventory.filter(item => {
-    const isValid = item && item._id && item.product && item.status === "returned"
-    return isValid
-  })
-  
-  console.log('📋 Filtered inventory items:', {
-    total: inventory.length,
-    assigned: assignedItems.length,
-    received: receivedItems.length,
-    returned: returnedItems.length,
-    allStatuses: inventory.map(item => item?.status),
-    statusBreakdown: {
-      assigned: inventory.filter(item => item?.status === 'assigned').length,
-      received: inventory.filter(item => item?.status === 'received').length,
-      active: inventory.filter(item => item?.status === 'active').length,
-      returned: inventory.filter(item => item?.status === 'returned').length,
-      undefined: inventory.filter(item => !item?.status).length
-    },
-    assignedItems: assignedItems.map(item => ({
-      id: item?._id,
-      product: item?.product?.name,
-      status: item?.status,
-      currentStock: item?.currentStock
-    })),
-    receivedItems: receivedItems.map(item => ({
-      id: item?._id,
-      product: item?.product?.name,
-      status: item?.status,
-      currentStock: item?.currentStock
-    }))
-  })
+  // Helper: get or create InventoryItem ID for a given product
+  const getOrCreateInventoryItemId = async (
+    productId: string,
+    category: "gas" | "cylinder"
+  ): Promise<string> => {
+    try {
+      const res = await fetch('/api/inventory-items', { cache: 'no-store' })
+      const json = await res.json()
+      const found = Array.isArray(json?.data)
+        ? json.data.find((it: any) => it.productId === productId)
+        : null
+      if (found?._id) return found._id as string
+    } catch (_) {}
 
-  // Process inventory data like admin inventory to get correct categorization
-  const processInventoryData = () => {
-    const gasItems: EmployeeInventoryItem[] = []
-    const fullCylinderItems: EmployeeInventoryItem[] = []
-    const emptyCylinderItems: EmployeeInventoryItem[] = []
-    
-    for (const item of receivedItems) {
-      // Add null checks for item and product
-      if (!item || !item.product) {
-        console.warn('⚠️ Skipping invalid inventory item:', item)
-        continue
-      }
-      
-      const category = (item as any).category || (item as any).displayCategory || item.product.category
-      const cylinderStatus = (item as any).cylinderStatus
-      
-      console.log('🔍 Processing item for categorization:', {
-        productName: item.product.name,
-        category: category,
-        cylinderStatus: cylinderStatus,
-        productCategory: item.product.category,
-        currentStock: item.currentStock
+    // Create if not found
+    try {
+      const createRes = await fetch('/api/inventory-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, category })
       })
-      
-      // Gas items: items with gas category or gas products
-      if (category === 'Gas' || category === 'gas' || item.product.category === 'gas') {
-        if (item.currentStock > 0) {
-          gasItems.push(item)
-        }
-      }
-      
-      // Full cylinder items: cylinders with full status or full cylinder category
-      else if (category === 'Full Cylinder' || 
-               (item.product.category === 'cylinder' && cylinderStatus === 'full') ||
-               (category === 'cylinder' && cylinderStatus === 'full')) {
-        if (item.currentStock > 0) {
-          fullCylinderItems.push(item)
-        }
-      }
-      
-      // Empty cylinder items: cylinders with empty status, empty cylinder category, or cylinders without status
-      else if (category === 'Empty Cylinder' || 
-               (item.product.category === 'cylinder' && cylinderStatus === 'empty') ||
-               (category === 'cylinder' && cylinderStatus === 'empty') ||
-               (item.product.category === 'cylinder' && !cylinderStatus)) {
-        if (item.currentStock > 0) {
-          emptyCylinderItems.push(item)
-        }
-      }
-      
-      // Fallback: if it's a cylinder product but doesn't match above, put in empty cylinders
-      else if (item.product.category === 'cylinder') {
-        if (item.currentStock > 0) {
-          emptyCylinderItems.push(item)
-        }
-      }
+      const created = await createRes.json()
+      return (created?.data?._id as string) || ''
+    } catch (e) {
+      console.error('Failed to create inventory item', e)
+      return ''
     }
-    
-    console.log('📊 Employee inventory categorization results:', {
-      total: receivedItems.length,
-      gas: gasItems.length,
-      fullCylinder: fullCylinderItems.length,
-      emptyCylinder: emptyCylinderItems.length,
-      gasItems: gasItems.map(i => ({ name: i.product.name, stock: i.currentStock })),
-      fullCylinderItems: fullCylinderItems.map(i => ({ name: i.product.name, stock: i.currentStock })),
-      emptyCylinderItems: emptyCylinderItems.map(i => ({ name: i.product.name, stock: i.currentStock }))
-    })
-    
-    return { gasItems, fullCylinderItems, emptyCylinderItems }
   }
-  
-  const { gasItems, fullCylinderItems, emptyCylinderItems } = processInventoryData()
+
+  // Helper: apply delta to inventory item
+  const patchInventoryDelta = async (
+    inventoryItemId: string,
+    delta: Partial<{ currentStock: number; availableEmpty: number; availableFull: number }>
+  ) => {
+    if (!inventoryItemId) return
+    await fetch(`/api/inventory-items/${inventoryItemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delta })
+    })
+  }
+
+  const handleReceiveInventory = async (id: string) => {
+    try {
+      setError("")
+      
+      const inventoryItem = inventory.find(item => item.id === id)
+      
+      // Check if item is already received to prevent duplicate processing
+      if (inventoryItem?.status === "received") {
+        setError("This item has already been received")
+        return
+      }
+      
+      const orderIdToUpdate = inventoryItem?.originalOrderId || id
+      const itemIndex = inventoryItem?.itemIndex
+      
+      console.log("Receiving inventory item:", { id, orderIdToUpdate, itemIndex, inventoryItem })
+      
+      // Add item to processing set to disable the button
+      setProcessingItems(prev => new Set(prev).add(id))
+      
+      let response
+      if (itemIndex !== undefined && itemIndex >= 0) {
+        // Use item-level API for multi-item orders
+        response = await inventoryAPI.updateItemStatus(orderIdToUpdate, itemIndex, { status: "received" })
+      } else {
+        // Use order-level API for single-item orders (backward compatibility)
+        response = await inventoryAPI.updateStatus(orderIdToUpdate, { status: "received" })
+      }
+      
+      console.log("Inventory update response:", response)
+      
+      if (response.data.success) {
+        // For employee purchases, create EmployeeInventory record
+        if (inventoryItem?.isEmployeePurchase && inventoryItem?.employeeId) {
+          try {
+            const product = products.find(p => p.name === inventoryItem.productName)
+            if (product) {
+              await fetch('/api/employee-inventory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  employeeId: inventoryItem.employeeId,
+                  productId: product._id,
+                  quantity: inventoryItem.quantity,
+                  leastPrice: product.leastPrice || inventoryItem.unitPrice,
+                  type: 'assignment'
+                })
+              })
+              console.log('✅ Employee inventory record created')
+            }
+          } catch (empError) {
+            console.error('Failed to create employee inventory record:', empError)
+          }
+        }
+        
+        // Only update main inventory stock for regular purchases, not employee purchases
+        if (inventoryItem && !inventoryItem.isEmployeePurchase) {
+          await updateStockForReceivedItem(inventoryItem)
+        }
+        
+        await fetchInventoryData()
+        
+        // Notify other pages about stock update
+        localStorage.setItem('stockUpdated', Date.now().toString())
+        window.dispatchEvent(new Event('stockUpdated'))
+        console.log('✅ Stock update notification sent to other pages')
+      } else {
+        setError("Failed to mark inventory as received")
+      }
+    } catch (error: any) {
+      console.error("Failed to receive inventory:", error)
+      setError(`Failed to receive inventory: ${error.message}`)
+    } finally {
+      // Remove item from processing set
+      setProcessingItems(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(id)
+        return newSet
+      })
+    }
+  }
+
+  const updateStockForReceivedItem = async (item: InventoryItem) => {
+    try {
+      if (item.purchaseType === 'cylinder') {
+        // Adjust cylinder availability in InventoryItems
+        const cylinderProduct = products.find(p => p.name === item.productName && p.category === 'cylinder')
+        if (cylinderProduct) {
+          const invId = await getOrCreateInventoryItemId(cylinderProduct._id, 'cylinder')
+          if (item.cylinderStatus === 'full') {
+            await patchInventoryDelta(invId, { availableFull: item.quantity })
+          } else if (item.cylinderStatus === 'empty') {
+            await patchInventoryDelta(invId, { availableEmpty: item.quantity })
+          }
+        }
+
+        // If gasType specified for full cylinders, increase gas stock too
+        if (item.cylinderStatus === 'full' && item.gasType) {
+          const gasProduct = products.find(p => p.name === item.gasType && p.category === 'gas')
+          if (gasProduct) {
+            const invId = await getOrCreateInventoryItemId(gasProduct._id, 'gas')
+            await patchInventoryDelta(invId, { currentStock: item.quantity })
+          }
+        }
+      } else if (item.purchaseType === 'gas') {
+        // Gas purchase/refilling: move empty -> full for cylinder, and increase gas stock
+        if (item.emptyCylinderId && item.emptyCylinderName) {
+          const emptyCylinder = products.find(p => p._id === item.emptyCylinderId && p.category === 'cylinder')
+          if (emptyCylinder) {
+            const invId = await getOrCreateInventoryItemId(emptyCylinder._id, 'cylinder')
+            // Decrease empty, increase full by quantity
+            await patchInventoryDelta(invId, { availableEmpty: -item.quantity, availableFull: item.quantity })
+          }
+        }
+
+        // Update gas stock for the purchased gas product
+        const gasProduct = products.find(p => p.name === item.productName && p.category === 'gas')
+        if (gasProduct) {
+          const invId = await getOrCreateInventoryItemId(gasProduct._id, 'gas')
+          await patchInventoryDelta(invId, { currentStock: item.quantity })
+        }
+      }
+    } catch (error) {
+      console.error("Failed to update stock:", error)
+    }
+  }
+
+  const pendingItems = inventory.filter(item => item.status === "pending")
+  const receivedItemsRaw = inventory.filter(item => item.status === "received")
+
+  // Build aggregated lists for Received tabs from live inventory to avoid duplicates
+  const getFilteredReceivedItems = (filter: string) => {
+    const rows: InventoryItem[] = [] as any
+
+    const pushRowFromInv = (inv: any, qty: number, kind: 'empty' | 'full' | 'gas') => {
+      if (qty <= 0) return
+      const id = `${inv.productId || inv._id}-${kind}`
+      // Try to infer supplier from latest received PO item for same product name
+      let inferredSupplier = ''
+      const match = receivedItemsRaw.find(it => it.productName === (inv.productName || '') && it.status === 'received')
+      if (match) inferredSupplier = match.supplierName || ''
+      const base = {
+        id,
+        poNumber: '',
+        productName: inv.productName || 'Unknown',
+        productCode: inv.productCode || '',
+        supplierName: inferredSupplier,
+        purchaseDate: '',
+        quantity: qty,
+        unitPrice: 0,
+        totalAmount: 0,
+        status: 'received' as const,
+        purchaseType: inv.category === 'gas' ? 'gas' : 'cylinder',
+        cylinderStatus: kind === 'empty' ? 'empty' : kind === 'full' ? 'full' : undefined,
+        gasType: undefined,
+        emptyCylinderId: undefined,
+        emptyCylinderName: undefined,
+        isEmployeePurchase: false,
+      }
+      rows.push(base as any)
+    }
+
+    if (filter === 'empty-cylinder') {
+      // Show cylinders with availableEmpty > 0 directly from inventory list
+      for (const inv of inventoryList.filter(ii => ii.category === 'cylinder')) {
+        const avail = Number(inv.availableEmpty || 0)
+        if (avail > 0) pushRowFromInv(inv, avail, 'empty')
+      }
+      return rows
+    }
+
+    if (filter === 'full-cylinder') {
+      // Show cylinders with availableFull > 0 directly from inventory list
+      for (const inv of inventoryList.filter(ii => ii.category === 'cylinder')) {
+        const avail = Number(inv.availableFull || 0)
+        if (avail > 0) pushRowFromInv(inv, avail, 'full')
+      }
+      return rows
+    }
+
+    if (filter === 'gas') {
+      // Show gas SKUs with currentStock > 0 directly from inventory list
+      for (const inv of inventoryList.filter(ii => ii.category === 'gas')) {
+        const qty = Number(inv.currentStock || 0)
+        if (qty > 0) pushRowFromInv(inv, qty, 'gas')
+      }
+      return rows
+    }
+
+    return receivedItemsRaw
+  }
 
   const norm = (v?: string | number) => (v === undefined || v === null ? "" : String(v)).toLowerCase()
-  const matchesQuery = (item: EmployeeInventoryItem, q: string) =>
-    norm(item.product.name).includes(q) ||
-    norm(item.product.category).includes(q) ||
-    norm(item.assignedQuantity).includes(q) ||
-    norm(item.currentStock).includes(q)
+  const matchesQuery = (it: InventoryItem, q: string) =>
+    norm(it.productName).includes(q) ||
+    norm(it.productCode).includes(q) ||
+    norm(it.supplierName).includes(q) ||
+    norm(it.purchaseType).includes(q) ||
+    norm(it.quantity).includes(q) ||
+    norm(it.unitPrice).includes(q) ||
+    norm(it.totalAmount).includes(q)
 
   const q = searchTerm.trim().toLowerCase()
+  const filteredPending = q ? pendingItems.filter((it) => matchesQuery(it, q)) : pendingItems
 
-  const handleAcceptAssignment = async (item: EmployeeInventoryItem) => {
+  const handleAcceptAssignment = async (assignmentId: string) => {
     try {
-      setProcessingItems(prev => new Set(prev).add(item._id))
+      setProcessingItems(prev => new Set(prev).add(assignmentId))
       
-      // Update StockAssignment status to 'received' (employee has accepted the assignment)
-      const response = await fetch(`/api/stock-assignments/${item._id}`, {
+      const response = await fetch(`/api/stock-assignments/${assignmentId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -314,10 +530,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
       
       if (response.ok) {
         console.log('✅ Assignment accepted successfully, refreshing inventory...')
-        // Add a small delay to ensure database operations complete
-        setTimeout(async () => {
-          await fetchEmployeeInventory()
-        }, 1000)
+        await fetchInventoryData()
       } else {
         const errorData = await response.json()
         console.error('❌ Failed to accept assignment:', errorData)
@@ -328,221 +541,267 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
     } finally {
       setProcessingItems(prev => {
         const newSet = new Set(prev)
-        newSet.delete(item._id)
+        newSet.delete(assignmentId)
         return newSet
       })
     }
   }
 
-  const renderInventoryTable = (items: EmployeeInventoryItem[], showActions: boolean = false, currentTab: string = '') => (
+  const renderAssignmentTable = (assignments: any[]) => (
     <div className="w-full overflow-x-auto">
-      <div className="w-full min-w-[800px]">
+      <div className="w-full min-w-[1000px]">
         <Table className="w-full table-fixed">
           <TableHeader>
             <TableRow className="bg-gray-50 border-b-2 border-gray-200">
               <TableHead className="font-bold text-gray-700 p-4 w-[20%]">Product</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Code</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Category</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Assigned</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Current Stock</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Price (AED)</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Code</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[15%]">Category</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Quantity</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Price (AED)</TableHead>
               <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Status</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Date</TableHead>
-              {showActions && <TableHead className="font-bold text-gray-700 p-4 w-[13%]">Actions</TableHead>}
+              <TableHead className="font-bold text-gray-700 p-4 w-[21%]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.filter(item => item && item._id && item.product).map((item) => (
-              <TableRow key={item._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+            {assignments.map((assignment) => (
+              <TableRow key={assignment._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
                 <TableCell className="p-4">
-                  <div>
-                    {/* Display product name based on current tab context */}
-                    {currentTab === 'gas' && item.product.category === 'gas' ? (
-                      // In Gas tab: Show gas product name
-                      <div className="font-medium">{item.product.name}</div>
-                    ) : currentTab === 'full-cylinder' && (item as any).gasProductId ? (
-                      // In Full Cylinders tab: Show cylinder + gas binding if available
-                      <div>
-                        <div className="font-medium">{item.product.name}</div>
-                        <div className="text-sm text-blue-600 font-medium">Contains Gas</div>
-                      </div>
-                    ) : (
-                      // Default: Show product name
-                      <div className="font-medium">{item.product.name}</div>
-                    )}
-                    
-                    {/* Show product code if available */}
-                    {item.product?.productCode && (
-                      <div className="text-sm text-gray-500 font-mono">{item.product.productCode}</div>
-                    )}
-                    
-                    {/* Show cylinder size if available */}
-                    {item.product?.cylinderSize && (
-                      <div className="text-sm text-gray-500">Size: {item.product.cylinderSize}</div>
-                    )}
-                    
-                    {/* Show cylinder status context */}
-                    {currentTab !== 'gas' && (item as any).cylinderStatus && (
-                      <div className="text-sm text-blue-600 font-medium">
-                        {(item as any).cylinderStatus === 'empty' ? 'Empty Cylinder' : 'Full Cylinder'}
-                      </div>
-                    )}
-                    
-                    {/* Show category context for assigned items */}
-                    {currentTab === '' && item.product.category === 'cylinder' && !(item as any).cylinderStatus && (
-                      <div className="text-sm text-gray-500">
-                        Cylinder Product
-                      </div>
+                  <div className="font-medium">{assignment.productName}</div>
+                  {assignment.cylinderStatus && (
+                    <div className="text-sm text-blue-600">
+                      {assignment.cylinderStatus === 'full' ? 'Full Cylinder' : 'Empty Cylinder'}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell className="p-4 text-sm font-mono">
+                  {assignment.productCode || 'N/A'}
+                </TableCell>
+                <TableCell className="p-4">
+                  <Badge variant="default" className="bg-blue-600 text-white">
+                    {assignment.category === 'gas' ? 'Gas' : 
+                     assignment.cylinderStatus === 'full' ? 'Full Cylinder' : 
+                     assignment.cylinderStatus === 'empty' ? 'Empty Cylinder' : 'Cylinder'}
+                  </Badge>
+                </TableCell>
+                <TableCell className="p-4 font-medium">{assignment.currentStock}</TableCell>
+                <TableCell className="p-4">AED {assignment.leastPrice.toFixed(2)}</TableCell>
+                <TableCell className="p-4">
+                  <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                    {assignment.status}
+                  </Badge>
+                </TableCell>
+                <TableCell className="p-4">
+                  {assignment.status === 'assigned' && !processingItems.has(assignment._id) && (
+                    <Button
+                      size="sm"
+                      onClick={() => handleAcceptAssignment(assignment._id)}
+                      className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+                    >
+                      Accept & Add to Inventory
+                    </Button>
+                  )}
+                  {assignment.status === 'assigned' && processingItems.has(assignment._id) && (
+                    <Button
+                      size="sm"
+                      disabled
+                      className="bg-gray-400 text-white cursor-not-allowed"
+                    >
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      Processing...
+                    </Button>
+                  )}
+                  {assignment.status === 'received' && (
+                    <Button
+                      size="sm"
+                      disabled
+                      className="bg-green-500 text-white cursor-not-allowed"
+                    >
+                      ✓ Accepted
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {assignments.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-gray-500 py-12">
+                  <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium">No pending assignments</p>
+                  <p className="text-sm">You have no stock assignments waiting for acceptance</p>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  )
+
+  const renderInventoryTable = (items: InventoryItem[], showActions: boolean = true, currentTab: string = '') => (
+    <div className="w-full overflow-x-auto">
+      <div className="w-full min-w-[1200px]">
+        <Table className="w-full table-fixed">
+          <TableHeader>
+            <TableRow className="bg-gray-50 border-b-2 border-gray-200">
+              <TableHead className="font-bold text-gray-700 p-4 w-[18%]">Product</TableHead>
+              {currentTab === 'pending' && (
+                <TableHead className="font-bold text-gray-700 p-4 w-[16%]">Details</TableHead>
+              )}
+              <TableHead className="font-bold text-gray-700 p-4 w-[12%]">Supplier</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[8%]">Type</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[8%]">Quantity</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Unit Price</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4 w-[10%]">Total</TableHead>
+              {showActions && <TableHead className="font-bold text-gray-700 p-4 w-[18%]">Actions</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((item) => (
+              <TableRow key={item.id} className={`hover:bg-gray-50 transition-colors border-b border-gray-100 ${item.isEmployeePurchase ? 'bg-blue-50/30' : ''}`}>
+                <TableCell className="p-4">
+                  <div className="flex items-center gap-2">
+                    <div>
+                      {/* Show different display based on current tab */}
+                      {item.purchaseType === 'gas' && item.emptyCylinderName ? (
+                        currentTab === 'gas' ? (
+                          // In Gas tab: Show only gas information
+                          <div className="font-medium">{item.productName}</div>
+                        ) : (
+                          // In Full Cylinders tab: Show cylinder + gas binding
+                          <div>
+                            <div className="font-medium">{item.emptyCylinderName}</div>
+                            <div className="text-sm text-blue-600 font-medium">Filled with: {item.productName}</div>
+                          </div>
+                        )
+                      ) : (
+                        <div className="font-medium">{item.productName}</div>
+                      )}
+                      {item.productCode && (
+                        <div className="text-sm text-gray-500 font-mono">{item.productCode}</div>
+                      )}
+                    </div>
+                    {item.isEmployeePurchase && (
+                      <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                        Employee
+                      </Badge>
                     )}
                   </div>
                 </TableCell>
-                <TableCell className="p-4 text-sm font-mono">
-                  {item.product?.productCode || 'N/A'}
-                </TableCell>
+                {currentTab === 'pending' && (
+                  <TableCell className="p-4">
+                    <div className="text-sm space-y-1">
+                      {/* Show status for cylinder purchases */}
+                      {item.purchaseType === 'cylinder' && item.cylinderStatus && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Status:</span>
+                          <Badge variant={item.cylinderStatus === 'full' ? 'default' : 'secondary'}>
+                            {item.cylinderStatus}
+                          </Badge>
+                        </div>
+                      )}
+                      
+                      {/* For gas purchases in pending tab: show gas-focused info */}
+                      {item.purchaseType === 'gas' && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Type:</span>
+                          <Badge variant="default" className="bg-blue-600 hover:bg-blue-700">
+                            Gas Product
+                          </Badge>
+                        </div>
+                      )}
+                      
+                      {/* Show gas type - always relevant */}
+                      {item.gasType && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Gas Type:</span>
+                          <span className="font-medium text-blue-600">{item.gasType}</span>
+                        </div>
+                      )}
+                      
+                      {/* Show cylinder info for gas purchases when available */}
+                      {item.purchaseType === 'gas' && item.emptyCylinderName && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Cylinder Type:</span>
+                          <span className="font-medium">{item.emptyCylinderName}</span>
+                        </div>
+                      )}
+                    </div>
+                  </TableCell>
+                )}
+                <TableCell className="p-4">{item.supplierName}</TableCell>
                 <TableCell className="p-4">
-                  <Badge variant={(() => {
-                    const category = (item as any).category || (item as any).displayCategory || item.product.category
-                    const cylinderStatus = (item as any).cylinderStatus
-                    
-                    if (currentTab === 'gas' || category === 'Gas' || category === 'gas' || item.product.category === 'gas') {
-                      return "default"
-                    } else if (currentTab === 'full-cylinder' || category === 'Full Cylinder' || 
-                              (item.product.category === 'cylinder' && cylinderStatus === 'full')) {
-                      return "default"
-                    } else {
-                      return "secondary"
-                    }
-                  })()}
-                  className={(() => {
-                    const category = (item as any).category || (item as any).displayCategory || item.product.category
-                    const cylinderStatus = (item as any).cylinderStatus
-                    
-                    if (currentTab === 'gas' || category === 'Gas' || category === 'gas' || item.product.category === 'gas') {
-                      return "bg-blue-600 hover:bg-blue-700 text-white"
-                    } else if (currentTab === 'full-cylinder' || category === 'Full Cylinder' || 
-                              (item.product.category === 'cylinder' && cylinderStatus === 'full')) {
-                      return "bg-green-600 hover:bg-green-700 text-white"
-                    } else {
-                      return "bg-amber-600 hover:bg-amber-700 text-white"
-                    }
-                  })()}>
-                    {(() => {
-                      // Display category based on current tab and item properties
-                      if (currentTab === 'gas') {
-                        return 'Gas'
-                      } else if (currentTab === 'full-cylinder') {
-                        return 'Full Cylinder'
-                      } else if (currentTab === 'empty-cylinder') {
-                        return 'Empty Cylinder'
-                      }
-                      
-                      // Fallback to item's actual category
-                      const displayCategory = (item as any).displayCategory
-                      if (displayCategory) return displayCategory
-                      
-                      const category = (item as any).category
-                      if (category && category !== 'cylinder' && category !== 'gas') return category
-                      
-                      if (item.product.category === 'cylinder' || category === 'cylinder') {
-                        const cylinderStatus = (item as any).cylinderStatus
-                        if (cylinderStatus === 'full') return 'Full Cylinder'
-                        if (cylinderStatus === 'empty') return 'Empty Cylinder'
-                        return 'Empty Cylinder' // Default for cylinders
-                      }
-                      
-                      return item.product.category === 'gas' || category === 'gas' ? 'Gas' : (category || item.product.category)
-                    })()
-                    }
-                  </Badge>
+                  {item.purchaseType === "gas" ? (
+                    currentTab === 'gas' ? (
+                      // In Gas tab: Show as gas
+                      <Badge variant="default" className="bg-blue-600 hover:bg-blue-700">
+                        Gas
+                      </Badge>
+                    ) : (
+                      // In Full Cylinders tab: Show as full cylinder
+                      <Badge variant="default" className="bg-green-600 hover:bg-green-700">
+                        Full Cylinder
+                      </Badge>
+                    )
+                  ) : (
+                    <Badge variant={item.cylinderStatus === "full" ? "default" : "secondary"}>
+                      {item.purchaseType} ({item.cylinderStatus})
+                    </Badge>
+                  )}
                 </TableCell>
-                <TableCell className="p-4 font-medium">{item.assignedQuantity || 0}</TableCell>
                 <TableCell className="p-4 font-medium">
-                  {(() => {
-                    // Show appropriate stock quantity based on current tab
-                    if (currentTab === 'gas' && item.product.category === 'gas') {
-                      return item.currentStock
-                    } else if (currentTab === 'full-cylinder') {
-                      // For full cylinders, show current stock (should be full cylinder count)
-                      return item.currentStock
-                    } else if (currentTab === 'empty-cylinder') {
-                      // For empty cylinders, show current stock (should be empty cylinder count)
-                      return item.currentStock
-                    } else {
-                      // Default: show current stock
-                      return item.currentStock
-                    }
-                  })()
-                  }
+                  {currentTab === 'empty-cylinder' ? (() => {
+                    const product = products.find(p => p.category === 'cylinder' && p.name === item.productName)
+                    const remaining = product ? (inventoryAvailability[product._id]?.availableEmpty ?? undefined) : undefined
+                    return typeof remaining === 'number' ? remaining : item.quantity
+                  })() : item.quantity}
                 </TableCell>
-                <TableCell className="p-4">AED {(item.leastPrice || 0).toFixed(2)}</TableCell>
-                <TableCell className="p-4">
-                  <Badge
-                    variant={
-                      item.status === "received"
-                        ? "default"
-                        : item.status === "assigned"
-                          ? "secondary"
-                          : "outline"
-                    }
-                    className={
-                      item.status === "received" || item.status === "active"
-                        ? "bg-green-100 text-green-800"
-                        : item.status === "assigned"
-                          ? "bg-blue-100 text-blue-800"
-                          : "bg-gray-100 text-gray-800"
-                    }
-                  >
-                    {item.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="p-4">
-                  {new Date(item.assignedDate).toLocaleDateString()}
-                </TableCell>
+                <TableCell className="p-4">AED {item.unitPrice.toFixed(2)}</TableCell>
+                <TableCell className="p-4 font-semibold">AED {item.totalAmount.toFixed(2)}</TableCell>
                 {showActions && (
                   <TableCell className="p-4">
-                    {item.status === "assigned" && !processingItems.has(item._id) && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleAcceptAssignment(item)}
-                        className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
-                      >
-                        Accept & Add to Inventory
-                      </Button>
-                    )}
-                    {item.status === "assigned" && processingItems.has(item._id) && (
-                      <Button
-                        size="sm"
-                        disabled
-                        className="bg-gray-400 text-white cursor-not-allowed"
-                      >
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        Processing...
-                      </Button>
-                    )}
-                    {item.status === "received" && (
-                      <Button
-                        size="sm"
-                        disabled
-                        className="bg-green-500 text-white cursor-not-allowed"
-                      >
-                        ✓ Accepted
-                      </Button>
-                    )}
+                    <div className="flex justify-end gap-2">
+                      {item.status === "pending" && !processingItems.has(item.id) && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleReceiveInventory(item.id)}
+                          style={{ backgroundColor: "#2B3068" }}
+                          className="hover:opacity-90 text-white"
+                        >
+                          {item.isEmployeePurchase ? "Approve & Send to Employee" : "Mark Received"}
+                        </Button>
+                      )}
+                      {(item.status === "pending" && processingItems.has(item.id)) && (
+                        <Button
+                          size="sm"
+                          disabled={true}
+                          style={{ backgroundColor: "#6B7280" }}
+                          className="text-white cursor-not-allowed"
+                        >
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Processing...
+                        </Button>
+                      )}
+                      {item.status === "received" && (
+                        <Button
+                          size="sm"
+                          disabled={true}
+                          style={{ backgroundColor: "#10B981" }}
+                          className="text-white cursor-not-allowed"
+                        >
+                          ✓ Received
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 )}
               </TableRow>
             ))}
             {items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={showActions ? 9 : 8} className="text-center text-gray-500 py-12">
+                <TableCell colSpan={currentTab === 'pending' ? (showActions ? 8 : 7) : (showActions ? 7 : 6)} className="text-center text-gray-500 py-12">
                   <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-medium">No items found</p>
-                  <p className="text-sm">
-                    {currentTab === 'gas' ? 'No gas products in your inventory' :
-                     currentTab === 'full-cylinder' ? 'No full cylinders in your inventory' :
-                     currentTab === 'empty-cylinder' ? 'No empty cylinders in your inventory' :
-                     'No inventory items match the current filter'}
-                  </p>
+                  <p className="text-sm">No items match the current filter</p>
                 </TableCell>
               </TableRow>
             )}
@@ -557,7 +816,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-[#2B3068]" />
-          <p className="text-gray-600">Loading your inventory...</p>
+          <p className="text-gray-600">Loading inventory...</p>
         </div>
       </div>
     )
@@ -571,7 +830,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
           <Package className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10" />
           My Inventory
         </h1>
-        <p className="text-white/80 text-sm sm:text-base lg:text-lg">Track your assigned stock and inventory</p>
+        <p className="text-white/80 text-sm sm:text-base lg:text-lg">Track your assigned stock and purchase orders</p>
       </div>
 
       {error && (
@@ -580,30 +839,44 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
         </div>
       )}
 
-      {!error && !loading && (
-        <Tabs defaultValue="assigned" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 h-auto">
-            <TabsTrigger value="assigned" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-              Pending Assignments ({assignedItems.length})
-            </TabsTrigger>
-          <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            My Stock ({receivedItems.length})
+      <Tabs defaultValue="assignments" className="w-full">
+        <TabsList className="grid w-full grid-cols-3 h-auto">
+          <TabsTrigger value="assignments" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
+            Assigned Stock ({inventoryList.filter(item => item.status === 'assigned').length})
           </TabsTrigger>
-          <TabsTrigger value="returned" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Returned ({returnedItems.length})
+          <TabsTrigger value="pending" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
+            My Pending Orders ({pendingItems.length})
+          </TabsTrigger>
+          <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
+            My Stock ({inventoryList.filter(item => item.status === 'received').length})
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="assigned">
+        <TabsContent value="assignments">
           <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
             <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
               <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
                 <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">
-                  Pending Assignments ({assignedItems.length})
+                  Assigned Stock Awaiting Acceptance ({inventoryList.filter(item => item.status === 'assigned').length})
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {renderAssignmentTable(inventoryList.filter(item => item.status === 'assigned'))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="pending">
+          <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
+              <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
+                <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">
+                  My Pending Purchase Orders ({filteredPending.length}/{pendingItems.length})
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
-                    placeholder="Search products..."
+                    placeholder="Search product, code, supplier, type..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-10 text-gray-800"
@@ -612,7 +885,7 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {renderInventoryTable(q ? assignedItems.filter(item => matchesQuery(item, q)) : assignedItems, true, 'assigned')}
+              {renderInventoryTable(filteredPending, true, 'pending')}
             </CardContent>
           </Card>
         </TabsContent>
@@ -622,91 +895,56 @@ export function EmployeeInventory({ user }: EmployeeInventoryProps) {
             <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
               <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
                 <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">
-                  My Current Stock ({receivedItems.length})
+                  My Current Stock ({inventoryList.filter(item => item.status === 'received').length})
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
-                    placeholder="Search products..."
+                    placeholder="Search product, code, supplier, type..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="h-10 text-gray-800"
                   />
-                  <Button 
-                    onClick={() => {
-                      console.log('🔄 Manual refresh triggered')
-                      fetchEmployeeInventory()
-                    }}
-                    variant="outline"
-                    size="sm"
-                    className="h-10 px-3"
-                  >
-                    🔄
-                  </Button>
                 </div>
               </div>
             </CardHeader>
             
-            {/* My Stock Tabs */}
-            <Tabs defaultValue="gas" className="w-full">
+            {/* Received Inventory Tabs */}
+            <Tabs defaultValue="full-cylinder" className="w-full">
               <div className="px-4 sm:px-6 pt-4">
                 <TabsList className="grid w-full grid-cols-3 h-auto">
-                  <TabsTrigger value="gas" className="text-xs sm:text-sm font-medium py-2">
-                    Gas ({gasItems.length})
-                  </TabsTrigger>
                   <TabsTrigger value="full-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Full Cylinders ({fullCylinderItems.length})
+                    My Full Cylinders ({getFilteredReceivedItems('full-cylinder').length})
                   </TabsTrigger>
                   <TabsTrigger value="empty-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Empty Cylinders ({emptyCylinderItems.length})
+                    My Empty Cylinders ({getFilteredReceivedItems('empty-cylinder').length})
+                  </TabsTrigger>
+                  <TabsTrigger value="gas" className="text-xs sm:text-sm font-medium py-2">
+                    My Gas Stock ({getFilteredReceivedItems('gas').length})
                   </TabsTrigger>
                 </TabsList>
               </div>
 
-              <TabsContent value="gas">
-                <CardContent className="p-0">
-                  {renderInventoryTable(q ? gasItems.filter(item => matchesQuery(item, q)) : gasItems, false, 'gas')}
-                </CardContent>
-              </TabsContent>
-
               <TabsContent value="full-cylinder">
                 <CardContent className="p-0">
-                  {renderInventoryTable(q ? fullCylinderItems.filter(item => matchesQuery(item, q)) : fullCylinderItems, false, 'full-cylinder')}
+                  {renderInventoryTable(getFilteredReceivedItems('full-cylinder'), false, 'full-cylinder')}
                 </CardContent>
               </TabsContent>
 
               <TabsContent value="empty-cylinder">
                 <CardContent className="p-0">
-                  {renderInventoryTable(q ? emptyCylinderItems.filter(item => matchesQuery(item, q)) : emptyCylinderItems, false, 'empty-cylinder')}
+                  {renderInventoryTable(getFilteredReceivedItems('empty-cylinder'), false, 'empty-cylinder')}
+                </CardContent>
+              </TabsContent>
+
+              <TabsContent value="gas">
+                <CardContent className="p-0">
+                  {renderInventoryTable(getFilteredReceivedItems('gas'), false, 'gas')}
                 </CardContent>
               </TabsContent>
             </Tabs>
           </Card>
         </TabsContent>
-
-        <TabsContent value="returned">
-          <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
-              <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
-                <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">
-                  Returned Stock ({returnedItems.length})
-                </CardTitle>
-                <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
-                  <Input
-                    placeholder="Search products..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="h-10 text-gray-800"
-                  />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {renderInventoryTable(q ? returnedItems.filter(item => matchesQuery(item, q)) : returnedItems, false, 'returned')}
-            </CardContent>
-          </Card>
-        </TabsContent>
-        </Tabs>
-      )}
+      </Tabs>
     </div>
   )
 }
