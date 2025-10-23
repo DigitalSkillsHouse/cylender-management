@@ -40,6 +40,7 @@ interface InventoryItem {
 interface Product {
   _id: string
   name: string
+  productCode?: string
   category: "gas" | "cylinder"
   cylinderStatus?: "empty" | "full"
   costPrice: number
@@ -360,24 +361,60 @@ export function Inventory() {
 
   const updateStockForReceivedItem = async (item: InventoryItem) => {
     try {
+      // Helper function for robust product name matching
+      const normalizeProductName = (name: string) => 
+        (name || '').toLowerCase().trim().replace(/\s+/g, ' ')
+
       if (item.purchaseType === 'cylinder') {
-        // Adjust cylinder availability in InventoryItems
-        const cylinderProduct = products.find(p => p.name === item.productName && p.category === 'cylinder')
+        // Adjust cylinder availability in InventoryItems - Use robust matching with name AND code
+        const itemProductName = normalizeProductName(item.productName)
+        const itemProductCode = normalizeProductName(item.productCode || '')
+        
+        const cylinderProduct = products.find(p => {
+          if (p.category !== 'cylinder') return false
+          
+          const productName = normalizeProductName(p.name)
+          const productCode = normalizeProductName(p.productCode || '')
+          
+          // Match by name AND code if both exist, otherwise match by name only
+          if (itemProductCode && productCode) {
+            return productName === itemProductName && productCode === itemProductCode
+          }
+          return productName === itemProductName
+        })
+        
+        console.log('🔍 [STOCK UPDATE] Looking for cylinder product:', {
+          searchName: itemProductName,
+          searchCode: itemProductCode,
+          originalName: item.productName,
+          originalCode: item.productCode,
+          foundProduct: cylinderProduct ? `${cylinderProduct.name} (${cylinderProduct.productCode || 'No Code'})` : 'NOT FOUND',
+          availableProducts: products.filter(p => p.category === 'cylinder').map(p => `${p.name} (${p.productCode || 'No Code'})`)
+        })
+        
         if (cylinderProduct) {
           const invId = await getOrCreateInventoryItemId(cylinderProduct._id, 'cylinder')
           if (item.cylinderStatus === 'full') {
             await patchInventoryDelta(invId, { availableFull: item.quantity })
+            console.log('✅ [STOCK UPDATE] Updated full cylinders for:', cylinderProduct.name, 'Quantity:', item.quantity)
           } else if (item.cylinderStatus === 'empty') {
             await patchInventoryDelta(invId, { availableEmpty: item.quantity })
+            console.log('✅ [STOCK UPDATE] Updated empty cylinders for:', cylinderProduct.name, 'Quantity:', item.quantity)
           }
+        } else {
+          console.error('❌ [STOCK UPDATE] Cylinder product not found for:', item.productName)
         }
 
         // If gasType specified for full cylinders, increase gas stock too
         if (item.cylinderStatus === 'full' && item.gasType) {
-          const gasProduct = products.find(p => p.name === item.gasType && p.category === 'gas')
+          const gasTypeNormalized = normalizeProductName(item.gasType)
+          const gasProduct = products.find(p => 
+            normalizeProductName(p.name) === gasTypeNormalized && p.category === 'gas'
+          )
           if (gasProduct) {
             const invId = await getOrCreateInventoryItemId(gasProduct._id, 'gas')
             await patchInventoryDelta(invId, { currentStock: item.quantity })
+            console.log('✅ [STOCK UPDATE] Updated gas stock for:', gasProduct.name, 'Quantity:', item.quantity)
           }
         }
       } else if (item.purchaseType === 'gas') {
@@ -388,14 +425,42 @@ export function Inventory() {
             const invId = await getOrCreateInventoryItemId(emptyCylinder._id, 'cylinder')
             // Decrease empty, increase full by quantity
             await patchInventoryDelta(invId, { availableEmpty: -item.quantity, availableFull: item.quantity })
+            console.log('✅ [STOCK UPDATE] Gas purchase - moved empty to full for:', emptyCylinder.name, 'Quantity:', item.quantity)
           }
         }
 
         // Update gas stock for the purchased gas product
-        const gasProduct = products.find(p => p.name === item.productName && p.category === 'gas')
+        const itemGasName = normalizeProductName(item.productName)
+        const itemGasCode = normalizeProductName(item.productCode || '')
+        
+        const gasProduct = products.find(p => {
+          if (p.category !== 'gas') return false
+          
+          const productName = normalizeProductName(p.name)
+          const productCode = normalizeProductName(p.productCode || '')
+          
+          // Match by name AND code if both exist, otherwise match by name only
+          if (itemGasCode && productCode) {
+            return productName === itemGasName && productCode === itemGasCode
+          }
+          return productName === itemGasName
+        })
+        
+        console.log('🔍 [STOCK UPDATE] Looking for gas product:', {
+          searchName: itemGasName,
+          searchCode: itemGasCode,
+          originalName: item.productName,
+          originalCode: item.productCode,
+          foundProduct: gasProduct ? `${gasProduct.name} (${gasProduct.productCode || 'No Code'})` : 'NOT FOUND',
+          availableProducts: products.filter(p => p.category === 'gas').map(p => `${p.name} (${p.productCode || 'No Code'})`)
+        })
+        
         if (gasProduct) {
           const invId = await getOrCreateInventoryItemId(gasProduct._id, 'gas')
           await patchInventoryDelta(invId, { currentStock: item.quantity })
+          console.log('✅ [STOCK UPDATE] Updated gas stock for:', gasProduct.name, 'Quantity:', item.quantity)
+        } else {
+          console.error('❌ [STOCK UPDATE] Gas product not found for:', item.productName)
         }
       }
     } catch (error) {
@@ -406,17 +471,20 @@ export function Inventory() {
   const pendingItems = inventory.filter(item => item.status === "pending")
   const receivedItemsRaw = inventory.filter(item => item.status === "received")
 
-  // Build aggregated lists for Received tabs from live inventory to avoid duplicates
+  // Build aggregated lists for Received tabs from live inventory to show ALL items (including 0 stock)
   const getFilteredReceivedItems = (filter: string) => {
     const rows: InventoryItem[] = [] as any
 
-    const pushRowFromInv = (inv: any, qty: number, kind: 'empty' | 'full' | 'gas') => {
-      if (qty <= 0) return
+    const pushRowFromInv = (inv: any, qty: number, kind: 'empty' | 'full' | 'gas', showZeroStock: boolean = true) => {
+      // Show all items including those with 0 stock so admin can see what needs purchasing
+      if (!showZeroStock && qty <= 0) return
+      
       const id = `${inv.productId || inv._id}-${kind}`
       // Try to infer supplier from latest received PO item for same product name
       let inferredSupplier = ''
       const match = receivedItemsRaw.find(it => it.productName === (inv.productName || '') && it.status === 'received')
       if (match) inferredSupplier = match.supplierName || ''
+      
       const base = {
         id,
         poNumber: '',
@@ -434,35 +502,37 @@ export function Inventory() {
         emptyCylinderId: undefined,
         emptyCylinderName: undefined,
         isEmployeePurchase: false,
+        // Add stock level indicator for easy identification
+        stockLevel: qty === 0 ? 'out-of-stock' : qty < 10 ? 'low-stock' : 'in-stock',
       }
       rows.push(base as any)
     }
 
     if (filter === 'empty-cylinder') {
-      // Show cylinders with availableEmpty > 0 directly from inventory list
+      // Show ALL cylinders with their availableEmpty stock (including 0)
       for (const inv of inventoryList.filter(ii => ii.category === 'cylinder')) {
         const avail = Number(inv.availableEmpty || 0)
-        if (avail > 0) pushRowFromInv(inv, avail, 'empty')
+        pushRowFromInv(inv, avail, 'empty', true) // Show all including 0 stock
       }
-      return rows
+      return rows.sort((a, b) => a.quantity - b.quantity) // Sort by quantity (0 stock first)
     }
 
     if (filter === 'full-cylinder') {
-      // Show cylinders with availableFull > 0 directly from inventory list
+      // Show ALL cylinders with their availableFull stock (including 0)
       for (const inv of inventoryList.filter(ii => ii.category === 'cylinder')) {
         const avail = Number(inv.availableFull || 0)
-        if (avail > 0) pushRowFromInv(inv, avail, 'full')
+        pushRowFromInv(inv, avail, 'full', true) // Show all including 0 stock
       }
-      return rows
+      return rows.sort((a, b) => a.quantity - b.quantity) // Sort by quantity (0 stock first)
     }
 
     if (filter === 'gas') {
-      // Show gas SKUs with currentStock > 0 directly from inventory list
+      // Show ALL gas SKUs with their currentStock (including 0)
       for (const inv of inventoryList.filter(ii => ii.category === 'gas')) {
         const qty = Number(inv.currentStock || 0)
-        if (qty > 0) pushRowFromInv(inv, qty, 'gas')
+        pushRowFromInv(inv, qty, 'gas', true) // Show all including 0 stock
       }
-      return rows
+      return rows.sort((a, b) => a.quantity - b.quantity) // Sort by quantity (0 stock first)
     }
 
     return receivedItemsRaw
@@ -593,11 +663,29 @@ export function Inventory() {
                   )}
                 </TableCell>
                 <TableCell className="p-4 font-medium">
-                  {currentTab === 'empty-cylinder' ? (() => {
-                    const product = products.find(p => p.category === 'cylinder' && p.name === item.productName)
-                    const remaining = product ? (inventoryAvailability[product._id]?.availableEmpty ?? undefined) : undefined
-                    return typeof remaining === 'number' ? remaining : item.quantity
-                  })() : item.quantity}
+                  <div className="flex items-center gap-2">
+                    <span className={`${
+                      item.quantity === 0 ? 'text-red-600 font-bold' : 
+                      item.quantity < 10 ? 'text-orange-600 font-semibold' : 
+                      'text-green-600'
+                    }`}>
+                      {currentTab === 'empty-cylinder' ? (() => {
+                        const product = products.find(p => p.category === 'cylinder' && p.name === item.productName)
+                        const remaining = product ? (inventoryAvailability[product._id]?.availableEmpty ?? undefined) : undefined
+                        return typeof remaining === 'number' ? remaining : item.quantity
+                      })() : item.quantity}
+                    </span>
+                    {item.quantity === 0 && (
+                      <Badge variant="destructive" className="text-xs">
+                        OUT OF STOCK
+                      </Badge>
+                    )}
+                    {item.quantity > 0 && item.quantity < 10 && (
+                      <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800">
+                        LOW STOCK
+                      </Badge>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="p-4">AED {item.unitPrice.toFixed(2)}</TableCell>
                 <TableCell className="p-4 font-semibold">AED {item.totalAmount.toFixed(2)}</TableCell>
@@ -720,9 +808,40 @@ export function Inventory() {
           <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
             <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
               <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
-                <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">
-                  Received Inventory Items ({receivedItemsRaw.length})
-                </CardTitle>
+                <div className="flex-1">
+                  <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">
+                    Current Inventory Status
+                  </CardTitle>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                    <div className="bg-white/10 rounded-lg p-3">
+                      <div className="font-semibold">Full Cylinders</div>
+                      <div className="text-white/80">
+                        Total: {getFilteredReceivedItems('full-cylinder').length} | 
+                        <span className="text-red-300 ml-1">
+                          Out of Stock: {getFilteredReceivedItems('full-cylinder').filter(item => item.quantity === 0).length}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-white/10 rounded-lg p-3">
+                      <div className="font-semibold">Empty Cylinders</div>
+                      <div className="text-white/80">
+                        Total: {getFilteredReceivedItems('empty-cylinder').length} | 
+                        <span className="text-red-300 ml-1">
+                          Out of Stock: {getFilteredReceivedItems('empty-cylinder').filter(item => item.quantity === 0).length}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-white/10 rounded-lg p-3">
+                      <div className="font-semibold">Gas Products</div>
+                      <div className="text-white/80">
+                        Total: {getFilteredReceivedItems('gas').length} | 
+                        <span className="text-red-300 ml-1">
+                          Out of Stock: {getFilteredReceivedItems('gas').filter(item => item.quantity === 0).length}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
                     placeholder="Search product, code, supplier, type..."
