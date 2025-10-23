@@ -2,6 +2,7 @@ import dbConnect from "@/lib/mongodb";
 import CylinderTransaction from "@/models/Cylinder";
 import Customer from "@/models/Customer";
 import Supplier from "@/models/Supplier";
+import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
 
@@ -28,6 +29,86 @@ async function getNextCylinderInvoice() {
   }
 
   return nextNumber.toString().padStart(4, '0')
+}
+
+// Helper function to update daily cylinder transaction tracking
+async function updateDailyCylinderTracking(transaction, isEmployeeTransaction = false) {
+  try {
+    const transactionDate = transaction.createdAt ? new Date(transaction.createdAt) : new Date()
+    const dateStr = transactionDate.toISOString().split('T')[0] // YYYY-MM-DD format
+    
+    // Handle both single item and multi-item transactions
+    const items = transaction.items && transaction.items.length > 0 
+      ? transaction.items 
+      : [{
+          productId: transaction.product,
+          productName: transaction.product?.name || 'Unknown Product',
+          cylinderSize: transaction.cylinderSize || 'Unknown Size',
+          quantity: transaction.quantity || 0,
+          amount: transaction.amount || 0
+        }]
+
+    for (const item of items) {
+      const productId = typeof item.productId === 'object' ? item.productId._id : item.productId
+      const productName = item.productName || transaction.product?.name || 'Unknown Product'
+      const cylinderSize = item.cylinderSize || transaction.cylinderSize || 'Unknown Size'
+      const quantity = Number(item.quantity) || 0
+      const amount = Number(item.amount) || 0
+
+      if (!productId || quantity <= 0) continue
+
+      // Find or create daily tracking record
+      const filter = {
+        date: dateStr,
+        cylinderProductId: productId,
+        employeeId: isEmployeeTransaction ? transaction.employee : null
+      }
+
+      const updateData = {
+        cylinderName: productName,
+        cylinderSize: cylinderSize,
+        isEmployeeTransaction: isEmployeeTransaction
+      }
+
+      // Update based on transaction type
+      if (transaction.type === 'deposit') {
+        updateData.$inc = {
+          depositQuantity: quantity,
+          depositAmount: amount
+        }
+      } else if (transaction.type === 'return') {
+        updateData.$inc = {
+          returnQuantity: quantity,
+          returnAmount: amount
+        }
+      }
+
+      // Only update if we have increments to apply
+      if (updateData.$inc) {
+        await DailyCylinderTransaction.findOneAndUpdate(
+          filter,
+          {
+            $set: {
+              cylinderName: productName,
+              cylinderSize: cylinderSize,
+              isEmployeeTransaction: isEmployeeTransaction
+            },
+            ...updateData
+          },
+          { 
+            upsert: true, 
+            new: true,
+            setDefaultsOnInsert: true
+          }
+        )
+
+        console.log(`[DailyCylinderTracking] Updated ${transaction.type} tracking for ${productName} on ${dateStr}: ${quantity} units, AED ${amount}`)
+      }
+    }
+  } catch (error) {
+    console.error('[DailyCylinderTracking] Failed to update daily tracking:', error)
+    // Don't throw error to avoid breaking the main transaction flow
+  }
 }
 
 export async function GET(request) {
@@ -262,6 +343,11 @@ export async function POST(request) {
       .populate("customer", "name phone address email")
       .populate("supplier", "companyName contactPerson phone email")
       .populate("product", "name category cylinderSize");
+
+    // Update daily cylinder tracking for deposits and returns
+    if (populatedTransaction.type === 'deposit' || populatedTransaction.type === 'return') {
+      await updateDailyCylinderTracking(populatedTransaction, false) // Admin transaction
+    }
 
     return NextResponse.json(populatedTransaction, { status: 201 });
   } catch (error) {

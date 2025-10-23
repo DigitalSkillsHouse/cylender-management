@@ -721,9 +721,13 @@ export function Reports() {
                       Array.isArray(productsJson?.data) ? productsJson.data : 
                       Array.isArray(productsJson) ? productsJson : []
       
+      // Set only cylinder products for DSR display, but keep all data for other purposes
+      const cylinderProducts = products.filter((product: any) => product.category === 'cylinder')
+      setDsrProducts(cylinderProducts.map((p: any) => ({ _id: p._id, name: p.name })))
+      
       const inventoryMap: Record<string, { availableFull: number; availableEmpty: number; currentStock: number }> = {}
       
-      // Map inventory items by product name
+      // Map ALL inventory items by product name (for other purposes)
       inventoryItems.forEach((item: any) => {
         if (item.productName) {
           inventoryMap[item.productName.toLowerCase()] = {
@@ -734,7 +738,7 @@ export function Reports() {
         }
       })
       
-      // Also map products by name for fallback
+      // Also map ALL products by name for fallback (for other purposes)
       products.forEach((product: any) => {
         if (product.name) {
           const key = product.name.toLowerCase()
@@ -752,6 +756,7 @@ export function Reports() {
     } catch (error) {
       console.error('Failed to fetch inventory data:', error)
       setInventoryData({})
+      setDsrProducts([])
     }
   }
   
@@ -1199,6 +1204,13 @@ export function Reports() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Load inventory data when DSR view opens
+  useEffect(() => {
+    if (showDSRView) {
+      fetchInventoryData()
+    }
+  }, [showDSRView])
+
   // Compute daily aggregates (Gas Sales, Cylinder Sales, Refilled) by product for selected DSR view date
   useEffect(() => {
     if (!dsrViewDate) return
@@ -1229,15 +1241,24 @@ export function Reports() {
     }
     ;(async () => {
       try {
-        // Fetch admin data sources only: Admin sales, Cylinders, Purchase orders
-        const [salesRes, cylTxRes, purchaseRes] = await Promise.all([
+        // Fetch ADMIN-ONLY data sources: Admin sales, Cylinders, Admin refills, Products, Daily Cylinder Transactions
+        const [salesRes, cylTxRes, adminRefillsRes, productsRes, dailyCylinderRes] = await Promise.all([
           fetch('/api/sales', { cache: 'no-store' }),
           fetch('/api/cylinders', { cache: 'no-store' }),
-          fetch('/api/purchase-orders', { cache: 'no-store' })
+          fetch(`/api/daily-refills?date=${dsrViewDate}`, { cache: 'no-store' }), // Admin refills only (employeeId: null)
+          fetch('/api/products', { cache: 'no-store' }),
+          fetch(`/api/daily-cylinder-transactions?date=${dsrViewDate}&isEmployeeTransaction=false`, { cache: 'no-store' }) // Admin-only daily cylinder tracking
         ])
         const salesJson = await salesRes.json()
         const cylTxJson = await cylTxRes.json()
-        const purchaseJson = await purchaseRes.json()
+        const adminRefillsJson = await adminRefillsRes.json()
+        const productsJson = await productsRes.json()
+        const dailyCylinderJson = await dailyCylinderRes.json()
+        
+        // Parse products data
+        const products = Array.isArray(productsJson?.data?.data) ? productsJson.data.data : 
+                        Array.isArray(productsJson?.data) ? productsJson.data : 
+                        Array.isArray(productsJson) ? productsJson : []
 
         const gas: Record<string, number> = {}
         const gasById: Record<string, number> = {}
@@ -1261,32 +1282,50 @@ export function Reports() {
             const pid = product?._id
             const qty = Number(it?.quantity) || 0
             const category = product?.category || ''
-            if (category === 'gas') { inc(gas, name, qty); incId(gasById, pid, qty) }
-            else if (category === 'cylinder') { inc(cyl, name, qty); incId(cylById, pid, qty) }
-          }
-        }
-
-
-        // Refills from purchase orders (cylinder refilling)
-        const purchaseList: any[] = Array.isArray(purchaseJson?.data) ? purchaseJson.data : (Array.isArray(purchaseJson) ? purchaseJson : [])
-        for (const order of purchaseList) {
-          const orderDate = new Date(order?.purchaseDate || order?.createdAt)
-          if (!inSelectedDay(orderDate)) continue
-          
-          const items: any[] = Array.isArray(order?.items) ? order.items : []
-          for (const item of items) {
-            if (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full' && item.inventoryStatus === 'received') {
-              const product = item?.product
-              const name = product?.name || ''
-              const pid = product?._id
-              const qty = Number(item?.quantity) || 0
-              inc(ref, name, qty)
-              incId(refById, pid, qty)
+            
+            if (category === 'gas') { 
+              // For gas sales, attribute to the cylinder that contains the gas
+              const cylinderProductId = it?.cylinderProductId
+              if (cylinderProductId) {
+                // Find the cylinder product name from the sales item
+                const cylinderName = it?.cylinderName || 'Unknown Cylinder'
+                inc(gas, cylinderName, qty)
+                incId(gasById, cylinderProductId, qty)
+              } else {
+                // Fallback: use gas product name if no cylinder info
+                inc(gas, name, qty)
+                incId(gasById, pid, qty)
+              }
+            }
+            else if (category === 'cylinder') { 
+              // Cylinder sales are now tracked via daily tracking system (see dailyCylinderList processing below)
+              // This section is kept for backward compatibility but daily tracking takes precedence
+              console.log(`Admin DSR: Cylinder sale found in sales data: ${name} - ${qty} (status: ${it?.cylinderStatus || 'unknown'})`)
+              console.log(`Note: Cylinder sales are now tracked via daily tracking system for better accuracy`)
             }
           }
         }
 
-        // Cylinder transactions (deposits and returns)
+        // Admin DSR only includes admin sales, not employee sales
+
+        // Admin refills only (employee refills tracked separately in Employee DSR)
+        const adminRefills: any[] = Array.isArray(adminRefillsJson?.data) ? adminRefillsJson.data : []
+        
+        console.log(`Admin DSR: Processing ${adminRefills.length} admin refill entries for ${dsrViewDate}`)
+        
+        for (const refillEntry of adminRefills) {
+          const cylinderName = refillEntry.cylinderName || ''
+          const cylinderProductId = refillEntry.cylinderProductId || ''
+          const quantity = Number(refillEntry.todayRefill) || 0
+          
+          if (quantity > 0) {
+            inc(ref, cylinderName, quantity)
+            incId(refById, cylinderProductId, quantity)
+            console.log(`Admin DSR Refill: ${cylinderName} - ${quantity} cylinders refilled today`)
+          }
+        }
+
+        // Cylinder transactions (deposits and returns) - Legacy processing for backward compatibility
         const cylTxList: any[] = Array.isArray(cylTxJson?.data) ? cylTxJson.data : (Array.isArray(cylTxJson) ? cylTxJson : [])
         for (const t of cylTxList) {
           if (!inSelectedDay(t?.createdAt)) continue
@@ -1301,6 +1340,38 @@ export function Reports() {
           } else if (type === 'return') {
             inc(ret, name, qty)
             incId(retById, pid, qty)
+          }
+        }
+
+        // Enhanced Daily Cylinder Transactions - More accurate tracking from new system
+        const dailyCylinderList: any[] = Array.isArray(dailyCylinderJson?.data) ? dailyCylinderJson.data : []
+        
+        console.log(`Admin DSR: Processing ${dailyCylinderList.length} ADMIN-ONLY daily cylinder transaction entries for ${dsrViewDate}`)
+        
+        for (const dailyEntry of dailyCylinderList) {
+          const cylinderName = dailyEntry.cylinderName || ''
+          const cylinderProductId = dailyEntry.cylinderProductId || ''
+          const depositQty = Number(dailyEntry.depositQuantity) || 0
+          const returnQty = Number(dailyEntry.returnQuantity) || 0
+          
+          if (depositQty > 0) {
+            inc(dep, cylinderName, depositQty)
+            incId(depById, cylinderProductId, depositQty)
+            console.log(`Admin DSR Daily Deposit: ${cylinderName} - ${depositQty} cylinders deposited today`)
+          }
+          
+          if (returnQty > 0) {
+            inc(ret, cylinderName, returnQty)
+            incId(retById, cylinderProductId, returnQty)
+            console.log(`Admin DSR Daily Return: ${cylinderName} - ${returnQty} cylinders returned today`)
+          }
+          
+          // Full cylinder sales from daily tracking
+          const fullCylinderSalesQty = Number(dailyEntry.fullCylinderSalesQuantity) || 0
+          if (fullCylinderSalesQty > 0) {
+            inc(cyl, cylinderName, fullCylinderSalesQty)
+            incId(cylById, cylinderProductId, fullCylinderSalesQty)
+            console.log(`Admin DSR Daily Full Cylinder Sales (ADMIN-ONLY): ${cylinderName} - ${fullCylinderSalesQty} full cylinders sold today`)
           }
         }
 

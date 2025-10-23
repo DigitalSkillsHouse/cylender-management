@@ -172,12 +172,13 @@ export async function POST(request) {
 
     const invoiceNumber = nextNumber.toString().padStart(4, '0')
 
-    // Enrich items with category, cylinderSize, and cylinderStatus from Product model
+    // Enrich items with category, cylinderSize, cylinderStatus, and cylinder/gas linking
     const enrichedItems = (items || []).map((item) => {
       const prod = products.find(p => p._id.toString() === String(item.product))
       const category = prod?.category || item.category || 'gas'
       const cylinderSize = category === 'cylinder' ? (prod?.cylinderSize || item.cylinderSize) : undefined
-      return {
+      
+      const enrichedItem = {
         product: item.product,
         category,
         cylinderSize,
@@ -186,6 +187,56 @@ export async function POST(request) {
         price: Number(item.price) || 0,
         total: Number(item.total) || ((Number(item.price)||0) * (Number(item.quantity)||0)),
       }
+      
+      // Add cylinder information for gas sales (for DSR tracking)
+      if (category === 'gas') {
+        if (item.cylinderProductId) {
+          // Use provided cylinder info
+          enrichedItem.cylinderProductId = item.cylinderProductId
+          enrichedItem.cylinderName = item.cylinderName || 'Unknown Cylinder'
+        } else {
+          // Auto-determine cylinder based on gas name
+          const gasName = prod?.name || ''
+          console.log(`Auto-determining cylinder for gas: ${gasName}`)
+          
+          // Find matching cylinder product based on gas name
+          const matchingCylinder = products.find(p => 
+            p.category === 'cylinder' && 
+            gasName.toLowerCase().includes(p.name.toLowerCase().replace('cylinder', '').replace('cylinders', '').trim())
+          )
+          
+          if (matchingCylinder) {
+            enrichedItem.cylinderProductId = matchingCylinder._id
+            enrichedItem.cylinderName = matchingCylinder.name
+            console.log(`Found matching cylinder: ${matchingCylinder.name} for gas: ${gasName}`)
+          } else {
+            // Try reverse matching - check if any cylinder name contains the gas name parts
+            const gasWords = gasName.toLowerCase().split(' ').filter(word => 
+              word.length > 2 && !['gas', 'kg', 'lb'].includes(word)
+            )
+            
+            for (const word of gasWords) {
+              const cylinder = products.find(p => 
+                p.category === 'cylinder' && 
+                p.name.toLowerCase().includes(word)
+              )
+              if (cylinder) {
+                enrichedItem.cylinderProductId = cylinder._id
+                enrichedItem.cylinderName = cylinder.name
+                console.log(`Found cylinder by word match: ${cylinder.name} for gas: ${gasName} (word: ${word})`)
+                break
+              }
+            }
+          }
+        }
+      }
+      
+      // Add gas information for cylinder sales (for DSR tracking)
+      if (category === 'cylinder' && item.gasProductId) {
+        enrichedItem.gasProductId = item.gasProductId
+      }
+      
+      return enrichedItem
     })
 
     // Create the sale
@@ -297,6 +348,68 @@ export async function POST(request) {
                   lastUpdatedAt: new Date()
                 })
                 console.log(`✅ Full cylinder sale: ${product.name} - ${item.quantity} full cylinders sold (customer takes cylinder)`)
+                
+                // Record full cylinder sale in daily tracking system
+                try {
+                  const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD format
+                  const dailyTrackingData = {
+                    date: today,
+                    cylinderProductId: product._id.toString(),
+                    cylinderName: product.name,
+                    cylinderSize: product.cylinderSize || 'Unknown Size',
+                    fullCylinderSalesQuantity: item.quantity,
+                    fullCylinderSalesAmount: Number(item.price) * Number(item.quantity),
+                    employeeId: null, // Admin transaction - no employee
+                    isEmployeeTransaction: false // This is admin sale
+                  }
+                  
+                  console.log(`📊 Recording daily full cylinder sale:`, dailyTrackingData)
+                  
+                  // Use direct model import instead of HTTP fetch to avoid issues
+                  const DailyCylinderTransaction = (await import('@/models/DailyCylinderTransaction')).default
+                  
+                  const filter = {
+                    date: dailyTrackingData.date,
+                    cylinderProductId: dailyTrackingData.cylinderProductId,
+                    employeeId: null
+                  }
+                  
+                  const updateData = {
+                    cylinderName: dailyTrackingData.cylinderName,
+                    cylinderSize: dailyTrackingData.cylinderSize,
+                    isEmployeeTransaction: false,
+                    $inc: {
+                      fullCylinderSalesQuantity: dailyTrackingData.fullCylinderSalesQuantity,
+                      fullCylinderSalesAmount: dailyTrackingData.fullCylinderSalesAmount
+                    }
+                  }
+                  
+                  const dailyRecord = await DailyCylinderTransaction.findOneAndUpdate(
+                    filter,
+                    {
+                      $set: {
+                        cylinderName: updateData.cylinderName,
+                        cylinderSize: updateData.cylinderSize,
+                        isEmployeeTransaction: updateData.isEmployeeTransaction
+                      },
+                      $inc: updateData.$inc
+                    },
+                    { 
+                      upsert: true, 
+                      new: true,
+                      setDefaultsOnInsert: true
+                    }
+                  )
+                  
+                  console.log(`✅ Daily full cylinder sale recorded successfully:`, {
+                    id: dailyRecord._id,
+                    cylinderName: dailyRecord.cylinderName,
+                    fullCylinderSalesQuantity: dailyRecord.fullCylinderSalesQuantity,
+                    totalAmount: dailyRecord.fullCylinderSalesAmount
+                  })
+                } catch (dailyTrackingError) {
+                  console.error(`❌ Error recording daily full cylinder sale:`, dailyTrackingError)
+                }
                 
                 // Also deduct gas stock since full cylinder contains gas
                 // Try multiple ways to find the gas product ID

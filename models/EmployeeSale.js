@@ -50,6 +50,22 @@ const EmployeeSaleSchema = new mongoose.Schema(
         required: true,
         min: 0,
       },
+      // For gas sales: track which cylinder contains the gas
+      cylinderProductId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+        required: false,
+      },
+      cylinderName: {
+        type: String,
+        required: false,
+      },
+      // For cylinder sales: track which gas is in the cylinder
+      gasProductId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product", 
+        required: false,
+      },
     }],
     totalAmount: {
       type: Number,

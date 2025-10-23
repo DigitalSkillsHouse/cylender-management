@@ -16,14 +16,13 @@ export async function GET(request) {
     const limit = parseInt(searchParams.get("limit") || "0", 10);
     const autoGenerate = searchParams.get("autoGenerate") === "true";
 
-    // If autoGenerate is requested, create reports from cylinder products
+    // If autoGenerate is requested, create reports from cylinder products only (for DSR display)
     if (autoGenerate) {
       const currentDate = date || new Date().toISOString().split('T')[0];
       
-      // Get all cylinder products
+      // Get only cylinder products for DSR display (gas data still available for other purposes)
       const cylinderProducts = await Product.find({ 
-        category: "cylinder",
-        cylinderStatus: { $exists: true }
+        category: "cylinder"
       });
 
       const generatedReports = [];
@@ -37,12 +36,12 @@ export async function GET(request) {
         });
 
         if (!existingReport) {
-          // Create new report with current stock based on cylinder status
+          // Create new report with current stock for cylinders
           const reportData = {
             date: currentDate,
             itemName: product.name,
-            openingFull: product.cylinderStatus === "full" ? product.currentStock : 0,
-            openingEmpty: product.cylinderStatus === "empty" ? product.currentStock : 0,
+            openingFull: product.availableFull || 0,
+            openingEmpty: product.availableEmpty || 0,
             refilled: 0,
             cylinderSales: 0,
             gasSales: 0,

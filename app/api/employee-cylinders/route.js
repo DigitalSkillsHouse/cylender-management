@@ -7,7 +7,99 @@ import Counter from "@/models/Counter"
 import Product from "@/models/Product"
 import InventoryItem from "@/models/InventoryItem"
 import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
+import DailyCylinderTransaction from "@/models/DailyCylinderTransaction"
 import mongoose from "mongoose"
+
+// Helper function to update daily cylinder transaction tracking for employees
+async function updateEmployeeDailyCylinderTracking(transaction, employeeId) {
+  try {
+    const transactionDate = transaction.createdAt ? new Date(transaction.createdAt) : new Date()
+    const dateStr = transactionDate.toISOString().split('T')[0] // YYYY-MM-DD format
+    
+    // Handle both single item and multi-item transactions
+    const items = transaction.items && transaction.items.length > 0 
+      ? transaction.items 
+      : [{
+          productId: transaction.product,
+          productName: 'Unknown Product',
+          quantity: transaction.quantity || 0,
+          amount: transaction.amount || 0
+        }]
+
+    for (const item of items) {
+      const productId = typeof item.productId === 'object' ? item.productId._id : item.productId
+      const quantity = Number(item.quantity) || 0
+      const amount = Number(item.amount) || 0
+
+      if (!productId || quantity <= 0) continue
+
+      // Get product details for name and size
+      let productName = item.productName || 'Unknown Product'
+      let cylinderSize = 'Unknown Size'
+      
+      try {
+        const product = await Product.findById(productId).select('name cylinderSize')
+        if (product) {
+          productName = product.name
+          cylinderSize = product.cylinderSize || 'Unknown Size'
+        }
+      } catch (e) {
+        console.warn('[EmployeeDailyCylinderTracking] Failed to fetch product details:', e.message)
+      }
+
+      // Find or create daily tracking record
+      const filter = {
+        date: dateStr,
+        cylinderProductId: productId,
+        employeeId: employeeId
+      }
+
+      const updateData = {
+        cylinderName: productName,
+        cylinderSize: cylinderSize,
+        isEmployeeTransaction: true
+      }
+
+      // Update based on transaction type
+      if (transaction.type === 'deposit') {
+        updateData.$inc = {
+          depositQuantity: quantity,
+          depositAmount: amount
+        }
+      } else if (transaction.type === 'return') {
+        updateData.$inc = {
+          returnQuantity: quantity,
+          returnAmount: amount
+        }
+      }
+
+      // Only update if we have increments to apply
+      if (updateData.$inc) {
+        await DailyCylinderTransaction.findOneAndUpdate(
+          filter,
+          {
+            $set: {
+              cylinderName: productName,
+              cylinderSize: cylinderSize,
+              isEmployeeTransaction: true
+            },
+            ...updateData
+          },
+          { 
+            upsert: true, 
+            new: true,
+            setDefaultsOnInsert: true
+          }
+        )
+
+        console.log(`[EmployeeDailyCylinderTracking] Updated ${transaction.type} tracking for ${productName} on ${dateStr}: ${quantity} units, AED ${amount} (Employee: ${employeeId})`)
+      }
+    }
+  } catch (error) {
+    console.error('[EmployeeDailyCylinderTracking] Failed to update daily tracking:', error)
+    // Don't throw error to avoid breaking the main transaction flow
+  }
+}
 
 // Helper function to update inventory for deposit transactions (NEW SYSTEM)
 async function updateInventoryForDeposit(cylinderProductId, quantity, employeeId) {
@@ -318,6 +410,11 @@ export async function POST(request) {
         console.error('[Employee Return] Inventory update failed:', error)
         // Continue without failing the transaction
       }
+    }
+
+    // Update daily cylinder tracking for deposits and returns
+    if (type === 'deposit' || type === 'return') {
+      await updateEmployeeDailyCylinderTracking(savedTransaction, employeeId)
     }
 
     // Populate the response

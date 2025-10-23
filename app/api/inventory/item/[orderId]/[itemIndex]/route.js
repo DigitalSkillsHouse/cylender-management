@@ -707,6 +707,58 @@ export async function PATCH(request, { params }) {
       console.log("✅✅✅ ENHANCED CONFIRMED: No new products were created during inventory processing")
     }
 
+    // Create/update daily refill entries for DSR tracking when marked as received
+    if (status === "received" && !isEmployeePurchase) {
+      try {
+        const DailyRefill = (await import('@/models/DailyRefill')).default
+        const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+        
+        console.log("🔄 Processing daily refill entries for item:", updatedItem.product?._id)
+        
+        const item = updatedItem
+        let cylinderProductId = null
+        let cylinderName = ''
+        let quantity = Number(item.quantity) || 0
+        
+        // Method 1: Direct cylinder purchase (purchaseType = 'cylinder', cylinderStatus = 'full')
+        if (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') {
+          cylinderProductId = item.product
+          cylinderName = item.product?.name || 'Unknown Cylinder'
+          console.log(`🔄 Daily Refill (Method 1): ${cylinderName} - ${quantity} cylinders`)
+        }
+        // Method 2: Gas purchase with empty cylinder (purchaseType = 'gas', emptyCylinderId provided)
+        else if (item.purchaseType === 'gas' && item.emptyCylinderId) {
+          cylinderProductId = item.emptyCylinderId
+          // Get cylinder name from product
+          const cylinderProduct = await Product.findById(item.emptyCylinderId)
+          cylinderName = cylinderProduct?.name || 'Unknown Cylinder'
+          console.log(`🔄 Daily Refill (Method 2): ${cylinderName} - ${quantity} cylinders via gas purchase`)
+        }
+        
+        if (cylinderProductId && quantity > 0) {
+          // Create or update daily refill entry
+          await DailyRefill.findOneAndUpdate(
+            {
+              date: today,
+              cylinderProductId: cylinderProductId,
+              employeeId: null // Admin refills
+            },
+            {
+              $inc: { todayRefill: quantity },
+              $set: { cylinderName: cylinderName }
+            },
+            {
+              upsert: true,
+              new: true
+            }
+          )
+          console.log(`✅ Updated daily refill: ${cylinderName} +${quantity} (total refills for ${today})`)
+        }
+      } catch (refillError) {
+        console.warn("Failed to update daily refill entries:", refillError.message)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: inventoryItem,
