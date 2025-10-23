@@ -519,12 +519,13 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     
     let newFormData = { ...formData, [name]: value }
     
-    // Auto-select status based on received amount vs total amount
+    // Auto-select status based on received amount vs total amount (with VAT)
     if (name === "receivedAmount") {
-      const totalAmount = calculateTotalAmount()
-      if (numericValue === totalAmount && totalAmount > 0) {
+      const totalWithVAT = calculateTotalAmount() * 1.05
+      // Use Math.abs for floating point comparison to handle precision issues
+      if (Math.abs(numericValue - totalWithVAT) < 0.01 && totalWithVAT > 0) {
         newFormData.paymentStatus = "cleared"
-      } else if (numericValue > 0 && numericValue < totalAmount) {
+      } else if (numericValue > 0 && numericValue < totalWithVAT) {
         newFormData.paymentStatus = "pending"
       } else if (numericValue === 0) {
         newFormData.paymentStatus = "pending"
@@ -948,6 +949,15 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       return
     }
 
+    // Validate debit amount is required when debit payment option is selected
+    if (formData.paymentOption === 'debit') {
+      const receivedAmount = parseFloat(formData.receivedAmount) || 0
+      if (receivedAmount <= 0) {
+        alert("Please enter the debit amount when 'Debit' payment option is selected")
+        return
+      }
+    }
+
     try {
       const saleItems = formData.items
         .filter((item) => {
@@ -1026,7 +1036,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
         return
       }
 
-      const totalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
+      const subtotalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
+      const totalAmount = subtotalAmount * 1.05 // Add 5% VAT
 
       // Derive final payment fields from paymentOption
       let derivedPaymentMethod = formData.paymentMethod || "cash"
@@ -1172,7 +1183,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
               return { product: { _id: p?._id || it.productId, name: p?.name || 'Product' }, quantity: qty, price, total: price*qty }
             })
 
-        const totalAmt = itemsNormalized.reduce((s: number, it: any) => s + (Number(it.total) || 0), 0)
+        const subtotalAmt = itemsNormalized.reduce((s: number, it: any) => s + (Number(it.total) || 0), 0)
+        const totalAmt = subtotalAmt * 1.05 // Add 5% VAT
 
         const normalizedSale: any = {
           _id: saved?._id || `temp-${Date.now()}`,
@@ -1184,6 +1196,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
             address: selectedCustomer?.address || 'N/A',
           },
           items: itemsNormalized,
+          subtotalAmount: subtotalAmt, // Add subtotal for receipt
           totalAmount: saved?.totalAmount || totalAmt,
           paymentMethod: saved?.paymentMethod || derivedPaymentMethod,
           paymentStatus: saved?.paymentStatus || derivedPaymentStatus,
@@ -2254,6 +2267,15 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
               </div>
             </div>
 
+            {/* Total with VAT Section */}
+            <div className="text-right space-y-2">
+              <div className="text-lg text-gray-700">Subtotal: AED {calculateTotalAmount().toFixed(2)}</div>
+              <div className="text-lg text-gray-700">VAT (5%): AED {(calculateTotalAmount() * 0.05).toFixed(2)}</div>
+              <div className="border-t pt-2">
+                <div className="text-2xl font-bold text-[#2B3068]">Total: AED {(calculateTotalAmount() * 1.05).toFixed(2)}</div>
+              </div>
+            </div>
+
             {/* Payment Option / Received Amount Section */}
             <div className="space-y-3">
               <Label>Received Amount (AED) *</Label>
@@ -2298,10 +2320,11 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                     onChange={(e) => {
                       const receivedAmount = e.target.value
                       const receivedValue = parseFloat(receivedAmount) || 0
-                      const totalAmount = calculateTotalAmount()
+                      const totalWithVAT = calculateTotalAmount() * 1.05
                       let newPaymentStatus = formData.paymentStatus
-                      if (receivedValue === totalAmount && totalAmount > 0) newPaymentStatus = 'cleared'
-                      else if (receivedValue > 0 && receivedValue < totalAmount) newPaymentStatus = 'pending'
+                      // Use Math.abs for floating point comparison to handle precision issues
+                      if (Math.abs(receivedValue - totalWithVAT) < 0.01 && totalWithVAT > 0) newPaymentStatus = 'cleared'
+                      else if (receivedValue > 0 && receivedValue < totalWithVAT) newPaymentStatus = 'pending'
                       else if (receivedValue === 0) newPaymentStatus = 'pending'
                       setFormData({ ...formData, receivedAmount, paymentStatus: newPaymentStatus, paymentMethod: 'debit' })
                     }}
@@ -2309,7 +2332,7 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                   />
                   {formData.receivedAmount && (
                     <div className="text-sm text-gray-600">
-                      {(() => { const rv = parseFloat(formData.receivedAmount)||0; const rem = calculateTotalAmount() - rv; if(rem>0){return `Remaining: AED ${rem.toFixed(2)}`} else if(rem<0){return `Excess: AED ${Math.abs(rem).toFixed(2)}`} else {return '✓ Fully paid'} })()}
+                      {(() => { const rv = parseFloat(formData.receivedAmount)||0; const totalWithVAT = calculateTotalAmount() * 1.05; const rem = totalWithVAT - rv; if(rem>0){return `Remaining: AED ${rem.toFixed(2)}`} else if(rem<0){return `Excess: AED ${Math.abs(rem).toFixed(2)}`} else {return '✓ Fully paid'} })()}
                     </div>
                   )}
                 </div>

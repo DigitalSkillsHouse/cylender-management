@@ -795,7 +795,17 @@ export function GasSales() {
         return
       }
 
-      const totalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
+      // Validate debit amount is required when debit payment option is selected
+      if (formData.paymentOption === 'debit') {
+        const receivedAmount = parseFloat(formData.receivedAmount) || 0
+        if (receivedAmount <= 0) {
+          alert("Please enter the debit amount when 'Debit' payment option is selected")
+          return
+        }
+      }
+
+      const subtotalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
+      const totalAmount = subtotalAmount * 1.05 // Add 5% VAT
 
       // Derive final payment fields from paymentOption
       let derivedPaymentMethod = formData.paymentMethod
@@ -964,18 +974,20 @@ export function GasSales() {
               return { product: { name: pName }, quantity: Number(it.quantity)||0, price: Number(it.price)||0, total: Number(it.total)||((Number(it.price)||0)*(Number(it.quantity)||0)) }
             })
 
-        const totalAmt = itemsNormalized.reduce((s: number, it: NormalizedItem) => s + (Number(it.total)||0), 0)
+        const subtotalAmt = itemsNormalized.reduce((s: number, it: NormalizedItem) => s + (Number(it.total)||0), 0)
+        const totalAmt = subtotalAmt * 1.05 // Add 5% VAT
 
         const normalizedSale: any = {
           _id: saved?._id || `temp-${Date.now()}`,
           invoiceNumber: saved?.invoiceNumber || `INV-${(saved?._id||'TEMP').slice(-6).toUpperCase()}`,
-          customer: saved?.customer || {
-            _id: formData.customerId,
-            name: selectedCustomer?.name || 'Customer',
+          customer: {
+            _id: selectedCustomer?._id || '',
+            name: selectedCustomer?.name || '',
             phone: selectedCustomer?.phone || '',
             address: selectedCustomer?.address || '',
           },
           items: itemsNormalized,
+          subtotalAmount: subtotalAmt, // Add subtotal for receipt
           totalAmount: saved?.totalAmount || totalAmt,
           paymentMethod: saved?.paymentMethod || derivedPaymentMethod,
           paymentStatus: saved?.paymentStatus || derivedPaymentStatus,
@@ -2182,8 +2194,12 @@ export function GasSales() {
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-[#2B3068]">Total: AED {totalAmount.toFixed(2)}</div>
+                <div className="text-right space-y-2">
+                  <div className="text-lg text-gray-700">Subtotal: AED {totalAmount.toFixed(2)}</div>
+                  <div className="text-lg text-gray-700">VAT (5%): AED {(totalAmount * 0.05).toFixed(2)}</div>
+                  <div className="border-t pt-2">
+                    <div className="text-2xl font-bold text-[#2B3068]">Total: AED {(totalAmount * 1.05).toFixed(2)}</div>
+                  </div>
                 </div>
               </div>
 
@@ -2235,11 +2251,13 @@ export function GasSales() {
                         const receivedAmount = e.target.value
                         const receivedValue = parseFloat(receivedAmount) || 0
                         
-                        // Auto-select status based on received amount vs total amount
+                        // Auto-select status based on received amount vs total amount (with VAT)
+                        const totalWithVAT = totalAmount * 1.05
                         let newPaymentStatus = formData.paymentStatus
-                        if (receivedValue === totalAmount && totalAmount > 0) {
+                        // Use Math.abs for floating point comparison to handle precision issues
+                        if (Math.abs(receivedValue - totalWithVAT) < 0.01 && totalWithVAT > 0) {
                           newPaymentStatus = "cleared"
-                        } else if (receivedValue > 0 && receivedValue < totalAmount) {
+                        } else if (receivedValue > 0 && receivedValue < totalWithVAT) {
                           newPaymentStatus = "pending"
                         } else if (receivedValue === 0) {
                           newPaymentStatus = "pending"
@@ -2259,7 +2277,8 @@ export function GasSales() {
                       <div className="text-sm text-gray-600">
                         {(() => {
                           const receivedValue = parseFloat(formData.receivedAmount) || 0
-                          const remaining = totalAmount - receivedValue
+                          const totalWithVAT = totalAmount * 1.05
+                          const remaining = totalWithVAT - receivedValue
                           if (remaining > 0) {
                             return `Remaining: AED ${remaining.toFixed(2)}`
                           } else if (remaining < 0) {
