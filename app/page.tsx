@@ -55,9 +55,9 @@ export default function Home() {
     }
   }
 
-  const handleLogin = async (email: string, password: string) => {
+  const handleLogin = async (email: string, password: string, userType: string) => {
     try {
-      const response = await authAPI.login(email, password)
+      const response = await authAPI.login(email, password, userType)
       const userData = response.data.user
       setUser(userData)
 

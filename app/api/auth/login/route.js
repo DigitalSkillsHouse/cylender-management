@@ -7,10 +7,10 @@ export async function POST(request) {
   try {
     await dbConnect()
 
-    const { email, password } = await request.json()
+    const { email, password, userType } = await request.json()
 
-    if (!email || !password) {
-      return NextResponse.json({ error: "Email and password are required" }, { status: 400 })
+    if (!email || !password || !userType) {
+      return NextResponse.json({ error: "Email, password and user type are required" }, { status: 400 })
     }
 
     // Check if user exists
@@ -23,6 +23,24 @@ export async function POST(request) {
     const isPasswordValid = await user.comparePassword(password)
     if (!isPasswordValid) {
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 })
+    }
+
+    // Validate user type selection against actual user role
+    if (userType === "admin") {
+      // Only allow admin credentials for admin login
+      const adminEmail = process.env.ADMIN_EMAIL || "syyedtayyabindustrialgasesllc@gmail.com"
+      if (user.role !== "admin" || user.email !== adminEmail) {
+        return NextResponse.json({ 
+          error: "Access denied. Please select 'Employee' user type or contact administrator." 
+        }, { status: 403 })
+      }
+    } else if (userType === "employee") {
+      // Only allow employee accounts for employee login
+      if (user.role !== "employee") {
+        return NextResponse.json({ 
+          error: "Access denied. Please select 'Administrator' user type." 
+        }, { status: 403 })
+      }
     }
 
     // Check if user is active

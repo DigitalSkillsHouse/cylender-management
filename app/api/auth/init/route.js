@@ -10,11 +10,11 @@ export async function POST() {
     await User.deleteMany({ role: "admin" })
     console.log("Removed all existing admin users")
 
-    // Create the new admin user with specified credentials
+    // Create the new admin user with credentials from environment variables
     const admin = await User.create({
-      name: "Syed Tayyab Industrial Gases LLC",
-      email: "syyedtayyabindustrialgasesllc@gmail.com",
-      password: "Syed@8175",
+      name: process.env.ADMIN_NAME || "Syed Tayyab Industrial Gases LLC",
+      email: process.env.ADMIN_EMAIL || "syyedtayyabindustrialgasesllc@gmail.com",
+      password: process.env.ADMIN_PASSWORD || "Syed@8175",
       role: "admin",
     })
 

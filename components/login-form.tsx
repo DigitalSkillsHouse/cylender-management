@@ -11,7 +11,7 @@ import { Loader2, Fuel, AlertCircle } from "lucide-react"
 import { authAPI } from "@/lib/api"
 
 interface LoginFormProps {
-  onLogin: (email: string, password: string) => Promise<void>
+  onLogin: (email: string, password: string, userType: string) => Promise<void>
 }
 
 export function LoginForm({ onLogin }: LoginFormProps) {
@@ -45,7 +45,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
     setError("")
 
     try {
-      await onLogin(email, password)
+      await onLogin(email, password, userType)
     } catch (error: any) {
       setError(error.response?.data?.error || "Login failed. Please try again.")
     } finally {
