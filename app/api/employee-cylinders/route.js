@@ -8,6 +8,7 @@ import Product from "@/models/Product"
 import InventoryItem from "@/models/InventoryItem"
 import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction"
+import DailyEmployeeCylinderAggregation from "@/models/DailyEmployeeCylinderAggregation"
 import mongoose from "mongoose"
 
 // Helper function to update daily cylinder transaction tracking for employees
@@ -417,6 +418,15 @@ export async function POST(request) {
       await updateEmployeeDailyCylinderTracking(savedTransaction, employeeId)
     }
 
+    // Update new daily employee cylinder aggregation
+    try {
+      await updateDailyEmployeeCylinderAggregation(savedTransaction, employeeId, type)
+      console.log(`✅ [EMPLOYEE CYLINDERS] Daily cylinder aggregation updated successfully for ${type}`)
+    } catch (aggregationError) {
+      console.error(`❌ [EMPLOYEE CYLINDERS] Failed to update daily cylinder aggregation:`, aggregationError.message)
+      // Don't fail the entire transaction if aggregation fails
+    }
+
     // Populate the response
     const populatedTransaction = await EmployeeCylinderTransaction.findById(savedTransaction._id)
       .populate("customer", "name email phone")
@@ -452,4 +462,70 @@ export async function POST(request) {
     console.error("Error creating employee cylinder transaction:", error?.message, error?.stack)
     return NextResponse.json({ error: error?.message || "Failed to create employee cylinder transaction" }, { status: 500 })
   }
+}
+
+// Helper function to update daily employee cylinder aggregation
+async function updateDailyEmployeeCylinderAggregation(transaction, employeeId, transactionType) {
+  const transactionDate = new Date(transaction.createdAt).toISOString().slice(0, 10) // YYYY-MM-DD format
+  
+  console.log(`📊 [CYLINDER AGGREGATION] Processing ${transactionType} transaction for date: ${transactionDate}, employee: ${employeeId}`)
+  
+  // Handle both single item and multi-item transactions
+  const items = transaction.items && transaction.items.length > 0 
+    ? transaction.items 
+    : [{
+        productId: transaction.product,
+        quantity: transaction.quantity || 0
+      }]
+  
+  // Process each item in the transaction
+  for (const item of items) {
+    const product = await Product.findById(item.productId)
+    if (!product) {
+      console.warn(`⚠️ [CYLINDER AGGREGATION] Product not found: ${item.productId}`)
+      continue
+    }
+    
+    const quantity = Number(item.quantity) || 0
+    const amount = Number(transaction.totalAmount) || Number(transaction.amount) || 0
+    
+    console.log(`📊 [CYLINDER AGGREGATION] Processing ${transactionType}: ${product.name}, Qty: ${quantity}, Amount: ${amount}`)
+    
+    // Map transaction types to aggregation types
+    let aggregationType = transactionType
+    if (transactionType === 'deposit') {
+      aggregationType = 'deposit'
+    } else if (transactionType === 'return') {
+      aggregationType = 'return'
+    } else if (transactionType === 'refill') {
+      aggregationType = 'refill'
+    }
+    
+    // Update or create daily aggregation record
+    try {
+      const aggregation = await DailyEmployeeCylinderAggregation.updateDailyCylinderAggregation(
+        employeeId,
+        transactionDate,
+        product._id,
+        product.name,
+        aggregationType,
+        {
+          quantity: quantity,
+          amount: amount
+        }
+      )
+      
+      console.log(`✅ [CYLINDER AGGREGATION] Updated ${aggregationType} aggregation for ${product.name}:`, {
+        totalDeposits: aggregation.totalDeposits,
+        totalReturns: aggregation.totalReturns,
+        totalRefills: aggregation.totalRefills,
+        totalTransactions: aggregation.depositTransactionCount + aggregation.returnTransactionCount + aggregation.refillTransactionCount
+      })
+      
+    } catch (aggregationError) {
+      console.error(`❌ [CYLINDER AGGREGATION] Failed to update aggregation for ${product.name}:`, aggregationError.message)
+    }
+  }
+  
+  console.log(`✅ [CYLINDER AGGREGATION] Completed processing ${transactionType} transaction`)
 }

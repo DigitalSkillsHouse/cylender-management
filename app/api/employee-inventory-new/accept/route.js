@@ -127,6 +127,61 @@ export async function POST(request) {
         },
         emptyReduced: purchaseOrder.quantity
       })
+      
+      // CREATE DAILY REFILL RECORD - This is when the actual refill happens (employee acceptance)
+      try {
+        const DailyRefill = (await import('@/models/DailyRefill')).default
+        const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+        const quantity = Number(purchaseOrder.quantity) || 0
+        
+        if (quantity > 0 && emptyCylinderInventory.product) {
+          // Get cylinder name from the cylinder product
+          const cylinderProduct = await Product.findById(emptyCylinderInventory.product)
+          const cylinderName = cylinderProduct?.name || 'Unknown Cylinder'
+          
+          console.log(`🔄 Creating daily refill record on employee acceptance:`, {
+            date: today,
+            cylinderProductId: emptyCylinderInventory.product,
+            employeeId: employeeId,
+            quantity: quantity,
+            cylinderName: cylinderName
+          })
+          
+          // Create or update employee daily refill entry
+          const refillResult = await DailyRefill.findOneAndUpdate(
+            {
+              date: today,
+              cylinderProductId: emptyCylinderInventory.product, // Use actual cylinder product ID
+              employeeId: employeeId
+            },
+            {
+              $inc: { todayRefill: quantity },
+              $set: { cylinderName: cylinderName }
+            },
+            {
+              upsert: true,
+              new: true
+            }
+          )
+          
+          console.log(`✅ Created/Updated employee daily refill:`, {
+            cylinderName,
+            cylinderProductId: emptyCylinderInventory.product.toString(),
+            quantity,
+            employeeId,
+            date: today,
+            refillId: refillResult._id
+          })
+        } else {
+          console.warn('⚠️ Skipping daily refill creation:', {
+            quantity,
+            hasEmptyCylinderProduct: !!emptyCylinderInventory.product
+          })
+        }
+      } catch (refillError) {
+        console.error('❌ Failed to create daily refill record:', refillError.message)
+        // Don't fail the entire operation if refill tracking fails
+      }
 
       return NextResponse.json({ 
         success: true, 

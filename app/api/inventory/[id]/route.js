@@ -360,9 +360,16 @@ export async function PATCH(request, { params }) {
           try {
             const DailyRefill = (await import('@/models/DailyRefill')).default
             const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
-            const employeeId = updatedOrder.employee?._id || updatedOrder.employee || employeePurchaseOrder.employee
+            const employeeId = updatedOrder.employee?._id || updatedOrder.employee || employeePurchaseOrder?.employee
             
             console.log("Processing employee daily refill entries for purchase order:", updatedOrder._id)
+            console.log("Employee ID extraction debug:", {
+              'updatedOrder.employee': updatedOrder.employee,
+              'updatedOrder.employee?._id': updatedOrder.employee?._id,
+              'employeePurchaseOrder?.employee': employeePurchaseOrder?.employee,
+              'final employeeId': employeeId,
+              'isEmployeePurchase': isEmployeePurchase
+            })
             
             // For employee purchase orders, check if it's a gas purchase with empty cylinder
             if (updatedOrder.purchaseType === 'gas' && updatedOrder.emptyCylinderId) {
@@ -371,9 +378,11 @@ export async function PATCH(request, { params }) {
               const cylinderProduct = await Product.findById(updatedOrder.emptyCylinderId)
               const cylinderName = cylinderProduct?.name || 'Unknown Cylinder'
               
-              if (quantity > 0) {
+              if (quantity > 0 && employeeId) {
+                console.log(`Creating daily refill record: ${cylinderName} +${quantity} for employee ${employeeId} (${today})`)
+                
                 // Create or update employee daily refill entry
-                await DailyRefill.findOneAndUpdate(
+                const refillResult = await DailyRefill.findOneAndUpdate(
                   {
                     date: today,
                     cylinderProductId: updatedOrder.emptyCylinderId,
@@ -388,7 +397,17 @@ export async function PATCH(request, { params }) {
                     new: true
                   }
                 )
-                console.log(`Updated employee daily refill: ${cylinderName} +${quantity} for employee ${employeeId} (${today})`)
+                console.log(`✅ Updated employee daily refill:`, {
+                  cylinderName,
+                  quantity,
+                  employeeId,
+                  date: today,
+                  refillId: refillResult._id
+                })
+              } else if (!employeeId) {
+                console.error('❌ Cannot create daily refill record: employeeId is null/undefined')
+              } else {
+                console.warn('⚠️ Skipping daily refill: quantity is 0')
               }
             }
           } catch (refillError) {

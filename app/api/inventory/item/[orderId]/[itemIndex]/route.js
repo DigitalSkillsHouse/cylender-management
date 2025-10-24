@@ -405,6 +405,8 @@ export async function PATCH(request, { params }) {
                 await gasAssignment.save()
                 console.log(`✅ Created gas assignment: ${item.quantity} units of ${product.name}`)
                 
+                // Note: Daily refill record will be created when employee accepts the assignment
+                
                 // 2. Find the empty cylinder record and create full cylinder assignment
                 try {
                   const StockAssignment = require("@/models/StockAssignment").default

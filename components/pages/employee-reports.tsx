@@ -205,18 +205,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             checkNumber: receiveDialog.checkNumber
           } : {})
         }
-      } else if (receiveDialog.kind === 'admin_sale') {
-        url = `/api/sales/${receiveDialog.targetId}`
-        body = {
-          receivedAmount: newReceived,
-          paymentStatus: newStatus,
-          paymentMethod: receiveDialog.paymentMethod || 'cash',
-          ...(receiveDialog.paymentMethod === 'cheque' ? {
-            bankName: receiveDialog.bankName,
-            checkNumber: receiveDialog.checkNumber
-          } : {})
-        }
-      } else {
+      // REMOVED: Admin sale payment processing - Employee should not process admin sales
+      // Employee reports are isolated to employee-specific transactions only else {
         // default: employee sale
         url = `/api/employee-sales/${receiveDialog.targetId}`
         body = {
@@ -261,9 +251,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     refilled: number
     cylinderSales: number
     gasSales: number
+    depositCylinder: number
+    returnCylinder: number
     closingFull?: number
     closingEmpty?: number
-    createdAt: string
+    employeeId?: string
+    createdAt?: string
   }
   
   // Download pending transactions PDF
@@ -440,10 +433,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       const byKey = new Map<string, DailyStockEntry>()
       dsrEntries.filter(e => e.date === date).forEach(e => byKey.set(normalizeName(e.itemName), e))
       
-      // Build rows from multiple sources similar to DSR Grid View
+      // Use exact same product source as DSR table
       const rowsSource = (() => {
-        if (assignedProducts.length > 0) return assignedProducts
+        // First try DSR products (cylinder products)
         if (dsrProducts.length > 0) return dsrProducts
+        // Then try all assigned products
+        if (assignedProducts.length > 0) return assignedProducts
         // Build from aggregated data if no assigned products
         const nameSet = new Set<string>()
         Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
@@ -461,7 +456,13 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         
         const refV = dailyAggRefills[key] ?? 0
         const cylV = dailyAggCylinderSales[key] ?? 0
-        const gasV = dailyAggGasSales[key] ?? 0
+        
+        // For gas sales, try both basic and enhanced normalization for cross-matching
+        const gasVBasic = dailyAggGasSales[key] ?? 0
+        const enhancedKey = normalizeForGasCylinderMatch(p.name)
+        const gasVEnhanced = dailyAggGasSales[enhancedKey] ?? 0
+        const gasV = Math.max(gasVBasic, gasVEnhanced) // Use whichever has data
+        
         const depV = dailyAggDeposits[key] ?? 0
         const retV = dailyAggReturns[key] ?? 0
         
@@ -546,6 +547,174 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     }
   }
 
+  // Auto-calculate DSR entries for the selected date
+  const autoCalcEmployeeDsr = async (date: string) => {
+    try {
+      if (!user?.id) {
+        alert('User not authenticated')
+        return
+      }
+
+      // Ensure we have the latest data
+      await loadAssignedProducts()
+      await fetchInventoryData()
+      
+      // Wait a moment for state updates
+      setTimeout(() => {
+        const rowsSource = dsrProducts.length > 0 ? dsrProducts : assignedProducts
+        
+        if (rowsSource.length === 0) {
+          alert('No cylinder products found for DSR calculation')
+          return
+        }
+
+        const newEntries: DailyStockEntry[] = []
+        
+        rowsSource.forEach(p => {
+          const key = normalizeName(p.name)
+          const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+          
+          // Get daily activity data
+          const refV = dailyAggRefills[key] ?? 0
+          const cylV = dailyAggCylinderSales[key] ?? 0
+          const gasV = dailyAggGasSales[key] ?? 0
+          const depV = dailyAggDeposits[key] ?? 0
+          const retV = dailyAggReturns[key] ?? 0
+          
+          // Use current inventory as opening stock
+          const openingFull = inventoryInfo.availableFull
+          const openingEmpty = inventoryInfo.availableEmpty
+          
+          // Calculate closing stock using admin formula
+          const closingFull = Math.max(0, (openingFull + refV) - gasV)
+          const closingEmpty = Math.max(0, openingEmpty + gasV + cylV - refV + retV - depV)
+          
+          const entry: DailyStockEntry = {
+            id: `${date}-${key}`,
+            date,
+            itemName: p.name,
+            openingFull,
+            openingEmpty,
+            refilled: refV,
+            cylinderSales: cylV,
+            gasSales: gasV,
+            depositCylinder: depV,
+            returnCylinder: retV,
+            closingFull,
+            closingEmpty,
+            employeeId: user.id
+          }
+          
+          newEntries.push(entry)
+        })
+        
+        // Update DSR entries
+        const existingEntries = dsrEntries.filter(e => e.date !== date)
+        const updatedEntries = [...existingEntries, ...newEntries]
+        setDsrEntries(updatedEntries)
+        saveDsrLocal(updatedEntries)
+        
+        // DSR auto-calculated successfully
+        alert(`DSR calculated for ${date} with ${newEntries.length} cylinder products`)
+      }, 500)
+      
+    } catch (error) {
+      console.error('Failed to auto-calculate DSR:', error)
+      alert('Failed to calculate DSR. Please try again.')
+    }
+  }
+
+  // Save closing stock as next day's opening stock
+  const saveClosingAsOpening = async (date: string) => {
+    try {
+      if (!user?.id) {
+        alert('User not authenticated')
+        return
+      }
+
+      // Calculate next day
+      const currentDate = new Date(date)
+      currentDate.setDate(currentDate.getDate() + 1)
+      const nextDay = currentDate.toISOString().slice(0, 10)
+
+      // Get current DSR data for the selected date
+      const byKey = new Map<string, DailyStockEntry>()
+      dsrEntries.filter(e => e.date === date).forEach(e => byKey.set(normalizeName(e.itemName), e))
+
+      // Build rows from products
+      const rowsSource = (() => {
+        if (dsrProducts.length > 0) return dsrProducts
+        if (assignedProducts.length > 0) return assignedProducts
+        const nameSet = new Set<string>()
+        Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggDeposits || {}).forEach(k => nameSet.add(k))
+        Object.keys(dailyAggReturns || {}).forEach(k => nameSet.add(k))
+        return Array.from(nameSet).map((name, i) => ({ _id: String(i), name }))
+      })()
+
+      const newEntries: DailyStockEntry[] = []
+
+      rowsSource.forEach(p => {
+        const key = normalizeName(p.name)
+        const e = byKey.get(key)
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        
+        // Get aggregated daily data
+        const refV = dailyAggRefills[key] ?? 0
+        const cylV = dailyAggCylinderSales[key] ?? 0
+        const gasVBasic = dailyAggGasSales[key] ?? 0
+        const enhancedKey = normalizeForGasCylinderMatch(p.name)
+        const gasVEnhanced = dailyAggGasSales[enhancedKey] ?? 0
+        const gasV = Math.max(gasVBasic, gasVEnhanced)
+        const depV = dailyAggDeposits[key] ?? 0
+        const retV = dailyAggReturns[key] ?? 0
+        
+        const openingFull = e?.openingFull ?? inventoryInfo.availableFull
+        const openingEmpty = e?.openingEmpty ?? inventoryInfo.availableEmpty
+        
+        // Calculate closing stock
+        const closingFull = Math.max(0, (openingFull + refV) - gasV)
+        const closingEmpty = Math.max(0, openingEmpty + gasV + cylV - refV + retV - depV)
+        
+        // Create entry for next day with closing stock as opening stock
+        const entry: DailyStockEntry = {
+          id: `${nextDay}-${key}`,
+          date: nextDay,
+          itemName: p.name,
+          openingFull: closingFull,
+          openingEmpty: closingEmpty,
+          refilled: 0, // Will be updated when next day transactions occur
+          cylinderSales: 0, // Will be updated when next day transactions occur
+          gasSales: 0, // Will be updated when next day transactions occur
+          depositCylinder: 0, // Will be updated when next day transactions occur
+          returnCylinder: 0, // Will be updated when next day transactions occur
+          closingFull: closingFull, // Will be updated when next day is calculated
+          closingEmpty: closingEmpty, // Will be updated when next day is calculated
+          employeeId: user.id,
+          createdAt: new Date().toISOString()
+        }
+        
+        newEntries.push(entry)
+      })
+
+      // Update DSR entries - remove existing entries for next day and add new ones
+      const existingEntries = dsrEntries.filter(e => e.date !== nextDay)
+      const updatedEntries = [...existingEntries, ...newEntries]
+      setDsrEntries(updatedEntries)
+      
+      // Save to localStorage for persistence
+      localStorage.setItem('employeeDsrEntries', JSON.stringify(updatedEntries))
+      
+      alert(`Closing stock for ${date} has been saved as opening stock for ${nextDay}`)
+      
+    } catch (error) {
+      console.error('Failed to save closing stock as opening:', error)
+      alert('Failed to save closing stock. Please try again.')
+    }
+  }
+
   // Open the closing stock dialog for a specific entry
   const openClosingDialog = (e: DailyStockEntry) => {
     setClosingDialog({
@@ -607,19 +776,59 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const [showDSRView, setShowDSRView] = useState(false)
   const [dsrEntries, setDsrEntries] = useState<DailyStockEntry[]>([])
   const [dsrViewDate, setDsrViewDate] = useState<string>(new Date().toISOString().slice(0, 10))
+
+  // Load saved DSR entries from localStorage on component mount
+  useEffect(() => {
+    try {
+      const savedEntries = localStorage.getItem('employeeDsrEntries')
+      if (savedEntries) {
+        const parsedEntries = JSON.parse(savedEntries)
+        if (Array.isArray(parsedEntries)) {
+          setDsrEntries(parsedEntries)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load saved DSR entries:', error)
+    }
+  }, [])
   // Products for DSR grid
   interface ProductLite { _id: string; name: string }
   const [dsrProducts, setDsrProducts] = useState<ProductLite[]>([])
-  // Consistent name normalizer used across aggregation and rendering
+  // Basic name normalizer for general use (preserves original behavior)
   const normalizeName = (s: any) => (typeof s === 'string' || typeof s === 'number')
     ? String(s).replace(/\s+/g, ' ').trim().toLowerCase()
     : ''
-  // Aggregated daily totals fed into the DSR view grid (by product name, normalized)
+  
+  // Enhanced normalizer for gas/cylinder cross-matching
+  const normalizeForGasCylinderMatch = (s: any) => {
+    if (typeof s !== 'string' && typeof s !== 'number') return ''
+    
+    let normalized = String(s).replace(/\s+/g, ' ').trim().toLowerCase()
+    
+    // Handle gas/cylinder name variations for better matching
+    // "GAS PROPANE 44KG" should match "Cylinders PROPANE 44KG"
+    normalized = normalized
+      .replace(/^gas\s+/, '') // Remove "gas " prefix
+      .replace(/^cylinders?\s+/, '') // Remove "cylinder " or "cylinders " prefix
+      .replace(/\s+gas$/, '') // Remove " gas" suffix
+      .replace(/\s+cylinders?$/, '') // Remove " cylinder" or " cylinders" suffix
+    
+    // Normalization applied
+    
+    return normalized
+  }
+  // Aggregated daily totals fed into the DSR view grid 
   const [dailyAggRefills, setDailyAggRefills] = useState<Record<string, number>>({})
   const [dailyAggCylinderSales, setDailyAggCylinderSales] = useState<Record<string, number>>({})
   const [dailyAggGasSales, setDailyAggGasSales] = useState<Record<string, number>>({})
   const [dailyAggDeposits, setDailyAggDeposits] = useState<Record<string, number>>({})
   const [dailyAggReturns, setDailyAggReturns] = useState<Record<string, number>>({})
+  // Daily refill data from API with caching
+  const [dailyRefillData, setDailyRefillData] = useState<Record<string, number>>({})
+  const [lastFetchedDate, setLastFetchedDate] = useState<string>('')
+  const [isRefillFetching, setIsRefillFetching] = useState<boolean>(false)
+  const [lastSalesFetchedDate, setLastSalesFetchedDate] = useState<string>('')
+  const [isSalesFetching, setIsSalesFetching] = useState<boolean>(false)
   // Assigned products for the employee to ensure baseline rows
   const [assignedProducts, setAssignedProducts] = useState<ProductLite[]>([])
   // Track aggregation readiness for employee data
@@ -628,104 +837,187 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   // Automated inventory data fetching for DSR
   const [inventoryData, setInventoryData] = useState<Record<string, { availableFull: number; availableEmpty: number; currentStock: number }>>({})
 
-  // Fetch employee inventory data for automated DSR
+  // Fetch employee inventory data for automated DSR - EMPLOYEE SCOPED ONLY
   const fetchInventoryData = async () => {
     try {
-      const [inventoryRes, employeeInventoryRes] = await Promise.all([
-        fetch('/api/inventory-items', { cache: 'no-store' }),
-        fetch(`/api/employee-inventory?employeeId=${user.id}`, { cache: 'no-store' })
+      // Fetch employee inventory from the correct API that has the data
+      const [employeeInventoryRes, stockAssignmentsRes] = await Promise.all([
+        fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(`/api/stock-assignments?employeeId=${user.id}`, { cache: 'no-store' })
       ])
       
-      const inventoryJson = await inventoryRes.json()
       const employeeInventoryJson = await employeeInventoryRes.json()
+      const stockAssignmentsJson = await stockAssignmentsRes.json()
       
-      const inventoryItems = Array.isArray(inventoryJson?.data) ? inventoryJson.data : []
-      const employeeInventoryItems = Array.isArray(employeeInventoryJson?.data) ? employeeInventoryJson.data : 
-                                   Array.isArray(employeeInventoryJson) ? employeeInventoryJson : []
+      // API responses received
       
+      // Handle employee inventory response structure from new API
+      const employeeInventoryItems = Array.isArray(employeeInventoryJson?.data) 
+        ? employeeInventoryJson.data 
+        : []
+      
+      // Handle stock assignments response structure  
+      const stockAssignments = Array.isArray(stockAssignmentsJson?.data) 
+        ? stockAssignmentsJson.data 
+        : Array.isArray(stockAssignmentsJson) 
+          ? stockAssignmentsJson 
+          : []
+      
+      // Build DSR products from employee's assigned stock only
+      const employeeProducts = new Map()
+      
+      // Add from employee inventory (using new API structure) - ONLY CYLINDERS for DSR
+      employeeInventoryItems.forEach((item: any) => {
+        if (item.productName && item.category === 'cylinder') {
+          // Only include cylinder products for DSR (not gas)
+          employeeProducts.set(item.productId || item._id, {
+            _id: item.productId || item._id,
+            name: item.productName
+          })
+        }
+      })
+      
+      // Add from stock assignments - ONLY CYLINDERS for DSR
+      stockAssignments.forEach((assignment: any) => {
+        if (assignment.product?.name && (assignment.category === 'cylinder' || assignment.product.category === 'cylinder')) {
+          // Only include cylinder products from assignments (not gas)
+          employeeProducts.set(assignment.product._id || assignment._id, {
+            _id: assignment.product._id || assignment._id,
+            name: assignment.product.name
+          })
+        }
+      })
+      
+      setDsrProducts(Array.from(employeeProducts.values()))
+      
+      // Build inventory map from employee's actual inventory only
       const inventoryMap: Record<string, { availableFull: number; availableEmpty: number; currentStock: number }> = {}
       
-      // Map employee inventory items by product name (priority)
       employeeInventoryItems.forEach((item: any) => {
-        if (item.productName) {
-          inventoryMap[item.productName.toLowerCase()] = {
-            availableFull: item.availableFull || 0,
-            availableEmpty: item.availableEmpty || 0,
-            currentStock: item.currentStock || 0
+        if (item.productName && item.category === 'cylinder') {
+          const key = item.productName.toLowerCase()
+          
+          // Use the actual stock values from the new API - ONLY FOR CYLINDERS
+          const availableFull = item.availableFull || 0
+          const availableEmpty = item.availableEmpty || 0
+          const currentStock = item.currentStock || 0
+          
+          inventoryMap[key] = {
+            availableFull,
+            availableEmpty,
+            currentStock
           }
         }
       })
       
-      // Fallback to main inventory items if not in employee inventory
-      inventoryItems.forEach((item: any) => {
-        if (item.productName) {
-          const key = item.productName.toLowerCase()
+      // Add stock assignments to inventory map
+      stockAssignments.forEach((assignment: any) => {
+        if (assignment.product?.name && assignment.status === 'received') {
+          const key = assignment.product.name.toLowerCase()
           if (!inventoryMap[key]) {
             inventoryMap[key] = {
-              availableFull: item.availableFull || 0,
-              availableEmpty: item.availableEmpty || 0,
-              currentStock: item.currentStock || 0
+              availableFull: 0,
+              availableEmpty: 0,
+              currentStock: 0
             }
+          }
+          
+          // Add assignment quantities based on category and cylinder status
+          if (assignment.category === 'cylinder') {
+            if (assignment.cylinderStatus === 'full') {
+              inventoryMap[key].availableFull += assignment.quantity || 0
+            } else if (assignment.cylinderStatus === 'empty') {
+              inventoryMap[key].availableEmpty += assignment.quantity || 0
+            }
+          } else if (assignment.category === 'gas') {
+            inventoryMap[key].currentStock += assignment.quantity || 0
           }
         }
       })
       
       setInventoryData(inventoryMap)
     } catch (error) {
-      console.error('Failed to fetch inventory data:', error)
+      console.error('Failed to fetch employee inventory data:', error)
       setInventoryData({})
+      setDsrProducts([])
     }
   }
-  
-  // Fetch inventory data when DSR view opens or date changes
+  // Fetch inventory data and assigned products when DSR view opens or date changes
   useEffect(() => {
-    if (showDSRView) {
+    if (showDSRView && user?.id) {
+      loadAssignedProducts()
       fetchInventoryData()
     }
   }, [showDSRView, dsrViewDate, user.id])
-  
-  // Ensure assigned products (employee inventory) are available globally for grid/PDF without opening form
+  // Load assigned products function (moved outside useEffect for reusability)
+  const loadAssignedProducts = async () => {
+    try {
+      if (!user?.id) return
+      
+      // Fetch both stock assignments and employee inventory from correct API
+      const [assignmentsRes, inventoryRes] = await Promise.all([
+        fetch(`/api/stock-assignments?employeeId=${user.id}`, { cache: 'no-store' }),
+        fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`, { cache: 'no-store' })
+      ])
+      
+      const assignmentsJson = await assignmentsRes.json().catch(() => ({}))
+      const inventoryJson = await inventoryRes.json().catch(() => ({}))
+      
+      // Loading assigned products data
+      
+      const assignments: any[] = Array.isArray(assignmentsJson) 
+        ? assignmentsJson 
+        : Array.isArray(assignmentsJson?.data) 
+          ? assignmentsJson.data 
+          : []
+      const inventory: any[] = Array.isArray(inventoryJson?.data) 
+        ? inventoryJson.data 
+        : []
+      
+      const seen = new Set<string>()
+      const ap: ProductLite[] = []
+      
+      // Add from stock assignments - ONLY CYLINDERS
+      assignments.forEach((a: any) => {
+        const name = a?.product?.name || a?.productName
+        const id = String(a?.product?._id || a?.product || name || '')
+        const key = normalizeName(name)
+        if (name && (a.category === 'cylinder' || a?.product?.category === 'cylinder') && !seen.has(key)) {
+          seen.add(key)
+          ap.push({ _id: id, name: String(name) })
+        }
+      })
+      
+      // Add from employee inventory (using new API structure) - ONLY CYLINDERS
+      inventory.forEach((item: any) => {
+        const name = item?.productName
+        const id = String(item?.productId || item?._id || name || '')
+        const key = normalizeName(name)
+        if (name && item.category === 'cylinder' && !seen.has(key)) {
+          seen.add(key)
+          ap.push({ _id: id, name: String(name) })
+        }
+      })
+      
+      setAssignedProducts(ap)
+      
+      // DSR should only show cylinder products (ap is already filtered for cylinders)
+      setDsrProducts(ap)
+    } catch (e) {
+      console.error('Failed to load assigned products:', e)
+      setAssignedProducts([])
+      setDsrProducts([])
+    }
+  }
+
+  // Load assigned products on component mount
   useEffect(() => {
-    if (!user?.id) return
-    ;(async () => {
-      try {
-        const [rRes, aRes] = await Promise.all([
-          fetch(`/api/stock-assignments?employeeId=${user.id}&status=received`, { cache: 'no-store' }),
-          fetch(`/api/stock-assignments?employeeId=${user.id}&status=assigned`, { cache: 'no-store' }),
-        ])
-        const gather = async (res: Response | undefined) => {
-          if (!res || !res.ok) return [] as any[]
-          const json = await res.json().catch(() => ({}))
-          return Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
-        }
-        const received = await gather(rRes)
-        const assigned = await gather(aRes)
-        const all = [...received, ...assigned]
-        const seen = new Set<string>()
-        const ap: ProductLite[] = []
-        all.forEach((a: any) => {
-          const name = a?.product?.name || a?.productName
-          const id = String(a?.product?._id || a?.product || name || '')
-          const key = normalizeName(name)
-          if (name && !seen.has(key)) {
-            seen.add(key)
-            ap.push({ _id: id, name: String(name) })
-          }
-        })
-        setAssignedProducts(ap)
-        // If dsrProducts not set yet, also seed it so grid has immediate rows
-        if ((dsrProducts || []).length === 0 && ap.length > 0) {
-          setDsrProducts(ap)
-        }
-      } catch (e) {
-        // keep empty
-      }
-    })()
+    if (user?.id) {
+      loadAssignedProducts()
+    }
   }, [user?.id])
 
-
-
-
+// ... (rest of the code remains the same)
   // Download the current DSR list as PDF via browser print dialog
   const downloadDsrPdf = () => {
     try {
@@ -921,8 +1213,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     }
   }
 
-  // Helpers: API endpoints + localStorage fallback
-  const DSR_KEY = "employee_daily_stock_reports"
+  // Helpers: API endpoints + localStorage fallback - EMPLOYEE SCOPED
+  const DSR_KEY = `employee_daily_stock_reports_${user.id}` // Scope to specific employee
   const API_BASE = "/api/employee-daily-stock-reports"
   const saveDsrLocal = (items: DailyStockEntry[]) => {
     try { localStorage.setItem(DSR_KEY, JSON.stringify(items)) } catch {}
@@ -952,8 +1244,11 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         refilled: Number(d.refilled || 0),
         cylinderSales: Number(d.cylinderSales || 0),
         gasSales: Number(d.gasSales || 0),
+        depositCylinder: Number(d.depositCylinder || 0),
+        returnCylinder: Number(d.returnCylinder || 0),
         closingFull: typeof d.closingFull === 'number' ? d.closingFull : undefined,
         closingEmpty: typeof d.closingEmpty === 'number' ? d.closingEmpty : undefined,
+        employeeId: d.employeeId,
         createdAt: d.createdAt || new Date().toISOString(),
       }))
       setDsrEntries(mapped)
@@ -972,11 +1267,121 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Compute daily aggregates for employee datasets based on selected dsrViewDate
-  useEffect(() => {
-    if (!dsrViewDate || !user?.id) return
+  // Fetch daily refill data from API with debouncing
+  const fetchDailyRefills = async (date: string) => {
+    // Prevent multiple simultaneous calls for the same date
+    if (isRefillFetching || lastFetchedDate === date) {
+      return
+    }
     
+    try {
+      setIsRefillFetching(true)
+      const apiUrl = `/api/daily-refills?date=${date}&employeeId=${user.id}`
+      // Fetching daily refills
+      
+      const response = await fetch(apiUrl, { 
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        // Daily refills data received
+        
+        const refills: Record<string, number> = {}
+        
+        if (Array.isArray(data.data)) {
+          data.data.forEach((refill: any) => {
+            const cylinderName = refill.cylinderName || ''
+            const quantity = Number(refill.todayRefill) || 0
+            
+            if (cylinderName && quantity > 0) {
+              const key = normalizeName(cylinderName)
+              refills[key] = (refills[key] || 0) + quantity
+              // Refill added
+            }
+          })
+        }
+        // Refills processed
+        
+        setDailyRefillData(refills)
+        setLastFetchedDate(date)
+      } else {
+        setDailyRefillData({})
+      }
+    } catch (error) {
+      console.error('Failed to fetch daily refills:', error)
+      setDailyRefillData({})
+    } finally {
+      setIsRefillFetching(false)
+    }
+  }
+
+  // Update refills when dailyRefillData changes (after main aggregation)
+  useEffect(() => {
+    console.log('🔍 Post-aggregation useEffect triggered:', {
+      dailyRefillDataKeys: Object.keys(dailyRefillData),
+      dailyRefillData: dailyRefillData,
+      aggReady: aggReady,
+      shouldUpdate: Object.keys(dailyRefillData).length > 0 && aggReady
+    })
+    
+    if (Object.keys(dailyRefillData).length > 0 && aggReady) {
+      console.log('🔄 Post-aggregation: Updating refills with API data:', dailyRefillData)
+      setDailyAggRefills(prev => {
+        const updated = {
+          ...prev,
+          ...dailyRefillData
+        }
+        console.log('🔄 Updated dailyAggRefills from', prev, 'to', updated)
+        return updated
+      })
+    }
+  }, [dailyRefillData, aggReady])
+
+  // Aggregate daily data for DSR based on selected date and employee data
+  useEffect(() => {
+    console.log('🔍 Main aggregation useEffect triggered:', { dsrViewDate, userId: user?.id })
+    if (!dsrViewDate || !user?.id) {
+      console.log('❌ Main useEffect early return:', { dsrViewDate, userId: user?.id })
+      return
+    }
+    
+    console.log('✅ Main useEffect proceeding with aggregation')
     setAggReady(false)
+    
+    // Clear cache and force refresh when date changes
+    if (lastFetchedDate && lastFetchedDate !== dsrViewDate) {
+      console.log('🔄 Date changed from', lastFetchedDate, 'to', dsrViewDate, '- clearing cache')
+      setDailyRefillData({})
+      setDailyAggRefills({})
+      setLastFetchedDate('')
+    }
+    
+    if (lastSalesFetchedDate && lastSalesFetchedDate !== dsrViewDate) {
+      console.log('🔄 Sales date changed - clearing sales cache')
+      setLastSalesFetchedDate('')
+    }
+    
+    // Only fetch daily refills if we don't have data for this date
+    const shouldFetchRefills = lastFetchedDate !== dsrViewDate && !isRefillFetching
+    console.log('🔍 Should fetch refills?', shouldFetchRefills, { lastFetchedDate, dsrViewDate, isRefillFetching })
+    
+    if (shouldFetchRefills) {
+      // Debounce the API call
+      const timeoutId = setTimeout(() => {
+        fetchDailyRefills(dsrViewDate)
+      }, 300)
+      
+      return () => clearTimeout(timeoutId)
+    }
+    
+    // If we're still fetching refills, don't process aggregation yet
+    if (isRefillFetching) {
+      return
+    }
     
     const dayStart = new Date(dsrViewDate + 'T00:00:00').getTime()
     const dayEnd = new Date(dsrViewDate + 'T23:59:59.999').getTime()
@@ -990,7 +1395,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       map[k] = (map[k] || 0) + (Number(by) || 0)
     }
 
-    const refills: Record<string, number> = {}
+    const refills: Record<string, number> = { ...dailyRefillData } // Start with API data
+    console.log('🔍 Starting daily aggregation with API refills:', dailyRefillData)
+    console.log('🔍 DSR Date being processed:', dsrViewDate)
+    console.log('🔍 Last fetched refill date:', lastFetchedDate)
+    console.log('🔍 Initial refills object keys:', Object.keys(refills))
+    
     const cylSales: Record<string, number> = {}
     const gasSales: Record<string, number> = {}
     const deposits: Record<string, number> = {}
@@ -1030,23 +1440,168 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       }
     })
 
-    // Employee gas sales
+    console.log('🔍 Refills after employee cylinder transactions:', refills)
+    console.log('🔍 Refills object keys after cylinder transactions:', Object.keys(refills))
+
+    // Employee gas sales - Enhanced with daily tracking system
     ;(employeeSales || []).forEach((sale: any) => {
       if (!isOnDay(sale.createdAt || sale.date)) return
       const items = Array.isArray(sale.items) ? sale.items : []
       items.forEach((it: any) => {
         const nameRaw = it?.product?.name || it?.productName || 'gas'
         const qty = Number(it?.quantity || 0)
-        inc(gasSales, nameRaw, qty)
+        const category = it?.product?.category || it?.category || 'gas'
+        const cylinderStatus = it?.cylinderStatus
+        
+        if (category === 'gas') {
+          // For gas sales, attribute to the cylinder that contains the gas (if available)
+          const cylinderName = it?.cylinderName || nameRaw
+          inc(gasSales, cylinderName, qty)
+        } else if (category === 'cylinder') {
+          // For cylinder sales, distinguish between full and empty
+          if (cylinderStatus === 'full') {
+            inc(cylSales, nameRaw, qty) // Full cylinder sales
+          }
+        }
       })
     })
 
-    setDailyAggRefills(refills)
-    setDailyAggCylinderSales(cylSales)
-    setDailyAggGasSales(gasSales)
-    setDailyAggDeposits(deposits)
-    setDailyAggReturns(returns)
-    setAggReady(true)
+    // Fetch and process daily employee sales aggregation for enhanced accuracy (with caching)
+    if (lastSalesFetchedDate !== dsrViewDate && !isSalesFetching) {
+      ;(async () => {
+        try {
+          setIsSalesFetching(true)
+          const dailySalesRes = await fetch(`/api/daily-employee-sales-aggregation?date=${dsrViewDate}&employeeId=${user.id}`, { 
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate'
+            }
+          })
+          
+          const dailySalesData = await dailySalesRes.json()
+          const dailySalesList = Array.isArray(dailySalesData?.data) ? dailySalesData.data : []
+          
+          console.log(`Employee DSR: Processing ${dailySalesList.length} daily sales aggregation entries for ${dsrViewDate}`)
+          console.log('Daily sales aggregation data structure:', dailySalesList)
+          
+          dailySalesList.forEach((dailyEntry: any) => {
+            const productName = dailyEntry.productName || ''
+            const gasQty = Number(dailyEntry.totalGasSales) || 0
+            const fullCylinderQty = Number(dailyEntry.totalFullCylinderSales) || 0
+            const emptyCylinderQty = Number(dailyEntry.totalEmptyCylinderSales) || 0
+            const totalCylinderQty = fullCylinderQty + emptyCylinderQty
+            
+            if (gasQty > 0) {
+              const basicNormalized = normalizeName(productName)
+              const enhancedNormalized = normalizeForGasCylinderMatch(productName)
+              
+              // Store gas sales under both normalizations for better matching
+              inc(gasSales, productName, gasQty) // Original name
+              if (basicNormalized !== enhancedNormalized) {
+                // Also store under enhanced key if different
+                const enhancedKey = enhancedNormalized
+                gasSales[enhancedKey] = (gasSales[enhancedKey] || 0) + gasQty
+              }
+              
+              console.log(`Employee DSR Daily Gas Sales: ${productName} (basic: ${basicNormalized}, enhanced: ${enhancedNormalized}) - ${gasQty} units sold today`)
+            }
+            
+            // Use total cylinder sales quantity (includes both full and empty cylinder sales)
+            if (totalCylinderQty > 0) {
+              inc(cylSales, productName, totalCylinderQty)
+              console.log(`Employee DSR Daily Cylinder Sales: ${productName} - ${totalCylinderQty} cylinders sold today`)
+            }
+            
+            // Also log full cylinder sales specifically for debugging
+            if (fullCylinderQty > 0) {
+              console.log(`Employee DSR Daily Full Cylinder Sales: ${productName} - ${fullCylinderQty} full cylinders sold today`)
+            }
+          })
+          
+          // Fetch daily employee cylinder aggregation for deposits and returns
+          console.log(`Employee DSR: Fetching cylinder aggregation for ${dsrViewDate}`)
+          try {
+            const cylinderAggRes = await fetch(`/api/daily-employee-cylinder-aggregation?date=${dsrViewDate}&employeeId=${user.id}`, { 
+              cache: 'no-store',
+              headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate'
+              }
+            })
+            
+            if (cylinderAggRes.ok) {
+              const cylinderAggData = await cylinderAggRes.json()
+              const cylinderAggList = Array.isArray(cylinderAggData?.data) ? cylinderAggData.data : []
+              
+              console.log(`Employee DSR: Processing ${cylinderAggList.length} cylinder aggregation entries`)
+              
+              cylinderAggList.forEach((cylinderEntry: any) => {
+                const productName = cylinderEntry.productName || ''
+                const depositQty = Number(cylinderEntry.totalDeposits) || 0
+                const returnQty = Number(cylinderEntry.totalReturns) || 0
+                const refillQty = Number(cylinderEntry.totalRefills) || 0
+                
+                if (depositQty > 0) {
+                  inc(deposits, productName, depositQty)
+                  console.log(`Employee DSR Cylinder Deposits: ${productName} - ${depositQty} deposits today`)
+                }
+                
+                if (returnQty > 0) {
+                  inc(returns, productName, returnQty)
+                  console.log(`Employee DSR Cylinder Returns: ${productName} - ${returnQty} returns today`)
+                }
+                
+                if (refillQty > 0) {
+                  inc(refills, productName, refillQty)
+                  console.log(`Employee DSR Cylinder Refills: ${productName} - ${refillQty} refills today`)
+                }
+              })
+            } else {
+              console.warn('Failed to fetch cylinder aggregation:', await cylinderAggRes.text())
+            }
+          } catch (cylinderAggError) {
+            console.warn('Error fetching cylinder aggregation:', cylinderAggError)
+          }
+          
+          // Update the state with enhanced data
+          setDailyAggRefills(refills)
+          setDailyAggCylinderSales(cylSales)
+          setDailyAggGasSales(gasSales)
+          setDailyAggDeposits(deposits)
+          setDailyAggReturns(returns)
+          setAggReady(true)
+          setLastSalesFetchedDate(dsrViewDate)
+        } catch (dailySalesError) {
+        console.warn('Failed to fetch daily employee sales tracking:', dailySalesError instanceof Error ? dailySalesError.message : String(dailySalesError))
+        // Fallback to existing data
+        setDailyAggRefills(refills)
+        setDailyAggCylinderSales(cylSales)
+        setDailyAggGasSales(gasSales)
+        setDailyAggDeposits(deposits)
+        setDailyAggReturns(returns)
+        setAggReady(true)
+      } finally {
+        setIsSalesFetching(false)
+      }
+    })()
+    } else {
+      // Use existing data if already fetched for this date
+      setDailyAggRefills(refills)
+      setDailyAggCylinderSales(cylSales)
+      setDailyAggGasSales(gasSales)
+      setDailyAggDeposits(deposits)
+      setDailyAggReturns(returns)
+      setAggReady(true)
+    }
+
+    console.log('Final daily aggregation results:', {
+      refills,
+      cylSales,
+      gasSales,
+      deposits,
+      returns
+    })
+    
+    // Note: State is now set in the async daily sales fetch above for enhanced accuracy
   }, [dsrViewDate, employeeSales, employeeCylinders, user?.id])
 
 
@@ -1220,11 +1775,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         fetch(`/api/stock-assignments?employeeId=${user.id}&status=assigned`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => ([])),
       ])
 
-      // Only fetch admin sales if we need to load customer data
-      let adminSalesRes = []
-      if (loadCustomers) {
-        adminSalesRes = await fetch(`/api/sales`, { cache: 'no-store' }).then(r => r.ok ? r.json() : []).catch(() => ([]))
-      }
+      // REMOVED: Admin sales fetching - Employee should only see their own transactions
+      // Employee reports should not include admin sales data for security and data isolation
 
       const sales: any[] = Array.isArray(salesRes)
         ? salesRes
@@ -1241,11 +1793,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         : Array.isArray(assignRes?.data)
           ? assignRes.data
           : []
-      const adminSalesAll: any[] = Array.isArray(adminSalesRes)
-        ? adminSalesRes
-        : Array.isArray(adminSalesRes?.data)
-          ? adminSalesRes.data
-          : []
+      // REMOVED: Admin sales processing - Employee reports are employee-scoped only
 
       // Compute lightweight stats for employee
       const totalRevenue = sales.reduce((s, x) => s + (Number(x.totalAmount) || 0), 0)
@@ -1333,47 +1881,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         byCustomer.set(key, item)
       })
 
-      // Admin sales (only pending) into ledger so employee can see and receive
-      adminSalesAll
-        .filter((s: any) => String(s?.paymentStatus || '').toLowerCase() === 'pending')
-        .forEach((s: any) => {
-          const key = getKey(s)
-          const item = byCustomer.get(key) || {
-            _id: key,
-            name: getName(s),
-            trNumber: s.customer?.trNumber || "",
-            phone: s.customer?.phone || "",
-            email: s.customer?.email || "",
-            address: s.customer?.address || "",
-            balance: 0,
-            totalDebit: 0,
-            totalCredit: 0,
-            status: 'pending',
-            totalSales: 0,
-            totalSalesAmount: 0,
-            totalPaidAmount: 0,
-            totalCylinderAmount: 0,
-            totalDeposits: 0,
-            totalRefills: 0,
-            totalReturns: 0,
-            hasRecentActivity: false,
-            lastTransactionDate: null,
-            recentSales: [],
-            recentCylinderTransactions: [],
-          } as CustomerLedgerData
-          const total = Number(s.totalAmount) || 0
-          const paid = Number(s.receivedAmount) || 0
-          item.totalSales += 1
-          item.totalSalesAmount += total
-          item.totalPaidAmount += paid
-          item.totalDebit += total
-          item.totalCredit += paid
-          item.balance = item.totalDebit - item.totalCredit
-          item.hasRecentActivity = true
-          item.lastTransactionDate = s.createdAt || item.lastTransactionDate
-          item.recentSales.push({ ...s, _source: 'admin' })
-          byCustomer.set(key, item)
-        })
+      // REMOVED: Admin sales processing - Employee reports show only employee's own transactions
+      // This ensures data isolation and prevents employees from seeing other employees' or admin transactions
 
       cylinders.forEach(c => {
         const key = getKey(c)
@@ -1685,7 +2194,29 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           </DialogHeader>
           <div className="mb-3 flex items-center gap-2">
             <Label className="whitespace-nowrap">Date</Label>
-            <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[10.5rem]" />
+            <Input 
+              type="date" 
+              value={dsrViewDate} 
+              onChange={(e) => {
+                const newDate = e.target.value
+                console.log('📅 DSR Date changed to:', newDate)
+                setDsrViewDate(newDate)
+                // Force clear all cache when date changes manually
+                setDailyRefillData({})
+                setDailyAggRefills({})
+                setDailyAggCylinderSales({})
+                setDailyAggGasSales({})
+                setDailyAggDeposits({})
+                setDailyAggReturns({})
+                setLastFetchedDate('')
+                setLastSalesFetchedDate('')
+                setAggReady(false)
+              }} 
+              className="h-9 w-[10.5rem]" 
+            />
+            <Button variant="outline" onClick={() => saveClosingAsOpening(dsrViewDate)} className="mr-2">
+              <ListChecks className="h-4 w-4 mr-2" /> Save as Next Day Opening
+            </Button>
             <Button variant="outline" onClick={() => downloadDsrGridPdf(dsrViewDate)} className="ml-auto">
               <FileText className="h-4 w-4 mr-2" /> Download PDF
             </Button>
@@ -1722,8 +2253,10 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                   
                   // Use employee's assigned products as the base, with fallback to aggregated data
                   const rows = (() => {
-                    if (assignedProducts.length > 0) return assignedProducts
+                    // First try DSR products (cylinder products)
                     if (dsrProducts.length > 0) return dsrProducts
+                    // Then try all assigned products
+                    if (assignedProducts.length > 0) return assignedProducts
                     // Build from aggregated data if no assigned products
                     const nameSet = new Set<string>()
                     Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
@@ -1734,6 +2267,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                     return Array.from(nameSet).map((name, i) => ({ _id: String(i), name }))
                   })()
                   
+                  // DSR Grid products determined
+                  
                   return rows.length > 0 ? (
                     rows.map(p => {
                       const key = normalizeName(p.name)
@@ -1742,12 +2277,21 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                       // Get employee inventory data for this product
                       const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
                       
-                      // Get aggregated daily data
+                      // Get aggregated daily data using basic normalization
                       const refV = dailyAggRefills[key] ?? 0
+                      
+                      // Refill data retrieved
                       const cylV = dailyAggCylinderSales[key] ?? 0
-                      const gasV = dailyAggGasSales[key] ?? 0
                       const depV = dailyAggDeposits[key] ?? 0
                       const retV = dailyAggReturns[key] ?? 0
+                      
+                      // For gas sales, try both basic and enhanced normalization for cross-matching
+                      const gasVBasic = dailyAggGasSales[key] ?? 0
+                      const enhancedKey = normalizeForGasCylinderMatch(p.name)
+                      const gasVEnhanced = dailyAggGasSales[enhancedKey] ?? 0
+                      const gasV = Math.max(gasVBasic, gasVEnhanced) // Use whichever has data
+                      
+                      // Daily data aggregated
                       
                       // Calculate opening stock (use stored values or current inventory)
                       const openingFull = e?.openingFull ?? inventoryInfo.availableFull
@@ -1778,6 +2322,23 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                     <TableRow>
                       <TableCell colSpan={10} className="text-center py-6 text-gray-500">
                         No inventory data found. Please ensure you have assigned products or transactions for this date.
+                        <br />
+                        <small className="text-xs text-gray-400 mt-2 block">
+                          Debug Info: DSR Products: {dsrProducts.length}, Assigned Products: {assignedProducts.length}<br/>
+                          Inventory Data Keys: {Object.keys(inventoryData).length}<br/>
+                          Daily Aggregations - Gas: {Object.keys(dailyAggGasSales || {}).length}, Cylinders: {Object.keys(dailyAggCylinderSales || {}).length}, Refills: {Object.keys(dailyAggRefills || {}).length}<br/>
+                          Employee Sales: {employeeSales.length}, Employee Cylinders: {employeeCylinders.length}<br/>
+                          User ID: {user?.id || 'Not set'}, Date: {dsrViewDate}
+                        </small>
+                        <br />
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => { loadAssignedProducts(); fetchInventoryData(); }}
+                          className="mt-2"
+                        >
+                          <Activity className="h-4 w-4 mr-2" /> Refresh Inventory Data
+                        </Button>
                       </TableCell>
                     </TableRow>
                   )

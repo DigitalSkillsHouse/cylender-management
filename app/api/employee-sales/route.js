@@ -6,6 +6,7 @@ import Customer from "@/models/Customer"
 import User from "@/models/User"
 import Counter from "@/models/Counter"
 import Sale from "@/models/Sale"
+import DailyEmployeeSalesAggregation from "@/models/DailyEmployeeSalesAggregation"
 
 export async function GET(request) {
   try {
@@ -243,6 +244,15 @@ export async function POST(request) {
 
     const savedSale = await newSale.save()
 
+    // Update daily sales aggregation for DSR
+    try {
+      await updateDailySalesAggregation(savedSale, employeeId)
+      console.log(`✅ [EMPLOYEE SALES] Daily sales aggregation updated successfully`)
+    } catch (trackingError) {
+      console.error(`❌ [EMPLOYEE SALES] Failed to update daily sales aggregation:`, trackingError.message)
+      // Don't fail the entire sale if tracking fails
+    }
+
     // Update employee inventory using new system
     console.log(`🔄 [EMPLOYEE SALES] Starting inventory updates for ${validatedItems.length} items`)
     
@@ -376,4 +386,77 @@ export async function POST(request) {
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 })
   }
+}
+
+// Helper function to update daily sales aggregation
+async function updateDailySalesAggregation(sale, employeeId) {
+  const saleDate = new Date(sale.createdAt).toISOString().slice(0, 10) // YYYY-MM-DD format
+  
+  console.log(`📊 [DAILY AGGREGATION] Processing sale for date: ${saleDate}, employee: ${employeeId}`)
+  
+  // Process each item in the sale
+  for (const item of sale.items) {
+    const product = await Product.findById(item.product)
+    if (!product) {
+      console.warn(`⚠️ [DAILY AGGREGATION] Product not found: ${item.product}`)
+      continue
+    }
+    
+    const quantity = Number(item.quantity) || 0
+    const revenue = Number(item.price) * quantity || 0
+    
+    console.log(`📊 [DAILY AGGREGATION] Processing item: ${product.name}, Category: ${product.category}, Qty: ${quantity}, Revenue: ${revenue}`)
+    
+    // Prepare sales data based on category and cylinder status
+    let salesData = {}
+    
+    if (product.category === 'gas') {
+      // Gas sales
+      salesData = {
+        gasSales: quantity,
+        gasRevenue: revenue
+      }
+      console.log(`📊 [DAILY AGGREGATION] Gas sale recorded: ${quantity} units, ${revenue} revenue`)
+      
+    } else if (product.category === 'cylinder') {
+      // Cylinder sales
+      if (item.cylinderStatus === 'full') {
+        salesData = {
+          fullCylinderSales: quantity,
+          fullCylinderRevenue: revenue
+        }
+        console.log(`📊 [DAILY AGGREGATION] Full cylinder sale recorded: ${quantity} units, ${revenue} revenue`)
+      } else {
+        salesData = {
+          emptyCylinderSales: quantity,
+          emptyCylinderRevenue: revenue
+        }
+        console.log(`📊 [DAILY AGGREGATION] Empty cylinder sale recorded: ${quantity} units, ${revenue} revenue`)
+      }
+    }
+    
+    // Update or create daily aggregation record
+    try {
+      const aggregation = await DailyEmployeeSalesAggregation.updateDailyAggregation(
+        employeeId,
+        saleDate,
+        product._id,
+        product.name,
+        product.category,
+        salesData
+      )
+      
+      console.log(`✅ [DAILY AGGREGATION] Updated aggregation for ${product.name}:`, {
+        totalGasSales: aggregation.totalGasSales,
+        totalFullCylinderSales: aggregation.totalFullCylinderSales,
+        totalEmptyCylinderSales: aggregation.totalEmptyCylinderSales,
+        salesCount: aggregation.salesCount
+      })
+      
+    } catch (aggregationError) {
+      console.error(`❌ [DAILY AGGREGATION] Failed to update aggregation for ${product.name}:`, aggregationError.message)
+    }
+  }
+  
+  console.log(`✅ [DAILY AGGREGATION] Completed processing sale ${sale.invoiceNumber}`)
 }
