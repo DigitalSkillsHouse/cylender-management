@@ -858,13 +858,13 @@ export function Inventory() {
               <div className="px-4 sm:px-6 pt-4">
                 <TabsList className="grid w-full grid-cols-3 h-auto">
                   <TabsTrigger value="full-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Full Cylinders ({getFilteredReceivedItems('full-cylinder').length})
+                    Full Cylinders
                   </TabsTrigger>
                   <TabsTrigger value="empty-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Empty Cylinders ({getFilteredReceivedItems('empty-cylinder').length})
+                    Empty Cylinders
                   </TabsTrigger>
                   <TabsTrigger value="gas" className="text-xs sm:text-sm font-medium py-2">
-                    Gas ({getFilteredReceivedItems('gas').length})
+                    Gas
                   </TabsTrigger>
                 </TabsList>
               </div>
