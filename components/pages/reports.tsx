@@ -143,8 +143,10 @@ export function Reports() {
       const computed: { itemName: string; closingFull: number; closingEmpty: number; openingFull: number; openingEmpty: number; refilled: number; cylinderSales: number; gasSales: number; deposit: number; ret: number }[] = []
       for (const key of items) {
         const rec = byKey.get(key)
-        const openingFull = Number((rec?.openingFull ?? prevByKey.get(key)?.closingFull) ?? 0)
-        const openingEmpty = Number((rec?.openingEmpty ?? prevByKey.get(key)?.closingEmpty) ?? 0)
+        // Use real-time inventory data for opening stock, with fallbacks
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        const openingFull = Number(rec?.openingFull ?? prevByKey.get(key)?.closingFull ?? inventoryInfo.availableFull ?? 0)
+        const openingEmpty = Number(rec?.openingEmpty ?? prevByKey.get(key)?.closingEmpty ?? inventoryInfo.availableEmpty ?? 0)
         const refilled = Number((dailyAggRefills as any)?.[key] ?? rec?.refilled ?? 0)
         const cylinderSales = Number((dailyAggCylinderSales as any)?.[key] ?? rec?.cylinderSales ?? 0)
         const gasSales = Number((dailyAggGasSales as any)?.[key] ?? rec?.gasSales ?? 0)
@@ -216,9 +218,11 @@ export function Reports() {
           itemName: d.itemName,
           openingFull: Number(d.openingFull ?? byKey.get(normalizeName(d.itemName))?.openingFull ?? 0),
           openingEmpty: Number(d.openingEmpty ?? byKey.get(normalizeName(d.itemName))?.openingEmpty ?? 0),
-          refilled: Number(d.refilled ?? (dailyAggRefills as any)?.[normalizeName(d.itemName)] ?? 0),
-          cylinderSales: Number(d.cylinderSales ?? (dailyAggCylinderSales as any)?.[normalizeName(d.itemName)] ?? 0),
-          gasSales: Number(d.gasSales ?? (dailyAggGasSales as any)?.[normalizeName(d.itemName)] ?? 0),
+          refilled: Number(d.refilled ?? 0),
+          cylinderSales: Number(d.cylinderSales ?? 0),
+          gasSales: Number(d.gasSales ?? 0),
+          depositCylinder: Number(d.depositCylinder ?? 0),
+          returnCylinder: Number(d.returnCylinder ?? 0),
           closingFull: Number(d.closingFull ?? 0),
           closingEmpty: Number(d.closingEmpty ?? 0),
           createdAt: d.createdAt || new Date().toISOString(),
@@ -346,6 +350,8 @@ export function Reports() {
     refilled: number
     cylinderSales: number
     gasSales: number
+    depositCylinder: number
+    returnCylinder: number
     closingFull?: number
     closingEmpty?: number
     createdAt: string
@@ -529,27 +535,29 @@ export function Reports() {
         if (dsrProducts.length > 0) return dsrProducts
         const nameSet = new Set<string>()
         dsrEntries.filter(e => e.date === date).forEach(e => nameSet.add(normalizeName(String(e.itemName))))
-        Object.keys(dailyAggGasSales || {}).forEach(k => nameSet.add(k))
-        Object.keys(dailyAggCylinderSales || {}).forEach(k => nameSet.add(k))
-        Object.keys(dailyAggRefills || {}).forEach(k => nameSet.add(k))
-        Object.keys(dailyAggDeposits || {}).forEach(k => nameSet.add(k))
-        Object.keys(dailyAggReturns || {}).forEach(k => nameSet.add(k))
         const arr = Array.from(nameSet)
         return arr.map((n, i) => ({ _id: String(i), name: n } as any))
       })()
       const rows = rowsSource.map(p => {
         const key = normalizeName(p.name)
         const e = byKey.get(key)
+        
+        // Use real-time aggregation data (like employee system) instead of stored values
         const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
         const cylSalesVal = dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0)
         const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
-        const depositVal = dailyAggDeposits[key] ?? 0
-        const returnVal = dailyAggReturns[key] ?? 0
+        const depositVal = dailyAggDeposits[key] ?? (e ? e.depositCylinder : 0)
+        const returnVal = dailyAggReturns[key] ?? (e ? e.returnCylinder : 0)
+        // Use real-time inventory data for opening stock in PDF
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        const openingFull = e?.openingFull ?? inventoryInfo.availableFull
+        const openingEmpty = e?.openingEmpty ?? inventoryInfo.availableEmpty
+        
         return `
           <tr>
             <td>${p.name}</td>
-            <td>${e ? e.openingFull : 0}</td>
-            <td>${typeof e?.openingEmpty === 'number' ? e!.openingEmpty : 0}</td>
+            <td>${openingFull}</td>
+            <td>${openingEmpty}</td>
             <td>${refilledVal || 0}</td>
             <td>${cylSalesVal || 0}</td>
             <td>${gasSalesVal || 0}</td>
@@ -727,10 +735,11 @@ export function Reports() {
       
       const inventoryMap: Record<string, { availableFull: number; availableEmpty: number; currentStock: number }> = {}
       
-      // Map ALL inventory items by product name (for other purposes)
+      // Map ALL inventory items by product name using consistent normalization
       inventoryItems.forEach((item: any) => {
         if (item.productName) {
-          inventoryMap[item.productName.toLowerCase()] = {
+          const normalizedName = normalizeName(item.productName)
+          inventoryMap[normalizedName] = {
             availableFull: item.availableFull || 0,
             availableEmpty: item.availableEmpty || 0,
             currentStock: item.currentStock || 0
@@ -738,12 +747,12 @@ export function Reports() {
         }
       })
       
-      // Also map ALL products by name for fallback (for other purposes)
+      // Also map ALL products by name for fallback using consistent normalization
       products.forEach((product: any) => {
         if (product.name) {
-          const key = product.name.toLowerCase()
-          if (!inventoryMap[key]) {
-            inventoryMap[key] = {
+          const normalizedName = normalizeName(product.name)
+          if (!inventoryMap[normalizedName]) {
+            inventoryMap[normalizedName] = {
               availableFull: product.availableFull || 0,
               availableEmpty: product.availableEmpty || 0,
               currentStock: product.currentStock || 0
@@ -753,6 +762,16 @@ export function Reports() {
       })
       
       setInventoryData(inventoryMap)
+      
+      // Debug: Log inventory mapping for troubleshooting
+      console.log('Admin DSR Inventory Mapping:', {
+        inventoryMapKeys: Object.keys(inventoryMap),
+        inventoryMap: inventoryMap,
+        sampleNormalization: {
+          'Cylinders amonia 60kg': normalizeName('Cylinders amonia 60kg'),
+          'Cylinders PROPANE 44KG': normalizeName('Cylinders PROPANE 44KG')
+        }
+      })
     } catch (error) {
       console.error('Failed to fetch inventory data:', error)
       setInventoryData({})
@@ -860,6 +879,8 @@ export function Reports() {
         refilled: Number(d.refilled || 0),
         cylinderSales: Number(d.cylinderSales || 0),
         gasSales: Number(d.gasSales || 0),
+        depositCylinder: Number(d.depositCylinder || 0),
+        returnCylinder: Number(d.returnCylinder || 0),
         closingFull: typeof d?.closingFull === 'number' ? d.closingFull : undefined,
         closingEmpty: typeof d?.closingEmpty === 'number' ? d.closingEmpty : undefined,
         createdAt: d.createdAt || new Date().toISOString(),
@@ -871,10 +892,13 @@ export function Reports() {
       mapped.forEach(e => byKey.set(e.itemName.toLowerCase(), e))
       const rows = rowsSource.map((p: any) => {
         const e = byKey.get(String(p.name).toLowerCase())
+        const key = normalizeName(p.name)
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        
         return {
           itemName: p.name,
-          openingFull: e ? e.openingFull : 0,
-          openingEmpty: e ? e.openingEmpty : 0,
+          openingFull: e?.openingFull ?? inventoryInfo.availableFull,
+          openingEmpty: e?.openingEmpty ?? inventoryInfo.availableEmpty,
           refilled: e ? e.refilled : 0,
           cylinderSales: e ? e.cylinderSales : 0,
           gasSales: e ? e.gasSales : 0,
@@ -899,11 +923,16 @@ export function Reports() {
       const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(employeeDsrEntries.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
       const rows = rowsSource.map(p => {
         const e = byKey.get(String(p.name).toLowerCase())
+        const key = normalizeName(p.name)
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        const openingFull = e?.openingFull ?? inventoryInfo.availableFull
+        const openingEmpty = e?.openingEmpty ?? inventoryInfo.availableEmpty
+        
         return `
           <tr>
             <td>${p.name}</td>
-            <td>${e ? e.openingFull : 0}</td>
-            <td>${e ? e.openingEmpty : 0}</td>
+            <td>${openingFull}</td>
+            <td>${openingEmpty}</td>
             <td>${e ? e.refilled : 0}</td>
             <td>${e ? e.cylinderSales : 0}</td>
             <td>${e ? e.gasSales : 0}</td>
@@ -1184,6 +1213,8 @@ export function Reports() {
         refilled: Number(d.refilled || 0),
         cylinderSales: Number(d.cylinderSales || 0),
         gasSales: Number(d.gasSales || 0),
+        depositCylinder: Number(d.depositCylinder || 0),
+        returnCylinder: Number(d.returnCylinder || 0),
         closingFull: typeof d.closingFull === 'number' ? d.closingFull : undefined,
         closingEmpty: typeof d.closingEmpty === 'number' ? d.closingEmpty : undefined,
         createdAt: d.createdAt || new Date().toISOString(),
@@ -2900,7 +2931,10 @@ export function Reports() {
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Input type="date" value={dsrViewDate} onChange={(e) => setDsrViewDate(e.target.value)} className="h-9 w-[9.5rem]" />
               <Button className="w-full sm:w-auto" variant="outline" disabled={!aggReady} title={!aggReady ? 'Please wait… loading daily totals' : ''} onClick={() => autoCalcAndSaveDsrForDate(dsrViewDate)}>Auto-calc & Save</Button>
-              <Button className="w-full bg-yellow-500 sm:w-auto" variant="outline" disabled={!aggReady} title={!aggReady ? 'Please wait… loading daily totals' : ''} onClick={() => downloadDsrGridPdf(dsrViewDate)}>Download PDF</Button>
+              <Button className="w-full bg-yellow-500 sm:w-auto" variant="outline" disabled={!aggReady} title={!aggReady ? 'Please wait… loading daily totals' : ''} onClick={() => downloadDsrGridPdf(dsrViewDate)}>
+                {!aggReady ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+                Download PDF
+              </Button>
             </div>
           </div>
           <div className="border rounded-lg overflow-x-auto">
@@ -2909,7 +2943,7 @@ export function Reports() {
                 <TableRow>
                   <TableHead>Items</TableHead>
                   <TableHead colSpan={2}>Opening</TableHead>
-                  <TableHead colSpan={3}>During the day</TableHead>
+                  <TableHead colSpan={5}>During the day</TableHead>
                   <TableHead colSpan={2}>Closing</TableHead>
                 </TableRow>
                 <TableRow>
@@ -2919,6 +2953,8 @@ export function Reports() {
                   <TableHead>Refilled</TableHead>
                   <TableHead>Cylinder Sales</TableHead>
                   <TableHead>Gas Sales</TableHead>
+                  <TableHead>Deposit Cylinder</TableHead>
+                  <TableHead>Return Cylinder</TableHead>
                   <TableHead>Full</TableHead>
                   <TableHead>Empty</TableHead>
                 </TableRow>
@@ -2931,20 +2967,48 @@ export function Reports() {
                   if (rowsSource.length === 0) {
                     return (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-6 text-gray-500">No data to show</TableCell>
+                        <TableCell colSpan={10} className="text-center py-6 text-gray-500">No data to show</TableCell>
                       </TableRow>
                     )
                   }
                   return rowsSource.map((p: any) => {
-                    const e = byKey.get(normalizeName(p.name))
+                    const key = normalizeName(p.name)
+                    const e = byKey.get(key)
+                    
+                    // Use real-time aggregation data (like employee system) instead of stored values
+                    const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
+                    const cylSalesVal = dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0)
+                    const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
+                    const depositVal = dailyAggDeposits[key] ?? (e ? e.depositCylinder : 0)
+                    const returnVal = dailyAggReturns[key] ?? (e ? e.returnCylinder : 0)
+                    
+                    // Use real-time inventory data for opening stock
+                    const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+                    const openingFull = e?.openingFull ?? inventoryInfo.availableFull
+                    const openingEmpty = e?.openingEmpty ?? inventoryInfo.availableEmpty
+                    
+                    // Debug: Log inventory lookup for troubleshooting
+                    if (p.name.includes('amonia') || p.name.includes('PROPANE')) {
+                      console.log(`Admin DSR Lookup for "${p.name}":`, {
+                        originalName: p.name,
+                        normalizedKey: key,
+                        inventoryInfo: inventoryInfo,
+                        openingFull: openingFull,
+                        openingEmpty: openingEmpty,
+                        storedEntry: e ? { openingFull: e.openingFull, openingEmpty: e.openingEmpty } : 'none'
+                      })
+                    }
+                    
                     return (
                       <TableRow key={p._id || p.name}>
                         <TableCell className="font-medium">{p.name}</TableCell>
-                        <TableCell>{e ? e.openingFull : 0}</TableCell>
-                        <TableCell>{e ? e.openingEmpty : 0}</TableCell>
-                        <TableCell>{e ? e.refilled : 0}</TableCell>
-                        <TableCell>{e ? e.cylinderSales : 0}</TableCell>
-                        <TableCell>{e ? e.gasSales : 0}</TableCell>
+                        <TableCell className="text-blue-600 font-medium">{openingFull}</TableCell>
+                        <TableCell className="text-blue-600 font-medium">{openingEmpty}</TableCell>
+                        <TableCell className="text-green-600">{refilledVal}</TableCell>
+                        <TableCell className="text-orange-600">{cylSalesVal}</TableCell>
+                        <TableCell className="text-red-600">{gasSalesVal}</TableCell>
+                        <TableCell className="text-purple-600">{depositVal}</TableCell>
+                        <TableCell className="text-indigo-600">{returnVal}</TableCell>
                         <TableCell>{typeof e?.closingFull === 'number' ? e!.closingFull : 0}</TableCell>
                         <TableCell>{typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</TableCell>
                       </TableRow>
