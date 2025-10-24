@@ -339,7 +339,9 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                 currentStock: currentStock,
                 availableEmpty: availableEmpty,
                 availableFull: availableFull,
-                cylinderStatus: inventoryItem.cylinderStatus
+                cylinderStatus: inventoryItem.cylinderStatus,
+                leastPrice: productWithStock.leastPrice,
+                costPrice: productWithStock.costPrice
               })
               allEmployeeProducts.push(productWithStock)
             } else {
@@ -435,7 +437,12 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
         totalItems: employeeInventoryData?.data?.length || 0,
         gasProducts: dedupedAllProducts.filter(p => p.category === 'gas').length,
         cylinderProducts: dedupedAllProducts.filter(p => p.category === 'cylinder').length,
-        availabilityMap: Object.keys(availMap).length
+        availabilityMap: Object.keys(availMap).length,
+        sampleProduct: dedupedAllProducts[0] ? {
+          name: dedupedAllProducts[0].name,
+          leastPrice: dedupedAllProducts[0].leastPrice,
+          costPrice: dedupedAllProducts[0].costPrice
+        } : null
       })
     } catch (error) {
       console.error("Failed to fetch data:", error)
@@ -657,7 +664,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       category: product.category as "gas" | "cylinder",
       productId: product._id,
       quantity: "1",
-      price: (Number(product.leastPrice) || 0).toString(),
+      price: (Number(product.leastPrice) || Number(product.costPrice) || 0).toString(),
       cylinderStatus: currentItem.cylinderStatus || "empty" as "empty" | "full",
       gasProductId: "",
       cylinderProductId: currentItem.cylinderProductId || "",
@@ -768,8 +775,9 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const handleEntryPriceChange = (value: string) => {
     const product = allProducts.find((p: Product) => p._id === currentItem.productId)
     const enteredPrice = parseFloat(value)
-    if (product && !isNaN(enteredPrice) && enteredPrice < product.leastPrice) {
-      setPriceAlert({ message: `Price must be at least ${product.leastPrice.toFixed(2)}`, index: -1 })
+    const minPrice = product?.leastPrice || product?.costPrice || 0
+    if (product && !isNaN(enteredPrice) && enteredPrice < minPrice) {
+      setPriceAlert({ message: `Price must be at least ${minPrice.toFixed(2)}`, index: -1 })
       setTimeout(() => setPriceAlert({ message: '', index: null }), 2000)
     }
     setCurrentItem((prev) => ({ ...prev, price: value }))
@@ -2064,7 +2072,7 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                                       {currentItem.cylinderStatus === 'empty' ? 'Empty' : 'Full'}: {currentItem.cylinderStatus === 'empty' ? (inventoryAvailability[product._id]?.availableEmpty || 0) : (inventoryAvailability[product._id]?.availableFull || 0)}
                                     </span>
                                   )}
-                                  <span className="text-xs text-gray-500">Min AED {(product.leastPrice || 0).toFixed(2)}</span>
+                                  <span className="text-xs text-gray-500">Min AED {(product.leastPrice || product.costPrice || 0).toFixed(2)}</span>
                                 </div>
                               </div>
                             </div>
@@ -2191,7 +2199,8 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                     onChange={(e) => handleEntryPriceChange(e.target.value)}
                     placeholder={(() => {
                       const p = allProducts.find((ap) => ap._id === currentItem.productId)
-                      return p?.leastPrice ? `Min: AED ${p.leastPrice.toFixed(2)}` : 'Select product first'
+                      const minPrice = p?.leastPrice || p?.costPrice || 0
+                      return minPrice > 0 ? `Min: AED ${minPrice.toFixed(2)}` : 'Select product first'
                     })()}
                   />
                 </div>
