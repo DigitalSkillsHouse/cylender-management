@@ -4,6 +4,7 @@ import Product from "@/models/Product";
 import Customer from "@/models/Customer";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
+import DailyRefill from "@/models/DailyRefill";
 
 // Helper: get next sequential invoice number: INV-<year>-CM-<seq>
 async function getNextCylinderInvoice() {
@@ -68,12 +69,36 @@ export async function POST(request) {
       .populate("customer", "name phone address email")
       .populate("product", "name category cylinderType");
 
-    // Update product stock
+    // Update product stock and daily tracking
     if (data.product && data.quantity) {
       const product = await Product.findById(data.product);
       if (product) {
         product.currentStock -= Number(data.quantity);
         await product.save();
+        
+        // Update daily refill tracking for admin refills
+        const date = data.transactionDate ? new Date(data.transactionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+        await DailyRefill.findOneAndUpdate(
+          {
+            date: date,
+            cylinderProductId: data.product,
+            employeeId: null // Admin refill
+          },
+          {
+            $inc: {
+              todayRefill: Number(data.quantity)
+            },
+            $set: {
+              cylinderName: product.name
+            }
+          },
+          {
+            upsert: true,
+            new: true
+          }
+        );
+        
+        console.log(`[Refill] Updated daily tracking for ${product.name}: +${data.quantity} refills`);
       }
     }
 

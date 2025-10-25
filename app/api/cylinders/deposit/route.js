@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
 import Sale from "@/models/Sale";
 import EmployeeSale from "@/models/EmployeeSale";
+import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 
 // Helper: get next sequential invoice number using unified system
 async function getNextCylinderInvoice() {
@@ -31,6 +32,44 @@ async function getNextCylinderInvoice() {
   }
 
   return nextNumber.toString().padStart(4, '0')
+}
+
+// Helper function to update daily tracking for deposits
+async function updateDailyTracking(cylinderProductId, quantity, amount, transactionDate) {
+  try {
+    const product = await Product.findById(cylinderProductId);
+    if (!product) return;
+    
+    const date = transactionDate ? new Date(transactionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    
+    // Update DailyCylinderTransaction for admin deposits
+    await DailyCylinderTransaction.findOneAndUpdate(
+      {
+        date: date,
+        cylinderProductId: cylinderProductId,
+        employeeId: null // Admin transaction
+      },
+      {
+        $inc: {
+          depositQuantity: quantity,
+          depositAmount: amount
+        },
+        $set: {
+          cylinderName: product.name,
+          cylinderSize: product.cylinderSize || 'Unknown Size',
+          isEmployeeTransaction: false
+        }
+      },
+      {
+        upsert: true,
+        new: true
+      }
+    );
+    
+    console.log(`[Deposit] Updated daily tracking for ${product.name}: +${quantity} deposits, +${amount} AED`);
+  } catch (error) {
+    console.error('[Deposit] Error updating daily tracking:', error);
+  }
 }
 
 // Helper function to update inventory for deposit transactions
@@ -122,10 +161,14 @@ export async function POST(request) {
         // Multi-item transaction
         for (const item of data.items) {
           await updateInventoryForDeposit(item.productId, Number(item.quantity), item.gasProductId);
+          // Update daily tracking for each item
+          await updateDailyTracking(item.productId, Number(item.quantity), Number(item.amount || 0), data.transactionDate);
         }
       } else if (data.product && data.quantity) {
         // Single item transaction
         await updateInventoryForDeposit(data.product, Number(data.quantity), data.gasProductId);
+        // Update daily tracking
+        await updateDailyTracking(data.product, Number(data.quantity), Number(data.amount || 0), data.transactionDate);
       }
     } catch (stockError) {
       console.error("Error updating inventory stock:", stockError);

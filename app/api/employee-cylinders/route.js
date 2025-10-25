@@ -487,9 +487,15 @@ async function updateDailyEmployeeCylinderAggregation(transaction, employeeId, t
     }
     
     const quantity = Number(item.quantity) || 0
-    const amount = Number(transaction.totalAmount) || Number(transaction.amount) || 0
+    // Use individual item amount, not transaction total
+    const amount = Number(item.amount) || 0
     
     console.log(`📊 [CYLINDER AGGREGATION] Processing ${transactionType}: ${product.name}, Qty: ${quantity}, Amount: ${amount}`)
+    
+    // Validate that we have proper individual amounts for multi-item transactions
+    if (items.length > 1 && amount === 0) {
+      console.warn(`⚠️ [CYLINDER AGGREGATION] Multi-item transaction missing individual amount for ${product.name}`)
+    }
     
     // Map transaction types to aggregation types
     let aggregationType = transactionType

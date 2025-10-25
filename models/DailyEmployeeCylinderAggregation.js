@@ -126,28 +126,23 @@ DailyEmployeeCylinderAggregationSchema.statics.updateDailyCylinderAggregation = 
 
   console.log(`📊 [CYLINDER AGGREGATION] Updating ${transactionType} for employee ${employeeId}, product ${productName}, qty: ${quantity}, amount: ${amount}`)
 
-  // Prepare increment data based on transaction type
-  let incrementData = {
-    lastUpdated: new Date()
-  }
+  // Prepare increment data based on transaction type - use $inc for proper aggregation
+  let incrementData = {}
 
   if (transactionType === 'deposit') {
     incrementData = {
-      ...incrementData,
       totalDeposits: quantity,
       totalDepositAmount: amount,
       depositTransactionCount: 1
     }
   } else if (transactionType === 'return') {
     incrementData = {
-      ...incrementData,
       totalReturns: quantity,
       totalReturnAmount: amount,
       returnTransactionCount: 1
     }
   } else if (transactionType === 'refill') {
     incrementData = {
-      ...incrementData,
       totalRefills: quantity,
       totalRefillAmount: amount,
       refillTransactionCount: 1

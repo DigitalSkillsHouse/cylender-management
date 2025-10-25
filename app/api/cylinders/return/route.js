@@ -5,6 +5,45 @@ import InventoryItem from "@/models/InventoryItem";
 import Customer from "@/models/Customer";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
+import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
+
+// Helper function to update daily tracking for returns
+async function updateDailyTracking(cylinderProductId, quantity, amount, transactionDate) {
+  try {
+    const product = await Product.findById(cylinderProductId);
+    if (!product) return;
+    
+    const date = transactionDate ? new Date(transactionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    
+    // Update DailyCylinderTransaction for admin returns
+    await DailyCylinderTransaction.findOneAndUpdate(
+      {
+        date: date,
+        cylinderProductId: cylinderProductId,
+        employeeId: null // Admin transaction
+      },
+      {
+        $inc: {
+          returnQuantity: quantity,
+          returnAmount: amount
+        },
+        $set: {
+          cylinderName: product.name,
+          cylinderSize: product.cylinderSize || 'Unknown Size',
+          isEmployeeTransaction: false
+        }
+      },
+      {
+        upsert: true,
+        new: true
+      }
+    );
+    
+    console.log(`[Return] Updated daily tracking for ${product.name}: +${quantity} returns, +${amount} AED`);
+  } catch (error) {
+    console.error('[Return] Error updating daily tracking:', error);
+  }
+}
 
 // Helper function to update inventory for return transactions
 async function updateInventoryForReturn(cylinderProductId, quantity) {
@@ -108,9 +147,13 @@ export async function POST(request) {
       if (Array.isArray(data.items) && data.items.length > 0) {
         for (const item of data.items) {
           await updateInventoryForReturn(item.productId, Number(item.quantity));
+          // Update daily tracking for each item
+          await updateDailyTracking(item.productId, Number(item.quantity), Number(item.amount || 0), data.transactionDate);
         }
       } else if (data.product && data.quantity) {
         await updateInventoryForReturn(data.product, Number(data.quantity));
+        // Update daily tracking
+        await updateDailyTracking(data.product, Number(data.quantity), Number(data.amount || 0), data.transactionDate);
       }
     } catch (stockErr) {
       console.error("[cylinders/return] Failed to update inventory stock:", stockErr)

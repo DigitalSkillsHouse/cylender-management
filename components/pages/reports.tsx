@@ -1406,6 +1406,23 @@ export function Reports() {
           }
         }
 
+        // Debug: Log final aggregation results
+        console.log('Admin DSR Final Aggregations:', {
+          deposits: dep,
+          returns: ret,
+          refills: ref,
+          cylinderSales: cyl,
+          gasSales: gas
+        })
+        
+        // Debug: Log individual data sources
+        console.log('Admin DSR Data Sources:', {
+          adminRefillsCount: adminRefills.length,
+          dailyCylinderCount: dailyCylinderList.length,
+          salesCount: salesList.length,
+          cylTxCount: cylTxList.length
+        })
+
         setDailyAggGasSales(gas)
         setDailyAggCylinderSales(cyl)
         setDailyAggRefills(ref)
@@ -2070,6 +2087,18 @@ export function Reports() {
                         ?? (idKey ? dailyAggReturnsById[idKey] : undefined)
                         ?? 0) ?? 0
                       
+                      // Debug: Log individual item calculations
+                      if (refV > 0 || depV > 0 || retV > 0) {
+                        console.log(`Admin DSR Item "${p.name}":`, {
+                          key: key,
+                          refills: refV,
+                          deposits: depV,
+                          returns: retV,
+                          cylinderSales: cylV,
+                          gasSales: gasV
+                        })
+                      }
+                      
                       // Get real-time inventory data for opening/closing calculations
                       const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
                       
@@ -2089,8 +2118,8 @@ export function Reports() {
                           <TableCell className="text-green-600">{refV}</TableCell>
                           <TableCell className="text-orange-600">{cylV}</TableCell>
                           <TableCell className="text-red-600">{gasV}</TableCell>
-                          <TableCell className="text-purple-600">{depV}</TableCell>
-                          <TableCell className="text-indigo-600">{retV}</TableCell>
+                          <TableCell className="text-purple-600" title={`Deposits: ${depV}`}>{depV}</TableCell>
+                          <TableCell className="text-indigo-600" title={`Returns: ${retV}`}>{retV}</TableCell>
                           <TableCell className="text-blue-800 font-bold">{closingFull}</TableCell>
                           <TableCell className="text-blue-800 font-bold">{closingEmpty}</TableCell>
                         </TableRow>
@@ -2098,7 +2127,9 @@ export function Reports() {
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-6 text-gray-500">No data for selected date</TableCell>
+                      <TableCell colSpan={10} className="text-center py-6 text-gray-500">
+                        No data for selected date
+                      </TableCell>
                     </TableRow>
                   )
                 })()}

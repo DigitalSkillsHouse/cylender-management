@@ -1406,16 +1406,18 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     const deposits: Record<string, number> = {}
     const returns: Record<string, number> = {}
 
-    // Employee cylinder transactions
+    // Employee cylinder transactions - Process per individual product
     ;(employeeCylinders || []).forEach((tx: any) => {
       if (!isOnDay(tx.createdAt || tx.date)) return
       const type = String(tx.type || '').toLowerCase()
       
       // Handle both single item and items array formats
       if (Array.isArray(tx.items)) {
+        // Multi-product transaction - process each item separately
         tx.items.forEach((it: any) => {
           const nameRaw = it?.productName || it?.product?.name || it?.cylinderSize || it?.size || 'cylinder'
           const qty = Number(it?.quantity || 0)
+          
           if (type === 'refill') inc(refills, nameRaw, qty)
           if (type === 'deposit') {
             inc(cylSales, nameRaw, qty)
@@ -1429,6 +1431,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         // Single item format
         const nameRaw = tx?.productName || tx?.product?.name || tx?.cylinderSize || 'cylinder'
         const qty = Number(tx?.quantity || 0)
+        
         if (type === 'refill') inc(refills, nameRaw, qty)
         if (type === 'deposit') {
           inc(cylSales, nameRaw, qty)
@@ -1540,18 +1543,19 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                 const returnQty = Number(cylinderEntry.totalReturns) || 0
                 const refillQty = Number(cylinderEntry.totalRefills) || 0
                 
+                // Override with API aggregation data (more accurate per-product tracking)
                 if (depositQty > 0) {
-                  inc(deposits, productName, depositQty)
+                  deposits[normalizeName(productName)] = depositQty
                   console.log(`Employee DSR Cylinder Deposits: ${productName} - ${depositQty} deposits today`)
                 }
                 
                 if (returnQty > 0) {
-                  inc(returns, productName, returnQty)
+                  returns[normalizeName(productName)] = returnQty
                   console.log(`Employee DSR Cylinder Returns: ${productName} - ${returnQty} returns today`)
                 }
                 
                 if (refillQty > 0) {
-                  inc(refills, productName, refillQty)
+                  refills[normalizeName(productName)] = refillQty
                   console.log(`Employee DSR Cylinder Refills: ${productName} - ${refillQty} refills today`)
                 }
               })
@@ -2331,14 +2335,40 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                           User ID: {user?.id || 'Not set'}, Date: {dsrViewDate}
                         </small>
                         <br />
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => { loadAssignedProducts(); fetchInventoryData(); }}
-                          className="mt-2"
-                        >
-                          <Activity className="h-4 w-4 mr-2" /> Refresh Inventory Data
-                        </Button>
+                        <div className="space-y-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => { loadAssignedProducts(); fetchInventoryData(); }}
+                          >
+                            <Activity className="h-4 w-4 mr-2" /> Refresh Inventory Data
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={async () => {
+                              try {
+                                const response = await fetch('/api/debug-cylinder-aggregation', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ employeeId: user.id, date: dsrViewDate })
+                                })
+                                const result = await response.json()
+                                if (result.success) {
+                                  alert(`Rebuilt aggregation: ${result.aggregationsCreated} products processed`)
+                                  window.location.reload()
+                                } else {
+                                  alert(`Error: ${result.error}`)
+                                }
+                              } catch (error) {
+                                alert(`Error: ${error instanceof Error ? error.message : String(error)}`)
+                              }
+                            }}
+                            className="bg-red-50 hover:bg-red-100 text-red-700 border-red-200"
+                          >
+                            🔧 Debug Rebuild Aggregation
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
