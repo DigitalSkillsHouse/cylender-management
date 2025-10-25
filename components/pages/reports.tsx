@@ -1272,18 +1272,20 @@ export function Reports() {
     }
     ;(async () => {
       try {
-        // Fetch ADMIN-ONLY data sources: Admin sales, Cylinders, Admin refills, Products, Daily Cylinder Transactions
-        const [salesRes, cylTxRes, adminRefillsRes, productsRes, dailyCylinderRes] = await Promise.all([
+        // Fetch ADMIN-ONLY data sources: Admin sales, Cylinders, Admin refills, Products, Daily Sales, Daily Cylinder Transactions
+        const [salesRes, cylTxRes, adminRefillsRes, productsRes, dailySalesRes, dailyCylinderRes] = await Promise.all([
           fetch('/api/sales', { cache: 'no-store' }),
           fetch('/api/cylinders', { cache: 'no-store' }),
           fetch(`/api/daily-refills?date=${dsrViewDate}`, { cache: 'no-store' }), // Admin refills only (employeeId: null)
           fetch('/api/products', { cache: 'no-store' }),
-          fetch(`/api/daily-cylinder-transactions?date=${dsrViewDate}&isEmployeeTransaction=false`, { cache: 'no-store' }) // Admin-only daily cylinder tracking
+          fetch(`/api/daily-sales?date=${dsrViewDate}`, { cache: 'no-store' }), // Admin daily sales tracking
+          fetch(`/api/daily-cylinder-transactions?date=${dsrViewDate}&isEmployeeTransaction=false`, { cache: 'no-store' }) // Admin cylinder transactions only
         ])
         const salesJson = await salesRes.json()
         const cylTxJson = await cylTxRes.json()
         const adminRefillsJson = await adminRefillsRes.json()
         const productsJson = await productsRes.json()
+        const dailySalesJson = await dailySalesRes.json()
         const dailyCylinderJson = await dailyCylinderRes.json()
         
         // Parse products data
@@ -1356,28 +1358,80 @@ export function Reports() {
           }
         }
 
-        // Cylinder transactions (deposits and returns) - Legacy processing for backward compatibility
+        // Legacy cylinder transaction processing as fallback (with multi-item support)
         const cylTxList: any[] = Array.isArray(cylTxJson?.data) ? cylTxJson.data : (Array.isArray(cylTxJson) ? cylTxJson : [])
+        console.log(`Admin DSR: Processing ${cylTxList.length} legacy cylinder transactions for ${dsrViewDate}`)
+        
         for (const t of cylTxList) {
           if (!inSelectedDay(t?.createdAt)) continue
-          // Admin cylinder transaction shape: single product per tx
-          const name = t?.product?.name || ''
-          const pid = t?.product?._id
-          const qty = Number(t?.quantity) || 0
           const type = String(t?.type || '').toLowerCase()
-          if (type === 'deposit') {
-            inc(dep, name, qty)
-            incId(depById, pid, qty)
-          } else if (type === 'return') {
-            inc(ret, name, qty)
-            incId(retById, pid, qty)
+          
+          // Process multi-item transactions properly
+          if (Array.isArray(t?.items) && t.items.length > 0) {
+            // Multi-item: process each item individually
+            for (const item of t.items) {
+              const name = item?.productName || ''
+              const pid = item?.productId
+              const qty = Number(item?.quantity) || 0
+              if (type === 'deposit') {
+                inc(dep, name, qty)
+                incId(depById, pid, qty)
+              } else if (type === 'return') {
+                inc(ret, name, qty)
+                incId(retById, pid, qty)
+              }
+            }
+          } else {
+            // Single item: use main transaction fields
+            const name = t?.product?.name || ''
+            const pid = t?.product?._id
+            const qty = Number(t?.quantity) || 0
+            if (type === 'deposit') {
+              inc(dep, name, qty)
+              incId(depById, pid, qty)
+            } else if (type === 'return') {
+              inc(ret, name, qty)
+              incId(retById, pid, qty)
+            }
           }
         }
 
-        // Enhanced Daily Cylinder Transactions - More accurate tracking from new system
+        // Enhanced Daily Sales - More accurate tracking from new system
+        const dailySalesList: any[] = Array.isArray(dailySalesJson?.data) ? dailySalesJson.data : []
+        
+        console.log(`Admin DSR: Processing ${dailySalesList.length} ADMIN daily sales entries for ${dsrViewDate}`)
+        console.log('Admin DSR: Daily sales data sample:', dailySalesList.slice(0, 3))
+        console.log('Admin DSR: Full daily sales response:', dailySalesJson)
+        
+        // Process daily sales for all types
+        for (const dailyEntry of dailySalesList) {
+          const productName = dailyEntry.productName || ''
+          const productId = dailyEntry.productId || ''
+          const category = dailyEntry.category || ''
+          
+          if (category === 'cylinder') {
+            // Full cylinder sales (direct cylinder sales)
+            const fullCylinderSalesQty = Number(dailyEntry.fullCylinderSalesQuantity) || 0
+            if (fullCylinderSalesQty > 0) {
+              inc(cyl, productName, fullCylinderSalesQty)
+              incId(cylById, productId, fullCylinderSalesQty)
+              console.log(`Admin DSR Daily Full Cylinder Sales: ${productName} - ${fullCylinderSalesQty} full cylinders sold`)
+            }
+            
+            // Gas sales (gas sold from cylinders) - tracked by cylinder
+            const gasSalesQty = Number(dailyEntry.gasSalesQuantity) || 0
+            if (gasSalesQty > 0) {
+              inc(gas, productName, gasSalesQty)
+              incId(gasById, productId, gasSalesQty)
+              console.log(`Admin DSR Daily Gas Sales: ${productName} - ${gasSalesQty} gas units sold`)
+            }
+          }
+        }
+
+        // Process daily cylinder transactions for deposits and returns
         const dailyCylinderList: any[] = Array.isArray(dailyCylinderJson?.data) ? dailyCylinderJson.data : []
         
-        console.log(`Admin DSR: Processing ${dailyCylinderList.length} ADMIN-ONLY daily cylinder transaction entries for ${dsrViewDate}`)
+        console.log(`Admin DSR: Processing ${dailyCylinderList.length} ADMIN daily cylinder transactions for ${dsrViewDate}`)
         
         for (const dailyEntry of dailyCylinderList) {
           const cylinderName = dailyEntry.cylinderName || ''
@@ -1419,6 +1473,7 @@ export function Reports() {
         console.log('Admin DSR Data Sources:', {
           adminRefillsCount: adminRefills.length,
           dailyCylinderCount: dailyCylinderList.length,
+          dailySalesCount: dailySalesList.length,
           salesCount: salesList.length,
           cylTxCount: cylTxList.length
         })

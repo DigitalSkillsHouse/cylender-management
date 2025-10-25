@@ -52,6 +52,17 @@ const DailyCylinderTransactionSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Gas sales (gas sold from full cylinders, converting them to empty)
+    gasSalesQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    gasSalesAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     // Employee tracking (optional for admin transactions)
     employeeId: {
       type: mongoose.Schema.Types.ObjectId,

@@ -319,6 +319,36 @@ export async function POST(request) {
                 
                 const cylinderProduct = products.find(p => p._id.toString() === item.cylinderProductId)
                 console.log(`✅ Cylinder conversion: ${cylinderProduct?.name || 'Cylinder'} - ${item.quantity} moved from Full to Empty`)
+                
+                // Record gas sale in daily sales tracking for DSR
+                try {
+                  const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+                  const DailySales = (await import('@/models/DailySales')).default
+                  
+                  await DailySales.findOneAndUpdate(
+                    {
+                      date: saleDate,
+                      productId: item.cylinderProductId
+                    },
+                    {
+                      $set: {
+                        productName: cylinderProduct?.name || 'Unknown Cylinder',
+                        category: 'cylinder',
+                        cylinderProductId: item.cylinderProductId,
+                        cylinderName: cylinderProduct?.name || 'Unknown Cylinder'
+                      },
+                      $inc: {
+                        gasSalesQuantity: item.quantity,
+                        gasSalesAmount: Number(item.price) * Number(item.quantity)
+                      }
+                    },
+                    { upsert: true, new: true }
+                  )
+                  
+                  console.log(`✅ Gas sale recorded in daily sales tracking for ${cylinderProduct?.name}: ${item.quantity} units`)
+                } catch (error) {
+                  console.error(`❌ Error recording gas sale in daily sales tracking:`, error)
+                }
               }
             }
             
@@ -349,64 +379,33 @@ export async function POST(request) {
                 })
                 console.log(`✅ Full cylinder sale: ${product.name} - ${item.quantity} full cylinders sold (customer takes cylinder)`)
                 
-                // Record full cylinder sale in daily tracking system
+                // Record full cylinder sale in daily sales tracking
                 try {
-                  const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD format
-                  const dailyTrackingData = {
-                    date: today,
-                    cylinderProductId: product._id.toString(),
-                    cylinderName: product.name,
-                    cylinderSize: product.cylinderSize || 'Unknown Size',
-                    fullCylinderSalesQuantity: item.quantity,
-                    fullCylinderSalesAmount: Number(item.price) * Number(item.quantity),
-                    employeeId: null, // Admin transaction - no employee
-                    isEmployeeTransaction: false // This is admin sale
-                  }
+                  const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+                  const DailySales = (await import('@/models/DailySales')).default
                   
-                  console.log(`📊 Recording daily full cylinder sale:`, dailyTrackingData)
-                  
-                  // Use direct model import instead of HTTP fetch to avoid issues
-                  const DailyCylinderTransaction = (await import('@/models/DailyCylinderTransaction')).default
-                  
-                  const filter = {
-                    date: dailyTrackingData.date,
-                    cylinderProductId: dailyTrackingData.cylinderProductId,
-                    employeeId: null
-                  }
-                  
-                  const updateData = {
-                    cylinderName: dailyTrackingData.cylinderName,
-                    cylinderSize: dailyTrackingData.cylinderSize,
-                    isEmployeeTransaction: false,
-                    $inc: {
-                      fullCylinderSalesQuantity: dailyTrackingData.fullCylinderSalesQuantity,
-                      fullCylinderSalesAmount: dailyTrackingData.fullCylinderSalesAmount
-                    }
-                  }
-                  
-                  const dailyRecord = await DailyCylinderTransaction.findOneAndUpdate(
-                    filter,
+                  await DailySales.findOneAndUpdate(
+                    {
+                      date: saleDate,
+                      productId: product._id
+                    },
                     {
                       $set: {
-                        cylinderName: updateData.cylinderName,
-                        cylinderSize: updateData.cylinderSize,
-                        isEmployeeTransaction: updateData.isEmployeeTransaction
+                        productName: product.name,
+                        category: 'cylinder',
+                        cylinderStatus: 'full'
                       },
-                      $inc: updateData.$inc
+                      $inc: {
+                        fullCylinderSalesQuantity: item.quantity,
+                        fullCylinderSalesAmount: Number(item.price) * Number(item.quantity),
+                        cylinderSalesQuantity: item.quantity,
+                        cylinderSalesAmount: Number(item.price) * Number(item.quantity)
+                      }
                     },
-                    { 
-                      upsert: true, 
-                      new: true,
-                      setDefaultsOnInsert: true
-                    }
+                    { upsert: true, new: true }
                   )
                   
-                  console.log(`✅ Daily full cylinder sale recorded successfully:`, {
-                    id: dailyRecord._id,
-                    cylinderName: dailyRecord.cylinderName,
-                    fullCylinderSalesQuantity: dailyRecord.fullCylinderSalesQuantity,
-                    totalAmount: dailyRecord.fullCylinderSalesAmount
-                  })
+                  console.log(`✅ Full cylinder sale recorded in daily sales tracking: ${product.name} - ${item.quantity} units`)
                 } catch (dailyTrackingError) {
                   console.error(`❌ Error recording daily full cylinder sale:`, dailyTrackingError)
                 }
