@@ -65,6 +65,12 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const [dailyAggDeposits, setDailyAggDeposits] = useState<Record<string, number>>({})
   const [dailyAggReturns, setDailyAggReturns] = useState<Record<string, number>>({})
   
+  // Enhanced daily sales tracking
+  const [dailyGasSales, setDailyGasSales] = useState<Record<string, number>>({})
+  const [dailyFullCylinderSales, setDailyFullCylinderSales] = useState<Record<string, number>>({})
+  const [dailyEmptyCylinderSales, setDailyEmptyCylinderSales] = useState<Record<string, number>>({})
+  const [dailyCylinderRefills, setDailyCylinderRefills] = useState<Record<string, number>>({})
+  
   // Inventory data for automated DSR
   const [inventoryData, setInventoryData] = useState<Record<string, { availableFull: number; availableEmpty: number; currentStock: number }>>({})
 
@@ -150,12 +156,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const fetchDsrData = async (date: string) => {
     setLoading(true)
     try {
-      const [salesRes, cylTxRes, adminRefillsRes, productsRes, dailyCylinderRes] = await Promise.all([
+      const [salesRes, cylTxRes, adminRefillsRes, productsRes, dailyCylinderRes, dailySalesRes, dailyRefillsRes] = await Promise.all([
         fetch('/api/sales', { cache: 'no-store' }),
         fetch('/api/cylinders', { cache: 'no-store' }),
         fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }),
         fetch('/api/products', { cache: 'no-store' }),
-        fetch(`/api/daily-cylinder-transactions?date=${date}`, { cache: 'no-store' })
+        fetch(`/api/daily-cylinder-transactions?date=${date}`, { cache: 'no-store' }),
+        fetch(`/api/daily-sales?date=${date}`, { cache: 'no-store' }), // Enhanced daily sales data
+        fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }) // Daily refills data
       ])
 
       const salesJson = await salesRes.json()
@@ -163,6 +171,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       const adminRefillsJson = await adminRefillsRes.json()
       const productsJson = await productsRes.json()
       const dailyCylinderJson = await dailyCylinderRes.json()
+      const dailySalesJson = await dailySalesRes.json()
+      const dailyRefillsJson = await dailyRefillsRes.json()
 
       // Process aggregated data
       const inSelectedDay = (dateStr: string) => {
@@ -174,6 +184,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       // Initialize aggregation objects
       const gas: Record<string, number> = {}
       const cyl: Record<string, number> = {}
+      const fullCyl: Record<string, number> = {} // Full cylinder sales
+      const emptyCyl: Record<string, number> = {} // Empty cylinder sales
       const ref: Record<string, number> = {}
       const dep: Record<string, number> = {}
       const ret: Record<string, number> = {}
@@ -204,6 +216,60 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           }
         }
       }
+
+      // Process enhanced daily sales data for accurate tracking
+      const dailySalesList: any[] = Array.isArray(dailySalesJson?.data) ? dailySalesJson.data : []
+      console.log(`[DSR] Processing ${dailySalesList.length} daily sales records for ${date}`)
+      
+      for (const dailySale of dailySalesList) {
+        const productName = dailySale.productName || ''
+        const key = normalizeName(productName)
+        
+        // Gas Sales
+        if (dailySale.gasSalesQuantity > 0) {
+          inc(gas, key, dailySale.gasSalesQuantity)
+          console.log(`[DSR] Gas Sale: ${productName} = ${dailySale.gasSalesQuantity}`)
+        }
+        
+        // Full Cylinder Sales
+        if (dailySale.fullCylinderSalesQuantity > 0) {
+          inc(fullCyl, key, dailySale.fullCylinderSalesQuantity)
+          console.log(`[DSR] Full Cylinder Sale: ${productName} = ${dailySale.fullCylinderSalesQuantity}`)
+        }
+        
+        // Empty Cylinder Sales
+        if (dailySale.emptyCylinderSalesQuantity > 0) {
+          inc(emptyCyl, key, dailySale.emptyCylinderSalesQuantity)
+          console.log(`[DSR] Empty Cylinder Sale: ${productName} = ${dailySale.emptyCylinderSalesQuantity}`)
+        }
+        
+        // Cylinder Refills (from gas purchases with empty cylinders)
+        if (dailySale.cylinderRefillsQuantity > 0) {
+          inc(ref, key, dailySale.cylinderRefillsQuantity)
+          console.log(`[DSR] Cylinder Refill: ${productName} = ${dailySale.cylinderRefillsQuantity}`)
+        }
+      }
+      
+      // Process daily refills data (from DailyRefill model)
+      const dailyRefillsList: any[] = Array.isArray(dailyRefillsJson?.data) ? dailyRefillsJson.data : []
+      console.log(`[DSR] Processing ${dailyRefillsList.length} daily refill records for ${date}`)
+      
+      for (const refill of dailyRefillsList) {
+        const cylinderName = refill.cylinderName || ''
+        const key = normalizeName(cylinderName)
+        const refillQuantity = Number(refill.todayRefill) || 0
+        
+        if (refillQuantity > 0) {
+          inc(ref, key, refillQuantity)
+          console.log(`[DSR] Daily Refill: ${cylinderName} = ${refillQuantity}`)
+        }
+      }
+      
+      // Set state variables for use in component render
+      setDailyGasSales(gas)
+      setDailyFullCylinderSales(fullCyl)
+      setDailyEmptyCylinderSales(emptyCyl)
+      setDailyCylinderRefills(ref)
 
       // Process cylinder transactions
       const cylTxList: any[] = Array.isArray(cylTxJson?.data) ? cylTxJson.data : []
@@ -492,14 +558,15 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   <TableRow>
                     <TableHead rowSpan={2} className="border-r">Items</TableHead>
                     <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
-                    <TableHead colSpan={5} className="text-center border-r">During the day</TableHead>
+                    <TableHead colSpan={6} className="text-center border-r">During the day</TableHead>
                     <TableHead colSpan={2} className="text-center">Closing</TableHead>
                   </TableRow>
                   <TableRow>
                     <TableHead className="text-center">Full</TableHead>
                     <TableHead className="text-center border-r">Empty</TableHead>
                     <TableHead className="text-center">Refilled</TableHead>
-                    <TableHead className="text-center">Cylinder Sales</TableHead>
+                    <TableHead className="text-center">Full Cyl Sales</TableHead>
+                    <TableHead className="text-center">Empty Cyl Sales</TableHead>
                     <TableHead className="text-center">Gas Sales</TableHead>
                     <TableHead className="text-center">Deposit Cylinder</TableHead>
                     <TableHead className="text-center border-r">Return Cylinder</TableHead>
@@ -515,9 +582,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
                     const openingFull = entry?.openingFull ?? inventoryInfo.availableFull
                     const openingEmpty = entry?.openingEmpty ?? inventoryInfo.availableEmpty
-                    const refilled = dailyAggRefills[key] ?? 0
-                    const cylinderSales = dailyAggCylinderSales[key] ?? 0
-                    const gasSales = dailyAggGasSales[key] ?? 0
+                    const refilled = dailyCylinderRefills[key] ?? 0
+                    const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
+                    const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
+                    const gasSales = dailyGasSales[key] ?? 0
                     const deposits = dailyAggDeposits[key] ?? 0
                     const returns = dailyAggReturns[key] ?? 0
                     const closingFull = entry?.closingFull ?? 0
@@ -529,7 +597,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                         <TableCell className="text-center">{openingFull}</TableCell>
                         <TableCell className="text-center border-r">{openingEmpty}</TableCell>
                         <TableCell className="text-center">{refilled}</TableCell>
-                        <TableCell className="text-center">{cylinderSales}</TableCell>
+                        <TableCell className="text-center">{fullCylinderSales}</TableCell>
+                        <TableCell className="text-center">{emptyCylinderSales}</TableCell>
                         <TableCell className="text-center">{gasSales}</TableCell>
                         <TableCell className="text-center">{deposits}</TableCell>
                         <TableCell className="text-center border-r">{returns}</TableCell>

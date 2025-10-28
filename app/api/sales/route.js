@@ -283,6 +283,129 @@ export async function POST(request) {
       throw new Error(`Failed to save sale after ${maxAttempts} attempts`)
     }
 
+    // Create comprehensive daily sales tracking records for DSR
+    try {
+      const DailySales = (await import('@/models/DailySales')).default
+      const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+      
+      console.log(`[Daily Sales Tracking] Processing ${items.length} items for date: ${saleDate}`)
+      
+      for (const item of items) {
+        const product = products.find(p => p._id.toString() === item.product)
+        if (!product) continue
+        
+        const quantity = Number(item.quantity) || 0
+        const amount = Number(item.price) * quantity
+        
+        if (quantity <= 0) continue
+        
+        console.log(`[Daily Sales Tracking] Processing: ${product.name}, Category: ${item.category || product.category}, Status: ${item.cylinderStatus}, Qty: ${quantity}`)
+        
+        // Determine the type of sale and update accordingly
+        if (product.category === 'gas' || item.category === 'gas') {
+          // Gas Sales
+          await DailySales.findOneAndUpdate(
+            {
+              date: saleDate,
+              productId: product._id
+            },
+            {
+              $set: {
+                productName: product.name,
+                category: 'gas'
+              },
+              $inc: {
+                gasSalesQuantity: quantity,
+                gasSalesAmount: amount
+              }
+            },
+            { upsert: true, new: true }
+          )
+          console.log(`✅ Gas sale tracked: ${product.name} - ${quantity} units`)
+          
+        } else if (product.category === 'cylinder' || item.category === 'cylinder') {
+          // Cylinder Sales - distinguish between Full and Empty
+          if (item.cylinderStatus === 'full') {
+            // Full Cylinder Sales
+            await DailySales.findOneAndUpdate(
+              {
+                date: saleDate,
+                productId: product._id
+              },
+              {
+                $set: {
+                  productName: product.name,
+                  category: 'cylinder',
+                  cylinderStatus: 'full'
+                },
+                $inc: {
+                  fullCylinderSalesQuantity: quantity,
+                  fullCylinderSalesAmount: amount,
+                  cylinderSalesQuantity: quantity,
+                  cylinderSalesAmount: amount
+                }
+              },
+              { upsert: true, new: true }
+            )
+            console.log(`✅ Full cylinder sale tracked: ${product.name} - ${quantity} units`)
+            
+          } else if (item.cylinderStatus === 'empty') {
+            // Empty Cylinder Sales
+            await DailySales.findOneAndUpdate(
+              {
+                date: saleDate,
+                productId: product._id
+              },
+              {
+                $set: {
+                  productName: product.name,
+                  category: 'cylinder',
+                  cylinderStatus: 'empty'
+                },
+                $inc: {
+                  emptyCylinderSalesQuantity: quantity,
+                  emptyCylinderSalesAmount: amount,
+                  cylinderSalesQuantity: quantity,
+                  cylinderSalesAmount: amount
+                }
+              },
+              { upsert: true, new: true }
+            )
+            console.log(`✅ Empty cylinder sale tracked: ${product.name} - ${quantity} units`)
+            
+          } else {
+            // Default cylinder sales (assume full if not specified)
+            await DailySales.findOneAndUpdate(
+              {
+                date: saleDate,
+                productId: product._id
+              },
+              {
+                $set: {
+                  productName: product.name,
+                  category: 'cylinder',
+                  cylinderStatus: 'full'
+                },
+                $inc: {
+                  fullCylinderSalesQuantity: quantity,
+                  fullCylinderSalesAmount: amount,
+                  cylinderSalesQuantity: quantity,
+                  cylinderSalesAmount: amount
+                }
+              },
+              { upsert: true, new: true }
+            )
+            console.log(`✅ Default cylinder sale tracked as full: ${product.name} - ${quantity} units`)
+          }
+        }
+      }
+      
+      console.log(`✅ Daily sales tracking completed for ${items.length} items`)
+    } catch (dailyTrackingError) {
+      console.error(`❌ Error in daily sales tracking:`, dailyTrackingError)
+      // Don't fail the sale if daily tracking fails
+    }
+
     // Handle inventory updates for gas sales with cylinder conversion logic
     try {
       const InventoryItem = (await import('@/models/InventoryItem')).default
@@ -379,44 +502,58 @@ export async function POST(request) {
                 })
                 console.log(`✅ Full cylinder sale: ${product.name} - ${item.quantity} full cylinders sold (customer takes cylinder)`)
                 
-                // Record full cylinder sale in daily sales tracking
-                try {
-                  const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
-                  const DailySales = (await import('@/models/DailySales')).default
-                  
-                  await DailySales.findOneAndUpdate(
-                    {
-                      date: saleDate,
-                      productId: product._id
-                    },
-                    {
-                      $set: {
-                        productName: product.name,
-                        category: 'cylinder',
-                        cylinderStatus: 'full'
-                      },
-                      $inc: {
-                        fullCylinderSalesQuantity: item.quantity,
-                        fullCylinderSalesAmount: Number(item.price) * Number(item.quantity),
-                        cylinderSalesQuantity: item.quantity,
-                        cylinderSalesAmount: Number(item.price) * Number(item.quantity)
-                      }
-                    },
-                    { upsert: true, new: true }
-                  )
-                  
-                  console.log(`✅ Full cylinder sale recorded in daily sales tracking: ${product.name} - ${item.quantity} units`)
-                } catch (dailyTrackingError) {
-                  console.error(`❌ Error recording daily full cylinder sale:`, dailyTrackingError)
-                }
+                // Note: Full cylinder sale already recorded in daily sales tracking loop above
+                // No need to record again here to avoid double increment
                 
                 // Also deduct gas stock since full cylinder contains gas
                 // Try multiple ways to find the gas product ID
                 let gasProductId = item.gasProductId || item.gasProduct
                 
-                // If no explicit gas product ID, try to find a matching gas product by cylinder size
+                console.log(`🔍 Full cylinder sale - finding gas for: "${product.name}"`)
+                console.log(`🔍 Available products:`, products.map(p => ({
+                  id: p._id.toString(),
+                  name: p.name,
+                  category: p.category,
+                  cylinderSize: p.cylinderSize,
+                  currentStock: p.currentStock
+                })))
+                
+                // If no explicit gas product ID, try to find a matching gas product by name similarity
+                if (!gasProductId) {
+                  console.log(`🔍 No gasProductId found, searching for gas by name similarity`)
+                  
+                  // Extract key words from cylinder name for matching
+                  const cylinderName = product.name.toLowerCase()
+                  const keyWords = cylinderName
+                    .replace(/cylinder|cylinders/g, '') // Remove "cylinder" words
+                    .replace(/\d+/g, '') // Remove numbers
+                    .split(/\s+/) // Split by spaces
+                    .filter(word => word.length > 2) // Keep words longer than 2 chars
+                  
+                  console.log(`🔍 Cylinder name: "${product.name}", Key words: [${keyWords.join(', ')}]`)
+                  
+                  // Find gas products that contain any of these key words
+                  const matchingGasProducts = products.filter(p => {
+                    if (p.category !== 'gas' || (p.currentStock || 0) <= 0) return false
+                    
+                    const gasName = p.name.toLowerCase()
+                    return keyWords.some(word => gasName.includes(word))
+                  })
+                  
+                  console.log(`🔍 Found ${matchingGasProducts.length} matching gas products:`, 
+                    matchingGasProducts.map(p => ({ name: p.name, stock: p.currentStock })))
+                  
+                  if (matchingGasProducts.length > 0) {
+                    // Prefer gas with same cylinder size, or pick the first one
+                    let selectedGas = matchingGasProducts.find(p => p.cylinderSize === product.cylinderSize) || matchingGasProducts[0]
+                    gasProductId = selectedGas._id.toString()
+                    console.log(`🎯 Auto-selected gas product: ${selectedGas.name} (${gasProductId})`)
+                  }
+                }
+                
+                // If still no match, try by cylinder size
                 if (!gasProductId && product.cylinderSize) {
-                  console.log(`🔍 No gasProductId found, searching for gas by cylinder size: ${product.cylinderSize}`)
+                  console.log(`🔍 Still no match, trying by cylinder size: ${product.cylinderSize}`)
                   const matchingGasProducts = products.filter(p => 
                     p.category === 'gas' && 
                     p.cylinderSize === product.cylinderSize &&
@@ -424,7 +561,7 @@ export async function POST(request) {
                   )
                   if (matchingGasProducts.length > 0) {
                     gasProductId = matchingGasProducts[0]._id.toString()
-                    console.log(`🎯 Auto-selected gas product: ${matchingGasProducts[0].name} (${gasProductId})`)
+                    console.log(`🎯 Auto-selected gas product by size: ${matchingGasProducts[0].name} (${gasProductId})`)
                   }
                 }
                 
@@ -469,13 +606,49 @@ export async function POST(request) {
                       lastUpdatedAt: new Date()
                     })
                     
-                    // Also update gas Product model
-                    const gasProduct = products.find(p => p._id.toString() === gasProductId)
+                    // Also update gas Product model - load the gas product separately since it's not in the sale items
+                    const gasProduct = await Product.findById(gasProductId)
                     if (gasProduct) {
                       await Product.findByIdAndUpdate(gasProductId, {
                         currentStock: Math.max(0, gasProduct.currentStock - item.quantity)
                       })
                       console.log(`✅ Gas stock deducted: ${gasProduct.name} decreased by ${item.quantity} (from full cylinder sale)`)
+                      
+                      // ALSO record this as a gas sale in daily sales tracking under the CYLINDER product
+                      // This ensures DSR shows gas sales under the cylinder that contained the gas
+                      try {
+                        const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+                        const DailySales = (await import('@/models/DailySales')).default
+                        
+                        console.log(`🔧 About to record gas sale for cylinder: ${product.name}, Date: ${saleDate}, ProductId: ${product._id}`)
+                        
+                        const gasUpdateResult = await DailySales.findOneAndUpdate(
+                          {
+                            date: saleDate,
+                            productId: product._id  // Use cylinder product ID, not gas product ID
+                          },
+                          {
+                            $inc: {
+                              gasSalesQuantity: item.quantity,  // Add gas sales to cylinder record
+                              gasSalesAmount: Number(item.price) * Number(item.quantity)
+                            }
+                          },
+                          { upsert: false, new: true }  // Don't upsert, record should already exist
+                        )
+                        
+                        console.log(`✅ Gas sale recorded under cylinder product in daily sales tracking: ${product.name} - ${item.quantity} units (from full cylinder sale)`)
+                        console.log(`🔧 Updated record:`, gasUpdateResult ? {
+                          productName: gasUpdateResult.productName,
+                          fullCylinderSalesQuantity: gasUpdateResult.fullCylinderSalesQuantity,
+                          gasSalesQuantity: gasUpdateResult.gasSalesQuantity
+                        } : 'No record returned')
+                      } catch (dailyGasTrackingError) {
+                        console.error(`❌ Error recording daily gas sale from full cylinder:`, dailyGasTrackingError)
+                        console.error(`❌ Error details:`, {
+                          message: dailyGasTrackingError.message,
+                          stack: dailyGasTrackingError.stack
+                        })
+                      }
                     }
                   } else {
                     console.log(`❌ Gas inventory not found for product ID: ${gasProductId}`)

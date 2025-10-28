@@ -51,6 +51,20 @@ const DailySalesSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Empty cylinder sales specifically
+  emptyCylinderSalesQuantity: {
+    type: Number,
+    default: 0
+  },
+  emptyCylinderSalesAmount: {
+    type: Number,
+    default: 0
+  },
+  // Cylinder refills (empty cylinders filled with gas)
+  cylinderRefillsQuantity: {
+    type: Number,
+    default: 0
+  },
   // Cylinder product info for gas sales (to link gas to cylinder)
   cylinderProductId: {
     type: mongoose.Schema.Types.ObjectId,

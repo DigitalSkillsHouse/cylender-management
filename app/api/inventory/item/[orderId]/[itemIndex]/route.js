@@ -437,6 +437,34 @@ export async function PATCH(request, { params }) {
                     emptyCylinderRecord.remainingQuantity = Math.max(0, (emptyCylinderRecord.remainingQuantity || 0) - (item.quantity || 0))
                     await emptyCylinderRecord.save()
                     console.log(`✅ Reduced empty cylinder stock by ${item.quantity}`)
+                    
+                    // 4. Record cylinder refill in daily sales tracking for DSR
+                    try {
+                      const DailySales = (await import('@/models/DailySales')).default
+                      const refillDate = new Date().toISOString().slice(0, 10)
+                      
+                      await DailySales.findOneAndUpdate(
+                        {
+                          date: refillDate,
+                          productId: emptyCylinderRecord.product._id
+                        },
+                        {
+                          $set: {
+                            productName: emptyCylinderRecord.product.name,
+                            category: 'cylinder',
+                            cylinderStatus: 'refill'
+                          },
+                          $inc: {
+                            cylinderRefillsQuantity: item.quantity || 0
+                          }
+                        },
+                        { upsert: true, new: true }
+                      )
+                      
+                      console.log(`✅ Cylinder refill tracked in daily sales: ${emptyCylinderRecord.product.name} - ${item.quantity} units`)
+                    } catch (dailyTrackingError) {
+                      console.error(`❌ Error tracking cylinder refill:`, dailyTrackingError)
+                    }
                   }
                 } catch (cylinderError) {
                   console.error("Failed to process empty cylinder conversion:", cylinderError)
