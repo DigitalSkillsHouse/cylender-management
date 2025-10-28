@@ -156,9 +156,15 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const fetchDsrData = async (date: string) => {
     setLoading(true)
     try {
-      const [salesRes, cylTxRes, adminRefillsRes, productsRes, dailyCylinderRes, dailySalesRes, dailyRefillsRes] = await Promise.all([
+      const [
+        salesRes,
+        adminRefillsRes,
+        productsRes,
+        dailyCylinderRes,
+        dailySalesRes,
+        dailyRefillsRes
+      ] = await Promise.all([
         fetch('/api/sales', { cache: 'no-store' }),
-        fetch('/api/cylinders', { cache: 'no-store' }),
         fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }),
         fetch('/api/products', { cache: 'no-store' }),
         fetch(`/api/daily-cylinder-transactions?date=${date}`, { cache: 'no-store' }),
@@ -167,7 +173,6 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       ])
 
       const salesJson = await salesRes.json()
-      const cylTxJson = await cylTxRes.json()
       const adminRefillsJson = await adminRefillsRes.json()
       const productsJson = await productsRes.json()
       const dailyCylinderJson = await dailyCylinderRes.json()
@@ -271,27 +276,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       setDailyEmptyCylinderSales(emptyCyl)
       setDailyCylinderRefills(ref)
 
-      // Process cylinder transactions
-      const cylTxList: any[] = Array.isArray(cylTxJson?.data) ? cylTxJson.data : []
-      for (const tx of cylTxList) {
-        if (!inSelectedDay(tx?.createdAt)) continue
-        
-        const txType = tx?.type
-        const quantity = Number(tx?.quantity) || 0
-        const productName = tx?.product?.name || ''
-        
-        if (quantity <= 0 || !productName) continue
-        
-        const key = normalizeName(productName)
-        
-        if (txType === 'refill') {
-          inc(ref, key, quantity)
-        } else if (txType === 'deposit') {
-          inc(dep, key, quantity)
-        } else if (txType === 'return') {
-          inc(ret, key, quantity)
-        }
-      }
+      // Note: Removed old cylinder transaction processing to avoid double counting
+      // Now using unified daily cylinder transactions from DailyCylinderTransaction model
 
       // Process daily cylinder transactions
       const dailyCylinderList: any[] = Array.isArray(dailyCylinderJson?.data) ? dailyCylinderJson.data : []

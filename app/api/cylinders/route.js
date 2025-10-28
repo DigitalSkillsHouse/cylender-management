@@ -344,9 +344,15 @@ export async function POST(request) {
       .populate("supplier", "companyName contactPerson phone email")
       .populate("product", "name category cylinderSize");
 
-    // Update daily cylinder tracking for deposits and returns
+    // Update daily cylinder tracking for deposits and returns (same system as employee cylinders)
     if (populatedTransaction.type === 'deposit' || populatedTransaction.type === 'return') {
-      await updateDailyCylinderTracking(populatedTransaction, false) // Admin transaction
+      try {
+        await updateDailyCylinderTracking(populatedTransaction, false) // Admin transaction
+        console.log(`✅ [ADMIN CYLINDERS] Daily cylinder tracking updated for ${populatedTransaction.type}: ${populatedTransaction.product?.name || 'Unknown Product'}`)
+      } catch (trackingError) {
+        console.error(`❌ [ADMIN CYLINDERS] Failed to update daily cylinder tracking:`, trackingError.message)
+        // Don't fail the entire transaction if tracking fails
+      }
     }
 
     return NextResponse.json(populatedTransaction, { status: 201 });
