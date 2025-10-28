@@ -366,6 +366,15 @@ export async function POST(request) {
 
     console.log(`✅ [EMPLOYEE SALES] Inventory updates completed successfully`)
 
+    // Add daily sales tracking for employee DSR (same logic as admin sales)
+    try {
+      await updateEmployeeDailySalesTracking(savedSale, employeeId)
+      console.log(`✅ [EMPLOYEE SALES] Daily sales tracking updated successfully`)
+    } catch (trackingError) {
+      console.error(`❌ [EMPLOYEE SALES] Failed to update daily sales tracking:`, trackingError.message)
+      // Don't fail the entire sale if tracking fails
+    }
+
     // Populate the created sale for response
     const populatedSale = await EmployeeSale.findById(savedSale._id)
       .populate("customer", "name phone address email")
@@ -459,4 +468,158 @@ async function updateDailySalesAggregation(sale, employeeId) {
   }
   
   console.log(`✅ [DAILY AGGREGATION] Completed processing sale ${sale.invoiceNumber}`)
+}
+
+// Helper function to update employee daily sales tracking (same logic as admin sales)
+async function updateEmployeeDailySalesTracking(sale, employeeId) {
+  const saleDate = new Date(sale.createdAt).toISOString().slice(0, 10) // YYYY-MM-DD format
+  const DailyEmployeeSales = (await import('@/models/DailyEmployeeSales')).default
+  
+  console.log(`📊 [EMPLOYEE DAILY SALES] Processing ${sale.items.length} items for date: ${saleDate}, employee: ${employeeId}`)
+  
+  // Process each item in the sale
+  for (const item of sale.items) {
+    const product = await Product.findById(item.product)
+    if (!product) {
+      console.warn(`⚠️ [EMPLOYEE DAILY SALES] Product not found: ${item.product}`)
+      continue
+    }
+    
+    const quantity = Number(item.quantity) || 0
+    const amount = Number(item.price) * quantity || 0
+    
+    if (quantity <= 0) continue
+    
+    console.log(`[EMPLOYEE DAILY SALES] Processing: ${product.name}, Category: ${item.category || product.category}, Status: ${item.cylinderStatus}, Qty: ${quantity}`)
+    
+    // Determine the type of sale and update accordingly
+    if (product.category === 'gas' || item.category === 'gas') {
+      // Gas Sales - record gas sales and handle cylinder conversion
+      await DailyEmployeeSales.findOneAndUpdate(
+        {
+          date: saleDate,
+          employeeId: employeeId,
+          productId: product._id
+        },
+        {
+          $set: {
+            productName: product.name,
+            category: 'gas'
+          },
+          $inc: {
+            gasSalesQuantity: quantity,
+            gasSalesAmount: amount
+          }
+        },
+        { upsert: true, new: true }
+      )
+      console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale tracked: ${product.name} - ${quantity} units`)
+      
+      // Also record cylinder usage if cylinderProductId is provided
+      if (item.cylinderProductId) {
+        const cylinderProduct = await Product.findById(item.cylinderProductId)
+        if (cylinderProduct) {
+          await DailyEmployeeSales.findOneAndUpdate(
+            {
+              date: saleDate,
+              employeeId: employeeId,
+              productId: item.cylinderProductId
+            },
+            {
+              $set: {
+                productName: cylinderProduct.name,
+                category: 'cylinder',
+                cylinderStatus: null
+              },
+              $inc: {
+                gasSalesQuantity: quantity,  // Gas was sold using this cylinder
+                gasSalesAmount: amount,
+                fullCylinderSalesQuantity: quantity,  // Customer took full cylinder
+                fullCylinderSalesAmount: amount
+              }
+            },
+            { upsert: true, new: true }
+          )
+          console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale + cylinder usage recorded for ${cylinderProduct.name}: ${quantity} units`)
+        }
+      }
+      
+    } else if (product.category === 'cylinder' || item.category === 'cylinder') {
+      // Cylinder Sales - distinguish between Full and Empty
+      if (item.cylinderStatus === 'full') {
+        // Full Cylinder Sales
+        await DailyEmployeeSales.findOneAndUpdate(
+          {
+            date: saleDate,
+            employeeId: employeeId,
+            productId: product._id
+          },
+          {
+            $set: {
+              productName: product.name,
+              category: 'cylinder',
+              cylinderStatus: 'full'
+            },
+            $inc: {
+              fullCylinderSalesQuantity: quantity,
+              fullCylinderSalesAmount: amount,
+              cylinderSalesQuantity: quantity,
+              cylinderSalesAmount: amount
+            }
+          },
+          { upsert: true, new: true }
+        )
+        console.log(`✅ [EMPLOYEE DAILY SALES] Full cylinder sale tracked: ${product.name} - ${quantity} units`)
+        
+        // Also record gas sales for full cylinder (gas contained in cylinder)
+        if (item.gasProductId) {
+          const gasProduct = await Product.findById(item.gasProductId)
+          if (gasProduct) {
+            await DailyEmployeeSales.findOneAndUpdate(
+              {
+                date: saleDate,
+                employeeId: employeeId,
+                productId: product._id  // Record under cylinder product
+              },
+              {
+                $inc: {
+                  gasSalesQuantity: quantity,  // Add gas sales to cylinder record
+                  gasSalesAmount: amount
+                }
+              },
+              { upsert: false, new: true }  // Don't upsert, record should already exist
+            )
+            console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale recorded under cylinder product: ${product.name} - ${quantity} units (from full cylinder sale)`)
+          }
+        }
+        
+      } else {
+        // Empty Cylinder Sales
+        await DailyEmployeeSales.findOneAndUpdate(
+          {
+            date: saleDate,
+            employeeId: employeeId,
+            productId: product._id
+          },
+          {
+            $set: {
+              productName: product.name,
+              category: 'cylinder',
+              cylinderStatus: 'empty'
+            },
+            $inc: {
+              emptyCylinderSalesQuantity: quantity,
+              emptyCylinderSalesAmount: amount,
+              cylinderSalesQuantity: quantity,
+              cylinderSalesAmount: amount
+            }
+          },
+          { upsert: true, new: true }
+        )
+        console.log(`✅ [EMPLOYEE DAILY SALES] Empty cylinder sale tracked: ${product.name} - ${quantity} units`)
+      }
+    }
+  }
+  
+  console.log(`✅ [EMPLOYEE DAILY SALES] Daily sales tracking completed for ${sale.items.length} items`)
 }
