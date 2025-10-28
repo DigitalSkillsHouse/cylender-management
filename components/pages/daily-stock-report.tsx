@@ -167,8 +167,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         fetch('/api/sales', { cache: 'no-store' }),
         fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }),
         fetch('/api/products', { cache: 'no-store' }),
-        fetch(`/api/daily-cylinder-transactions?date=${date}`, { cache: 'no-store' }),
-        fetch(`/api/daily-sales?date=${date}`, { cache: 'no-store' }), // Enhanced daily sales data
+        fetch(`/api/daily-cylinder-transactions?date=${date}${user.role === 'employee' ? `&employeeId=${user.id}` : ''}`, { cache: 'no-store' }),
+        // Fetch employee sales data if user is employee, otherwise admin sales data
+        user.role === 'employee' 
+          ? fetch(`/api/daily-employee-sales?date=${date}&employeeId=${user.id}`, { cache: 'no-store' })
+          : fetch(`/api/daily-sales?date=${date}`, { cache: 'no-store' }),
         fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }) // Daily refills data
       ])
 
