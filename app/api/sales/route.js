@@ -428,6 +428,7 @@ export async function POST(request) {
             }
             
             // Find related cylinder from cylinderProductId (set by frontend)
+            console.log(`🔍 Gas sale - checking for cylinder: cylinderProductId = ${item.cylinderProductId}`)
             if (item.cylinderProductId) {
               const cylinderInventory = await InventoryItem.findOne({ product: item.cylinderProductId })
               if (cylinderInventory) {
@@ -440,10 +441,11 @@ export async function POST(request) {
                   lastUpdatedAt: new Date()
                 })
                 
-                const cylinderProduct = products.find(p => p._id.toString() === item.cylinderProductId)
+                // Load cylinder product separately since it might not be in the sale items
+                const cylinderProduct = await Product.findById(item.cylinderProductId)
                 console.log(`✅ Cylinder conversion: ${cylinderProduct?.name || 'Cylinder'} - ${item.quantity} moved from Full to Empty`)
                 
-                // Record gas sale in daily sales tracking for DSR
+                // Record BOTH gas sale AND cylinder usage in daily sales tracking for DSR
                 try {
                   const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
                   const DailySales = (await import('@/models/DailySales')).default
@@ -461,16 +463,33 @@ export async function POST(request) {
                         cylinderName: cylinderProduct?.name || 'Unknown Cylinder'
                       },
                       $inc: {
+                        // Record gas sales (gas was sold to customer)
                         gasSalesQuantity: item.quantity,
-                        gasSalesAmount: Number(item.price) * Number(item.quantity)
+                        gasSalesAmount: Number(item.price) * Number(item.quantity),
+                        // Record cylinder transactions (customer brought empty, took full)
+                        fullCylinderSalesQuantity: item.quantity,  // Customer took full cylinder
+                        // Note: Don't increment emptyCylinderSalesQuantity here as customer returned empty (not sold empty)
+                        // The DSR should show this as cylinder usage, not cylinder sales
                       }
                     },
                     { upsert: true, new: true }
                   )
                   
-                  console.log(`✅ Gas sale recorded in daily sales tracking for ${cylinderProduct?.name}: ${item.quantity} units`)
+                  console.log(`✅ Gas sale + cylinder usage recorded in daily sales tracking for ${cylinderProduct?.name}: ${item.quantity} units gas, ${item.quantity} cylinders used`)
+                  console.log(`🔧 Daily sales record updated:`, {
+                    date: saleDate,
+                    productId: item.cylinderProductId,
+                    productName: cylinderProduct?.name,
+                    gasSalesQuantity: item.quantity,
+                    fullCylinderSalesQuantity: item.quantity
+                  })
                 } catch (error) {
-                  console.error(`❌ Error recording gas sale in daily sales tracking:`, error)
+                  console.error(`❌ Error recording gas sale + cylinder usage in daily sales tracking:`, error)
+                  console.error(`❌ Error details:`, {
+                    message: error.message,
+                    cylinderProductId: item.cylinderProductId,
+                    cylinderProductName: cylinderProduct?.name
+                  })
                 }
               }
             }
