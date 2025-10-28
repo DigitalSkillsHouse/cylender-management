@@ -16,6 +16,7 @@ import {
   Menu,
   TrendingUp,
   Receipt,
+  BarChart3,
 } from "lucide-react"
 
 import {
@@ -99,6 +100,11 @@ const adminMenuItems = [
     icon: FileText,
   },
   {
+    title: "Daily Stock Report",
+    url: "daily-stock-report",
+    icon: BarChart3,
+  },
+  {
     title: "P&L",
     url: "profit-loss",
     icon: TrendingUp,
@@ -140,6 +146,11 @@ const employeeMenuItems = [
     title: "Reports",
     url: "employee-reports",
     icon: FileText,
+  },
+  {
+    title: "Daily Stock Report",
+    url: "employee-daily-stock-report",
+    icon: BarChart3,
   },
   {
     title: "Notifications",

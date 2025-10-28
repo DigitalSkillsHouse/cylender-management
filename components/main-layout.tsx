@@ -27,6 +27,7 @@ import { authAPI } from "@/lib/api"
 import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
 import { CollectionPage } from "@/components/pages/collection"
 import { InvoiceSettingsDialog } from "@/components/invoice-settings-dialog"
+import { DailyStockReport } from "@/components/pages/daily-stock-report"
 
 interface MainLayoutProps {
   user: {
@@ -175,6 +176,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
           return <EmployeeInventoryNew user={user} />
         case "employee-reports":
           return <EmployeeReports user={user} />
+        case "employee-daily-stock-report":
+          return <DailyStockReport user={user} />
         case "notifications":
           return <Notifications user={user} setUnreadCount={setUnreadCount} />
         case "collection":
@@ -208,6 +211,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         return <CylinderManagement />
       case "reports":
         return <Reports />
+      case "daily-stock-report":
+        return <DailyStockReport user={user} />
       case "profit-loss":
         return <ProfitLoss />
       case "collection":
