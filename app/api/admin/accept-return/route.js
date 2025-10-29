@@ -198,6 +198,22 @@ export async function POST(request) {
       })
     }
 
+    // Get cylinder information for linking (if gas return with empty cylinder selection)
+    let relatedCylinderProductId = null
+    let relatedCylinderName = null
+    
+    if (returnTransaction.stockType === 'gas' && emptyCylinderId) {
+      const emptyCylinderInventory = await InventoryItem.findById(emptyCylinderId).populate('product')
+      if (emptyCylinderInventory && emptyCylinderInventory.product) {
+        relatedCylinderProductId = emptyCylinderInventory.product._id
+        relatedCylinderName = emptyCylinderInventory.product.name
+        console.log('🔗 Linking gas return to cylinder:', {
+          gasProduct: returnTransaction.product.name,
+          cylinderProduct: relatedCylinderName
+        })
+      }
+    }
+
     // Create DSR record for received return
     const dsrRecord = await EmpStockEmp.create({
       // Admin details (who is receiving the return)
@@ -216,6 +232,10 @@ export async function POST(request) {
       cylinderStatus: returnTransaction.stockType === 'gas' ? undefined : 'empty',
       cylinderSize: returnTransaction.product.cylinderSize,
       
+      // Cylinder linking for gas returns (link gas to the selected cylinder)
+      relatedCylinderProductId: relatedCylinderProductId,
+      relatedCylinderName: relatedCylinderName,
+      
       // Assignment quantities and amounts
       assignedQuantity: returnTransaction.quantity,
       unitPrice: 0, // Return transactions don't have unit price
@@ -229,7 +249,7 @@ export async function POST(request) {
       dailySalesUpdated: false,
       
       // Notes
-      notes: `Admin received back ${returnTransaction.quantity} ${returnTransaction.stockType} ${returnTransaction.product.name} from ${returnTransaction.employee.name}`,
+      notes: `Admin received back ${returnTransaction.quantity} ${returnTransaction.stockType} ${returnTransaction.product.name} from ${returnTransaction.employee.name}${relatedCylinderName ? ` (linked to ${relatedCylinderName})` : ''}`,
       assignmentMethod: 'return_transaction',
       
       // Assignment date

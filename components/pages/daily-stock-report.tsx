@@ -374,6 +374,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const quantity = Number(assignment.assignedQuantity) || 0
         const status = assignment.status || ''
         const relatedCylinderName = assignment.relatedCylinderName || ''
+        const assignmentMethod = assignment.assignmentMethod || ''
         
         if (!productName || quantity <= 0) continue
         
@@ -387,7 +388,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         
         // Only process assignments (transfers from admin to employee)
         // For received back, we would need a different status or separate tracking
-        if (status === 'assigned' || status === 'accepted') {
+        // For transfer tracking - exclude return transactions
+        if ((status === 'assigned' || status === 'accepted') && assignmentMethod !== 'return_transaction') {
           if (category === 'gas') {
             inc(transferGas, dsrKey, quantity)
             console.log(`[DSR] Transfer Gas: ${productName} = ${quantity} (under ${relatedCylinderName || productName})`)
@@ -397,15 +399,15 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           }
         }
         
-        // For received back tracking, we would check for a different status
-        // This would be implemented when employees return stock to admin
-        if (status === 'returned') { // Future implementation
+        // For received back tracking - check for return transactions
+        // Return transactions have assignmentMethod: 'return_transaction' and status: 'accepted'
+        if (assignmentMethod === 'return_transaction' && status === 'accepted') {
           if (category === 'gas') {
             inc(receivedGas, dsrKey, quantity)
-            console.log(`[DSR] Received Gas: ${productName} = ${quantity}`)
+            console.log(`[DSR] Received Gas: ${productName} = ${quantity} (returned by employee)`)
           } else if (category === 'cylinder' && cylinderStatus === 'empty') {
             inc(receivedEmpty, dsrKey, quantity)
-            console.log(`[DSR] Received Empty: ${productName} = ${quantity}`)
+            console.log(`[DSR] Received Empty: ${productName} = ${quantity} (returned by employee)`)
           }
         }
       }
