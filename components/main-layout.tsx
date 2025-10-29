@@ -28,6 +28,7 @@ import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
 import { CollectionPage } from "@/components/pages/collection"
 import { InvoiceSettingsDialog } from "@/components/invoice-settings-dialog"
 import { DailyStockReport } from "@/components/pages/daily-stock-report"
+import EmployeeDSR from "@/components/pages/employee-dsr"
 
 interface MainLayoutProps {
   user: {
@@ -177,7 +178,7 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         case "employee-reports":
           return <EmployeeReports user={user} />
         case "employee-daily-stock-report":
-          return <DailyStockReport user={user} />
+          return <EmployeeDSR user={user} />
         case "notifications":
           return <Notifications user={user} setUnreadCount={setUnreadCount} />
         case "collection":
