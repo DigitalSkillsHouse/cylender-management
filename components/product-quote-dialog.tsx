@@ -14,6 +14,7 @@ export interface ProductQuoteItem {
   category: "gas" | "cylinder"
   cylinderSize?: "large" | "small"
   price: number
+  quantity: number
 }
 
 interface ProductQuoteDialogProps {
@@ -43,11 +44,13 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         cylinderSize: p.cylinderSize,
         // Default quote price: use leastPrice if set, otherwise costPrice
         price: Number.isFinite(p.leastPrice) ? p.leastPrice : p.costPrice,
+        quantity: 1, // Default quantity
       })),
     [products]
   )
 
   const [items, setItems] = useState<ProductQuoteItem[]>(initialItems)
+  const [customerName, setCustomerName] = useState<string>("")
 
   const handleNameChange = (id: string, value: string) => {
     setItems((prev) => prev.map((it) => (it._id === id ? { ...it, name: value } : it)))
@@ -55,6 +58,10 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   const handlePriceChange = (id: string, value: string) => {
     const num = Number(value)
     setItems((prev) => prev.map((it) => (it._id === id ? { ...it, price: isFinite(num) ? num : it.price } : it)))
+  }
+  const handleQuantityChange = (id: string, value: string) => {
+    const num = Number(value)
+    setItems((prev) => prev.map((it) => (it._id === id ? { ...it, quantity: isFinite(num) && num > 0 ? num : it.quantity } : it)))
   }
   const handleRemove = (id: string) => {
     setItems((prev) => prev.filter((it) => it._id !== id))
@@ -68,6 +75,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         productCode: "",
         category: "gas",
         price: 0,
+        quantity: 1,
       },
     ])
   }
@@ -134,11 +142,20 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       }
 
       // Title and date are already in the header image, no need to duplicate
+      
+      // Add customer name on the left side AFTER header image (below it)
+      let customerNameHeight = 0
+      if (customerName) {
+        pdf.setFontSize(12)
+        pdf.setTextColor(43, 48, 104) // #2B3068
+        pdf.text(`Customer: ${customerName}`, margin, margin + 66) // Move further down
+        customerNameHeight = 15 // Add more spacing after customer name
+      }
 
-      // Add table headers with proper spacing after header
-      const tableStartY = margin + 45
+      // Add table headers with proper spacing after header and customer name
+      const tableStartY = margin + 55 + customerNameHeight
       const rowHeight = 8
-      const colWidths = [15, 25, 75, 35, 25, 35] // S.No, Code, Item, Category, Type, Price
+      const colWidths = [15, 25, 60, 25, 20, 25, 30] // S.No, Code, Item, Category, Quantity, Price, Total
       const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
       const tableX = (pageWidth - tableWidth) / 2
 
@@ -153,8 +170,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       pdf.text("Code", tableX + colWidths[0] + 2, tableStartY + rowHeight - 2)
       pdf.text("Item", tableX + colWidths[0] + colWidths[1] + 2, tableStartY + rowHeight - 2)
       pdf.text("Category", tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, tableStartY + rowHeight - 2)
-      pdf.text("Type", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Qty", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, tableStartY + rowHeight - 2)
       pdf.text("Price (AED)", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 2, tableStartY + rowHeight - 2)
+      pdf.text("Total (AED)", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + colWidths[5] + 2, tableStartY + rowHeight - 2)
 
       // Table rows
       pdf.setFontSize(6)
@@ -180,8 +198,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         pdf.text(item.productCode || "-", tableX + colWidths[0] + 2, currentY + rowHeight - 2)
         pdf.text(item.name || "-", tableX + colWidths[0] + colWidths[1] + 2, currentY + rowHeight - 2)
         pdf.text(item.category, tableX + colWidths[0] + colWidths[1] + colWidths[2] + 2, currentY + rowHeight - 2)
-        pdf.text(item.category === "cylinder" ? item.cylinderSize || "-" : "-", tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, currentY + rowHeight - 2)
+        pdf.text(Number(item.quantity || 1).toString(), tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + 2, currentY + rowHeight - 2)
         pdf.text(`AED ${Number(item.price || 0).toFixed(2)}`, tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + 2, currentY + rowHeight - 2)
+        pdf.text(`AED ${(Number(item.quantity || 1) * Number(item.price || 0)).toFixed(2)}`, tableX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] + colWidths[4] + colWidths[5] + 2, currentY + rowHeight - 2)
         
         currentY += rowHeight
       })
@@ -204,7 +223,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto" aria-describedby="product-quote-description">
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <DialogTitle>Generate Quote — Product List ({visibleCount}/{totalCount})</DialogTitle>
+            <DialogTitle>Product Quote</DialogTitle>
             <Button variant="ghost" size="sm" onClick={onClose}>
               <X className="w-4 h-4" />
             </Button>
@@ -222,6 +241,20 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
               <h2 className="text-lg font-bold text-[#2B3068]">Product Quote</h2>
               <p className="text-[11px] text-gray-500">Product List ({visibleCount}/{totalCount})</p>
             </div>
+            
+            {/* Customer Name Input */}
+            <div className="space-y-2 mb-4">
+              <label htmlFor="customerName" className="text-sm font-medium text-gray-700">Customer Name</label>
+              <Input
+                id="customerName"
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Enter customer name"
+                className="h-10"
+              />
+            </div>
+            
             <Separator className="my-4" />
 
             <div className="overflow-x-auto">
@@ -232,8 +265,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                     <th className="text-left p-2 border">Code</th>
                     <th className="text-left p-2 border">Item</th>
                     <th className="text-center p-2 border">Category</th>
-                    <th className="text-center p-2 border">Type</th>
+                    <th className="text-center p-2 border">Enter Quantity</th>
                     <th className="text-right p-2 border">Price (AED)</th>
+                    <th className="text-right p-2 border">Total (AED)</th>
                     <th className="text-center p-2 border">Actions</th>
                   </tr>
                 </thead>
@@ -246,7 +280,15 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                       <td className="p-2 align-middle font-mono">{it.productCode || "-"}</td>
                       <td className="p-2 align-middle">{it.name || "-"}</td>
                       <td className="p-2 align-middle text-center capitalize">{it.category}</td>
-                      <td className="p-2 align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>
+                      <td className="p-2 align-middle min-w-[100px]">
+                        <Input
+                          type="number"
+                          min="1"
+                          value={Number(it.quantity).toString()}
+                          onChange={(e) => handleQuantityChange(it._id, e.target.value)}
+                          className="h-8 w-20 text-center text-[11px]"
+                        />
+                      </td>
                       <td className="p-2 align-middle min-w-[120px]">
                         <div className="flex items-center justify-end gap-1">
                           <span className="text-gray-500 text-[10px]">AED</span>
@@ -258,6 +300,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                             className="h-8 w-24 text-right text-[11px]"
                           />
                         </div>
+                      </td>
+                      <td className="p-2 align-middle text-right min-w-[100px]">
+                        <span className="text-[11px] font-semibold">AED {(Number(it.quantity) * Number(it.price)).toFixed(2)}</span>
                       </td>
                       <td className="p-2 text-center">
                         <Button variant="outline" size="sm" onClick={() => handleRemove(it._id)} className="text-red-600 hover:text-red-700 min-h-[36px]">
@@ -287,6 +332,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                 <div className="text-center">
                   <h2 className="text-sm font-bold text-[#2B3068]">Product Quote</h2>
                   <p className="text-[10px] text-gray-600">{new Date().toLocaleDateString()}</p>
+                  {customerName && (
+                    <p className="text-[12px] font-semibold text-[#2B3068] mt-2">Customer: {customerName}</p>
+                  )}
                 </div>
 
                 <Separator className="my-3" />
@@ -299,8 +347,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                         <th className="text-left p-2 border">Code</th>
                         <th className="text-left p-2 border">Item</th>
                         <th className="text-center p-2 border">Category</th>
-                        <th className="text-center p-2 border">Type</th>
+                        <th className="text-center p-2 border">Quantity</th>
                         <th className="text-right p-2 border">Price (AED)</th>
+                        <th className="text-right p-2 border">Total (AED)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -310,8 +359,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                           <td className="p-2 align-middle">{it.productCode || "-"}</td>
                           <td className="p-2 align-middle">{it.name || "-"}</td>
                           <td className="p-2 align-middle text-center capitalize">{it.category}</td>
-                          <td className="p-2 align-middle text-center">{it.category === "cylinder" ? it.cylinderSize || "-" : "-"}</td>
+                          <td className="p-2 align-middle text-center">{Number(it.quantity || 1)}</td>
                           <td className="p-2 align-middle text-right">AED {Number(it.price || 0).toFixed(2)}</td>
+                          <td className="p-2 align-middle text-right font-semibold">AED {(Number(it.quantity || 1) * Number(it.price || 0)).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
