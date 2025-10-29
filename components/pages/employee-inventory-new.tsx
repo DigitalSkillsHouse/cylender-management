@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Package, Loader2, RefreshCw } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 
 interface EmployeeInventoryItem {
   id: string
@@ -56,6 +58,14 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
   const [processingItems, setProcessingItems] = useState<Set<string>>(new Set())
+  
+  // Empty cylinder selection popup state
+  const [showCylinderDialog, setShowCylinderDialog] = useState(false)
+  const [selectedGasOrder, setSelectedGasOrder] = useState<EmployeeInventoryItem | null>(null)
+  const [emptyCylinders, setEmptyCylinders] = useState<EmployeeInventoryStock[]>([])
+  const [cylinderSearch, setCylinderSearch] = useState("")
+  const [selectedCylinderId, setSelectedCylinderId] = useState("")
+  const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
 
   useEffect(() => {
     fetchEmployeeInventoryData()
@@ -131,12 +141,45 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
   const handleAcceptOrder = async (orderId: string) => {
     try {
       setError("")
+      
+      // Find the order to check if it's a gas order
+      const order = pendingOrders.find(o => (o.originalOrderId || o.id) === orderId)
+      
+      // If it's a gas order, show cylinder selection popup
+      if (order && order.purchaseType === 'gas') {
+        console.log('🔄 [GAS ORDER] Gas order detected, showing cylinder selection popup')
+        setSelectedGasOrder(order)
+        
+        // Fetch employee's empty cylinders
+        await fetchEmptyCylinders()
+        setShowCylinderDialog(true)
+        return
+      }
+      
+      // For non-gas orders, proceed with direct acceptance
+      await processOrderAcceptance(orderId)
+      
+    } catch (error: any) {
+      console.error('❌ [ACCEPT ORDER] Exception:', error)
+      setError(`Failed to accept order: ${error.message}`)
+    }
+  }
+
+  const processOrderAcceptance = async (orderId: string, emptyCylinderId?: string) => {
+    try {
       setProcessingItems(prev => new Set(prev).add(orderId))
       
       console.log('🔄 [ACCEPT ORDER] Starting acceptance for order:', orderId)
       console.log('👤 [ACCEPT ORDER] Employee ID:', user.id)
       
-      const requestBody = { orderId, employeeId: user.id }
+      const requestBody: any = { orderId, employeeId: user.id }
+      
+      // Add empty cylinder ID if provided (for gas orders)
+      if (emptyCylinderId) {
+        requestBody.emptyCylinderId = emptyCylinderId
+        console.log('🔗 [ACCEPT ORDER] Including empty cylinder:', emptyCylinderId)
+      }
+      
       console.log('📤 [ACCEPT ORDER] Request body:', requestBody)
       
       const response = await fetch(`/api/employee-inventory-new/accept`, {
@@ -151,6 +194,14 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
         const responseData = await response.json()
         console.log('✅ [ACCEPT ORDER] Success response:', responseData)
         await fetchEmployeeInventoryData() // Refresh data
+        
+        // Close dialog if it was a gas order
+        if (showCylinderDialog) {
+          setShowCylinderDialog(false)
+          setSelectedGasOrder(null)
+          setCylinderSearch("")
+          setSelectedCylinderId("")
+        }
       } else {
         const errorData = await response.json()
         console.error('❌ [ACCEPT ORDER] Error response:', errorData)
@@ -166,6 +217,136 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
         newSet.delete(orderId)
         return newSet
       })
+    }
+  }
+
+  // Fetch employee's empty cylinders for selection
+  const fetchEmptyCylinders = async () => {
+    try {
+      console.log('🔍 [EMPTY CYLINDERS] Fetching employee empty cylinders')
+      
+      // First try to use already loaded receivedStock data
+      const emptyCylinderStock = receivedStock.filter((item: EmployeeInventoryStock) => 
+        item.category === 'cylinder' && item.availableEmpty > 0
+      )
+      
+      if (emptyCylinderStock.length > 0) {
+        console.log('✅ [EMPTY CYLINDERS] Using already loaded data:', emptyCylinderStock)
+        setEmptyCylinders(emptyCylinderStock)
+        return
+      }
+      
+      // If no data in receivedStock, fetch fresh data
+      console.log('🔄 [EMPTY CYLINDERS] No empty cylinders in loaded data, fetching fresh...')
+      const response = await fetch(`/api/employee-inventory-new/received?employeeId=${user.id}`)
+      
+      if (response.ok) {
+        const data = await response.json()
+        console.log('📋 [EMPTY CYLINDERS] Fresh data received:', data)
+        
+        // Filter for empty cylinders from the received stock
+        const freshEmptyCylinderStock = data.receivedStock?.filter((item: EmployeeInventoryStock) => 
+          item.category === 'cylinder' && item.availableEmpty > 0
+        ) || []
+        
+        setEmptyCylinders(freshEmptyCylinderStock)
+        console.log('✅ [EMPTY CYLINDERS] Fresh empty cylinders:', freshEmptyCylinderStock)
+        console.log('🔍 [EMPTY CYLINDERS] Available empty cylinders count:', freshEmptyCylinderStock.length)
+      } else {
+        console.error('❌ [EMPTY CYLINDERS] Failed to fetch empty cylinders, status:', response.status)
+        const errorData = await response.json()
+        console.error('❌ [EMPTY CYLINDERS] Error data:', errorData)
+        setEmptyCylinders([])
+      }
+    } catch (error) {
+      console.error('❌ [EMPTY CYLINDERS] Error fetching empty cylinders:', error)
+      setEmptyCylinders([])
+    }
+  }
+
+  // Handle cylinder selection
+  const handleCylinderSelection = (cylinderId: string, cylinderName: string) => {
+    setSelectedCylinderId(cylinderId)
+    setCylinderSearch(cylinderName)
+    setShowCylinderSuggestions(false)
+  }
+
+  // Handle gas order acceptance with cylinder selection
+  const handleGasOrderAcceptance = async () => {
+    if (!selectedGasOrder || !selectedCylinderId) {
+      setError("Please select an empty cylinder")
+      return
+    }
+    
+    await processOrderAcceptance(selectedGasOrder.originalOrderId || selectedGasOrder.id, selectedCylinderId)
+  }
+
+  // Handle sending items back to admin
+  const handleSendBack = async (itemId: string, stockType: string) => {
+    try {
+      setError("")
+      
+      // Get quantity from input field
+      const quantityInput = document.getElementById(`quantity-${itemId}`) as HTMLInputElement
+      const quantity = parseInt(quantityInput?.value || '0')
+      
+      if (!quantity || quantity <= 0) {
+        setError("Please enter a valid quantity")
+        return
+      }
+      
+      // Find the item to validate quantity
+      const item = receivedStock.find(stock => stock._id === itemId)
+      if (!item) {
+        setError("Item not found")
+        return
+      }
+      
+      const availableQuantity = stockType === 'gas' ? item.currentStock : item.availableEmpty
+      if (quantity > availableQuantity) {
+        setError(`Cannot send more than available quantity (${availableQuantity})`)
+        return
+      }
+      
+      console.log('🔄 [SEND BACK] Sending back to admin:', {
+        itemId,
+        stockType,
+        quantity,
+        employeeId: user.id
+      })
+      
+      const response = await fetch('/api/employee-inventory-new/send-back', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemId,
+          stockType,
+          quantity,
+          employeeId: user.id
+        })
+      })
+      
+      if (response.ok) {
+        const responseData = await response.json()
+        console.log('✅ [SEND BACK] Success:', responseData)
+        
+        // Clear the input field
+        if (quantityInput) quantityInput.value = ''
+        
+        // Refresh inventory data
+        await fetchEmployeeInventoryData()
+        
+        // Show success message (you could add a toast notification here)
+        setError("")
+      } else {
+        const errorData = await response.json()
+        console.error('❌ [SEND BACK] Error:', errorData)
+        setError(errorData.error || 'Failed to send back to admin')
+      }
+      
+    } catch (error: any) {
+      console.error('❌ [SEND BACK] Exception:', error)
+      setError(`Failed to send back: ${error.message}`)
     }
   }
 
@@ -336,6 +517,72 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
     </div>
   )
 
+  const renderSendBackTable = (items: EmployeeInventoryStock[], stockType: string) => (
+    <div className="w-full overflow-x-auto">
+      <Table className="w-full">
+        <TableHeader>
+          <TableRow className="bg-gray-50 border-b-2 border-gray-200">
+            <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Code</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Available Stock</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Quantity to Send</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => {
+            let availableQuantity = 0
+            if (stockType === 'gas') availableQuantity = item.currentStock
+            else if (stockType === 'empty') availableQuantity = item.availableEmpty
+            
+            return (
+              <TableRow key={item._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                <TableCell className="p-4">
+                  <div className="font-medium">{item.productName}</div>
+                </TableCell>
+                <TableCell className="p-4 font-mono text-sm">
+                  {item.productCode || 'N/A'}
+                </TableCell>
+                <TableCell className="p-4 font-bold text-lg">
+                  {availableQuantity}
+                </TableCell>
+                <TableCell className="p-4">
+                  <Input
+                    type="number"
+                    min="1"
+                    max={availableQuantity}
+                    placeholder="0"
+                    className="w-20"
+                    id={`quantity-${item._id}`}
+                  />
+                </TableCell>
+                <TableCell className="p-4">
+                  <Button
+                    size="sm"
+                    onClick={() => handleSendBack(item._id, stockType)}
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    disabled={availableQuantity === 0}
+                  >
+                    Send Back
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+          {items.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={5} className="text-center text-gray-500 py-12">
+                <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No {stockType} stock available</p>
+                <p className="text-sm">You have no {stockType} stock to send back</p>
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -386,12 +633,15 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
       )}
 
       <Tabs defaultValue="pending" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 h-auto">
+        <TabsList className="grid w-full grid-cols-3 h-auto">
           <TabsTrigger value="pending" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             Pending Orders ({filteredPendingOrders.length})
           </TabsTrigger>
           <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             My Stock ({receivedStock.length})
+          </TabsTrigger>
+          <TabsTrigger value="send-back" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
+            Send back to Admin
           </TabsTrigger>
         </TabsList>
 
@@ -462,7 +712,190 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
             </Tabs>
           </Card>
         </TabsContent>
+
+        <TabsContent value="send-back">
+          <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
+              <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold">
+                Send back to Admin
+              </CardTitle>
+              <p className="text-white/80 text-sm sm:text-base">
+                Return gas or empty cylinders to admin inventory
+              </p>
+            </CardHeader>
+            
+            <CardContent className="p-4 sm:p-6">
+              <Tabs defaultValue="send-gas" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 h-auto mb-6">
+                  <TabsTrigger value="send-gas" className="text-xs sm:text-sm font-medium py-2">
+                    Send Gas ({getGasStock().length})
+                  </TabsTrigger>
+                  <TabsTrigger value="send-empty" className="text-xs sm:text-sm font-medium py-2">
+                    Send Empty Cylinders ({getEmptyCylinderStock().length})
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="send-gas">
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h3 className="font-medium text-blue-900 mb-2">Send Gas to Admin</h3>
+                      <p className="text-sm text-blue-700">
+                        Select gas items from your inventory to send back to admin
+                      </p>
+                    </div>
+                    {renderSendBackTable(getGasStock(), 'gas')}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="send-empty">
+                  <div className="space-y-4">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <h3 className="font-medium text-green-900 mb-2">Send Empty Cylinders to Admin</h3>
+                      <p className="text-sm text-green-700">
+                        Select empty cylinders from your inventory to send back to admin
+                      </p>
+                    </div>
+                    {renderSendBackTable(getEmptyCylinderStock(), 'empty')}
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Empty Cylinder Selection Dialog */}
+      <Dialog open={showCylinderDialog} onOpenChange={setShowCylinderDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Empty Cylinder</DialogTitle>
+            <DialogDescription>
+              Choose an empty cylinder to fill with {selectedGasOrder?.productName}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {/* Cylinder Search Input */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="cylinderSearch">Empty Cylinder *</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchEmptyCylinders}
+                  className="text-xs"
+                >
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                  Refresh
+                </Button>
+              </div>
+              <div className="relative">
+                <Input
+                  id="cylinderSearch"
+                  type="text"
+                  placeholder="Search for empty cylinder..."
+                  value={cylinderSearch}
+                  onChange={(e) => {
+                    setCylinderSearch(e.target.value)
+                    setShowCylinderSuggestions(true)
+                    setSelectedCylinderId("")
+                  }}
+                  onFocus={() => setShowCylinderSuggestions(true)}
+                  className="w-full"
+                />
+                
+                {/* Cylinder Suggestions Dropdown */}
+                {showCylinderSuggestions && (
+                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                    {emptyCylinders
+                      .filter(cylinder => 
+                        cylinder.productName.toLowerCase().includes(cylinderSearch.toLowerCase()) ||
+                        cylinder.productCode?.toLowerCase().includes(cylinderSearch.toLowerCase())
+                      )
+                      .map(cylinder => (
+                        <div
+                          key={cylinder._id}
+                          className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          onClick={() => handleCylinderSelection(cylinder._id, cylinder.productName)}
+                        >
+                          <div className="font-medium">{cylinder.productName}</div>
+                          {cylinder.productCode && (
+                            <div className="text-sm text-gray-500 font-mono">{cylinder.productCode}</div>
+                          )}
+                          <div className="text-sm text-blue-600">
+                            Available: {cylinder.availableEmpty} empty cylinders
+                          </div>
+                        </div>
+                      ))
+                    }
+                    {emptyCylinders.filter(cylinder => 
+                      cylinder.productName.toLowerCase().includes(cylinderSearch.toLowerCase()) ||
+                      cylinder.productCode?.toLowerCase().includes(cylinderSearch.toLowerCase())
+                    ).length === 0 && (
+                      <div className="px-4 py-3 text-gray-500 text-center">
+                        {emptyCylinders.length === 0 ? (
+                          <div>
+                            <div>No empty cylinders available</div>
+                            <div className="text-xs mt-1">
+                              Debug: Total received stock: {receivedStock.length}, 
+                              Cylinders: {receivedStock.filter(item => item.category === 'cylinder').length},
+                              Empty: {receivedStock.filter(item => item.category === 'cylinder' && item.availableEmpty > 0).length}
+                            </div>
+                          </div>
+                        ) : 'No matching cylinders found'}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Selected Gas Order Info */}
+            {selectedGasOrder && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <h4 className="font-medium text-blue-900">Gas Order Details:</h4>
+                <p className="text-sm text-blue-700">
+                  <strong>Product:</strong> {selectedGasOrder.productName}
+                </p>
+                <p className="text-sm text-blue-700">
+                  <strong>Quantity:</strong> {selectedGasOrder.quantity} units
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCylinderDialog(false)
+                  setSelectedGasOrder(null)
+                  setCylinderSearch("")
+                  setSelectedCylinderId("")
+                  setShowCylinderSuggestions(false)
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleGasOrderAcceptance}
+                disabled={!selectedCylinderId || processingItems.has(selectedGasOrder?.originalOrderId || selectedGasOrder?.id || "")}
+                className="flex-1 bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+              >
+                {processingItems.has(selectedGasOrder?.originalOrderId || selectedGasOrder?.id || "") ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  'Accept & Fill Cylinder'
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -6,10 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, Loader2, Edit, ChevronDown } from "lucide-react"
+import { Package, Loader2, Edit, ChevronDown, RefreshCw } from "lucide-react"
 import { purchaseOrdersAPI, inventoryAPI, productsAPI, suppliersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 
@@ -63,9 +63,21 @@ export function Inventory() {
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
   const [processingItems, setProcessingItems] = useState<Set<string>>(new Set())
+  
+  // Pending returns state
+  const [pendingReturns, setPendingReturns] = useState<any[]>([])
+  
+  // Empty cylinder selection popup state for returns
+  const [showReturnCylinderDialog, setShowReturnCylinderDialog] = useState(false)
+  const [selectedReturn, setSelectedReturn] = useState<any>(null)
+  const [returnEmptyCylinders, setReturnEmptyCylinders] = useState<any[]>([])
+  const [returnCylinderSearch, setReturnCylinderSearch] = useState("")
+  const [selectedReturnCylinderId, setSelectedReturnCylinderId] = useState("")
+  const [showReturnCylinderSuggestions, setShowReturnCylinderSuggestions] = useState(false)
 
   useEffect(() => {
     fetchInventoryData()
+    fetchPendingReturns()
   }, [])
 
   const fetchInventoryData = async () => {
@@ -233,6 +245,150 @@ export function Inventory() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Fetch pending returns from employees
+  const fetchPendingReturns = async () => {
+    try {
+      console.log('🔍 [PENDING RETURNS] Fetching pending returns from employees')
+      
+      const response = await fetch('/api/admin/pending-returns', { cache: 'no-store' })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setPendingReturns(data.pendingReturns || [])
+        console.log('✅ [PENDING RETURNS] Fetched pending returns:', data.pendingReturns?.length || 0)
+      } else {
+        console.error('❌ [PENDING RETURNS] Failed to fetch pending returns, status:', response.status)
+        setPendingReturns([])
+      }
+    } catch (error) {
+      console.error('❌ [PENDING RETURNS] Error fetching pending returns:', error)
+      setPendingReturns([])
+    }
+  }
+
+  // Fetch admin's empty cylinders for return acceptance
+  const fetchReturnEmptyCylinders = async () => {
+    try {
+      console.log('🔍 [RETURN CYLINDERS] Fetching admin empty cylinders')
+      
+      // Use the existing inventoryList data to get empty cylinders
+      const emptyCylinderStock = inventoryList.filter((item: any) => 
+        item.category === 'cylinder' && item.availableEmpty > 0
+      )
+      
+      setReturnEmptyCylinders(emptyCylinderStock)
+      console.log('✅ [RETURN CYLINDERS] Found empty cylinders:', emptyCylinderStock.length)
+    } catch (error) {
+      console.error('❌ [RETURN CYLINDERS] Error fetching empty cylinders:', error)
+      setReturnEmptyCylinders([])
+    }
+  }
+
+  // Handle return cylinder selection
+  const handleReturnCylinderSelection = (cylinderId: string, cylinderName: string) => {
+    setSelectedReturnCylinderId(cylinderId)
+    setReturnCylinderSearch(cylinderName)
+    setShowReturnCylinderSuggestions(false)
+  }
+
+  // Handle accepting a return from employee
+  const handleAcceptReturn = async (returnId: string) => {
+    try {
+      setError("")
+      
+      // Find the return to check if it's a gas return
+      const returnItem = pendingReturns.find(r => r.id === returnId)
+      
+      // If it's a gas return, show cylinder selection popup
+      if (returnItem && returnItem.stockType === 'gas') {
+        console.log('🔄 [GAS RETURN] Gas return detected, showing cylinder selection popup')
+        setSelectedReturn(returnItem)
+        
+        // Fetch admin's empty cylinders
+        await fetchReturnEmptyCylinders()
+        setShowReturnCylinderDialog(true)
+        return
+      }
+      
+      // For non-gas returns, proceed with direct acceptance
+      await processReturnAcceptance(returnId)
+      
+    } catch (error: any) {
+      console.error('❌ [ACCEPT RETURN] Exception:', error)
+      setError(`Failed to accept return: ${error.message}`)
+    }
+  }
+
+  const processReturnAcceptance = async (returnId: string, emptyCylinderId?: string) => {
+    try {
+      setProcessingItems(prev => new Set(prev).add(returnId))
+      
+      console.log('🔄 [ACCEPT RETURN] Starting acceptance for return:', returnId)
+      
+      const requestBody: any = { 
+        returnTransactionId: returnId, 
+        adminId: 'admin' // You might want to get actual admin ID from auth context
+      }
+      
+      // Add empty cylinder ID if provided (for gas returns)
+      if (emptyCylinderId) {
+        requestBody.emptyCylinderId = emptyCylinderId
+        console.log('🔗 [ACCEPT RETURN] Including empty cylinder:', emptyCylinderId)
+      }
+      
+      console.log('📤 [ACCEPT RETURN] Request body:', requestBody)
+      
+      const response = await fetch('/api/admin/accept-return', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      })
+      
+      console.log('📡 [ACCEPT RETURN] Response status:', response.status, response.ok)
+      
+      if (response.ok) {
+        const responseData = await response.json()
+        console.log('✅ [ACCEPT RETURN] Success response:', responseData)
+        
+        // Refresh data
+        await fetchInventoryData()
+        await fetchPendingReturns()
+        
+        // Close dialog if it was a gas return
+        if (showReturnCylinderDialog) {
+          setShowReturnCylinderDialog(false)
+          setSelectedReturn(null)
+          setReturnCylinderSearch("")
+          setSelectedReturnCylinderId("")
+        }
+      } else {
+        const errorData = await response.json()
+        console.error('❌ [ACCEPT RETURN] Error response:', errorData)
+        setError(errorData.error || 'Failed to accept return')
+      }
+      
+    } catch (error: any) {
+      console.error('❌ [ACCEPT RETURN] Exception:', error)
+      setError(`Failed to accept return: ${error.message}`)
+    } finally {
+      setProcessingItems(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(returnId)
+        return newSet
+      })
+    }
+  }
+
+  // Handle gas return acceptance with cylinder selection
+  const handleGasReturnAcceptance = async () => {
+    if (!selectedReturn || !selectedReturnCylinderId) {
+      setError("Please select an empty cylinder")
+      return
+    }
+    
+    await processReturnAcceptance(selectedReturn.id, selectedReturnCylinderId)
   }
 
   // Helper: get or create InventoryItem ID for a given product
@@ -743,6 +899,83 @@ export function Inventory() {
     </div>
   )
 
+  const renderPendingReturnsTable = () => (
+    <div className="w-full overflow-x-auto">
+      <Table className="w-full">
+        <TableHeader>
+          <TableRow className="bg-gray-50 border-b-2 border-gray-200">
+            <TableHead className="font-bold text-gray-700 p-4">Employee</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Stock Type</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Quantity</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Return Date</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Invoice #</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {pendingReturns.map((returnItem) => (
+            <TableRow key={returnItem.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+              <TableCell className="p-4">
+                <div className="font-medium">{returnItem.employeeName}</div>
+                <div className="text-sm text-gray-500">{returnItem.employeeEmail}</div>
+              </TableCell>
+              <TableCell className="p-4">
+                <div className="font-medium">{returnItem.productName}</div>
+                {returnItem.productCode && (
+                  <div className="text-sm text-gray-500 font-mono">{returnItem.productCode}</div>
+                )}
+              </TableCell>
+              <TableCell className="p-4">
+                <Badge variant={returnItem.stockType === "gas" ? "default" : "secondary"}>
+                  {returnItem.stockType === 'gas' ? 'Gas' : 'Empty Cylinder'}
+                </Badge>
+              </TableCell>
+              <TableCell className="p-4 font-bold text-lg">
+                {returnItem.quantity}
+              </TableCell>
+              <TableCell className="p-4 text-sm text-gray-600">
+                {new Date(returnItem.returnDate).toLocaleDateString()}
+              </TableCell>
+              <TableCell className="p-4 font-mono text-sm">
+                {returnItem.invoiceNumber}
+              </TableCell>
+              <TableCell className="p-4">
+                {!processingItems.has(returnItem.id) ? (
+                  <Button
+                    size="sm"
+                    onClick={() => handleAcceptReturn(returnItem.id)}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    Accept Return
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    disabled
+                    className="bg-gray-400 text-white cursor-not-allowed"
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Processing...
+                  </Button>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+          {pendingReturns.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={7} className="text-center text-gray-500 py-12">
+                <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No pending returns</p>
+                <p className="text-sm">No employee returns awaiting approval</p>
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -772,12 +1005,15 @@ export function Inventory() {
       )}
 
       <Tabs defaultValue="pending" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 h-auto">
+        <TabsList className="grid w-full grid-cols-3 h-auto">
           <TabsTrigger value="pending" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             Pending Orders ({pendingItems.length})
           </TabsTrigger>
           <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             Received Items ({receivedItemsRaw.length})
+          </TabsTrigger>
+          <TabsTrigger value="pending-returns" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
+            Pending Returns ({pendingReturns.length})
           </TabsTrigger>
         </TabsList>
 
@@ -889,7 +1125,154 @@ export function Inventory() {
             </Tabs>
           </Card>
         </TabsContent>
+
+        <TabsContent value="pending-returns">
+          <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
+              <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold">
+                Pending Returns from Employees ({pendingReturns.length})
+              </CardTitle>
+              <p className="text-white/80 text-sm sm:text-base">
+                Employee returns awaiting admin approval
+              </p>
+            </CardHeader>
+            
+            <CardContent className="p-0">
+              {renderPendingReturnsTable()}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Empty Cylinder Selection Dialog for Returns */}
+      <Dialog open={showReturnCylinderDialog} onOpenChange={setShowReturnCylinderDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select Empty Cylinder</DialogTitle>
+            <DialogDescription>
+              Choose an empty cylinder to fill with returned {selectedReturn?.productName}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {/* Cylinder Search Input */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="returnCylinderSearch">Empty Cylinder *</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchReturnEmptyCylinders}
+                  className="text-xs"
+                >
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                  Refresh
+                </Button>
+              </div>
+              <div className="relative">
+                <Input
+                  id="returnCylinderSearch"
+                  type="text"
+                  placeholder="Search for empty cylinder..."
+                  value={returnCylinderSearch}
+                  onChange={(e) => {
+                    setReturnCylinderSearch(e.target.value)
+                    setShowReturnCylinderSuggestions(true)
+                    setSelectedReturnCylinderId("")
+                  }}
+                  onFocus={() => setShowReturnCylinderSuggestions(true)}
+                  className="w-full"
+                />
+                
+                {/* Cylinder Suggestions Dropdown */}
+                {showReturnCylinderSuggestions && (
+                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                    {returnEmptyCylinders
+                      .filter(cylinder => 
+                        cylinder.productName?.toLowerCase().includes(returnCylinderSearch.toLowerCase()) ||
+                        cylinder.productCode?.toLowerCase().includes(returnCylinderSearch.toLowerCase())
+                      )
+                      .map(cylinder => (
+                        <div
+                          key={cylinder._id}
+                          className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          onClick={() => handleReturnCylinderSelection(cylinder._id, cylinder.productName)}
+                        >
+                          <div className="font-medium">{cylinder.productName}</div>
+                          {cylinder.productCode && (
+                            <div className="text-sm text-gray-500 font-mono">{cylinder.productCode}</div>
+                          )}
+                          <div className="text-sm text-blue-600">
+                            Available: {cylinder.availableEmpty} empty cylinders
+                          </div>
+                        </div>
+                      ))
+                    }
+                    {returnEmptyCylinders.filter(cylinder => 
+                      cylinder.productName?.toLowerCase().includes(returnCylinderSearch.toLowerCase()) ||
+                      cylinder.productCode?.toLowerCase().includes(returnCylinderSearch.toLowerCase())
+                    ).length === 0 && (
+                      <div className="px-4 py-3 text-gray-500 text-center">
+                        {returnEmptyCylinders.length === 0 ? 'No empty cylinders available' : 'No matching cylinders found'}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Selected Return Info */}
+            {selectedReturn && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                <h4 className="font-medium text-orange-900">Return Details:</h4>
+                <p className="text-sm text-orange-700">
+                  <strong>Employee:</strong> {selectedReturn.employeeName}
+                </p>
+                <p className="text-sm text-orange-700">
+                  <strong>Product:</strong> {selectedReturn.productName}
+                </p>
+                <p className="text-sm text-orange-700">
+                  <strong>Quantity:</strong> {selectedReturn.quantity} units
+                </p>
+                <p className="text-sm text-orange-700">
+                  <strong>Return Date:</strong> {new Date(selectedReturn.returnDate).toLocaleDateString()}
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowReturnCylinderDialog(false)
+                  setSelectedReturn(null)
+                  setReturnCylinderSearch("")
+                  setSelectedReturnCylinderId("")
+                  setShowReturnCylinderSuggestions(false)
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleGasReturnAcceptance}
+                disabled={!selectedReturnCylinderId || processingItems.has(selectedReturn?.id || "")}
+                className="flex-1 bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+              >
+                {processingItems.has(selectedReturn?.id || "") ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Processing...
+                  </>
+                ) : (
+                  'Accept Return & Fill Cylinder'
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

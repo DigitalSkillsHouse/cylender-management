@@ -9,7 +9,7 @@ export async function POST(request) {
     console.log('🔍 Employee accept order API called')
     await dbConnect()
     
-    const { orderId, employeeId } = await request.json()
+    const { orderId, employeeId, emptyCylinderId } = await request.json()
     
     if (!orderId || !employeeId) {
       return NextResponse.json({ error: "Order ID and Employee ID are required" }, { status: 400 })
@@ -49,13 +49,24 @@ export async function POST(request) {
     await purchaseOrder.save()
 
     // Handle gas purchase with empty cylinder - create BOTH gas and cylinder inventory
-    if (purchaseOrder.purchaseType === 'gas' && purchaseOrder.emptyCylinderId) {
+    if (purchaseOrder.purchaseType === 'gas' && (emptyCylinderId || purchaseOrder.emptyCylinderId)) {
       console.log('🔄 Gas purchase with empty cylinder - creating BOTH gas and full cylinder inventory')
       
+      // Use provided emptyCylinderId or fall back to the one from purchase order
+      const cylinderIdToUse = emptyCylinderId || purchaseOrder.emptyCylinderId
+      console.log('🔗 Using cylinder ID:', cylinderIdToUse)
+      
       // Get the empty cylinder inventory to find the cylinder product
-      const emptyCylinderInventory = await EmployeeInventoryItem.findById(purchaseOrder.emptyCylinderId)
+      const emptyCylinderInventory = await EmployeeInventoryItem.findById(cylinderIdToUse)
       if (!emptyCylinderInventory) {
         return NextResponse.json({ error: "Empty cylinder not found" }, { status: 404 })
+      }
+      
+      // Validate that the employee has enough empty cylinders
+      if (emptyCylinderInventory.availableEmpty < purchaseOrder.quantity) {
+        return NextResponse.json({ 
+          error: `Insufficient empty cylinders. Available: ${emptyCylinderInventory.availableEmpty}, Required: ${purchaseOrder.quantity}` 
+        }, { status: 400 })
       }
 
       // 1. Create/update GAS inventory (original gas product)
