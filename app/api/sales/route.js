@@ -156,21 +156,9 @@ export async function POST(request) {
       }
     }
 
-    // Generate sequential invoice number starting from saved setting
-    const settings = await Counter.findOne({ key: 'invoice_start' })
-    const startingNumber = settings?.seq || 0
-
-    const latestSale = await Sale.findOne({
-      invoiceNumber: { $regex: /^\d{4}$/ }
-    }).sort({ invoiceNumber: -1 })
-
-    let nextNumber = startingNumber
-    if (latestSale) {
-      const lastNumber = parseInt(latestSale.invoiceNumber) || (startingNumber - 1)
-      nextNumber = Math.max(lastNumber + 1, startingNumber)
-    }
-
-    const invoiceNumber = nextNumber.toString().padStart(4, '0')
+    // Generate sequential invoice number using centralized generator
+    const { getNextInvoiceNumberWithRetry } = await import('@/lib/invoice-generator')
+    const invoiceNumber = await getNextInvoiceNumberWithRetry()
 
     // Enrich items with category, cylinderSize, cylinderStatus, and cylinder/gas linking
     const enrichedItems = (items || []).map((item) => {

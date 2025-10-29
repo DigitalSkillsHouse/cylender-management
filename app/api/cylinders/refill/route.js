@@ -6,17 +6,10 @@ import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
 import DailyRefill from "@/models/DailyRefill";
 
-// Helper: get next sequential invoice number: INV-<year>-CM-<seq>
+// Helper: get next sequential invoice number using centralized generator
 async function getNextCylinderInvoice() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const key = 'cylinder_invoice'
-  const updated = await Counter.findOneAndUpdate(
-    { key, year },
-    { $inc: { seq: 1 } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
-  )
-  return `INV-${year}-CM-${updated.seq}`
+  const { getNextInvoiceNumberWithRetry } = await import('@/lib/invoice-generator')
+  return await getNextInvoiceNumberWithRetry()
 }
 
 export async function POST(request) {

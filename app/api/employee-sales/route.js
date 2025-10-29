@@ -46,26 +46,9 @@ export async function POST(request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Generate sequential invoice number using same system as admin sales
-    const settings = await Counter.findOne({ key: 'invoice_start' })
-    const startingNumber = settings?.seq || 0
-
-    // Check both Sale and EmployeeSale collections for latest invoice number
-    const [latestSale, latestEmpSale] = await Promise.all([
-      Sale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
-      EmployeeSale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 })
-    ])
-
-    let nextNumber = startingNumber
-    const saleNumber = latestSale ? parseInt(latestSale.invoiceNumber) || -1 : -1
-    const empSaleNumber = latestEmpSale ? parseInt(latestEmpSale.invoiceNumber) || -1 : -1
-    const lastNumber = Math.max(saleNumber, empSaleNumber)
-    
-    if (lastNumber >= 0) {
-      nextNumber = Math.max(lastNumber + 1, startingNumber)
-    }
-
-    const invoiceNumber = nextNumber.toString().padStart(4, '0')
+    // Generate sequential invoice number using centralized generator
+    const { getNextInvoiceNumberWithRetry } = await import('@/lib/invoice-generator')
+    const invoiceNumber = await getNextInvoiceNumberWithRetry()
 
     // Validate stock availability and calculate totals
     let calculatedTotal = 0

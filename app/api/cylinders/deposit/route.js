@@ -9,29 +9,10 @@ import Sale from "@/models/Sale";
 import EmployeeSale from "@/models/EmployeeSale";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 
-// Helper: get next sequential invoice number using unified system
+// Helper: get next sequential invoice number using centralized generator
 async function getNextCylinderInvoice() {
-  const settings = await Counter.findOne({ key: 'invoice_start' })
-  const startingNumber = settings?.seq || 0
-
-  // Check all invoice collections for latest number
-  const [latestSale, latestEmpSale, latestCylinder] = await Promise.all([
-    Sale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
-    EmployeeSale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
-    CylinderTransaction.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 })
-  ])
-
-  let nextNumber = startingNumber
-  const saleNumber = latestSale ? parseInt(latestSale.invoiceNumber) || -1 : -1
-  const empSaleNumber = latestEmpSale ? parseInt(latestEmpSale.invoiceNumber) || -1 : -1
-  const cylinderNumber = latestCylinder ? parseInt(latestCylinder.invoiceNumber) || -1 : -1
-  const lastNumber = Math.max(saleNumber, empSaleNumber, cylinderNumber)
-  
-  if (lastNumber >= 0) {
-    nextNumber = Math.max(lastNumber + 1, startingNumber)
-  }
-
-  return nextNumber.toString().padStart(4, '0')
+  const { getNextInvoiceNumberWithRetry } = await import('@/lib/invoice-generator')
+  return await getNextInvoiceNumberWithRetry()
 }
 
 // Helper function to update daily tracking for deposits

@@ -329,29 +329,10 @@ export async function POST(request) {
     console.log("[POST /api/employee-cylinders] creating with itemsLen=", Array.isArray(transactionData.items) ? transactionData.items.length : 0,
       'totalQty=', transactionData.quantity, 'totalAmt=', transactionData.amount)
 
-    // Generate unified sequential invoice number (same system as admin cylinder sales)
+    // Generate unified sequential invoice number using centralized generator
     async function getNextCylinderInvoice() {
-      const settings = await Counter.findOne({ key: 'invoice_start' })
-      const startingNumber = settings?.seq || 0
-
-      // Check all invoice collections for latest number
-      const [latestSale, latestEmpSale, latestCylinder] = await Promise.all([
-        Sale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
-        EmployeeSale.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 }),
-        CylinderTransaction.findOne({ invoiceNumber: { $regex: /^\d{4}$/ } }).sort({ invoiceNumber: -1 })
-      ])
-
-      let nextNumber = startingNumber
-      const saleNumber = latestSale ? parseInt(latestSale.invoiceNumber) || -1 : -1
-      const empSaleNumber = latestEmpSale ? parseInt(latestEmpSale.invoiceNumber) || -1 : -1
-      const cylinderNumber = latestCylinder ? parseInt(latestCylinder.invoiceNumber) || -1 : -1
-      const lastNumber = Math.max(saleNumber, empSaleNumber, cylinderNumber)
-      
-      if (lastNumber >= 0) {
-        nextNumber = Math.max(lastNumber + 1, startingNumber)
-      }
-
-      return nextNumber.toString().padStart(4, '0')
+      const { getNextInvoiceNumberWithRetry } = await import('@/lib/invoice-generator')
+      return await getNextInvoiceNumberWithRetry()
     }
 
     // Assign invoice number if not provided
