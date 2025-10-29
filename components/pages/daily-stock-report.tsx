@@ -72,6 +72,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const [dailyFullCylinderSales, setDailyFullCylinderSales] = useState<Record<string, number>>({})
   const [dailyEmptyCylinderSales, setDailyEmptyCylinderSales] = useState<Record<string, number>>({})
   const [dailyCylinderRefills, setDailyCylinderRefills] = useState<Record<string, number>>({})
+  const [dailyTransfers, setDailyTransfers] = useState<Record<string, number>>({})
+  const [dailyReceivedBack, setDailyReceivedBack] = useState<Record<string, number>>({})
   
   // Inventory data for automated DSR
   const [inventoryData, setInventoryData] = useState<Record<string, { availableFull: number; availableEmpty: number; currentStock: number }>>({})
@@ -117,8 +119,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   // Fetch inventory data for automated DSR
   const fetchInventoryData = async () => {
     try {
+      // For employees, fetch their personal inventory; for admin, fetch all inventory
       const [inventoryRes, productsRes] = await Promise.all([
-        fetch('/api/inventory-items', { cache: 'no-store' }),
+        user.role === 'employee' 
+          ? fetch(`/api/employee-inventory?employeeId=${user.id}`, { cache: 'no-store' })
+          : fetch('/api/inventory-items', { cache: 'no-store' }),
         fetch('/api/products', { cache: 'no-store' })
       ])
       
@@ -130,20 +135,70 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       Array.isArray(productsJson?.data) ? productsJson.data : 
                       Array.isArray(productsJson) ? productsJson : []
       
-      // Set only cylinder products for DSR display
-      const cylinderProducts = products.filter((product: any) => product.category === 'cylinder')
-      setDsrProducts(cylinderProducts.map((p: any) => ({ _id: p._id, name: p.name })))
+      // For employees, only show products they have in inventory; for admin, show all cylinder products
+      let productsToShow = []
+      if (user.role === 'employee') {
+        // Get unique product names from employee inventory
+        const employeeProductNames = new Set()
+        inventoryItems.forEach((item: any) => {
+          const productName = item.product?.name || item.productName || ''
+          if (productName && item.category === 'cylinder') {
+            employeeProductNames.add(productName)
+          }
+        })
+        // Filter products to only those the employee has
+        productsToShow = products.filter((product: any) => 
+          product.category === 'cylinder' && employeeProductNames.has(product.name)
+        )
+      } else {
+        // Admin sees all cylinder products
+        productsToShow = products.filter((product: any) => product.category === 'cylinder')
+      }
+      setDsrProducts(productsToShow.map((p: any) => ({ _id: p._id, name: p.name })))
       
       const inventoryMap: Record<string, { availableFull: number; availableEmpty: number; currentStock: number }> = {}
       
       // Map inventory items by product name
       inventoryItems.forEach((item: any) => {
-        if (item.productName) {
-          const normalizedName = normalizeName(item.productName)
-          inventoryMap[normalizedName] = {
-            availableFull: Number(item.availableFull) || 0,
-            availableEmpty: Number(item.availableEmpty) || 0,
-            currentStock: Number(item.currentStock) || 0
+        let productName = ''
+        let availableFull = 0
+        let availableEmpty = 0
+        let currentStock = 0
+        
+        if (user.role === 'employee') {
+          // Employee inventory structure
+          productName = item.product?.name || item.productName || ''
+          // For employee inventory, use availableQuantity based on category and status
+          if (item.category === 'gas') {
+            currentStock = Number(item.availableQuantity) || 0
+          } else if (item.category === 'cylinder') {
+            if (item.cylinderStatus === 'full') {
+              availableFull = Number(item.availableQuantity) || 0
+            } else if (item.cylinderStatus === 'empty') {
+              availableEmpty = Number(item.availableQuantity) || 0
+            }
+          }
+        } else {
+          // Admin inventory structure
+          productName = item.productName || ''
+          availableFull = Number(item.availableFull) || 0
+          availableEmpty = Number(item.availableEmpty) || 0
+          currentStock = Number(item.currentStock) || 0
+        }
+        
+        if (productName) {
+          const normalizedName = normalizeName(productName)
+          // If entry exists, add to it (for employee inventory with multiple entries per product)
+          if (inventoryMap[normalizedName]) {
+            inventoryMap[normalizedName].availableFull += availableFull
+            inventoryMap[normalizedName].availableEmpty += availableEmpty
+            inventoryMap[normalizedName].currentStock += currentStock
+          } else {
+            inventoryMap[normalizedName] = {
+              availableFull,
+              availableEmpty,
+              currentStock
+            }
           }
         }
       })
@@ -166,7 +221,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         dailySalesRes,
         dailyRefillsRes
       ] = await Promise.all([
-        fetch('/api/sales', { cache: 'no-store' }),
+        // Fetch employee sales if user is employee, otherwise admin sales
+        user.role === 'employee' 
+          ? fetch(`/api/employee-sales?employeeId=${user.id}`, { cache: 'no-store' })
+          : fetch('/api/sales', { cache: 'no-store' }),
         fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }),
         fetch('/api/products', { cache: 'no-store' }),
         fetch(`/api/daily-cylinder-transactions?date=${date}${user.role === 'employee' ? `&employeeId=${user.id}` : ''}`, { cache: 'no-store' }),
@@ -199,6 +257,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       const ref: Record<string, number> = {}
       const dep: Record<string, number> = {}
       const ret: Record<string, number> = {}
+      const transfer: Record<string, number> = {} // Transfer tracking (admin assigns to employees)
+      const receivedBack: Record<string, number> = {} // Received back tracking (employees return to admin)
 
       const inc = (obj: Record<string, number>, key: string, val: number) => {
         obj[key] = (obj[key] || 0) + val
@@ -258,6 +318,18 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           inc(ref, key, dailySale.cylinderRefillsQuantity)
           console.log(`[DSR] Cylinder Refill: ${productName} = ${dailySale.cylinderRefillsQuantity}`)
         }
+        
+        // Transfer tracking (admin assigns stock to employees)
+        if (dailySale.transferQuantity > 0) {
+          inc(transfer, key, dailySale.transferQuantity)
+          console.log(`[DSR] Transfer: ${productName} = ${dailySale.transferQuantity}`)
+        }
+        
+        // Received back tracking (employees return stock to admin)
+        if (dailySale.receivedBackQuantity > 0) {
+          inc(receivedBack, key, dailySale.receivedBackQuantity)
+          console.log(`[DSR] Received Back: ${productName} = ${dailySale.receivedBackQuantity}`)
+        }
       }
       
       // Process daily refills data (from DailyRefill model)
@@ -280,6 +352,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       setDailyFullCylinderSales(fullCyl)
       setDailyEmptyCylinderSales(emptyCyl)
       setDailyCylinderRefills(ref)
+      setDailyTransfers(transfer)
+      setDailyReceivedBack(receivedBack)
 
       // Note: Removed old cylinder transaction processing to avoid double counting
       // Now using unified daily cylinder transactions from DailyCylinderTransaction model
@@ -585,6 +659,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const gasSales = dailyGasSales[key] ?? 0
                     const deposits = dailyAggDeposits[key] ?? 0
                     const returns = dailyAggReturns[key] ?? 0
+                    const transferQuantity = dailyTransfers[key] ?? 0
+                    const receivedBackQuantity = dailyReceivedBack[key] ?? 0
                     const closingFull = entry?.closingFull ?? 0
                     const closingEmpty = entry?.closingEmpty ?? 0
 
@@ -599,8 +675,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                         <TableCell className="text-center">{gasSales}</TableCell>
                         <TableCell className="text-center">{deposits}</TableCell>
                         <TableCell className="text-center">{returns}</TableCell>
-                        <TableCell className="text-center">{entry?.transfer ?? 0}</TableCell>
-                        <TableCell className="text-center border-r">{entry?.receivedBack ?? 0}</TableCell>
+                        <TableCell className="text-center">{transferQuantity}</TableCell>
+                        <TableCell className="text-center border-r">{receivedBackQuantity}</TableCell>
                         <TableCell className="text-center">{closingFull}</TableCell>
                         <TableCell className="text-center">{closingEmpty}</TableCell>
                       </TableRow>

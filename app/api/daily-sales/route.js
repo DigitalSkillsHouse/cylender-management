@@ -103,6 +103,24 @@ export async function POST(request) {
       }
     }
 
+    // Transfer tracking (admin assigns stock to employees)
+    if (data.transferQuantity || data.transferAmount) {
+      updateData.$inc = {
+        ...(updateData.$inc || {}),
+        transferQuantity: Number(data.transferQuantity) || 0,
+        transferAmount: Number(data.transferAmount) || 0
+      }
+    }
+
+    // Received back tracking (employees return stock to admin)
+    if (data.receivedBackQuantity || data.receivedBackAmount) {
+      updateData.$inc = {
+        ...(updateData.$inc || {}),
+        receivedBackQuantity: Number(data.receivedBackQuantity) || 0,
+        receivedBackAmount: Number(data.receivedBackAmount) || 0
+      }
+    }
+
     const sale = await DailySales.findOneAndUpdate(
       filter,
       {

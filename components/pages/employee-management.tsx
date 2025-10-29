@@ -230,6 +230,40 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
     // Note: Notifications are now handled by the useNotifications hook
   }, [])
 
+  // Helper function to update daily sales tracking for stock transfers
+  const updateDailySalesTransferTracking = async (productId: string, productName: string, category: string, quantity: number, unitPrice: number) => {
+    try {
+      const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+      
+      const response = await fetch('/api/daily-sales', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          date: today,
+          productId: productId,
+          productName: productName,
+          category: category,
+          transferQuantity: quantity,
+          transferAmount: unitPrice * quantity,
+          action: 'transfer' // Specify this is a transfer action
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to update daily sales tracking: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      console.log('📊 [DSR TRACKING] Daily sales transfer tracking updated:', result)
+      return result
+    } catch (error) {
+      console.error('❌ [DSR TRACKING] Error updating daily sales transfer tracking:', error)
+      throw error
+    }
+  }
+
   const fetchData = async () => {
     try {
       setLoading(true)
@@ -448,6 +482,22 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       })
       
       console.log('📢 [NOTIFICATION] Response status:', notificationResponse.status, notificationResponse.ok)
+
+      // Track transfer in Daily Stock Report
+      try {
+        console.log('📊 [DSR TRACKING] Recording stock transfer in daily sales tracking')
+        await updateDailySalesTransferTracking(
+          stockFormData.productId, 
+          selectedProduct.name,
+          selectedProduct.category,
+          stockFormData.quantity, 
+          selectedProduct.leastPrice || 0
+        )
+        console.log('✅ [DSR TRACKING] Transfer recorded successfully in DSR')
+      } catch (trackingError) {
+        console.error('❌ [DSR TRACKING] Failed to record transfer:', trackingError)
+        // Don't fail the entire assignment if tracking fails
+      }
 
       // Show success notification
       setUpdateNotification({

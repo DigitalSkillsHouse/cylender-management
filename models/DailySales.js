@@ -65,6 +65,24 @@ const DailySalesSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Transfer tracking (admin assigns stock to employees)
+  transferQuantity: {
+    type: Number,
+    default: 0
+  },
+  transferAmount: {
+    type: Number,
+    default: 0
+  },
+  // Received back tracking (employees return stock to admin)
+  receivedBackQuantity: {
+    type: Number,
+    default: 0
+  },
+  receivedBackAmount: {
+    type: Number,
+    default: 0
+  },
   // Cylinder product info for gas sales (to link gas to cylinder)
   cylinderProductId: {
     type: mongoose.Schema.Types.ObjectId,
