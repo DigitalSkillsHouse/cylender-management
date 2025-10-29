@@ -75,6 +75,12 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const [dailyTransfers, setDailyTransfers] = useState<Record<string, number>>({})
   const [dailyReceivedBack, setDailyReceivedBack] = useState<Record<string, number>>({})
   
+  // New separate tracking for gas and empty cylinders
+  const [dailyTransferGas, setDailyTransferGas] = useState<Record<string, number>>({})
+  const [dailyTransferEmpty, setDailyTransferEmpty] = useState<Record<string, number>>({})
+  const [dailyReceivedGas, setDailyReceivedGas] = useState<Record<string, number>>({})
+  const [dailyReceivedEmpty, setDailyReceivedEmpty] = useState<Record<string, number>>({})
+  
   // Inventory data for automated DSR
   const [inventoryData, setInventoryData] = useState<Record<string, { availableFull: number; availableEmpty: number; currentStock: number }>>({})
 
@@ -219,7 +225,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         productsRes,
         dailyCylinderRes,
         dailySalesRes,
-        dailyRefillsRes
+        dailyRefillsRes,
+        empStockEmpRes
       ] = await Promise.all([
         // Fetch employee sales if user is employee, otherwise admin sales
         user.role === 'employee' 
@@ -232,7 +239,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         user.role === 'employee' 
           ? fetch(`/api/daily-employee-sales?date=${date}&employeeId=${user.id}`, { cache: 'no-store' })
           : fetch(`/api/daily-sales?date=${date}`, { cache: 'no-store' }),
-        fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }) // Daily refills data
+        fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }), // Daily refills data
+        // Fetch EmpStockEmp assignments for the date
+        fetch(`/api/emp-stock-emp?date=${date}${user.role === 'employee' ? `&employeeId=${user.id}` : ''}`, { cache: 'no-store' })
       ])
 
       const salesJson = await salesRes.json()
@@ -241,6 +250,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       const dailyCylinderJson = await dailyCylinderRes.json()
       const dailySalesJson = await dailySalesRes.json()
       const dailyRefillsJson = await dailyRefillsRes.json()
+      const empStockEmpJson = await empStockEmpRes.json()
 
       // Process aggregated data
       const inSelectedDay = (dateStr: string) => {
@@ -259,6 +269,12 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       const ret: Record<string, number> = {}
       const transfer: Record<string, number> = {} // Transfer tracking (admin assigns to employees)
       const receivedBack: Record<string, number> = {} // Received back tracking (employees return to admin)
+      
+      // New separate tracking for gas and empty cylinders
+      const transferGas: Record<string, number> = {}
+      const transferEmpty: Record<string, number> = {}
+      const receivedGas: Record<string, number> = {}
+      const receivedEmpty: Record<string, number> = {}
 
       const inc = (obj: Record<string, number>, key: string, val: number) => {
         obj[key] = (obj[key] || 0) + val
@@ -347,6 +363,53 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         }
       }
       
+      // Process EmpStockEmp assignments for separate gas/empty tracking
+      const empStockEmpList: any[] = Array.isArray(empStockEmpJson?.data) ? empStockEmpJson.data : []
+      console.log(`[DSR] Processing ${empStockEmpList.length} EmpStockEmp assignments`)
+      
+      for (const assignment of empStockEmpList) {
+        const productName = assignment.productName || ''
+        const category = assignment.category || ''
+        const cylinderStatus = assignment.cylinderStatus || ''
+        const quantity = Number(assignment.assignedQuantity) || 0
+        const status = assignment.status || ''
+        const relatedCylinderName = assignment.relatedCylinderName || ''
+        
+        if (!productName || quantity <= 0) continue
+        
+        // For gas assignments, use the related cylinder name for DSR grouping
+        // This shows gas transfers under the cylinder they're related to
+        let dsrKey = productName.toLowerCase().replace(/\s+/g, ' ').trim()
+        if (category === 'gas' && relatedCylinderName) {
+          dsrKey = relatedCylinderName.toLowerCase().replace(/\s+/g, ' ').trim()
+          console.log(`[DSR] Gas assignment linked to cylinder: ${productName} → ${relatedCylinderName}`)
+        }
+        
+        // Only process assignments (transfers from admin to employee)
+        // For received back, we would need a different status or separate tracking
+        if (status === 'assigned' || status === 'accepted') {
+          if (category === 'gas') {
+            inc(transferGas, dsrKey, quantity)
+            console.log(`[DSR] Transfer Gas: ${productName} = ${quantity} (under ${relatedCylinderName || productName})`)
+          } else if (category === 'cylinder' && cylinderStatus === 'empty') {
+            inc(transferEmpty, dsrKey, quantity)
+            console.log(`[DSR] Transfer Empty: ${productName} = ${quantity}`)
+          }
+        }
+        
+        // For received back tracking, we would check for a different status
+        // This would be implemented when employees return stock to admin
+        if (status === 'returned') { // Future implementation
+          if (category === 'gas') {
+            inc(receivedGas, dsrKey, quantity)
+            console.log(`[DSR] Received Gas: ${productName} = ${quantity}`)
+          } else if (category === 'cylinder' && cylinderStatus === 'empty') {
+            inc(receivedEmpty, dsrKey, quantity)
+            console.log(`[DSR] Received Empty: ${productName} = ${quantity}`)
+          }
+        }
+      }
+
       // Set state variables for use in component render
       setDailyGasSales(gas)
       setDailyFullCylinderSales(fullCyl)
@@ -354,6 +417,12 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       setDailyCylinderRefills(ref)
       setDailyTransfers(transfer)
       setDailyReceivedBack(receivedBack)
+      
+      // Set new separate tracking state variables
+      setDailyTransferGas(transferGas)
+      setDailyTransferEmpty(transferEmpty)
+      setDailyReceivedGas(receivedGas)
+      setDailyReceivedEmpty(receivedEmpty)
 
       // Note: Removed old cylinder transaction processing to avoid double counting
       // Now using unified daily cylinder transactions from DailyCylinderTransaction model
@@ -433,8 +502,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             <td>${gasSalesVal || 0}</td>
             <td>${depositVal || 0}</td>
             <td>${returnVal || 0}</td>
-            <td>${typeof e?.transfer === 'number' ? e!.transfer : 0}</td>
-            <td>${typeof e?.receivedBack === 'number' ? e!.receivedBack : 0}</td>
+            <td>${dailyTransferGas[key] ?? 0}</td>
+            <td>${dailyTransferEmpty[key] ?? 0}</td>
+            <td>${dailyReceivedGas[key] ?? 0}</td>
+            <td>${dailyReceivedEmpty[key] ?? 0}</td>
             <td>${typeof e?.closingFull === 'number' ? e!.closingFull : 0}</td>
             <td>${typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</td>
           </tr>
@@ -473,8 +544,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                 <th>Gas Sales</th>
                 <th>Deposit Cylinder</th>
                 <th>Return Cylinder</th>
-                <th>Transfer</th>
-                <th>Received Back</th>
+                <th>Transfer Gas</th>
+                <th>Transfer Empty</th>
+                <th>Received Gas</th>
+                <th>Received Empty</th>
                 <th>Full</th>
                 <th>Empty</th>
               </tr>
@@ -639,8 +712,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     <TableHead className="text-center">Gas Sales</TableHead>
                     <TableHead className="text-center">Deposit Cylinder</TableHead>
                     <TableHead className="text-center">Return Cylinder</TableHead>
-                    <TableHead className="text-center">Transfer</TableHead>
-                    <TableHead className="text-center border-r">Received Back</TableHead>
+                    <TableHead className="text-center">Transfer Gas</TableHead>
+                    <TableHead className="text-center">Transfer Empty</TableHead>
+                    <TableHead className="text-center">Received Gas</TableHead>
+                    <TableHead className="text-center border-r">Received Empty</TableHead>
                     <TableHead className="text-center">Full</TableHead>
                     <TableHead className="text-center">Empty</TableHead>
                   </TableRow>
@@ -661,6 +736,12 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const returns = dailyAggReturns[key] ?? 0
                     const transferQuantity = dailyTransfers[key] ?? 0
                     const receivedBackQuantity = dailyReceivedBack[key] ?? 0
+                    
+                    // New separate tracking values
+                    const transferGasQuantity = dailyTransferGas[key] ?? 0
+                    const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
+                    const receivedGasQuantity = dailyReceivedGas[key] ?? 0
+                    const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
                     const closingFull = entry?.closingFull ?? 0
                     const closingEmpty = entry?.closingEmpty ?? 0
 
@@ -675,8 +756,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                         <TableCell className="text-center">{gasSales}</TableCell>
                         <TableCell className="text-center">{deposits}</TableCell>
                         <TableCell className="text-center">{returns}</TableCell>
-                        <TableCell className="text-center">{transferQuantity}</TableCell>
-                        <TableCell className="text-center border-r">{receivedBackQuantity}</TableCell>
+                        <TableCell className="text-center">{transferGasQuantity}</TableCell>
+                        <TableCell className="text-center">{transferEmptyQuantity}</TableCell>
+                        <TableCell className="text-center">{receivedGasQuantity}</TableCell>
+                        <TableCell className="text-center border-r">{receivedEmptyQuantity}</TableCell>
                         <TableCell className="text-center">{closingFull}</TableCell>
                         <TableCell className="text-center">{closingEmpty}</TableCell>
                       </TableRow>

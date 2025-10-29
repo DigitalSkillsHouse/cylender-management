@@ -483,6 +483,57 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       
       console.log('📢 [NOTIFICATION] Response status:', notificationResponse.status, notificationResponse.ok)
 
+      // Save to EmpStockEmp model for complete tracking and get assignment ID
+      let assignmentId = null
+      try {
+        console.log('💾 [EMP STOCK EMP] Saving assignment to EmpStockEmp model')
+        const empStockEmpResponse = await fetch('/api/emp-stock-emp', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            adminId: user.id,
+            employeeId: selectedEmployee._id,
+            productId: stockFormData.productId,
+            assignedQuantity: stockFormData.quantity,
+            unitPrice: selectedProduct.leastPrice || 0,
+            category: selectedProduct.category,
+            cylinderStatus: stockFormData.cylinderStatus,
+            notes: stockFormData.notes || `Stock assigned by ${user.name} via Employee Management`,
+            assignmentDate: new Date().toISOString(),
+            // Add cylinder linking for gas assignments
+            ...(selectedProduct.category === 'gas' && stockFormData.cylinderProductId ? {
+              relatedCylinderProductId: stockFormData.cylinderProductId,
+              relatedCylinderName: products.find(p => p._id === stockFormData.cylinderProductId)?.name || ''
+            } : {})
+          })
+        })
+
+        if (empStockEmpResponse.ok) {
+          const empStockEmpData = await empStockEmpResponse.json()
+          assignmentId = empStockEmpData.data._id
+          console.log('✅ [EMP STOCK EMP] Assignment saved:', assignmentId)
+          
+          // Mark inventory as deducted
+          await fetch('/api/emp-stock-emp', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              assignmentId: assignmentId,
+              inventoryDeducted: true,
+              dailySalesUpdated: false // Will be updated after DSR tracking
+            })
+          })
+        } else {
+          console.error('❌ [EMP STOCK EMP] Failed to save assignment')
+        }
+      } catch (empStockError) {
+        console.error('❌ [EMP STOCK EMP] Error saving assignment:', empStockError)
+      }
+
       // Track transfer in Daily Stock Report
       try {
         console.log('📊 [DSR TRACKING] Recording stock transfer in daily sales tracking')
@@ -494,6 +545,26 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
           selectedProduct.leastPrice || 0
         )
         console.log('✅ [DSR TRACKING] Transfer recorded successfully in DSR')
+        
+        // Update EmpStockEmp record to mark daily sales as updated
+        if (assignmentId) {
+          try {
+            await fetch('/api/emp-stock-emp', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                assignmentId: assignmentId,
+                dailySalesUpdated: true
+              })
+            })
+            console.log('✅ [EMP STOCK EMP] Daily sales tracking status updated')
+          } catch (updateError) {
+            console.error('❌ [EMP STOCK EMP] Failed to update daily sales status:', updateError)
+          }
+        }
+        
       } catch (trackingError) {
         console.error('❌ [DSR TRACKING] Failed to record transfer:', trackingError)
         // Don't fail the entire assignment if tracking fails
