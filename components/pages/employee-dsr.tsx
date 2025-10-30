@@ -58,6 +58,16 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         console.log('📊 Sales data fetched:', salesData.length, 'records')
       }
       
+      // Step 1.5: Fetch cylinder transaction data from daily employee cylinder aggregation
+      const cylinderResponse = await fetch(`/api/daily-employee-cylinder-aggregation?employeeId=${user.id}&date=${dsrDate}`)
+      let cylinderData = []
+      
+      if (cylinderResponse.ok) {
+        const cylinderResult = await cylinderResponse.json()
+        cylinderData = cylinderResult.data || []
+        console.log('🔄 Cylinder data fetched:', cylinderData.length, 'records')
+      }
+      
       // Step 2: Fetch inventory data for opening/closing stock
       let inventoryData = []
       
@@ -128,6 +138,39 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         }
       })
       
+      // Add cylinder transaction data to DSR (deposits and returns)
+      cylinderData.forEach((cylinder: any) => {
+        const itemName = cylinder.productName
+        
+        if (dsrMap.has(itemName)) {
+          // Merge with existing entry
+          const existing = dsrMap.get(itemName)!
+          existing.deposits += cylinder.totalDeposits || 0
+          existing.returns += cylinder.totalReturns || 0
+          existing.refilled += cylinder.totalRefills || 0
+        } else {
+          // Create new entry from cylinder data
+          dsrMap.set(itemName, {
+            itemName: itemName,
+            openingFull: 0,
+            openingEmpty: 0,
+            refilled: cylinder.totalRefills || 0,
+            fullCylinderSales: 0,
+            emptyCylinderSales: 0,
+            gasSales: 0,
+            deposits: cylinder.totalDeposits || 0,
+            returns: cylinder.totalReturns || 0,
+            transferGas: 0,
+            transferEmpty: 0,
+            receivedGas: 0,
+            receivedEmpty: 0,
+            closingFull: 0,
+            closingEmpty: 0,
+            category: 'cylinder'
+          })
+        }
+      })
+      
       // Add inventory data to DSR (only cylinder items)
       inventoryData.forEach((item: any) => {
         if (item.category !== 'cylinder') return
@@ -169,6 +212,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       
       console.log('✅ Employee DSR data processed:', {
         salesRecords: salesData.length,
+        cylinderRecords: cylinderData.length,
         inventoryItems: inventoryData.length,
         finalDsrItems: finalDsrData.length,
         items: finalDsrData
