@@ -689,8 +689,9 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
               availableEmpty: availableEmpty,
               availableFull: availableFull,
               cylinderSize: inventoryItem.cylinderSize,
-              costPrice: 0, // Will be populated if needed
-              leastPrice: 0, // Will be populated if needed
+              // Get price fields from the API response - they should be populated by the backend
+              costPrice: inventoryItem.costPrice || 0,
+              leastPrice: inventoryItem.leastPrice || 0,
             }
             allEmployeeProducts.push(productWithStock)
           }

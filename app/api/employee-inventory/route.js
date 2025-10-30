@@ -34,7 +34,7 @@ export async function GET(request) {
     
     // Get EmployeeInventory records (from approved purchases)
     const employeeInventory = await EmployeeInventory.find(employeeInventoryQuery)
-      .populate('product', 'name productCode category cylinderSize')
+      .populate('product', 'name productCode category cylinderSize costPrice leastPrice')
       .populate('employee', 'name email')
       .sort({ lastUpdated: -1 })
       .lean() // Convert to plain objects
@@ -42,9 +42,9 @@ export async function GET(request) {
     // Get StockAssignment records (from admin assignments)
     console.log('🔍 Fetching StockAssignments with query:', JSON.stringify(stockAssignmentQuery))
     const stockAssignments = await StockAssignment.find(stockAssignmentQuery)
-      .populate('product', 'name productCode category cylinderSize')
-      .populate('cylinderProductId', 'name productCode category cylinderSize') // Populate cylinder product for gas items
-      .populate('gasProductId', 'name productCode category') // Populate gas product for cylinder items
+      .populate('product', 'name productCode category cylinderSize costPrice leastPrice')
+      .populate('cylinderProductId', 'name productCode category cylinderSize costPrice leastPrice') // Populate cylinder product for gas items
+      .populate('gasProductId', 'name productCode category costPrice leastPrice') // Populate gas product for cylinder items
       .populate('employee', 'name email')
       .sort({ createdAt: -1 })
       .lean() // Convert to plain objects

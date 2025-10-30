@@ -331,7 +331,10 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                 availableEmpty: availableEmpty,
                 availableFull: availableFull,
                 category: productCategory,
-                cylinderStatus: inventoryItem.cylinderStatus
+                cylinderStatus: inventoryItem.cylinderStatus,
+                // Ensure price fields are preserved
+                leastPrice: inventoryItem.product?.leastPrice || 0,
+                costPrice: inventoryItem.product?.costPrice || 0
               }
               console.log(`✅ Including product:`, {
                 name: productWithStock.name,
@@ -341,7 +344,9 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                 availableFull: availableFull,
                 cylinderStatus: inventoryItem.cylinderStatus,
                 leastPrice: productWithStock.leastPrice,
-                costPrice: productWithStock.costPrice
+                costPrice: productWithStock.costPrice,
+                originalProductLeastPrice: inventoryItem.product?.leastPrice,
+                originalProductCostPrice: inventoryItem.product?.costPrice
               })
               allEmployeeProducts.push(productWithStock)
             } else {

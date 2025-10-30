@@ -49,6 +49,9 @@ export async function GET(request) {
       availableFull: item.availableFull ?? 0,
       cylinderSize: item.cylinderSize || item.product?.cylinderSize || null,
       gasType: item.gasType || null,
+      // Include price fields for employee gas sales
+      costPrice: item.product?.costPrice || 0,
+      leastPrice: item.product?.leastPrice || 0,
       updatedAt: item.updatedAt,
     }))
 
