@@ -14,11 +14,16 @@ export async function GET(request) {
     const adminId = searchParams.get('adminId')
     const date = searchParams.get('date')
     const status = searchParams.get('status')
+    const adminOnly = searchParams.get('adminOnly')
     
     let query = {}
     
-    // Filter by employee
-    if (employeeId) {
+    // Admin only filter - only show admin assignments (not employee-specific)
+    if (adminOnly === 'true') {
+      // For admin DSR, we want to see all admin assignments regardless of employee
+      // This shows transfers from admin to employees
+    } else if (employeeId) {
+      // Filter by specific employee
       query.employeeId = employeeId
     }
     

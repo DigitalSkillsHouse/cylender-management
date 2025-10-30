@@ -8,11 +8,15 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url)
     const date = searchParams.get('date')
+    const adminOnly = searchParams.get('adminOnly')
 
     const filter = {}
     if (date) {
       filter.date = date
     }
+    
+    // Note: DailySales model only tracks admin sales, so adminOnly doesn't change the query
+    // but we acknowledge the parameter for consistency
 
     const sales = await DailySales.find(filter)
       .populate('productId', 'name category cylinderSize')

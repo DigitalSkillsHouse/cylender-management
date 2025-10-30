@@ -125,11 +125,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   // Fetch inventory data for automated DSR
   const fetchInventoryData = async () => {
     try {
-      // For employees, fetch their personal inventory; for admin, fetch all inventory
+      // Fetch admin inventory and products
       const [inventoryRes, productsRes] = await Promise.all([
-        user.role === 'employee' 
-          ? fetch(`/api/employee-inventory?employeeId=${user.id}`, { cache: 'no-store' })
-          : fetch('/api/inventory-items', { cache: 'no-store' }),
+        fetch('/api/inventory-items', { cache: 'no-store' }),
         fetch('/api/products', { cache: 'no-store' })
       ])
       
@@ -141,70 +139,26 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       Array.isArray(productsJson?.data) ? productsJson.data : 
                       Array.isArray(productsJson) ? productsJson : []
       
-      // For employees, only show products they have in inventory; for admin, show all cylinder products
-      let productsToShow = []
-      if (user.role === 'employee') {
-        // Get unique product names from employee inventory
-        const employeeProductNames = new Set()
-        inventoryItems.forEach((item: any) => {
-          const productName = item.product?.name || item.productName || ''
-          if (productName && item.category === 'cylinder') {
-            employeeProductNames.add(productName)
-          }
-        })
-        // Filter products to only those the employee has
-        productsToShow = products.filter((product: any) => 
-          product.category === 'cylinder' && employeeProductNames.has(product.name)
-        )
-      } else {
-        // Admin sees all cylinder products
-        productsToShow = products.filter((product: any) => product.category === 'cylinder')
-      }
+      // Admin sees all cylinder products
+      const productsToShow = products.filter((product: any) => product.category === 'cylinder')
       setDsrProducts(productsToShow.map((p: any) => ({ _id: p._id, name: p.name })))
       
       const inventoryMap: Record<string, { availableFull: number; availableEmpty: number; currentStock: number }> = {}
       
       // Map inventory items by product name
       inventoryItems.forEach((item: any) => {
-        let productName = ''
-        let availableFull = 0
-        let availableEmpty = 0
-        let currentStock = 0
-        
-        if (user.role === 'employee') {
-          // Employee inventory structure
-          productName = item.product?.name || item.productName || ''
-          // For employee inventory, use availableQuantity based on category and status
-          if (item.category === 'gas') {
-            currentStock = Number(item.availableQuantity) || 0
-          } else if (item.category === 'cylinder') {
-            if (item.cylinderStatus === 'full') {
-              availableFull = Number(item.availableQuantity) || 0
-            } else if (item.cylinderStatus === 'empty') {
-              availableEmpty = Number(item.availableQuantity) || 0
-            }
-          }
-        } else {
-          // Admin inventory structure
-          productName = item.productName || ''
-          availableFull = Number(item.availableFull) || 0
-          availableEmpty = Number(item.availableEmpty) || 0
-          currentStock = Number(item.currentStock) || 0
-        }
+        // Admin inventory structure
+        const productName = item.productName || ''
+        const availableFull = Number(item.availableFull) || 0
+        const availableEmpty = Number(item.availableEmpty) || 0
+        const currentStock = Number(item.currentStock) || 0
         
         if (productName) {
           const normalizedName = normalizeName(productName)
-          // If entry exists, add to it (for employee inventory with multiple entries per product)
-          if (inventoryMap[normalizedName]) {
-            inventoryMap[normalizedName].availableFull += availableFull
-            inventoryMap[normalizedName].availableEmpty += availableEmpty
-            inventoryMap[normalizedName].currentStock += currentStock
-          } else {
-            inventoryMap[normalizedName] = {
-              availableFull,
-              availableEmpty,
-              currentStock
-            }
+          inventoryMap[normalizedName] = {
+            availableFull,
+            availableEmpty,
+            currentStock
           }
         }
       })
@@ -228,20 +182,16 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         dailyRefillsRes,
         empStockEmpRes
       ] = await Promise.all([
-        // Fetch employee sales if user is employee, otherwise admin sales
-        user.role === 'employee' 
-          ? fetch(`/api/employee-sales?employeeId=${user.id}`, { cache: 'no-store' })
-          : fetch('/api/sales', { cache: 'no-store' }),
+        // Fetch admin sales only (no employee sales in admin DSR)
+        fetch('/api/sales', { cache: 'no-store' }),
         fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }),
         fetch('/api/products', { cache: 'no-store' }),
-        fetch(`/api/daily-cylinder-transactions?date=${date}${user.role === 'employee' ? `&employeeId=${user.id}` : ''}`, { cache: 'no-store' }),
-        // Fetch employee sales data if user is employee, otherwise admin sales data
-        user.role === 'employee' 
-          ? fetch(`/api/daily-employee-sales?date=${date}&employeeId=${user.id}`, { cache: 'no-store' })
-          : fetch(`/api/daily-sales?date=${date}`, { cache: 'no-store' }),
+        fetch(`/api/daily-cylinder-transactions?date=${date}&adminOnly=true`, { cache: 'no-store' }),
+        // Fetch admin daily sales data only
+        fetch(`/api/daily-sales?date=${date}&adminOnly=true`, { cache: 'no-store' }),
         fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }), // Daily refills data
-        // Fetch EmpStockEmp assignments for the date
-        fetch(`/api/emp-stock-emp?date=${date}${user.role === 'employee' ? `&employeeId=${user.id}` : ''}`, { cache: 'no-store' })
+        // Fetch admin EmpStockEmp assignments only
+        fetch(`/api/emp-stock-emp?date=${date}&adminOnly=true`, { cache: 'no-store' })
       ])
 
       const salesJson = await salesRes.json()

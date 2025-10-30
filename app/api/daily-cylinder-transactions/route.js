@@ -10,18 +10,24 @@ export async function GET(request) {
     const date = searchParams.get('date')
     const employeeId = searchParams.get('employeeId')
     const isEmployeeTransaction = searchParams.get('isEmployeeTransaction')
+    const adminOnly = searchParams.get('adminOnly')
 
     // Build query filter
     const filter = {}
     if (date) {
       filter.date = date
     }
-    if (employeeId) {
+    
+    // Admin only filter - exclude employee transactions
+    if (adminOnly === 'true') {
+      filter.isEmployeeTransaction = false
+      filter.employeeId = null
+    } else if (employeeId) {
       filter.employeeId = employeeId
     }
     
     // Filter by transaction type (admin vs employee)
-    if (isEmployeeTransaction !== null) {
+    if (isEmployeeTransaction !== null && adminOnly !== 'true') {
       if (isEmployeeTransaction === 'false') {
         // Admin transactions only (employeeId is null and isEmployeeTransaction is false)
         filter.employeeId = null
