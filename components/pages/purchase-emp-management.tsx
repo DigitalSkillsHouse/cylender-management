@@ -267,6 +267,7 @@ export function PurchaseManagement() {
         await employeePurchaseOrdersAPI.update(editingOrder._id, purchaseData)
       } else {
         // For new orders, create multiple purchase orders (one per item)
+        // Auto-approve them so they go directly to employee pending inventory
         for (const item of formData.items) {
           const purchaseData = {
             supplier: formData.supplierId,
@@ -280,6 +281,8 @@ export function PurchaseManagement() {
             invoiceNumber: formData.invoiceNumber.trim(),
             emptyCylinderId: item.emptyCylinderId,
             emptyCylinderName: item.emptyCylinderName,
+            status: 'approved', // Auto-approve so it goes directly to pending inventory
+            autoApproved: true, // Flag to indicate this was auto-approved
           }
           await employeePurchaseOrdersAPI.create(purchaseData)
         }
@@ -289,9 +292,12 @@ export function PurchaseManagement() {
       resetForm()
       setIsDialogOpen(false)
       
-      // Notify other pages that a purchase order was created
+      // Notify other pages that a purchase order was created and approved
       localStorage.setItem('purchaseOrderCreated', Date.now().toString())
       window.dispatchEvent(new CustomEvent('purchaseOrderCreated'))
+      
+      // Show success message indicating items are ready in pending inventory
+      alert('Purchase order created successfully! Items are now available in your Pending Inventory for acceptance.')
     } catch (error: any) {
       setError(error.response?.data?.error || "Failed to save purchase order")
     } finally {
@@ -845,17 +851,6 @@ export function PurchaseManagement() {
                                     variant="outline"
                                     size="sm"
                                     onClick={() => {
-                                      // Load into current inputs and remove from list for editing
-                                      setCurrentItem({
-                                        purchaseType: it.purchaseType as any,
-                                        productId: it.productId,
-                                        quantity: it.quantity,
-                                        unitPrice: it.unitPrice,
-                                        cylinderSize: "",
-                                      })
-                                      setProductSearchTerm(p?.name || '')
-                                      const remaining = formData.items.filter((_, i) => i !== idx)
-                                      setFormData({ ...formData, items: remaining })
                                       setEditingItemIndex(idx)
                                     }}
                                     className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white"

@@ -7,6 +7,7 @@ import User from "@/models/User"
 import Counter from "@/models/Counter"
 import Sale from "@/models/Sale"
 import DailyEmployeeSalesAggregation from "@/models/DailyEmployeeSalesAggregation"
+import { updateEmpGasSalesTracking } from "@/lib/emp-gas-sales-tracker"
 
 export async function GET(request) {
   try {
@@ -226,6 +227,15 @@ export async function POST(request) {
     })
 
     const savedSale = await newSale.save()
+
+    // Update Employee DSR tracking (EmpGasSales model) - same as admin DSR
+    try {
+      await updateEmpGasSalesTracking(savedSale, employeeId)
+      console.log(`✅ [EMPLOYEE SALES] Employee DSR tracking updated successfully`)
+    } catch (dsrError) {
+      console.error(`❌ [EMPLOYEE SALES] Failed to update employee DSR tracking:`, dsrError.message)
+      // Don't fail the entire sale if DSR tracking fails
+    }
 
     // Update daily sales aggregation for DSR
     try {

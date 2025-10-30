@@ -3,6 +3,7 @@ import dbConnect from "@/lib/mongodb"
 import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
 import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import Product from "@/models/Product"
+import { updateEmpStockReceived } from "@/lib/emp-gas-sales-tracker"
 
 export async function POST(request) {
   try {
@@ -285,6 +286,21 @@ export async function POST(request) {
     purchaseOrder.inventoryStatus = 'received'
     purchaseOrder.status = 'completed'  // Update main status so it shows as completed in Employee Purchase Management
     await purchaseOrder.save()
+
+    // Update Employee DSR tracking for stock received
+    try {
+      await updateEmpStockReceived({
+        productId: purchaseOrder.product._id,
+        productName: purchaseOrder.product.name,
+        category: purchaseOrder.product.category,
+        quantity: purchaseOrder.quantity,
+        cylinderStatus: purchaseOrder.cylinderStatus
+      }, employeeId)
+      console.log('✅ Employee DSR stock received tracking updated')
+    } catch (dsrError) {
+      console.error('❌ Failed to update DSR stock received:', dsrError.message)
+      // Don't fail the entire operation if DSR tracking fails
+    }
 
     console.log('✅ Order accepted and inventory updated:', {
       orderId: orderId,

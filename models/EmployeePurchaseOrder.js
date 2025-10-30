@@ -61,7 +61,7 @@ const employeePurchaseOrderSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'assigned', 'completed', 'cancelled'],
+    enum: ['pending', 'assigned', 'approved', 'completed', 'cancelled'],
     default: 'pending'
   },
   inventoryStatus: {
@@ -81,6 +81,10 @@ const employeePurchaseOrderSchema = new mongoose.Schema({
   emptyCylinderName: {
     type: String,
     required: false
+  },
+  autoApproved: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true

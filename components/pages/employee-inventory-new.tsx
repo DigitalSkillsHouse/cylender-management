@@ -53,6 +53,7 @@ interface EmployeeInventoryProps {
 
 export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
   const [pendingOrders, setPendingOrders] = useState<EmployeeInventoryItem[]>([])
+  const [pendingAssignments, setPendingAssignments] = useState<any[]>([])
   const [receivedStock, setReceivedStock] = useState<EmployeeInventoryStock[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>("")
@@ -113,6 +114,16 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
       console.log('📊 [PENDING] Orders count:', pendingData.data?.length || 0)
       console.log('📊 [PENDING] Individual orders:', pendingData.data)
       
+      // Fetch employee's pending assignments from admin
+      const assignmentsUrl = `/api/employee-inventory-new/assignments?employeeId=${user.id}&t=${Date.now()}`
+      console.log('📡 [ASSIGNMENTS] Fetching from:', assignmentsUrl)
+      
+      const assignmentsRes = await fetch(assignmentsUrl, { cache: 'no-store' })
+      console.log('📡 [ASSIGNMENTS] Response status:', assignmentsRes.status, assignmentsRes.ok)
+      
+      const assignmentsData = assignmentsRes.ok ? await assignmentsRes.json() : { data: [] }
+      console.log('📊 [ASSIGNMENTS] Data received:', assignmentsData)
+      
       // Fetch employee's received inventory stock
       const receivedUrl = `/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`
       console.log('📡 [RECEIVED] Fetching from:', receivedUrl)
@@ -124,6 +135,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
       console.log('📊 [RECEIVED] Data received:', receivedData)
       
       setPendingOrders(pendingData.data || [])
+      setPendingAssignments(assignmentsData.data || [])
       setReceivedStock(receivedData.data || [])
       
       console.log('✅ [EMPLOYEE INVENTORY] Fetch completed successfully')
@@ -145,9 +157,10 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
       // Find the order to check if it's a gas order
       const order = pendingOrders.find(o => (o.originalOrderId || o.id) === orderId)
       
-      // If it's a gas order, show cylinder selection popup
-      if (order && order.purchaseType === 'gas') {
-        console.log('🔄 [GAS ORDER] Gas order detected, showing cylinder selection popup')
+      // Only show cylinder selection popup for gas orders that DON'T already have an empty cylinder assigned
+      // (Employee purchases already have empty cylinders selected, admin assignments don't)
+      if (order && order.purchaseType === 'gas' && !order.emptyCylinderId) {
+        console.log('🔄 [GAS ORDER] Gas order without cylinder detected, showing cylinder selection popup')
         setSelectedGasOrder(order)
         
         // Fetch employee's empty cylinders
@@ -156,7 +169,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
         return
       }
       
-      // For non-gas orders, proceed with direct acceptance
+      // For non-gas orders or gas orders with cylinders already assigned, proceed with direct acceptance
       await processOrderAcceptance(orderId)
       
     } catch (error: any) {
@@ -271,14 +284,23 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
     setShowCylinderSuggestions(false)
   }
 
-  // Handle gas order acceptance with cylinder selection
+  // Handle gas order/assignment acceptance with cylinder selection
   const handleGasOrderAcceptance = async () => {
     if (!selectedGasOrder || !selectedCylinderId) {
       setError("Please select an empty cylinder")
       return
     }
     
-    await processOrderAcceptance(selectedGasOrder.originalOrderId || selectedGasOrder.id, selectedCylinderId)
+    const orderId = selectedGasOrder.originalOrderId || selectedGasOrder.id
+    
+    // Check if this is an assignment (from admin) or a purchase order (from employee)
+    const isAssignment = pendingAssignments.some(a => a.assignmentId === orderId)
+    
+    if (isAssignment) {
+      await processAssignmentAcceptance(orderId, selectedCylinderId)
+    } else {
+      await processOrderAcceptance(orderId, selectedCylinderId)
+    }
   }
 
   // Handle sending items back to admin
@@ -350,28 +372,135 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
     }
   }
 
-  // Filter functions for received inventory tabs
+  // Handle accepting assignment from admin
+  const handleAcceptAssignment = async (assignmentId: string) => {
+    try {
+      setError("")
+      
+      // Find the assignment to check if it's a gas assignment
+      const assignment = pendingAssignments.find(a => a.assignmentId === assignmentId)
+      
+      // If it's a gas assignment from admin, show cylinder selection popup
+      if (assignment && assignment.category === 'gas') {
+        console.log('🔄 [GAS ASSIGNMENT] Gas assignment from admin detected, showing cylinder selection popup')
+        
+        // Convert assignment to order format for the popup
+        const gasOrder = {
+          id: assignmentId,
+          originalOrderId: assignmentId,
+          productName: assignment.productName,
+          quantity: assignment.quantity,
+          purchaseType: 'gas' as const,
+          unitPrice: 0,
+          totalAmount: 0,
+          poNumber: '',
+          supplierName: 'Admin Assignment',
+          purchaseDate: assignment.assignedDate,
+          status: 'pending' as const,
+          emptyCylinderId: undefined // No cylinder assigned yet
+        }
+        
+        setSelectedGasOrder(gasOrder)
+        
+        // Fetch employee's empty cylinders
+        await fetchEmptyCylinders()
+        setShowCylinderDialog(true)
+        return
+      }
+      
+      // For non-gas assignments, proceed with direct acceptance
+      await processAssignmentAcceptance(assignmentId)
+      
+    } catch (error: any) {
+      console.error('❌ [ACCEPT ASSIGNMENT] Exception:', error)
+      setError(`Failed to accept assignment: ${error.message}`)
+    }
+  }
+
+  // Process assignment acceptance (separated for reuse)
+  const processAssignmentAcceptance = async (assignmentId: string, emptyCylinderId?: string) => {
+    try {
+      setProcessingItems(prev => new Set(prev).add(assignmentId))
+      
+      console.log('🔄 [ACCEPT ASSIGNMENT] Starting acceptance for assignment:', assignmentId)
+      console.log('👤 [ACCEPT ASSIGNMENT] Employee ID:', user.id)
+      
+      const requestBody: any = { 
+        status: 'received', // Change from assigned to received
+        createEmployeeInventory: true,
+        employeeId: user.id
+      }
+      
+      // Add empty cylinder ID if provided (for gas assignments)
+      if (emptyCylinderId) {
+        requestBody.emptyCylinderId = emptyCylinderId
+        console.log('🔗 [ACCEPT ASSIGNMENT] Including empty cylinder:', emptyCylinderId)
+      }
+      
+      const response = await fetch(`/api/stock-assignments/${assignmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      })
+      
+      console.log('📡 [ACCEPT ASSIGNMENT] Response status:', response.status, response.ok)
+      
+      if (response.ok) {
+        const responseData = await response.json()
+        console.log('✅ [ACCEPT ASSIGNMENT] Success response:', responseData)
+        
+        // Refresh both assignments and inventory data
+        await fetchEmployeeInventoryData()
+        
+        // Close dialog if it was a gas assignment
+        if (showCylinderDialog) {
+          setShowCylinderDialog(false)
+          setSelectedGasOrder(null)
+          setCylinderSearch("")
+          setSelectedCylinderId("")
+        }
+        
+        setError("")
+      } else {
+        const errorData = await response.json()
+        console.error('❌ [ACCEPT ASSIGNMENT] Error response:', errorData)
+        setError(errorData.error || 'Failed to accept assignment')
+      }
+      
+    } catch (error: any) {
+      console.error('❌ [ACCEPT ASSIGNMENT] Exception:', error)
+      setError(`Failed to accept assignment: ${error.message}`)
+    } finally {
+      setProcessingItems(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(assignmentId)
+        return newSet
+      })
+    }
+  }
+
+  // Filter functions for received inventory tabs - Show ALL items including 0 stock like admin
   const getGasStock = () => {
     const gasItems = receivedStock.filter(item => 
-      item.category === 'gas' && item.currentStock > 0
-    )
-    console.log('🔍 [GAS FILTER] Gas items:', gasItems)
+      item.category === 'gas'
+    ).sort((a, b) => a.currentStock - b.currentStock) // Sort by quantity (0 stock first)
+    console.log('🔍 [GAS FILTER] Gas items (including 0 stock):', gasItems)
     return gasItems
   }
   
   const getFullCylinderStock = () => {
     const fullItems = receivedStock.filter(item => 
-      item.category === 'cylinder' && item.availableFull > 0
-    )
-    console.log('🔍 [FULL FILTER] Full cylinder items:', fullItems)
+      item.category === 'cylinder'
+    ).sort((a, b) => a.availableFull - b.availableFull) // Sort by quantity (0 stock first)
+    console.log('🔍 [FULL FILTER] Full cylinder items (including 0 stock):', fullItems)
     return fullItems
   }
   
   const getEmptyCylinderStock = () => {
     const emptyItems = receivedStock.filter(item => 
-      item.category === 'cylinder' && item.availableEmpty > 0
-    )
-    console.log('🔍 [EMPTY FILTER] Empty cylinder items:', emptyItems)
+      item.category === 'cylinder'
+    ).sort((a, b) => a.availableEmpty - b.availableEmpty) // Sort by quantity (0 stock first)
+    console.log('🔍 [EMPTY FILTER] Empty cylinder items (including 0 stock):', emptyItems)
     console.log('🔍 [EMPTY FILTER] All received stock:', receivedStock.map(item => ({
       category: item.category,
       currentStock: item.currentStock,
@@ -461,6 +590,78 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
     </div>
   )
 
+  const renderPendingAssignmentsTable = (items: any[]) => (
+    <div className="w-full overflow-x-auto">
+      <Table className="w-full">
+        <TableHeader>
+          <TableRow className="bg-gray-50 border-b-2 border-gray-200">
+            <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Code</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Category</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Assigned By</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Quantity</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Date</TableHead>
+            <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => (
+            <TableRow key={item.id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+              <TableCell className="p-4">
+                <div className="font-medium">{item.productName}</div>
+                {item.notes && (
+                  <div className="text-sm text-gray-500 mt-1">{item.notes}</div>
+                )}
+              </TableCell>
+              <TableCell className="p-4 font-mono text-sm">
+                {item.productCode || 'N/A'}
+              </TableCell>
+              <TableCell className="p-4">
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                  {item.displayCategory || item.category}
+                </Badge>
+              </TableCell>
+              <TableCell className="p-4 text-sm">
+                {item.assignedBy}
+              </TableCell>
+              <TableCell className="p-4 font-bold text-lg text-blue-600">
+                {item.quantity}
+              </TableCell>
+              <TableCell className="p-4 text-sm text-gray-600">
+                {new Date(item.assignedDate).toLocaleDateString()}
+              </TableCell>
+              <TableCell className="p-4">
+                <Button
+                  onClick={() => handleAcceptAssignment(item.assignmentId)}
+                  disabled={processingItems.has(item.assignmentId)}
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 text-sm"
+                >
+                  {processingItems.has(item.assignmentId) ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Accepting...
+                    </>
+                  ) : (
+                    'Accept Assignment'
+                  )}
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+          {items.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={7} className="text-center text-gray-500 py-12">
+                <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No pending assignments</p>
+                <p className="text-sm">You have no stock assignments from admin</p>
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+
   const renderReceivedStockTable = (items: EmployeeInventoryStock[], stockType: string) => (
     <div className="w-full overflow-x-auto">
       <Table className="w-full">
@@ -495,7 +696,11 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
                   </Badge>
                 </TableCell>
                 <TableCell className="p-4 font-bold text-lg">
-                  {availableQuantity}
+                  <span className={availableQuantity === 0 ? 'text-red-600' : availableQuantity < 10 ? 'text-yellow-600' : 'text-green-600'}>
+                    {availableQuantity}
+                    {availableQuantity === 0 && <span className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-1 rounded">OUT OF STOCK</span>}
+                    {availableQuantity > 0 && availableQuantity < 10 && <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">LOW STOCK</span>}
+                  </span>
                 </TableCell>
                 <TableCell className="p-4 text-sm text-gray-600">
                   {new Date(item.updatedAt).toLocaleDateString()}
@@ -507,8 +712,8 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
             <TableRow>
               <TableCell colSpan={5} className="text-center text-gray-500 py-12">
                 <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium">No stock available</p>
-                <p className="text-sm">You have no {stockType} stock assigned</p>
+                <p className="text-lg font-medium">No {stockType} products</p>
+                <p className="text-sm">You have no {stockType} products assigned</p>
               </TableCell>
             </TableRow>
           )}
@@ -635,7 +840,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
       <Tabs defaultValue="pending" className="w-full">
         <TabsList className="grid w-full grid-cols-3 h-auto">
           <TabsTrigger value="pending" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Pending Orders ({filteredPendingOrders.length})
+            Pending ({filteredPendingOrders.length + pendingAssignments.length})
           </TabsTrigger>
           <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             My Stock ({receivedStock.length})
@@ -650,7 +855,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
             <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
               <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
                 <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">
-                  Pending Purchase Orders ({filteredPendingOrders.length})
+                  Pending Items ({filteredPendingOrders.length + pendingAssignments.length})
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
@@ -662,18 +867,74 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
-              {renderPendingOrdersTable(filteredPendingOrders)}
-            </CardContent>
+            
+            {/* Pending Sub-tabs */}
+            <Tabs defaultValue="purchase-orders" className="w-full">
+              <div className="px-4 sm:px-6 pt-4">
+                <TabsList className="grid w-full grid-cols-2 h-auto">
+                  <TabsTrigger value="purchase-orders" className="text-xs sm:text-sm font-medium py-2">
+                    Pending Purchase ({filteredPendingOrders.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="assignments" className="text-xs sm:text-sm font-medium py-2">
+                    Pending Assignments ({pendingAssignments.length})
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent value="purchase-orders">
+                <CardContent className="p-0">
+                  {renderPendingOrdersTable(filteredPendingOrders)}
+                </CardContent>
+              </TabsContent>
+
+              <TabsContent value="assignments">
+                <CardContent className="p-0">
+                  {renderPendingAssignmentsTable(pendingAssignments)}
+                </CardContent>
+              </TabsContent>
+            </Tabs>
           </Card>
         </TabsContent>
 
         <TabsContent value="received">
           <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
             <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
-              <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold">
-                My Current Stock ({receivedStock.length} items)
-              </CardTitle>
+              <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
+                <div className="flex-1">
+                  <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">
+                    Current Inventory Status
+                  </CardTitle>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                    <div className="bg-white/10 rounded-lg p-3">
+                      <div className="font-semibold">Full Cylinders</div>
+                      <div className="text-white/80">
+                        Total: {getFullCylinderStock().length} | 
+                        <span className="text-red-300 ml-1">
+                          Out of Stock: {getFullCylinderStock().filter(item => item.availableFull === 0).length}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-white/10 rounded-lg p-3">
+                      <div className="font-semibold">Empty Cylinders</div>
+                      <div className="text-white/80">
+                        Total: {getEmptyCylinderStock().length} | 
+                        <span className="text-red-300 ml-1">
+                          Out of Stock: {getEmptyCylinderStock().filter(item => item.availableEmpty === 0).length}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-white/10 rounded-lg p-3">
+                      <div className="font-semibold">Gas Products</div>
+                      <div className="text-white/80">
+                        Total: {getGasStock().length} | 
+                        <span className="text-red-300 ml-1">
+                          Out of Stock: {getGasStock().filter(item => item.currentStock === 0).length}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </CardHeader>
             
             {/* Received Inventory Tabs */}

@@ -83,6 +83,7 @@ export async function POST(request) {
       notes,
       status = "pending",
       inventoryStatus = "pending", // Extract inventoryStatus from request
+      autoApproved = false, // Extract autoApproved flag
       invoiceNumber,
       emptyCylinderId,
     } = body
@@ -154,7 +155,12 @@ export async function POST(request) {
     console.log('👤 [EMPLOYEE PURCHASE ORDER] Target employee ID:', targetEmployeeId)
     console.log('👤 [EMPLOYEE PURCHASE ORDER] Requesting user ID:', user.id)
     console.log('👤 [EMPLOYEE PURCHASE ORDER] Is admin assignment:', !!employee)
-    console.log('📋 [EMPLOYEE PURCHASE ORDER] Status values:', { status, inventoryStatus })
+    console.log('📋 [EMPLOYEE PURCHASE ORDER] Status values:', { 
+      status, 
+      inventoryStatus, 
+      autoApproved,
+      finalInventoryStatus: status === "approved" ? "approved" : (inventoryStatus || "pending")
+    })
     console.log('🔧 [EMPLOYEE PURCHASE ORDER] Cylinder details:', { cylinderStatus, cylinderSize: effectiveCylinderSize, purchaseType })
     
     const employeePurchaseOrder = new EmployeePurchaseOrder({
@@ -170,10 +176,11 @@ export async function POST(request) {
       totalAmount: computedTotal,
       notes: notes || "",
       status: status || "pending", // Use provided status or default to pending
-      inventoryStatus: inventoryStatus || "pending", // Use provided inventoryStatus or default to pending
+      inventoryStatus: status === "approved" ? "approved" : (inventoryStatus || "pending"), // Auto-approved orders should have approved inventory status
       poNumber,
       ...(emptyCylinderId ? { emptyCylinderId } : {}),
-      ...(emptyCylinderName ? { emptyCylinderName } : {})
+      ...(emptyCylinderName ? { emptyCylinderName } : {}),
+      ...(autoApproved ? { autoApproved: true } : {}) // Add autoApproved flag if provided
     })
 
     await employeePurchaseOrder.save()
@@ -184,8 +191,14 @@ export async function POST(request) {
       cylinderSize: employeePurchaseOrder.cylinderSize,
       purchaseType: employeePurchaseOrder.purchaseType,
       status: employeePurchaseOrder.status,
-      inventoryStatus: employeePurchaseOrder.inventoryStatus
+      inventoryStatus: employeePurchaseOrder.inventoryStatus,
+      autoApproved: employeePurchaseOrder.autoApproved
     })
+    
+    // Log special message for auto-approved orders
+    if (autoApproved && status === 'approved') {
+      console.log('🚀 [AUTO-APPROVED] Purchase order auto-approved and ready for employee pending inventory!')
+    }
     
     console.log('\n🔵 ========== EMPLOYEE PURCHASE ORDER CREATED ==========')
     console.log(`📦 PO Number: ${poNumber}`)

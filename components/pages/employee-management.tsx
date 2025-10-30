@@ -394,31 +394,31 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       console.log('🔢 [STOCK ASSIGNMENT] Quantity:', stockFormData.quantity)
       console.log('🏷️ [STOCK ASSIGNMENT] Category:', stockFormData.category)
       
-      const purchaseOrderData = {
+      const stockAssignmentData = {
         employee: selectedEmployee._id,
         product: stockFormData.productId,
-        supplier: null, // Admin assignment, no supplier
-        purchaseDate: new Date().toISOString().split('T')[0],
-        purchaseType: stockFormData.category,
+        assignedBy: user.id,
+        leastPrice: selectedProduct.leastPrice || 0,
+        category: stockFormData.category,
         cylinderStatus: stockFormData.cylinderStatus,
-        cylinderSize: selectedProduct.cylinderSize || 'large', // Add cylinderSize from product
+        gasProductId: stockFormData.gasProductId || undefined,
         quantity: stockFormData.quantity,
         unitPrice: selectedProduct.leastPrice || 0,
         notes: stockFormData.notes || `Stock assigned by admin: ${user.name}`,
-        invoiceNumber: `ADMIN-${Date.now()}`, // Admin assignment invoice
-        status: 'assigned', // Admin has assigned this to employee
-        inventoryStatus: 'approved' // Pre-approved for employee to accept
+        cylinderProductId: stockFormData.cylinderProductId || undefined,
+        inventoryAvailability: inventoryAvailability
+
       }
 
-      console.log('📤 [STOCK ASSIGNMENT] Request payload:', JSON.stringify(purchaseOrderData, null, 2))
+      console.log('📤 [STOCK ASSIGNMENT] Request payload:', JSON.stringify(stockAssignmentData, null, 2))
       
-      // Create employee purchase order
-      const response = await fetch('/api/employee-purchase-orders', {
+      // Create stock assignment
+      const response = await fetch('/api/stock-assignments', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(purchaseOrderData)
+        body: JSON.stringify(stockAssignmentData)
       })
       
       console.log('📡 [STOCK ASSIGNMENT] API Response status:', response.status, response.ok)
@@ -426,11 +426,11 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       if (!response.ok) {
         const errorData = await response.json()
         console.error('❌ [STOCK ASSIGNMENT] API Error:', errorData)
-        throw new Error(errorData.error || 'Failed to create purchase order')
+        throw new Error(errorData.error || 'Failed to create stock assignment')
       }
       
-      const createdOrder = await response.json()
-      console.log('✅ [STOCK ASSIGNMENT] Purchase order created:', createdOrder)
+      const createdAssignment = await response.json()
+      console.log('✅ [STOCK ASSIGNMENT] Stock assignment created:', createdAssignment)
 
       // Deduct stock from admin inventory
       console.log('📉 [STOCK DEDUCTION] Deducting stock from admin inventory')
@@ -572,7 +572,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
 
       // Show success notification
       setUpdateNotification({
-        message: `Stock assigned successfully! ${productName} (Qty: ${stockFormData.quantity}) sent to ${selectedEmployee.name}. Employee will see it in their pending inventory.`,
+        message: `Stock assigned successfully! ${productName} (Qty: ${stockFormData.quantity}) sent to ${selectedEmployee.name}. Employee will see it in their pending assignments.`,
         visible: true,
         type: 'success'
       })
