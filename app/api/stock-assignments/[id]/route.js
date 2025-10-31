@@ -27,6 +27,16 @@ export async function PATCH(request, { params }) {
       requestedStatus: data.status
     });
     
+    // Now update the assignment status
+    const assignment = await StockAssignment.findByIdAndUpdate(
+      id,
+      { status: data.status },
+      { new: true }
+    ).populate("product", "name category cylinderSize productCode");
+    
+    // Variable to track actual quantity filled (for partial acceptance)
+    let quantityToFill = assignment.quantity;
+    
     // If accepting assignment, create EmployeeInventory records
     if ((data.status === 'received' || data.status === 'active') && data.createEmployeeInventory) {
       console.log('🔄 Processing assignment acceptance:', {
@@ -47,13 +57,6 @@ export async function PATCH(request, { params }) {
         return NextResponse.json({ success: true, data: originalAssignment, message: "Assignment already processed" });
       }
     }
-    
-    // Now update the assignment status
-    const assignment = await StockAssignment.findByIdAndUpdate(
-      id,
-      { status: data.status },
-      { new: true }
-    ).populate("product", "name category cylinderSize productCode");
     
     console.log('✅ Assignment updated:', {
       id: assignment._id,
@@ -253,13 +256,16 @@ export async function PATCH(request, { params }) {
           addingQuantity: assignment.quantity
         });
         
+        // Use quantityToFill for gas assignments with cylinder selection, otherwise use assignment.quantity
+        const actualQuantity = (assignment.category === 'gas' && data.emptyCylinderId) ? quantityToFill : assignment.quantity;
+        
         if (dbCategory === 'gas') {
-          existingInventory.currentStock += assignment.quantity;
+          existingInventory.currentStock += actualQuantity;
         } else if (dbCategory === 'cylinder') {
           if (cylinderStatus === 'empty') {
-            existingInventory.availableEmpty += assignment.quantity;
+            existingInventory.availableEmpty += actualQuantity;
           } else if (cylinderStatus === 'full') {
-            existingInventory.availableFull += assignment.quantity;
+            existingInventory.availableFull += actualQuantity;
           }
         }
         
@@ -284,13 +290,16 @@ export async function PATCH(request, { params }) {
           lastUpdatedAt: new Date()
         };
         
+        // Use quantityToFill for gas assignments with cylinder selection, otherwise use assignment.quantity
+        const actualQuantity = (assignment.category === 'gas' && data.emptyCylinderId) ? quantityToFill : assignment.quantity;
+        
         if (dbCategory === 'gas') {
-          newInventoryData.currentStock = assignment.quantity;
+          newInventoryData.currentStock = actualQuantity;
         } else if (dbCategory === 'cylinder') {
           if (cylinderStatus === 'empty') {
-            newInventoryData.availableEmpty = assignment.quantity;
+            newInventoryData.availableEmpty = actualQuantity;
           } else if (cylinderStatus === 'full') {
-            newInventoryData.availableFull = assignment.quantity;
+            newInventoryData.availableFull = actualQuantity;
           }
         }
         
@@ -303,26 +312,124 @@ export async function PATCH(request, { params }) {
         console.log('🔄 Gas assignment with cylinder selection - converting empty to full cylinder');
         
         // Find the selected empty cylinder inventory
-        const emptyCylinderInventory = await EmployeeInventoryItem.findById(data.emptyCylinderId);
+        const emptyCylinderInventory = await EmployeeInventoryItem.findById(data.emptyCylinderId).populate('product');
         if (emptyCylinderInventory) {
-          // Validate sufficient empty cylinders
-          if (emptyCylinderInventory.availableEmpty < assignment.quantity) {
-            throw new Error(`Insufficient empty cylinders. Available: ${emptyCylinderInventory.availableEmpty}, Required: ${assignment.quantity}`);
+          // Calculate how much can be filled based on available empty cylinders
+          const availableEmpty = emptyCylinderInventory.availableEmpty;
+          const requestedQuantity = assignment.quantity;
+          quantityToFill = Math.min(availableEmpty, requestedQuantity);
+          
+          console.log('📊 Partial acceptance calculation:', {
+            assignmentId: assignment._id,
+            totalAssigned: requestedQuantity,
+            availableEmpty: availableEmpty,
+            quantityToFill: quantityToFill,
+            isPartialAcceptance: quantityToFill < requestedQuantity
+          });
+          
+          if (quantityToFill <= 0) {
+            throw new Error(`No empty cylinders available. You need empty cylinders to accept this gas assignment.`);
           }
           
-          // Reduce empty cylinders and increase full cylinders
-          emptyCylinderInventory.availableEmpty -= assignment.quantity;
-          emptyCylinderInventory.availableFull += assignment.quantity;
+          // Reduce empty cylinders and increase full cylinders (only for the quantity we can fill)
+          emptyCylinderInventory.availableEmpty -= quantityToFill;
+          emptyCylinderInventory.availableFull += quantityToFill;
           emptyCylinderInventory.lastUpdatedAt = new Date();
           await emptyCylinderInventory.save();
           
           console.log('✅ Cylinder conversion completed:', {
             cylinderId: emptyCylinderInventory._id,
-            emptyReduced: assignment.quantity,
-            fullIncreased: assignment.quantity,
+            emptyReduced: quantityToFill,
+            fullIncreased: quantityToFill,
             newEmptyCount: emptyCylinderInventory.availableEmpty,
             newFullCount: emptyCylinderInventory.availableFull
           });
+          
+          // Update assignment remaining quantity for partial acceptance
+          const remainingQuantity = requestedQuantity - quantityToFill;
+          if (remainingQuantity > 0) {
+            // Partial acceptance - update assignment with remaining quantity
+            assignment.quantity = remainingQuantity;
+            assignment.remainingQuantity = remainingQuantity;
+            await assignment.save();
+            
+            console.log('🔄 Partial acceptance - assignment updated:', {
+              assignmentId: assignment._id,
+              originalQuantity: requestedQuantity,
+              filledQuantity: quantityToFill,
+              remainingQuantity: remainingQuantity,
+              status: 'assigned' // Keep as assigned for remaining quantity
+            });
+            
+            // Don't change status to received - keep it as assigned for remaining quantity
+            await StockAssignment.findByIdAndUpdate(
+              id,
+              { 
+                quantity: remainingQuantity,
+                remainingQuantity: remainingQuantity,
+                status: 'assigned' // Keep as assigned
+              },
+              { new: true }
+            );
+          } else {
+            // Full acceptance - mark as received
+            console.log('✅ Full acceptance - marking assignment as received');
+          }
+          
+          // CREATE DAILY REFILL RECORD - This is when the actual refill happens (employee acceptance)
+          try {
+            const DailyRefill = (await import('@/models/DailyRefill')).default;
+            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+            const quantity = Number(assignment.quantity) || 0;
+            
+            if (quantity > 0 && emptyCylinderInventory.product) {
+              const cylinderProductId = emptyCylinderInventory.product._id;
+              const cylinderName = emptyCylinderInventory.product.name || 'Unknown Cylinder';
+              
+              console.log(`⛽ [ASSIGNMENT REFILL] Creating daily refill record:`, {
+                date: today,
+                cylinderProductId: cylinderProductId,
+                cylinderName: cylinderName,
+                employeeId: assignment.employee,
+                quantity: quantityToFill, // Use actual filled quantity
+                source: 'admin_assignment'
+              });
+              
+              // Create or update daily refill record for the CYLINDER product
+              const refillResult = await DailyRefill.findOneAndUpdate(
+                {
+                  date: today,
+                  cylinderProductId: cylinderProductId,
+                  employeeId: assignment.employee
+                },
+                {
+                  $inc: { todayRefill: quantityToFill }, // Use actual filled quantity
+                  $set: { cylinderName: cylinderName }
+                },
+                {
+                  upsert: true,
+                  new: true
+                }
+              );
+              
+              console.log(`✅ [ASSIGNMENT REFILL] Created/Updated daily refill:`, {
+                cylinderName,
+                cylinderProductId: cylinderProductId.toString(),
+                quantity: quantityToFill, // Use actual filled quantity
+                employeeId: assignment.employee,
+                date: today,
+                refillId: refillResult._id
+              });
+            } else {
+              console.warn('⚠️ Skipping daily refill creation:', {
+                quantity,
+                hasEmptyCylinderProduct: !!emptyCylinderInventory.product
+              });
+            }
+          } catch (refillError) {
+            console.error('❌ Failed to create daily refill record for assignment:', refillError.message);
+            // Don't fail the entire operation if refill tracking fails
+          }
         }
       }
       

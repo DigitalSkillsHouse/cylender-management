@@ -213,6 +213,50 @@ export async function POST(request) {
     console.log(`📍 Purchase order created - will appear in employee's pending inventory`)
     console.log('🔵 ====================================================\n')
     
+    // Create daily refill record for gas purchases (track against cylinder product)
+    if (purchaseType === 'gas' && emptyCylinderId) {
+      try {
+        const DailyRefill = require("@/models/DailyRefill").default
+        const EmployeeInventory = require("@/models/EmployeeInventory").default
+        
+        // Get the cylinder product from the empty cylinder record
+        const emptyCylinderRecord = await EmployeeInventory.findById(emptyCylinderId).populate('product')
+        if (emptyCylinderRecord && emptyCylinderRecord.product) {
+          const refillDate = new Date(purchaseDate).toISOString().split('T')[0] // YYYY-MM-DD format
+          const cylinderProductId = emptyCylinderRecord.product._id
+          const cylinderName = emptyCylinderRecord.product.name
+          
+          // Create or update daily refill record for the CYLINDER product
+          await DailyRefill.findOneAndUpdate(
+            {
+              date: refillDate,
+              cylinderProductId: cylinderProductId,
+              employeeId: targetEmployeeId
+            },
+            {
+              $inc: { todayRefill: qtyNum },
+              $set: { cylinderName: cylinderName }
+            },
+            {
+              upsert: true,
+              new: true
+            }
+          )
+          
+          console.log(`⛽ [DAILY REFILL] Created refill record for CYLINDER:`, {
+            date: refillDate,
+            cylinderProduct: cylinderName,
+            cylinderProductId: cylinderProductId,
+            employeeId: targetEmployeeId,
+            quantity: qtyNum,
+            note: 'Gas purchase refilled this cylinder type'
+          })
+        }
+      } catch (refillError) {
+        console.error('❌ Failed to create daily refill record:', refillError.message)
+      }
+    }
+    
     // If this is a gas purchase with empty cylinder, create stock assignments
     if (purchaseType === 'gas' && emptyCylinderId) {
       console.log('🔄 Processing Gas Purchase with Empty Cylinder Conversion...')

@@ -68,6 +68,16 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         console.log('🔄 Cylinder data fetched:', cylinderData.length, 'records')
       }
       
+      // Step 1.6: Fetch refill data from daily refills
+      const refillResponse = await fetch(`/api/daily-refills?employeeId=${user.id}&date=${dsrDate}`)
+      let refillData = []
+      
+      if (refillResponse.ok) {
+        const refillResult = await refillResponse.json()
+        refillData = refillResult.data || []
+        console.log('⛽ Refill data fetched:', refillData.length, 'records')
+      }
+      
       // Step 2: Fetch inventory data for opening/closing stock
       let inventoryData = []
       
@@ -173,6 +183,37 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         }
       })
       
+      // Add refill data to DSR (cylinders refilled through gas purchases)
+      refillData.forEach((refill: any) => {
+        const itemName = refill.cylinderName
+        
+        if (dsrMap.has(itemName)) {
+          // Merge with existing entry
+          const existing = dsrMap.get(itemName)!
+          existing.refilled += refill.todayRefill || 0
+        } else {
+          // Create new entry from refill data
+          dsrMap.set(itemName, {
+            itemName: itemName,
+            openingFull: 0,
+            openingEmpty: 0,
+            refilled: refill.todayRefill || 0,
+            fullCylinderSales: 0,
+            emptyCylinderSales: 0,
+            gasSales: 0,
+            deposits: 0,
+            returns: 0,
+            transferGas: 0,
+            transferEmpty: 0,
+            receivedGas: 0,
+            receivedEmpty: 0,
+            closingFull: 0,
+            closingEmpty: 0,
+            category: 'cylinder'
+          })
+        }
+      })
+      
       // Add inventory data to DSR (only cylinder items)
       inventoryData.forEach((item: any) => {
         if (item.category !== 'cylinder') return
@@ -209,12 +250,19 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         }
       })
       
-      const finalDsrData = Array.from(dsrMap.values())
+      // Filter to show only cylinder items in DSR (exclude gas products)
+      const finalDsrData = Array.from(dsrMap.values()).filter(item => {
+        const itemNameLower = item.itemName.toLowerCase()
+        // Exclude items that start with "gas " but include items with "cylinder" in the name
+        return !itemNameLower.startsWith('gas ') || itemNameLower.includes('cylinder')
+      })
+      
       setDsrData(finalDsrData)
       
       console.log('✅ Employee DSR data processed:', {
         salesRecords: salesData.length,
         cylinderRecords: cylinderData.length,
+        refillRecords: refillData.length,
         inventoryItems: inventoryData.length,
         finalDsrItems: finalDsrData.length,
         items: finalDsrData

@@ -800,7 +800,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
   }
 
   return (
-    <div className="pt-16 lg:pt-0 space-y-4 sm:space-y-6">
+    <div className="pt-5 lg:pt-0 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 text-white">
         <div className="flex items-center justify-between">
@@ -904,7 +904,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
                   <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">
                     Current Inventory Status
                   </CardTitle>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                  <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 text-sm">
                     <div className="bg-white/10 rounded-lg p-3">
                       <div className="font-semibold">Full Cylinders</div>
                       <div className="text-white/80">
