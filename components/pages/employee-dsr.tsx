@@ -148,6 +148,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
           existing.deposits += cylinder.totalDeposits || 0
           existing.returns += cylinder.totalReturns || 0
           existing.refilled += cylinder.totalRefills || 0
+          existing.transferGas += cylinder.totalTransferGas || 0
+          existing.transferEmpty += cylinder.totalTransferEmpty || 0
         } else {
           // Create new entry from cylinder data
           dsrMap.set(itemName, {
@@ -160,8 +162,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
             gasSales: 0,
             deposits: cylinder.totalDeposits || 0,
             returns: cylinder.totalReturns || 0,
-            transferGas: 0,
-            transferEmpty: 0,
+            transferGas: cylinder.totalTransferGas || 0,
+            transferEmpty: cylinder.totalTransferEmpty || 0,
             receivedGas: 0,
             receivedEmpty: 0,
             closingFull: 0,
@@ -353,7 +355,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
             <CardTitle>Summary</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">
                   {dsrData.reduce((sum, item) => sum + item.fullCylinderSales, 0)}
@@ -371,6 +373,18 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
                   {dsrData.reduce((sum, item) => sum + item.gasSales, 0)}
                 </div>
                 <div className="text-sm text-muted-foreground">Gas Sales</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-red-600">
+                  {dsrData.reduce((sum, item) => sum + item.transferGas, 0)}
+                </div>
+                <div className="text-sm text-muted-foreground">Transfer Gas</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-yellow-600">
+                  {dsrData.reduce((sum, item) => sum + item.transferEmpty, 0)}
+                </div>
+                <div className="text-sm text-muted-foreground">Transfer Empty</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-orange-600">

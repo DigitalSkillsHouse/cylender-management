@@ -61,6 +61,18 @@ const DailyEmployeeCylinderAggregationSchema = new mongoose.Schema({
     min: 0
   },
   
+  // Transfer transactions (employee sending stock back to admin)
+  totalTransferGas: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  totalTransferEmpty: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  
   // Transaction counts
   depositTransactionCount: {
     type: Number,
@@ -73,6 +85,16 @@ const DailyEmployeeCylinderAggregationSchema = new mongoose.Schema({
     min: 0
   },
   refillTransactionCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  transferGasTransactionCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  transferEmptyTransactionCount: {
     type: Number,
     default: 0,
     min: 0
@@ -102,7 +124,7 @@ DailyEmployeeCylinderAggregationSchema.index({ employeeId: 1, date: 1 })
 
 // Virtual for total transactions
 DailyEmployeeCylinderAggregationSchema.virtual('totalTransactions').get(function() {
-  return this.depositTransactionCount + this.returnTransactionCount + this.refillTransactionCount
+  return this.depositTransactionCount + this.returnTransactionCount + this.refillTransactionCount + this.transferGasTransactionCount + this.transferEmptyTransactionCount
 })
 
 // Virtual for total amount
@@ -147,6 +169,16 @@ DailyEmployeeCylinderAggregationSchema.statics.updateDailyCylinderAggregation = 
       totalRefillAmount: amount,
       refillTransactionCount: 1
     }
+  } else if (transactionType === 'transferGas') {
+    incrementData = {
+      totalTransferGas: quantity,
+      transferGasTransactionCount: 1
+    }
+  } else if (transactionType === 'transferEmpty') {
+    incrementData = {
+      totalTransferEmpty: quantity,
+      transferEmptyTransactionCount: 1
+    }
   }
 
   const result = await this.findOneAndUpdate(
@@ -174,7 +206,9 @@ DailyEmployeeCylinderAggregationSchema.statics.updateDailyCylinderAggregation = 
     totalDeposits: result.totalDeposits,
     totalReturns: result.totalReturns,
     totalRefills: result.totalRefills,
-    totalTransactions: result.depositTransactionCount + result.returnTransactionCount + result.refillTransactionCount
+    totalTransferGas: result.totalTransferGas,
+    totalTransferEmpty: result.totalTransferEmpty,
+    totalTransactions: result.depositTransactionCount + result.returnTransactionCount + result.refillTransactionCount + result.transferGasTransactionCount + result.transferEmptyTransactionCount
   })
 
   return result

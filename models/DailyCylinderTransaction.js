@@ -63,6 +63,17 @@ const DailyCylinderTransactionSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Transfer tracking (employee sending stock back to admin)
+    transferGasQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    transferEmptyQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     // Employee tracking (optional for admin transactions)
     employeeId: {
       type: mongoose.Schema.Types.ObjectId,
