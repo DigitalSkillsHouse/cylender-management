@@ -1759,7 +1759,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   }
 
   return (
-    <div className="pt-16 lg:pt-0 space-y-8">
+    <div className="pt-5 lg:pt-0 space-y-8">
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
         <h1 className="text-4xl font-bold mb-2">Employee Gas Sales</h1>
         <p className="text-white/80 text-lg">Create and manage gas sales from employee inventory</p>

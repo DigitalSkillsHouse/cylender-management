@@ -80,7 +80,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
   }
 
   return (
-    <div className="space-y-8">
+    <div className="pt-5 space-y-8 " >
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
         <h1 className="text-4xl font-bold mb-2">Welcome back, {user?.name || "User"}!</h1>
         <p className="text-white/80 text-lg">Here's your current status and assignments</p>

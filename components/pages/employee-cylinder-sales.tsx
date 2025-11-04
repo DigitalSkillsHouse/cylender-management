@@ -1946,13 +1946,13 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   }
 
   return (
-    <div className="pt-16 lg:pt-0 space-y-8">
+    <div className="pt-5 lg:pt-0 space-y-8">
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
         <h1 className="text-4xl font-bold mb-2">Employee Cylinder Management</h1>
         <p className="text-white/80 text-lg">Manage your cylinder deposits and returns</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-3 md:grid-cols-4 gap-6">
         <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-0 shadow-lg">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-700">Total Deposits</CardTitle>
@@ -1962,7 +1962,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             <div className="text-3xl font-bold text-blue-600">
               {(transactions || []).filter((t) => t.type === "deposit").length}
             </div>
-            <p className="text-xs text-gray-600 mt-1">Cylinders deposited</p>
           </CardContent>
         </Card>
 
@@ -1977,7 +1976,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             <div className="text-3xl font-bold text-orange-600">
               {(transactions || []).filter((t) => t.type === "return").length}
             </div>
-            <p className="text-xs text-gray-600 mt-1">Cylinders returned</p>
           </CardContent>
         </Card>
 
@@ -1990,7 +1988,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             <div className="text-3xl font-bold text-purple-600">
               {(transactions || []).filter((t) => t.status === "pending").length}
             </div>
-            <p className="text-xs text-gray-600 mt-1">Pending/Active</p>
           </CardContent>
         </Card>
       </div>
