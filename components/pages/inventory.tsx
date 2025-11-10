@@ -1007,13 +1007,13 @@ export function Inventory() {
       <Tabs defaultValue="pending" className="w-full">
         <TabsList className="grid w-full grid-cols-3 h-auto">
           <TabsTrigger value="pending" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Pending Orders ({pendingItems.length})
+            Pending Orders
           </TabsTrigger>
           <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Received Items ({receivedItemsRaw.length})
+            Received Items
           </TabsTrigger>
           <TabsTrigger value="pending-returns" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Pending Returns ({pendingReturns.length})
+            Pending Returns
           </TabsTrigger>
         </TabsList>
 
