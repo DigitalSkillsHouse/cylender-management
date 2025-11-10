@@ -83,6 +83,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   
   // Inventory data for automated DSR
   const [inventoryData, setInventoryData] = useState<Record<string, { availableFull: number; availableEmpty: number; currentStock: number }>>({})
+  
+  // Stored DSR reports with locked opening values
+  const [storedDsrReports, setStoredDsrReports] = useState<Record<string, { openingFull: number; openingEmpty: number }>>({})
+  const [isInventoryFetched, setIsInventoryFetched] = useState(false)
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
 
   const API_BASE = '/api/daily-stock-entries'
 
@@ -166,6 +171,167 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       setInventoryData(inventoryMap)
     } catch (error) {
       console.error('Failed to fetch inventory data:', error)
+    }
+  }
+
+  // Fetch stored DSR reports for opening values
+  const fetchStoredDsrReports = async (date: string) => {
+    try {
+      const response = await fetch(`/api/daily-stock-reports?date=${date}`)
+      const data = await response.json()
+      
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+      let hasStoredData = false
+      
+      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        data.data.forEach((report: any) => {
+          const key = normalizeName(report.itemName)
+          reports[key] = {
+            openingFull: report.openingFull || 0,
+            openingEmpty: report.openingEmpty || 0
+          }
+        })
+        hasStoredData = true
+        setIsInventoryFetched(true)
+      } else {
+        // No stored data for this date - auto-fetch inventory for new days
+        setIsInventoryFetched(false)
+        if (dsrProducts.length > 0) {
+          await autoFetchInventoryForNewDay(date)
+          return
+        }
+      }
+      
+      setStoredDsrReports(reports)
+    } catch (error) {
+      console.error('Failed to fetch stored DSR reports:', error)
+      setIsInventoryFetched(false)
+    }
+  }
+
+  // Auto-fetch inventory for new days
+  const autoFetchInventoryForNewDay = async (date: string) => {
+    try {
+      await fetchInventoryData()
+      
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+      
+      for (const product of dsrProducts) {
+        const key = normalizeName(product.name)
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        
+        // Auto-create DSR entry with current inventory for new day
+        await fetch('/api/daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date,
+            itemName: product.name,
+            openingFull: inventoryInfo.availableFull,
+            openingEmpty: inventoryInfo.availableEmpty
+          })
+        })
+        
+        reports[key] = {
+          openingFull: inventoryInfo.availableFull,
+          openingEmpty: inventoryInfo.availableEmpty
+        }
+      }
+      
+      setStoredDsrReports(reports)
+      setIsInventoryFetched(true)
+    } catch (error) {
+      console.error('Failed to auto-fetch inventory for new day:', error)
+    }
+  }
+
+  // Fetch inventory and create DSR entries
+  const fetchAndLockInventory = async () => {
+    try {
+      setLoading(true)
+      await fetchInventoryData()
+      
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+      
+      for (const product of dsrProducts) {
+        const key = normalizeName(product.name)
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        
+        // Create/update DSR entry with current inventory
+        await fetch('/api/daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: dsrViewDate,
+            itemName: product.name,
+            openingFull: inventoryInfo.availableFull,
+            openingEmpty: inventoryInfo.availableEmpty
+          })
+        })
+        
+        reports[key] = {
+          openingFull: inventoryInfo.availableFull,
+          openingEmpty: inventoryInfo.availableEmpty
+        }
+      }
+      
+      setStoredDsrReports(reports)
+      setIsInventoryFetched(true)
+    } catch (error) {
+      console.error('Failed to fetch and lock inventory:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Save DSR record with closing values
+  const saveDsrRecord = async () => {
+    try {
+      setLoading(true)
+      
+      for (const product of dsrProducts) {
+        const key = normalizeName(product.name)
+        const openingFull = storedDsrReports[key]?.openingFull || 0
+        const openingEmpty = storedDsrReports[key]?.openingEmpty || 0
+        
+        // Calculate closing values
+        const refilled = dailyCylinderRefills[key] ?? 0
+        const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
+        const gasSales = dailyGasSales[key] ?? 0
+        const deposits = dailyAggDeposits[key] ?? 0
+        const returns = dailyAggReturns[key] ?? 0
+        const transferGasQuantity = dailyTransferGas[key] ?? 0
+        const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
+        const receivedGasQuantity = dailyReceivedGas[key] ?? 0
+        const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
+        
+        const closingFull = Math.max(0, 
+          openingFull + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
+        )
+        const closingEmpty = Math.max(0, 
+          openingEmpty + gasSales + fullCylinderSales - refilled + deposits - returns - transferEmptyQuantity + receivedEmptyQuantity
+        )
+        
+        await fetch('/api/daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: dsrViewDate,
+            itemName: product.name,
+            openingFull,
+            openingEmpty,
+            closingFull,
+            closingEmpty
+          })
+        })
+      }
+      
+      alert('DSR record saved successfully!')
+    } catch (error) {
+      console.error('Failed to save DSR record:', error)
+      alert('Failed to save DSR record')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -400,6 +566,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       setDailyAggDeposits(dep)
       setDailyAggReturns(ret)
       
+      // Fetch stored DSR reports for opening values
+      await fetchStoredDsrReports(date)
+      
     } catch (error) {
       console.error('Failed to fetch DSR data:', error)
     } finally {
@@ -423,6 +592,42 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     }
   }, [dsrViewDate, showDSRView])
 
+  // Auto-fetch inventory when DSR opens for the first time (today's date)
+  useEffect(() => {
+    if (showDSRView && dsrProducts.length > 0 && !isInventoryFetched) {
+      const today = new Date().toISOString().slice(0, 10)
+      if (dsrViewDate === today) {
+        fetchStoredDsrReports(dsrViewDate)
+      }
+    }
+  }, [showDSRView, dsrProducts.length, dsrViewDate, isInventoryFetched])
+
+  // Auto-save DSR at 11:55 PM Dubai time
+  useEffect(() => {
+    if (!autoSaveEnabled || !showDSRView || !isInventoryFetched) return
+
+    const checkAutoSave = () => {
+      const now = new Date()
+      // Convert to Dubai time (UTC+4)
+      const dubaiTime = new Date(now.getTime() + (4 * 60 * 60 * 1000))
+      const hours = dubaiTime.getHours()
+      const minutes = dubaiTime.getMinutes()
+      
+      // Check if it's 11:55 PM Dubai time
+      if (hours === 23 && minutes === 55) {
+        const today = new Date().toISOString().slice(0, 10)
+        if (dsrViewDate === today) {
+          saveDsrRecord()
+          console.log('🕚 Auto-saved DSR at 11:55 PM Dubai time')
+        }
+      }
+    }
+
+    // Check every minute
+    const interval = setInterval(checkAutoSave, 60000)
+    return () => clearInterval(interval)
+  }, [autoSaveEnabled, showDSRView, isInventoryFetched, dsrViewDate])
+
   // Download DSR PDF for a specific date
   const downloadDsrGridPdf = (date: string) => {
     try {
@@ -441,8 +646,21 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const returnVal = dailyAggReturns[key] ?? (e ? e.returnCylinder : 0)
         
         const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-        const openingFull = e?.openingFull ?? inventoryInfo.availableFull
-        const openingEmpty = e?.openingEmpty ?? inventoryInfo.availableEmpty
+        const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull
+        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty
+        
+        // Calculate closing stock using DSR formula
+        const transferGasVal = dailyTransferGas[key] ?? 0
+        const transferEmptyVal = dailyTransferEmpty[key] ?? 0
+        const receivedGasVal = dailyReceivedGas[key] ?? 0
+        const receivedEmptyVal = dailyReceivedEmpty[key] ?? 0
+        
+        const closingFull = Math.max(0, 
+          openingFull + (refilledVal || 0) - (cylSalesVal || 0) - (gasSalesVal || 0) - transferGasVal + receivedGasVal
+        )
+        const closingEmpty = Math.max(0, 
+          openingEmpty + (gasSalesVal || 0) + (cylSalesVal || 0) - (refilledVal || 0) + (depositVal || 0) - (returnVal || 0) - transferEmptyVal + receivedEmptyVal
+        )
         
         return `
           <tr>
@@ -454,12 +672,12 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             <td>${gasSalesVal || 0}</td>
             <td>${depositVal || 0}</td>
             <td>${returnVal || 0}</td>
-            <td>${dailyTransferGas[key] ?? 0}</td>
-            <td>${dailyTransferEmpty[key] ?? 0}</td>
-            <td>${dailyReceivedGas[key] ?? 0}</td>
-            <td>${dailyReceivedEmpty[key] ?? 0}</td>
-            <td>${typeof e?.closingFull === 'number' ? e!.closingFull : 0}</td>
-            <td>${typeof e?.closingEmpty === 'number' ? e!.closingEmpty : 0}</td>
+            <td>${transferGasVal}</td>
+            <td>${transferEmptyVal}</td>
+            <td>${receivedGasVal}</td>
+            <td>${receivedEmptyVal}</td>
+            <td>${closingFull}</td>
+            <td>${closingEmpty}</td>
           </tr>
         `
       }).join('')
@@ -620,24 +838,67 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             <DialogTitle>Daily Stock Report – {dsrViewDate}</DialogTitle>
           </DialogHeader>
           
-          <div className="mb-3 flex items-center gap-2">
-            <Label htmlFor="dsr-date">Date:</Label>
-            <Input
-              id="dsr-date"
-              type="date"
-              value={dsrViewDate}
-              onChange={(e) => setDsrViewDate(e.target.value)}
-              className="w-auto"
-            />
-            <Button
-              onClick={() => downloadDsrGridPdf(dsrViewDate)}
-              variant="outline"
-              size="sm"
-              className="ml-auto"
-            >
-              <FileText className="h-4 w-4 mr-1" />
-              PDF
-            </Button>
+          <div className="mb-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="dsr-date">Date:</Label>
+              <Input
+                id="dsr-date"
+                type="date"
+                value={dsrViewDate}
+                onChange={(e) => setDsrViewDate(e.target.value)}
+                className="w-auto"
+              />
+              <Button
+                onClick={() => downloadDsrGridPdf(dsrViewDate)}
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                PDF
+              </Button>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={fetchAndLockInventory}
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+              >
+                <Eye className="h-4 w-4 mr-1" />
+                {isInventoryFetched ? 'Refresh Inventory' : 'Fetch Inventory'}
+              </Button>
+              
+              {isInventoryFetched && (
+                <Button
+                  onClick={saveDsrRecord}
+                  size="sm"
+                  disabled={loading}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <PlusCircle className="h-4 w-4 mr-1" />
+                  Save Record
+                </Button>
+              )}
+              
+              <span className="text-sm text-gray-500 ml-2">
+                {isInventoryFetched ? '✓ Inventory Locked' : '⚠ Click Fetch Inventory'}
+              </span>
+              
+              {isInventoryFetched && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={autoSaveEnabled}
+                    onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                    className="rounded"
+                  />
+                  Auto-save at 11:55 PM Dubai time
+                </label>
+              )}
+            </div>
           </div>
 
           {loading ? (
@@ -678,8 +939,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const entry = dsrEntries.find(e => e.date === dsrViewDate && normalizeName(e.itemName) === key)
                     
                     const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                    const openingFull = entry?.openingFull ?? inventoryInfo.availableFull
-                    const openingEmpty = entry?.openingEmpty ?? inventoryInfo.availableEmpty
+                    const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : inventoryInfo.availableFull)
+                    const openingEmpty = storedDsrReports[key]?.openingEmpty ?? (isInventoryFetched ? 0 : inventoryInfo.availableEmpty)
                     const refilled = dailyCylinderRefills[key] ?? 0
                     const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
                     const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
@@ -694,8 +955,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
                     const receivedGasQuantity = dailyReceivedGas[key] ?? 0
                     const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
-                    const closingFull = entry?.closingFull ?? 0
-                    const closingEmpty = entry?.closingEmpty ?? 0
+                    
+                    // Calculate closing stock using DSR formula
+                    const closingFull = Math.max(0, 
+                      openingFull + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
+                    )
+                    const closingEmpty = Math.max(0, 
+                      openingEmpty + gasSales + fullCylinderSales - refilled + deposits - returns - transferEmptyQuantity + receivedEmptyQuantity
+                    )
 
                     return (
                       <TableRow key={product._id}>

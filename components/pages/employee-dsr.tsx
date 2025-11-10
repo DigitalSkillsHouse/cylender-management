@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarIcon, RefreshCw } from "lucide-react"
+import { CalendarIcon, RefreshCw, Eye, PlusCircle, FileText } from "lucide-react"
 
 interface EmployeeDSRProps {
   user: {
@@ -39,6 +39,192 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
   const [dsrDate, setDsrDate] = useState(new Date().toISOString().slice(0, 10))
   const [dsrData, setDsrData] = useState<DSRItem[]>([])
   const [loading, setLoading] = useState(false)
+  
+  // Stored DSR reports with locked opening values
+  const [storedDsrReports, setStoredDsrReports] = useState<Record<string, { openingFull: number; openingEmpty: number }>>({})
+  const [isInventoryFetched, setIsInventoryFetched] = useState(false)
+  const [inventoryData, setInventoryData] = useState<any[]>([])
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
+
+  // Fetch stored employee DSR reports for opening values
+  const fetchStoredEmployeeDsrReports = async (date: string) => {
+    try {
+      const response = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${date}`)
+      const data = await response.json()
+      
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+      let hasStoredData = false
+      
+      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        data.data.forEach((report: any) => {
+          const key = report.itemName.toLowerCase().replace(/\s+/g, ' ').trim()
+          reports[key] = {
+            openingFull: report.openingFull || 0,
+            openingEmpty: report.openingEmpty || 0
+          }
+        })
+        hasStoredData = true
+        setIsInventoryFetched(true)
+      } else {
+        // No stored data for this date - auto-fetch inventory for new days
+        setIsInventoryFetched(false)
+        if (inventoryData.length > 0) {
+          await autoFetchEmployeeInventoryForNewDay(date)
+          return
+        }
+      }
+      
+      setStoredDsrReports(reports)
+    } catch (error) {
+      console.error('Failed to fetch stored employee DSR reports:', error)
+      setIsInventoryFetched(false)
+    }
+  }
+
+  // Auto-fetch inventory for new days
+  const autoFetchEmployeeInventoryForNewDay = async (date: string) => {
+    try {
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+      
+      for (const item of inventoryData) {
+        if (item.category !== 'cylinder') continue
+        
+        const key = item.productName.toLowerCase().replace(/\s+/g, ' ').trim()
+        
+        // Auto-create employee DSR entry with current inventory for new day
+        await fetch('/api/employee-daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employeeId: user.id,
+            date,
+            itemName: item.productName,
+            openingFull: item.availableFull || 0,
+            openingEmpty: item.availableEmpty || 0
+          })
+        })
+        
+        reports[key] = {
+          openingFull: item.availableFull || 0,
+          openingEmpty: item.availableEmpty || 0
+        }
+      }
+      
+      setStoredDsrReports(reports)
+      setIsInventoryFetched(true)
+    } catch (error) {
+      console.error('Failed to auto-fetch employee inventory for new day:', error)
+    }
+  }
+
+  // Fetch and lock employee inventory
+  const fetchAndLockEmployeeInventory = async () => {
+    try {
+      setLoading(true)
+      
+      // Fetch current inventory data
+      let currentInventoryData = []
+      
+      // Try new inventory API first
+      const newInventoryResponse = await fetch(`/api/employee-inventory-new/received?employeeId=${user.id}`)
+      if (newInventoryResponse.ok) {
+        const newInventoryResult = await newInventoryResponse.json()
+        const newInventoryItems = newInventoryResult.data || []
+        
+        currentInventoryData = newInventoryItems.map((item: any) => ({
+          productName: item.productName || item.name,
+          availableFull: item.availableFull || 0,
+          availableEmpty: item.availableEmpty || 0,
+          currentStock: item.currentStock || item.quantity || 0,
+          category: item.category
+        }))
+      }
+      
+      // If no data from new API, try old API
+      if (currentInventoryData.length === 0) {
+        const oldInventoryResponse = await fetch(`/api/employee-inventory-items?employeeId=${user.id}`)
+        if (oldInventoryResponse.ok) {
+          const oldInventoryResult = await oldInventoryResponse.json()
+          currentInventoryData = oldInventoryResult.data || []
+        }
+      }
+      
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+      
+      for (const item of currentInventoryData) {
+        if (item.category !== 'cylinder') continue
+        
+        const key = item.productName.toLowerCase().replace(/\s+/g, ' ').trim()
+        
+        // Create/update employee DSR entry with current inventory
+        await fetch('/api/employee-daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employeeId: user.id,
+            date: dsrDate,
+            itemName: item.productName,
+            openingFull: item.availableFull || 0,
+            openingEmpty: item.availableEmpty || 0
+          })
+        })
+        
+        reports[key] = {
+          openingFull: item.availableFull || 0,
+          openingEmpty: item.availableEmpty || 0
+        }
+      }
+      
+      setStoredDsrReports(reports)
+      setIsInventoryFetched(true)
+    } catch (error) {
+      console.error('Failed to fetch and lock employee inventory:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Save employee DSR record with closing values
+  const saveEmployeeDsrRecord = async () => {
+    try {
+      setLoading(true)
+      
+      for (const item of dsrData) {
+        const key = item.itemName.toLowerCase().replace(/\s+/g, ' ').trim()
+        const openingFull = storedDsrReports[key]?.openingFull || 0
+        const openingEmpty = storedDsrReports[key]?.openingEmpty || 0
+        
+        // Calculate closing values using DSR formula
+        const closingFull = Math.max(0, 
+          openingFull + item.refilled - item.fullCylinderSales - item.gasSales - item.transferGas + item.receivedGas
+        )
+        const closingEmpty = Math.max(0, 
+          openingEmpty + item.gasSales + item.fullCylinderSales - item.refilled + item.deposits - item.returns - item.transferEmpty + item.receivedEmpty
+        )
+        
+        await fetch('/api/employee-daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employeeId: user.id,
+            date: dsrDate,
+            itemName: item.itemName,
+            openingFull,
+            openingEmpty,
+            closingFull,
+            closingEmpty
+          })
+        })
+      }
+      
+      alert('Employee DSR record saved successfully!')
+    } catch (error) {
+      console.error('Failed to save employee DSR record:', error)
+      alert('Failed to save employee DSR record')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Fetch employee DSR data
   const fetchEmployeeDSR = async () => {
@@ -214,25 +400,33 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         }
       })
       
+      // Store inventory data for later use
+      setInventoryData(inventoryData)
+      
       // Add inventory data to DSR (only cylinder items)
       inventoryData.forEach((item: any) => {
         if (item.category !== 'cylinder') return
         
         const itemName = item.productName
+        const key = itemName.toLowerCase().replace(/\s+/g, ' ').trim()
+        
+        // Use stored opening values if available, otherwise use current inventory
+        const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : (item.availableFull || 0))
+        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? (isInventoryFetched ? 0 : (item.availableEmpty || 0))
         
         if (dsrMap.has(itemName)) {
           // Merge with existing sales entry
           const existing = dsrMap.get(itemName)!
-          existing.openingFull = item.availableFull || 0
-          existing.openingEmpty = item.availableEmpty || 0
-          existing.closingFull = (item.availableFull || 0) - existing.fullCylinderSales
-          existing.closingEmpty = (item.availableEmpty || 0) + existing.emptyCylinderSales
+          existing.openingFull = openingFull
+          existing.openingEmpty = openingEmpty
+          existing.closingFull = Math.max(0, openingFull + existing.refilled - existing.fullCylinderSales - existing.gasSales - existing.transferGas + existing.receivedGas)
+          existing.closingEmpty = Math.max(0, openingEmpty + existing.gasSales + existing.fullCylinderSales - existing.refilled + existing.deposits - existing.returns - existing.transferEmpty + existing.receivedEmpty)
         } else {
           // Create new entry from inventory data (no sales)
           dsrMap.set(itemName, {
             itemName: itemName,
-            openingFull: item.availableFull || 0,
-            openingEmpty: item.availableEmpty || 0,
+            openingFull,
+            openingEmpty,
             refilled: 0,
             fullCylinderSales: 0,
             emptyCylinderSales: 0,
@@ -243,8 +437,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
             transferEmpty: 0,
             receivedGas: 0,
             receivedEmpty: 0,
-            closingFull: item.availableFull || 0,
-            closingEmpty: item.availableEmpty || 0,
+            closingFull: openingFull,
+            closingEmpty: openingEmpty,
             category: item.category
           })
         }
@@ -258,6 +452,9 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       })
       
       setDsrData(finalDsrData)
+      
+      // Fetch stored DSR reports for opening values
+      await fetchStoredEmployeeDsrReports(dsrDate)
       
       console.log('✅ Employee DSR data processed:', {
         salesRecords: salesData.length,
@@ -282,6 +479,42 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       fetchEmployeeDSR()
     }
   }, [user.id, dsrDate])
+
+  // Auto-fetch inventory when employee DSR opens for the first time (today's date)
+  useEffect(() => {
+    if (user.id && inventoryData.length > 0 && !isInventoryFetched) {
+      const today = new Date().toISOString().slice(0, 10)
+      if (dsrDate === today) {
+        fetchStoredEmployeeDsrReports(dsrDate)
+      }
+    }
+  }, [user.id, inventoryData.length, dsrDate, isInventoryFetched])
+
+  // Auto-save employee DSR at 11:55 PM Dubai time
+  useEffect(() => {
+    if (!autoSaveEnabled || !user.id || !isInventoryFetched) return
+
+    const checkAutoSave = () => {
+      const now = new Date()
+      // Convert to Dubai time (UTC+4)
+      const dubaiTime = new Date(now.getTime() + (4 * 60 * 60 * 1000))
+      const hours = dubaiTime.getHours()
+      const minutes = dubaiTime.getMinutes()
+      
+      // Check if it's 11:55 PM Dubai time
+      if (hours === 23 && minutes === 55) {
+        const today = new Date().toISOString().slice(0, 10)
+        if (dsrDate === today) {
+          saveEmployeeDsrRecord()
+          console.log('🕚 Auto-saved Employee DSR at 11:55 PM Dubai time')
+        }
+      }
+    }
+
+    // Check every minute
+    const interval = setInterval(checkAutoSave, 60000)
+    return () => clearInterval(interval)
+  }, [autoSaveEnabled, user.id, isInventoryFetched, dsrDate])
 
   return (
     <div className="space-y-6">
@@ -308,19 +541,62 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4">
-            <div className="flex-1 max-w-sm">
-              <Label htmlFor="dsr-date">DSR Date</Label>
-              <Input
-                id="dsr-date"
-                type="date"
-                value={dsrDate}
-                onChange={(e) => setDsrDate(e.target.value)}
-                className="mt-1"
-              />
+          <div className="space-y-4">
+            <div className="flex items-center gap-4">
+              <div className="flex-1 max-w-sm">
+                <Label htmlFor="dsr-date">DSR Date</Label>
+                <Input
+                  id="dsr-date"
+                  type="date"
+                  value={dsrDate}
+                  onChange={(e) => setDsrDate(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Employee: <span className="font-medium">{user.name}</span>
+              </div>
             </div>
-            <div className="text-sm text-muted-foreground">
-              Employee: <span className="font-medium">{user.name}</span>
+            
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={fetchAndLockEmployeeInventory}
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+              >
+                <Eye className="h-4 w-4 mr-1" />
+                {isInventoryFetched ? 'Refresh Inventory' : 'Fetch Inventory'}
+              </Button>
+              
+              {isInventoryFetched && (
+                <Button
+                  onClick={saveEmployeeDsrRecord}
+                  size="sm"
+                  disabled={loading}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <PlusCircle className="h-4 w-4 mr-1" />
+                  Save Record
+                </Button>
+              )}
+              
+              <span className="text-sm text-gray-500 ml-2">
+                {isInventoryFetched ? '✓ Inventory Locked' : '⚠ Click Fetch Inventory'}
+              </span>
+              
+              {isInventoryFetched && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={autoSaveEnabled}
+                    onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                    className="rounded"
+                  />
+                  Auto-save at 11:55 PM Dubai time
+                </label>
+              )}
             </div>
           </div>
         </CardContent>

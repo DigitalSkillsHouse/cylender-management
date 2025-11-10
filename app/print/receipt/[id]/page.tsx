@@ -29,6 +29,8 @@ interface Sale {
   }>;
   totalAmount: number;
   paymentMethod: string;
+  bankName?: string;
+  chequeNumber?: string;
   paymentStatus: string;
   createdAt: string;
   customerSignature?: string;
@@ -160,6 +162,20 @@ const ReceiptPrintPage = () => {
                     : '-'
                 )}
               </div>
+              {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
+                <>
+                  {sale?.bankName && (
+                    <div>
+                      <strong>Bank Name:</strong> {sale.bankName}
+                    </div>
+                  )}
+                  {sale?.chequeNumber && (
+                    <div>
+                      <strong>Cheque Number:</strong> {sale.chequeNumber}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </section>
