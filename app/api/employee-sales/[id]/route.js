@@ -3,11 +3,24 @@ import dbConnect from "@/lib/mongodb"
 import EmployeeSale from "@/models/EmployeeSale"
 import Product from "@/models/Product"
 
+import { verifyToken } from "@/lib/auth"
+
 // PUT /api/employee-sales/[id]
 // Aligns with POST schema: items[], totalAmount, paymentMethod, paymentStatus, receivedAmount, notes, customer
 export async function PUT(request, { params }) {
   try {
     await dbConnect()
+
+    // Verify user authentication and check if admin
+    const user = await verifyToken(request)
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
+    // Only allow admins to edit employee sales
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: "Access denied. Only admins can edit sales." }, { status: 403 })
+    }
 
     const { id } = params
     const body = await request.json()
@@ -67,6 +80,17 @@ export async function PUT(request, { params }) {
 export async function DELETE(request, { params }) {
   try {
     await dbConnect()
+
+    // Verify user authentication and check if admin
+    const user = await verifyToken(request)
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    
+    // Only allow admins to delete employee sales
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: "Access denied. Only admins can delete sales." }, { status: 403 })
+    }
 
     const { id } = params
 

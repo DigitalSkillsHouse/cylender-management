@@ -1818,14 +1818,8 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                         <TableCell>{getPaymentStatusBadge(group.status)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button size="sm" variant="outline" onClick={() => handleEdit(refSale)}>
-                              Edit
-                            </Button>
                             <Button size="sm" variant="outline" onClick={() => handleViewReceipt(refSale)}>
                               Receipt
-                            </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleDeleteClick(refSale)}>
-                              Delete
                             </Button>
                           </div>
                         </TableCell>

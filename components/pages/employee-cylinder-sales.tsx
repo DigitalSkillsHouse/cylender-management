@@ -426,22 +426,31 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             >
               Receipt
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleEdit(transaction)}
-              className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white"
-            >
-              <Edit className="w-4 h-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleDelete(transaction._id, transaction.isEmployeeTransaction)}
-              className="text-red-600 border-red-600 hover:bg-red-600 hover:text-white"
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            {/* Hide edit and delete buttons for employees */}
+            {user.role === 'admin' ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleEdit(transaction)}
+                  className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white"
+                >
+                  <Edit className="w-4 h-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleDelete(transaction._id, transaction.isEmployeeTransaction)}
+                  className="text-red-600 border-red-600 hover:bg-red-600 hover:text-white"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </>
+            ) : (
+              <div className="text-xs text-gray-500 italic">
+                Edit/Delete restricted
+              </div>
+            )}
           </div>
         </TableCell>
       )
@@ -1563,6 +1572,12 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   }
 
   const handleEdit = (transaction: CylinderTransaction) => {
+    // Check if user is admin before allowing edit
+    if (user.role !== 'admin') {
+      alert("Access denied. Only admins can edit transactions.")
+      return
+    }
+    
     setEditingTransaction(transaction)
     const items = (transaction as any).items as any[] | undefined
     const first = items && items.length > 0 ? items[0] : null
@@ -1603,13 +1618,21 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   }
 
   const handleDelete = async (id: string, isEmployee?: boolean) => {
+    // Check if user is admin before allowing delete
+    if (user.role !== 'admin') {
+      alert("Access denied. Only admins can delete transactions.")
+      return
+    }
+    
     if (window.confirm("Are you sure you want to delete this transaction?")) {
       try {
         // Use employee cylinder API for employee transactions
         await employeeCylindersAPI.delete(id)
         fetchData()
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to delete transaction:", error)
+        const errorMessage = error?.response?.data?.error || "Failed to delete transaction"
+        alert(errorMessage)
       }
     }
   }
@@ -1950,6 +1973,13 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
         <h1 className="text-4xl font-bold mb-2">Employee Cylinder Management</h1>
         <p className="text-white/80 text-lg">Manage your cylinder deposits and returns</p>
+        {user.role === 'employee' && (
+          <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-400/30 rounded-lg">
+            <p className="text-sm text-yellow-100">
+              <strong>Note:</strong> As an employee, you can create transactions and generate receipts, but editing and deleting invoices is restricted to administrators only.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-3 md:grid-cols-4 gap-6">

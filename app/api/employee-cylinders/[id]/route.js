@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction"
+import { verifyToken } from "@/lib/auth"
 
 // GET a single transaction by ID
 export async function GET(request, { params }) {
@@ -26,6 +27,18 @@ export async function GET(request, { params }) {
 export async function PUT(request, { params }) {
   try {
     await dbConnect()
+    
+    // Verify user authentication and check if admin
+    const user = await verifyToken(request)
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+    
+    // Only allow admins to edit cylinder transactions
+    if (user.role !== 'admin') {
+      return NextResponse.json({ success: false, error: "Access denied. Only admins can edit transactions." }, { status: 403 })
+    }
+    
     const body = await request.json()
 
     const transaction = await EmployeeCylinderTransaction.findByIdAndUpdate(
@@ -49,6 +62,18 @@ export async function PUT(request, { params }) {
 export async function DELETE(request, { params }) {
   try {
     await dbConnect()
+    
+    // Verify user authentication and check if admin
+    const user = await verifyToken(request)
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+    
+    // Only allow admins to delete cylinder transactions
+    if (user.role !== 'admin') {
+      return NextResponse.json({ success: false, error: "Access denied. Only admins can delete transactions." }, { status: 403 })
+    }
+    
     const deletedTransaction = await EmployeeCylinderTransaction.findByIdAndDelete(params.id)
 
     if (!deletedTransaction) {

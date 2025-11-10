@@ -1079,6 +1079,12 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   }
 
   const handleEdit = (sale: Sale) => {
+    // Check if user is admin before allowing edit
+    if (user.role !== 'admin') {
+      alert("Access denied. Only admins can edit sales.")
+      return
+    }
+    
     setEditingSale(sale)
     setFormData({
       customerId: sale.customer?._id || "",
@@ -1116,13 +1122,20 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   }
 
   const handleDelete = async (id: string) => {
+    // Check if user is admin before allowing delete
+    if (user.role !== 'admin') {
+      alert("Access denied. Only admins can delete sales.")
+      return
+    }
+    
     if (confirm("Are you sure you want to delete this sale?")) {
       try {
         await employeeSalesAPI.delete(id)
         await fetchData()
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to delete sale:", error)
-        alert("Failed to delete sale")
+        const errorMessage = error?.response?.data?.error || "Failed to delete sale"
+        alert(errorMessage)
       }
     }
   }
@@ -1763,6 +1776,13 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
         <h1 className="text-4xl font-bold mb-2">Employee Gas Sales</h1>
         <p className="text-white/80 text-lg">Create and manage gas sales from employee inventory</p>
+        {user.role === 'employee' && (
+          <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-400/30 rounded-lg">
+            <p className="text-sm text-yellow-100">
+              <strong>Note:</strong> As an employee, you can create sales and generate receipts, but editing and deleting invoices is restricted to administrators only.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -2579,17 +2599,26 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                             >
                               <Receipt className="w-4 h-4" />
                             </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleEdit(group.firstSale)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDelete(group.firstSale?._id)}
-                              className="text-red-600 border-red-600 hover:bg-red-600 hover:text-white"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            {/* Hide edit and delete buttons for employees */}
+                            {user.role === 'admin' ? (
+                              <>
+                                <Button size="sm" variant="outline" onClick={() => handleEdit(group.firstSale)}>
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDelete(group.firstSale?._id)}
+                                  className="text-red-600 border-red-600 hover:bg-red-600 hover:text-white"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <div className="text-xs text-gray-500 italic">
+                                Edit/Delete restricted
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
