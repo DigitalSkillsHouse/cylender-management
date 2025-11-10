@@ -550,7 +550,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pt-6">
       <div className="rounded-xl p-4 sm:p-6 text-white" style={{ background: "linear-gradient(135deg,#2B3068,#3f468f)" }}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>

@@ -266,7 +266,7 @@ export function ProductManagement() {
   })
 
   return (
-    <div className="pt-16 lg:pt-0 space-y-4 sm:space-y-6 lg:space-y-8">
+    <div className="pt-6 lg:pt-0 space-y-4 sm:space-y-6 lg:space-y-8">
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 text-white">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex-1 min-w-0">

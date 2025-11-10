@@ -1716,7 +1716,7 @@ export function GasSales() {
   }
 
   return (
-    <div className="pt-16 lg:pt-0 space-y-8">
+    <div className="pt-6 lg:pt-0 space-y-8">
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
         <h1 className="text-4xl font-bold mb-2">Gas Sales Management</h1>
         <p className="text-white/80 text-lg">Create and manage gas sales transactions</p>

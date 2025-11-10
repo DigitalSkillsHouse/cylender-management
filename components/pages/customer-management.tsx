@@ -219,7 +219,7 @@ export function CustomerManagement() {
   }
 
   return (
-    <div className="pt-16 lg:pt-0 space-y-4 sm:space-y-6">
+    <div className="pt-6 lg:pt-0 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 text-white">
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2">Customer Management</h1>

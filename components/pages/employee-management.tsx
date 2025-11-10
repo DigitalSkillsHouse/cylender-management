@@ -699,7 +699,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pt-6">
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
         <div>
           <h1 className="text-4xl font-bold mb-2">Employee Management</h1>

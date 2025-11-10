@@ -832,8 +832,9 @@ export function Inventory() {
                       })() : item.quantity}
                     </span>
                     {item.quantity === 0 && (
-                      <Badge variant="destructive" className="text-xs">
-                        OUT OF STOCK
+                      <Badge variant="destructive" className="text-xs sm:text-xs">
+                        <span className="hidden sm:inline">OUT OF STOCK</span>
+                        <span className="sm:hidden">Out of stock </span>
                       </Badge>
                     )}
                     {item.quantity > 0 && item.quantity < 10 && (
@@ -988,7 +989,7 @@ export function Inventory() {
   }
 
   return (
-    <div className="pt-16 lg:pt-0 space-y-4 sm:space-y-6">
+    <div className="pt-6 lg:pt-0 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 text-white">
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 flex items-center gap-3">
@@ -1048,7 +1049,7 @@ export function Inventory() {
                   <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold mb-2">
                     Current Inventory Status
                   </CardTitle>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                  <div className="grid grid-cols-3 sm:grid-cols-3 gap-4 text-sm">
                     <div className="bg-white/10 rounded-lg p-3">
                       <div className="font-semibold">Full Cylinders</div>
                       <div className="text-white/80">

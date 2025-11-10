@@ -519,7 +519,7 @@ export function PurchaseManagement() {
   // Read-only status display in child rows (no inline updates)
 
   return (
-    <div className="pt-16 lg:pt-0 space-y-6 sm:space-y-8">
+    <div className="pt-6 lg:pt-0 space-y-6 sm:space-y-8">
       {/* Error Alert */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
@@ -539,7 +539,7 @@ export function PurchaseManagement() {
       )}
 
       {/* Header Section */}
-      <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 text-white shadow-xl">
+      <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-2 text-white shadow-xl">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 flex items-center gap-2 sm:gap-3">
