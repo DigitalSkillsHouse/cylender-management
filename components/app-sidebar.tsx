@@ -75,19 +75,9 @@ const adminMenuItems = [
     icon: Warehouse,
   },
   {
-    title: "Customer Management",
-    url: "customers",
-    icon: Users,
-  },
-  {
     title: "Gas Sales",
     url: "sales",
     icon: Fuel,
-  },
-  {
-    title: "Employee Management",
-    url: "employees",
-    icon: UserCheck,
   },
   {
     title: "Cylinder Management",
@@ -95,9 +85,14 @@ const adminMenuItems = [
     icon: Cylinder,
   },
   {
-    title: "Reports",
-    url: "reports",
-    icon: FileText,
+    title: "Customer Management",
+    url: "customers",
+    icon: Users,
+  },
+  {
+    title: "Employee Management",
+    url: "employees",
+    icon: UserCheck,
   },
   {
     title: "Daily Stock Report",
@@ -105,14 +100,19 @@ const adminMenuItems = [
     icon: BarChart3,
   },
   {
-    title: "P&L",
-    url: "profit-loss",
-    icon: TrendingUp,
+    title: "Reports",
+    url: "reports",
+    icon: FileText,
   },
   {
     title: "Collection",
     url: "collection",
     icon: Receipt,
+  },
+  {
+    title: "P&L",
+    url: "profit-loss",
+    icon: TrendingUp,
   },
 ]
 

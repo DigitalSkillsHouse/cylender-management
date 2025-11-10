@@ -174,33 +174,7 @@ export function Dashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8">
-        <Card className="border-0 shadow-lg">
-          <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white rounded-t-lg p-4 sm:p-6">
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
-              <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
-              Recent Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 sm:p-6">
-            <div className="space-y-3 sm:space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-gray-50 rounded-lg gap-1 sm:gap-0">
-                <span className="text-sm text-gray-700">New customer registered</span>
-                <span className="text-xs text-gray-500">2 hours ago</span>
-              </div>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-gray-50 rounded-lg gap-1 sm:gap-0">
-                <span className="text-sm text-gray-700">Gas sale completed</span>
-                <span className="text-xs text-gray-500">4 hours ago</span>
-              </div>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-gray-50 rounded-lg gap-1 sm:gap-0">
-                <span className="text-sm text-gray-700">Inventory updated</span>
-                <span className="text-xs text-gray-500">6 hours ago</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-      </div>
+    
     </div>
   )
 }
