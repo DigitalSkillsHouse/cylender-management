@@ -149,11 +149,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         pdf.setFontSize(12)
         pdf.setTextColor(43, 48, 104) // #2B3068
         pdf.text(`Customer: ${customerName}`, margin, margin + 66) // Move further down
-        customerNameHeight = 15 // Add more spacing after customer name
+        customerNameHeight = 10// Add more spacing after customer name
       }
 
       // Add table headers with proper spacing after header and customer name
-      const tableStartY = margin + 55 + customerNameHeight
+      const tableStartY = margin + 65 + customerNameHeight
       const rowHeight = 8
       const colWidths = [15, 25, 60, 25, 20, 25, 30] // S.No, Code, Item, Category, Quantity, Price, Total
       const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
@@ -205,6 +205,35 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         currentY += rowHeight
       })
 
+      // Add warning message on the last page only - positioned above page number
+      if (pageNum === totalPages - 1) {
+        const warningY = pageHeight - 60 // Position above page number
+        
+        // Warning box background
+        pdf.setFillColor(255, 243, 205) // yellow-100
+        pdf.setDrawColor(251, 191, 36) // yellow-400
+        pdf.rect(margin, warningY, pageWidth - margin * 2, 35, "FD")
+        
+        // Warning title
+        pdf.setFontSize(10)
+        pdf.setTextColor(146, 64, 14) // yellow-800
+        pdf.text("PAY ATTENTION PLEASE!", margin + 5, warningY + 8)
+        
+        // Warning text
+        pdf.setFontSize(8)
+        pdf.setTextColor(92, 38, 5) // yellow-900
+        const warningText = "Prices mentioned in the quotation are valid for one week only, and may be updated after this time. During cylinder use, if the Valve, spindle, Valve Guard, Paint Charge, or cylinder is found Damaged or Broken the customer will need to pay for the necessary repairs or part replacement."
+        
+        // Split text into lines that fit within the box
+        const maxWidth = pageWidth - margin * 2 - 10
+        const lines = pdf.splitTextToSize(warningText, maxWidth)
+        
+        // Draw each line
+        lines.forEach((line: string, index: number) => {
+          pdf.text(line, margin + 5, warningY + 18 + (index * 4))
+        })
+      }
+      
       // Add page number
       pdf.setFontSize(8)
       pdf.setTextColor(107, 114, 128)
