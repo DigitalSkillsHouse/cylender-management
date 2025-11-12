@@ -27,6 +27,21 @@ interface DailyStockEntry {
   createdAt: string
 }
 
+interface EmployeeDailyStockEntry {
+  _id: string
+  employeeId: string
+  date: string
+  itemName: string
+  openingFull: number
+  openingEmpty: number
+  refilled: number
+  cylinderSales: number
+  gasSales: number
+  closingFull?: number
+  closingEmpty?: number
+  createdAt: string
+}
+
 interface EmployeeLite { 
   _id: string
   name?: string
@@ -50,6 +65,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const [employees, setEmployees] = useState<EmployeeLite[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("")
   const [loading, setLoading] = useState(false)
+  const [employeeDsrData, setEmployeeDsrData] = useState<EmployeeDailyStockEntry[]>([])
+  const [employeeLoading, setEmployeeLoading] = useState(false)
 
   // Products for DSR grid
   interface ProductLite { _id: string; name: string }
@@ -113,17 +130,46 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   // Fetch employees for employee DSR
   const fetchEmployees = async () => {
     try {
-      const response = await fetch('/api/users')
+      console.log('Fetching employees...')
+      const response = await fetch('/api/employees')
       const data = await response.json()
-      if (data.success && Array.isArray(data.data)) {
-        const employeeList = data.data.filter((u: any) => u.role === 'employee')
-        setEmployees(employeeList)
-        if (employeeList.length > 0 && !selectedEmployeeId) {
-          setSelectedEmployeeId(employeeList[0]._id)
+      console.log('Employees API response:', data)
+      
+      if (Array.isArray(data)) {
+        console.log('Found employees:', data)
+        setEmployees(data)
+        if (data.length > 0 && !selectedEmployeeId) {
+          setSelectedEmployeeId(data[0]._id)
         }
+      } else {
+        console.log('No employees found or invalid response structure')
+        setEmployees([])
       }
     } catch (error) {
       console.error('Failed to fetch employees:', error)
+      setEmployees([])
+    }
+  }
+
+  // Fetch employee DSR data
+  const fetchEmployeeDsrData = async (employeeId: string, date: string) => {
+    if (!employeeId) return
+    
+    setEmployeeLoading(true)
+    try {
+      const response = await fetch(`/api/employee-daily-stock-reports?employeeId=${employeeId}&date=${date}`)
+      const data = await response.json()
+      
+      if (data.success && Array.isArray(data.data)) {
+        setEmployeeDsrData(data.data)
+      } else {
+        setEmployeeDsrData([])
+      }
+    } catch (error) {
+      console.error('Failed to fetch employee DSR data:', error)
+      setEmployeeDsrData([])
+    } finally {
+      setEmployeeLoading(false)
     }
   }
 
@@ -585,6 +631,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     }
   }, [user.role])
 
+  // Fetch employees when employee DSR dialog opens
+  useEffect(() => {
+    if (showEmployeeDSR) {
+      console.log('Employee DSR dialog opened, current employees:', employees.length)
+      fetchEmployees()
+    }
+  }, [showEmployeeDSR])
+
   // Fetch DSR data when date changes
   useEffect(() => {
     if (showDSRView) {
@@ -627,6 +681,13 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     const interval = setInterval(checkAutoSave, 60000)
     return () => clearInterval(interval)
   }, [autoSaveEnabled, showDSRView, isInventoryFetched, dsrViewDate])
+
+  // Fetch employee DSR data when employee or date changes
+  useEffect(() => {
+    if (showEmployeeDSR && selectedEmployeeId && employeeDsrDate) {
+      fetchEmployeeDsrData(selectedEmployeeId, employeeDsrDate)
+    }
+  }, [showEmployeeDSR, selectedEmployeeId, employeeDsrDate])
 
   // Download DSR PDF for a specific date
   const downloadDsrGridPdf = (date: string) => {
@@ -761,27 +822,27 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             Automated daily stock tracking with real-time data from inventory, sales, and refilling operations.
           </p>
         </CardHeader>
-        <CardContent className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <Button 
-            variant="outline" 
-            onClick={() => setShowDSRView(true)} 
-            className="w-full sm:w-auto" 
-            style={{ backgroundColor: "#2B3068", color: "white" }}
-          >
-            <ListChecks className="h-4 w-4 mr-2" />
-            View Daily Stock Report
-          </Button>
-          {user.role === 'admin' && (
-            <div className="sm:ml-auto w-full sm:w-auto">
+        <CardContent className="space-y-3">
+          <div className="flex flex-col gap-3">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowDSRView(true)} 
+              className="w-full" 
+              style={{ backgroundColor: "#2B3068", color: "white" }}
+            >
+              <ListChecks className="h-4 w-4 mr-2" />
+              View Daily Stock Report
+            </Button>
+            {user.role === 'admin' && (
               <Button 
                 variant="secondary" 
                 onClick={() => setShowEmployeeDSR(true)} 
-                className="w-full sm:w-auto"
+                className="w-full"
               >
                 View Employee Daily Stock Report
               </Button>
-            </div>
-          )}
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -800,15 +861,21 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   <select
                     id="employee-select"
                     value={selectedEmployeeId}
-                    onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                    onChange={(e) => {
+                      console.log('Employee selected:', e.target.value)
+                      setSelectedEmployeeId(e.target.value)
+                    }}
                     className="w-full mt-1 p-2 border rounded-md"
                   >
-                    <option value="">Select an employee</option>
-                    {employees.map((emp) => (
-                      <option key={emp._id} value={emp._id}>
-                        {emp.name || emp.email}
-                      </option>
-                    ))}
+                    <option value="">Select an employee ({employees.length} available)</option>
+                    {employees.map((emp) => {
+                      console.log('Rendering employee option:', emp)
+                      return (
+                        <option key={emp._id} value={emp._id}>
+                          {emp.name || emp.email || emp._id}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 <div className="flex-1">
@@ -823,9 +890,53 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                 </div>
               </div>
               
-              <div className="text-center py-8">
-                <p className="text-gray-500">Employee DSR functionality will be implemented here</p>
-              </div>
+              {employeeLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                  <span>Loading employee DSR data...</span>
+                </div>
+              ) : employeeDsrData.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table className="text-xs sm:text-sm">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item Name</TableHead>
+                        <TableHead className="text-center">Opening Full</TableHead>
+                        <TableHead className="text-center">Opening Empty</TableHead>
+                        <TableHead className="text-center">Refilled</TableHead>
+                        <TableHead className="text-center">Cylinder Sales</TableHead>
+                        <TableHead className="text-center">Gas Sales</TableHead>
+                        <TableHead className="text-center">Deposit</TableHead>
+                        <TableHead className="text-center">Return</TableHead>
+                        <TableHead className="text-center">Closing Full</TableHead>
+                        <TableHead className="text-center">Closing Empty</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {employeeDsrData.map((entry) => (
+                        <TableRow key={entry._id}>
+                          <TableCell className="font-medium">{entry.itemName}</TableCell>
+                          <TableCell className="text-center">{entry.openingFull || 0}</TableCell>
+                          <TableCell className="text-center">{entry.openingEmpty || 0}</TableCell>
+                          <TableCell className="text-center">{entry.refilled || 0}</TableCell>
+                          <TableCell className="text-center">{entry.cylinderSales || 0}</TableCell>
+                          <TableCell className="text-center">{entry.gasSales || 0}</TableCell>
+                          <TableCell className="text-center">-</TableCell>
+                          <TableCell className="text-center">-</TableCell>
+                          <TableCell className="text-center">{entry.closingFull || 0}</TableCell>
+                          <TableCell className="text-center">{entry.closingEmpty || 0}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">
+                    {selectedEmployeeId ? 'No DSR data found for this employee on the selected date.' : 'Please select an employee to view their DSR data.'}
+                  </p>
+                </div>
+              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -833,71 +944,77 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
 
       {/* Main DSR Dialog */}
       <Dialog open={showDSRView} onOpenChange={setShowDSRView}>
-        <DialogContent className="w-[95vw] max-w-[900px] p-3 sm:p-6 rounded-lg">
+        <DialogContent className="w-[98vw] max-w-[1200px] h-[90vh] p-2 sm:p-4 md:p-6 rounded-lg overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Daily Stock Report – {dsrViewDate}</DialogTitle>
           </DialogHeader>
           
-          <div className="mb-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="dsr-date">Date:</Label>
-              <Input
-                id="dsr-date"
-                type="date"
-                value={dsrViewDate}
-                onChange={(e) => setDsrViewDate(e.target.value)}
-                className="w-auto"
-              />
+          <div className="mb-3 space-y-3 flex-shrink-0">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="dsr-date" className="text-sm">Date:</Label>
+                <Input
+                  id="dsr-date"
+                  type="date"
+                  value={dsrViewDate}
+                  onChange={(e) => setDsrViewDate(e.target.value)}
+                  className="w-auto text-sm"
+                />
+              </div>
               <Button
                 onClick={() => downloadDsrGridPdf(dsrViewDate)}
                 variant="outline"
                 size="sm"
-                className="ml-auto"
+                className="w-full sm:w-auto sm:ml-auto"
               >
                 <FileText className="h-4 w-4 mr-1" />
                 PDF
               </Button>
             </div>
             
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={fetchAndLockInventory}
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
-              >
-                <Eye className="h-4 w-4 mr-1" />
-                {isInventoryFetched ? 'Refresh Inventory' : 'Fetch Inventory'}
-              </Button>
-              
-              {isInventoryFetched && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+              <div className="flex flex-col sm:flex-row gap-2 w-full">
                 <Button
-                  onClick={saveDsrRecord}
+                  onClick={fetchAndLockInventory}
+                  variant="outline"
                   size="sm"
                   disabled={loading}
-                  className="bg-green-600 hover:bg-green-700 text-white"
+                  className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 w-full sm:w-auto text-xs sm:text-sm"
                 >
-                  <PlusCircle className="h-4 w-4 mr-1" />
-                  Save Record
+                  <Eye className="h-4 w-4 mr-1" />
+                  {isInventoryFetched ? 'Refresh' : 'Fetch'}
                 </Button>
-              )}
+                
+                {isInventoryFetched && (
+                  <Button
+                    onClick={saveDsrRecord}
+                    size="sm"
+                    disabled={loading}
+                    className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto text-xs sm:text-sm"
+                  >
+                    <PlusCircle className="h-4 w-4 mr-1" />
+                    Save
+                  </Button>
+                )}
+              </div>
               
-              <span className="text-sm text-gray-500 ml-2">
-                {isInventoryFetched ? '✓ Inventory Locked' : '⚠ Click Fetch Inventory'}
-              </span>
-              
-              {isInventoryFetched && (
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={autoSaveEnabled}
-                    onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-                    className="rounded"
-                  />
-                  Auto-save at 11:55 PM Dubai time
-                </label>
-              )}
+              <div className="flex flex-col gap-1 w-full sm:w-auto">
+                <span className="text-xs text-gray-500">
+                  {isInventoryFetched ? '✓ Inventory Locked' : '⚠ Click Fetch Inventory'}
+                </span>
+                
+                {isInventoryFetched && (
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={autoSaveEnabled}
+                      onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                      className="rounded"
+                    />
+                    Auto-save at 11:55 PM
+                  </label>
+                )}
+              </div>
             </div>
           </div>
 
@@ -907,8 +1024,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
               <span>Loading DSR data...</span>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
+            <div className="flex-1 overflow-auto">
+              <div className="min-w-[1000px]">
+                <Table className="text-xs sm:text-sm">
                 <TableHeader>
                   <TableRow>
                     <TableHead rowSpan={2} className="border-r">Items</TableHead>
@@ -985,7 +1103,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     )
                   })}
                 </TableBody>
-              </Table>
+                </Table>
+              </div>
             </div>
           )}
         </DialogContent>
