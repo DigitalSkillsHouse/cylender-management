@@ -2700,6 +2700,7 @@ export function CylinderManagement() {
         <ReceiptDialog
           sale={receiptDialogData}
           useReceivingHeader
+          disableVAT={receiptDialogData?.type === 'deposit'}
           onClose={() => setReceiptDialogData(null)}
         />
       )}

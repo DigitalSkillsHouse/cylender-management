@@ -106,7 +106,7 @@ interface Supplier {
 }
 
 interface EmployeeCylinderSalesProps {
-  user: { id: string; email: string; name: string }
+  user: { id: string; email: string; name: string; role: string }
 }
 
 export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
@@ -2798,6 +2798,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         <ReceiptDialog
           sale={receiptDialogData}
           useReceivingHeader
+          disableVAT={receiptDialogData?.type === 'deposit'}
           onClose={() => setReceiptDialogData(null)}
         />
       )}
