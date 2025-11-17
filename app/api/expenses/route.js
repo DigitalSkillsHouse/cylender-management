@@ -26,12 +26,12 @@ export async function POST(request) {
 
   try {
     const body = await request.json()
-    const { expense, description } = body
+    const { invoiceNumber, expense, description, vatAmount, totalAmount } = body
 
-    if (!expense || !description) {
+    if (!invoiceNumber || !expense || !description) {
       return NextResponse.json({
         success: false,
-        error: "Expense amount and description are required"
+        error: "Invoice number, expense amount and description are required"
       }, { status: 400 })
     }
 
@@ -43,8 +43,11 @@ export async function POST(request) {
     }
 
     const newExpense = new Expense({
+      invoiceNumber: invoiceNumber.trim(),
       expense: Number(expense),
-      description: description.trim()
+      description: description.trim(),
+      vatAmount: Number(vatAmount),
+      totalAmount: Number(totalAmount)
     })
 
     await newExpense.save()

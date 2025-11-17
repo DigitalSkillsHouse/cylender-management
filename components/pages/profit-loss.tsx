@@ -24,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Calendar } from "lucide-react"
+import { Plus, TrendingUp, TrendingDown, DollarSign, Trash2, Calendar, Download } from "lucide-react"
 import { toast } from "sonner"
 
 interface ProfitLossData {
@@ -59,6 +59,9 @@ interface Expense {
   _id: string
   expense: number
   description: string
+  invoiceNumber?: string
+  vatAmount?: number
+  totalAmount?: number
   createdAt: string
   updatedAt: string
 }
@@ -69,8 +72,14 @@ export default function ProfitLoss() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [formData, setFormData] = useState({
+    invoiceNumber: "",
     expense: "",
     description: "",
+  })
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
+  const [dateRange, setDateRange] = useState({
+    from: "",
+    to: "",
   })
 
   useEffect(() => {
@@ -115,7 +124,7 @@ export default function ProfitLoss() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!formData.expense || !formData.description) {
+    if (!formData.expense || !formData.description || !formData.invoiceNumber) {
       toast.error("Please fill in all fields")
       return
     }
@@ -125,6 +134,10 @@ export default function ProfitLoss() {
       return
     }
 
+    const expenseAmount = Number(formData.expense)
+    const vatAmount = expenseAmount * 0.05
+    const totalAmount = expenseAmount + vatAmount
+
     try {
       const response = await fetch("/api/expenses", {
         method: "POST",
@@ -132,8 +145,11 @@ export default function ProfitLoss() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          expense: Number(formData.expense),
+          invoiceNumber: formData.invoiceNumber,
+          expense: expenseAmount,
           description: formData.description,
+          vatAmount: vatAmount,
+          totalAmount: totalAmount,
         }),
       })
 
@@ -141,7 +157,7 @@ export default function ProfitLoss() {
 
       if (result.success) {
         toast.success("Expense added successfully")
-        setFormData({ expense: "", description: "" })
+        setFormData({ invoiceNumber: "", expense: "", description: "" })
         setDialogOpen(false)
         fetchExpenses()
         fetchProfitLossData() // Refresh P&L data to include new expense
@@ -187,6 +203,250 @@ export default function ProfitLoss() {
     return new Date(dateString).toLocaleDateString()
   }
 
+  const handleDownloadExpensesPDF = async (fromDate?: string, toDate?: string) => {
+    // Filter expenses by date range if provided
+    let filteredExpenses = expenses
+    
+    if (fromDate && toDate) {
+      const from = new Date(fromDate)
+      const to = new Date(toDate)
+      to.setHours(23, 59, 59, 999) // Include the entire end date
+      
+      filteredExpenses = expenses.filter(expense => {
+        const expenseDate = new Date(expense.createdAt)
+        return expenseDate >= from && expenseDate <= to
+      })
+      
+      if (filteredExpenses.length === 0) {
+        toast.error("No expenses found in the selected date range")
+        return
+      }
+    } else if (expenses.length === 0) {
+      toast.error("No expenses to download")
+      return
+    }
+
+    try {
+      const [{ default: jsPDF }] = await Promise.all([
+        import("jspdf"),
+      ])
+
+      const pdf = new jsPDF("p", "mm", "a4")
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 15
+
+      // Title
+      pdf.setFontSize(20)
+      pdf.setTextColor(43, 48, 104) // #2B3068
+      pdf.setFont('helvetica', 'bold')
+      pdf.text("SYED TAYYAB INDUSTRIAL", pageWidth / 2, margin + 10, { align: "center" })
+      
+      pdf.setFontSize(16)
+      pdf.text("Business Expenses Report", pageWidth / 2, margin + 20, { align: "center" })
+      
+      pdf.setFontSize(10)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(100, 100, 100)
+      pdf.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, margin + 28, { align: "center" })
+      
+      let currentY = margin + 40
+      
+      // Add date range if filtering is applied
+      if (fromDate && toDate) {
+        pdf.text(`Date Range: ${formatDate(fromDate)} to ${formatDate(toDate)}`, pageWidth / 2, margin + 34, { align: "center" })
+        currentY = margin + 46 // Adjust starting position when date range is shown
+      }
+
+      // Summary
+      pdf.setFontSize(12)
+      pdf.setTextColor(0, 0, 0)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text("Summary:", margin, currentY)
+      currentY += 8
+
+      const totalExpenseAmount = filteredExpenses.reduce((sum, expense) => sum + expense.expense, 0)
+      const totalVATAmount = filteredExpenses.reduce((sum, expense) => sum + (expense.vatAmount || (expense.expense * 0.05)), 0)
+      const grandTotal = filteredExpenses.reduce((sum, expense) => sum + (expense.totalAmount || (expense.expense + (expense.expense * 0.05))), 0)
+
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(10)
+      pdf.text(`Total Expenses: ${filteredExpenses.length}`, margin + 5, currentY)
+      currentY += 6
+      pdf.text(`Total Amount: AED ${totalExpenseAmount.toFixed(2)}`, margin + 5, currentY)
+      currentY += 6
+      pdf.text(`Total VAT (5%): AED ${totalVATAmount.toFixed(2)}`, margin + 5, currentY)
+      currentY += 6
+      pdf.setFont('helvetica', 'bold')
+      pdf.text(`Grand Total: AED ${grandTotal.toFixed(2)}`, margin + 5, currentY)
+      currentY += 15
+
+      // Table header
+      const tableStartY = currentY
+      const rowHeight = 8
+      const colWidths = [25, 30, 50, 25, 20, 25] // Date, Invoice, Description, Amount, VAT, Total
+      const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
+      const tableX = (pageWidth - tableWidth) / 2
+
+      // Header background
+      pdf.setFillColor(43, 48, 104) // #2B3068
+      pdf.rect(tableX, tableStartY, tableWidth, rowHeight, "F")
+
+      // Header text
+      pdf.setFontSize(9)
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFont('helvetica', 'bold')
+      
+      let colX = tableX
+      pdf.text("Date", colX + 2, tableStartY + 5.5)
+      colX += colWidths[0]
+      
+      pdf.text("Invoice #", colX + 2, tableStartY + 5.5)
+      colX += colWidths[1]
+      
+      pdf.text("Description", colX + 2, tableStartY + 5.5)
+      colX += colWidths[2]
+      
+      pdf.text("Amount", colX + colWidths[3] - 2, tableStartY + 5.5, { align: "right" })
+      colX += colWidths[3]
+      
+      pdf.text("VAT 5%", colX + colWidths[4] - 2, tableStartY + 5.5, { align: "right" })
+      colX += colWidths[4]
+      
+      pdf.text("Total", colX + colWidths[5] - 2, tableStartY + 5.5, { align: "right" })
+
+      // Table rows
+      pdf.setFontSize(8)
+      pdf.setTextColor(0, 0, 0)
+      pdf.setFont('helvetica', 'normal')
+      
+      let currentRowY = tableStartY + rowHeight
+      const itemsPerPage = Math.floor((pageHeight - currentRowY - 30) / rowHeight)
+      
+      filteredExpenses.forEach((expense, index) => {
+        // Add new page if needed
+        if (index > 0 && index % itemsPerPage === 0) {
+          pdf.addPage()
+          currentRowY = margin + 20
+          
+          // Repeat header on new page
+          pdf.setFillColor(43, 48, 104)
+          pdf.rect(tableX, currentRowY - rowHeight, tableWidth, rowHeight, "F")
+          
+          pdf.setFontSize(9)
+          pdf.setTextColor(255, 255, 255)
+          pdf.setFont('helvetica', 'bold')
+          
+          let headerColX = tableX
+          pdf.text("Date", headerColX + 2, currentRowY - rowHeight + 5.5)
+          headerColX += colWidths[0]
+          pdf.text("Invoice #", headerColX + 2, currentRowY - rowHeight + 5.5)
+          headerColX += colWidths[1]
+          pdf.text("Description", headerColX + 2, currentRowY - rowHeight + 5.5)
+          headerColX += colWidths[2]
+          pdf.text("Amount", headerColX + colWidths[3] - 2, currentRowY - rowHeight + 5.5, { align: "right" })
+          headerColX += colWidths[3]
+          pdf.text("VAT 5%", headerColX + colWidths[4] - 2, currentRowY - rowHeight + 5.5, { align: "right" })
+          headerColX += colWidths[4]
+          pdf.text("Total", headerColX + colWidths[5] - 2, currentRowY - rowHeight + 5.5, { align: "right" })
+          
+          pdf.setFontSize(8)
+          pdf.setTextColor(0, 0, 0)
+          pdf.setFont('helvetica', 'normal')
+        }
+
+        // Alternate row background
+        if (index % 2 === 0) {
+          pdf.setFillColor(249, 250, 251)
+          pdf.rect(tableX, currentRowY, tableWidth, rowHeight, "F")
+        }
+
+        // Row border
+        pdf.setDrawColor(229, 231, 235)
+        pdf.setLineWidth(0.1)
+        pdf.rect(tableX, currentRowY, tableWidth, rowHeight)
+
+        const vatAmount = expense.vatAmount || (expense.expense * 0.05)
+        const totalAmount = expense.totalAmount || (expense.expense + vatAmount)
+
+        // Cell content
+        let cellX = tableX
+        
+        // Date
+        pdf.text(formatDate(expense.createdAt), cellX + 2, currentRowY + 5.5)
+        cellX += colWidths[0]
+        
+        // Invoice Number
+        const invoiceText = expense.invoiceNumber || 'N/A'
+        pdf.text(invoiceText.length > 12 ? invoiceText.substring(0, 10) + "..." : invoiceText, cellX + 2, currentRowY + 5.5)
+        cellX += colWidths[1]
+        
+        // Description
+        const descText = expense.description.length > 25 ? expense.description.substring(0, 22) + "..." : expense.description
+        pdf.text(descText, cellX + 2, currentRowY + 5.5)
+        cellX += colWidths[2]
+        
+        // Amount
+        pdf.text(`${expense.expense.toFixed(2)}`, cellX + colWidths[3] - 2, currentRowY + 5.5, { align: "right" })
+        cellX += colWidths[3]
+        
+        // VAT
+        pdf.text(`${vatAmount.toFixed(2)}`, cellX + colWidths[4] - 2, currentRowY + 5.5, { align: "right" })
+        cellX += colWidths[4]
+        
+        // Total
+        pdf.setFont('helvetica', 'bold')
+        pdf.text(`${totalAmount.toFixed(2)}`, cellX + colWidths[5] - 2, currentRowY + 5.5, { align: "right" })
+        pdf.setFont('helvetica', 'normal')
+
+        currentRowY += rowHeight
+      })
+
+      // Footer
+      const footerY = pageHeight - 20
+      pdf.setFontSize(8)
+      pdf.setTextColor(100, 100, 100)
+      pdf.text("SYED TAYYAB INDUSTRIAL - Business Expenses Report", pageWidth / 2, footerY, { align: "center" })
+
+      // Save PDF
+      const fileName = `Business_Expenses_${new Date().toISOString().split('T')[0]}.pdf`
+      pdf.save(fileName)
+      
+      toast.success("Expenses PDF downloaded successfully")
+    } catch (error) {
+      console.error("Error generating PDF:", error)
+      toast.error("Failed to generate PDF")
+    }
+  }
+
+  const handlePdfDownloadClick = () => {
+    setPdfDialogOpen(true)
+    // Set default date range to current month
+    const now = new Date()
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1)
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    
+    setDateRange({
+      from: firstDay.toISOString().split('T')[0],
+      to: lastDay.toISOString().split('T')[0]
+    })
+  }
+
+  const handlePdfDownload = () => {
+    if (!dateRange.from || !dateRange.to) {
+      toast.error("Please select both from and to dates")
+      return
+    }
+
+    if (new Date(dateRange.from) > new Date(dateRange.to)) {
+      toast.error("From date cannot be later than to date")
+      return
+    }
+
+    handleDownloadExpensesPDF(dateRange.from, dateRange.to)
+    setPdfDialogOpen(false)
+  }
+
   if (loading) {
     return (
       <div className="p-3 sm:p-4 lg:p-6 xl:p-8">
@@ -226,7 +486,18 @@ export default function ProfitLoss() {
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="expense">Expense Amount (AED)</Label>
+                <Label htmlFor="invoiceNumber">Invoice Number *</Label>
+                <Input
+                  id="invoiceNumber"
+                  type="text"
+                  placeholder="Enter invoice number"
+                  value={formData.invoiceNumber}
+                  onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                  className="h-11 sm:h-12"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="expense">Expense Amount (AED) *</Label>
                 <Input
                   id="expense"
                   type="number"
@@ -239,7 +510,29 @@ export default function ProfitLoss() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="vatAmount">VAT 5%</Label>
+                <Input
+                  id="vatAmount"
+                  type="text"
+                  value={`AED ${((Number(formData.expense) || 0) * 0.05).toFixed(2)}`}
+                  readOnly
+                  className="h-11 sm:h-12 bg-gray-50 text-gray-700"
+                  placeholder="VAT will be calculated"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="totalAmount">Total Amount (AED)</Label>
+                <Input
+                  id="totalAmount"
+                  type="text"
+                  value={`AED ${((Number(formData.expense) || 0) + ((Number(formData.expense) || 0) * 0.05)).toFixed(2)}`}
+                  readOnly
+                  className="h-11 sm:h-12 bg-blue-50 text-blue-700 font-semibold"
+                  placeholder="Total will be calculated"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="description">Description *</Label>
                 <Textarea
                   id="description"
                   placeholder="Enter expense description"
@@ -390,8 +683,22 @@ export default function ProfitLoss() {
       {/* Expenses Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg font-semibold">Business Expenses</CardTitle>
-          <CardDescription>All recorded business expenses</CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <CardTitle className="text-lg font-semibold">Business Expenses</CardTitle>
+              <CardDescription>All recorded business expenses</CardDescription>
+            </div>
+            {expenses.length > 0 && (
+              <Button
+                onClick={handlePdfDownloadClick}
+                variant="outline"
+                className="w-full sm:w-auto text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download PDF
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {expenses.length === 0 ? (
@@ -405,19 +712,28 @@ export default function ProfitLoss() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
+                    <TableHead>Invoice Number</TableHead>
                     <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Amount (AED)</TableHead>
+                    <TableHead className="text-right">VAT 5%</TableHead>
+                    <TableHead className="text-right">Total (AED)</TableHead>
                     <TableHead className="text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {expenses.map((expense) => (
+                  {expenses.map((expense) => {
+                    const vatAmount = expense.vatAmount || (expense.expense * 0.05)
+                    const totalAmount = expense.totalAmount || (expense.expense + vatAmount)
+                    return (
                     <TableRow key={expense._id}>
                       <TableCell className="text-sm">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4 text-gray-400" />
                           {formatDate(expense.createdAt)}
                         </div>
+                      </TableCell>
+                      <TableCell className="text-sm font-mono">
+                        {expense.invoiceNumber || 'N/A'}
                       </TableCell>
                       <TableCell>
                         <div className="max-w-xs truncate" title={expense.description}>
@@ -426,6 +742,12 @@ export default function ProfitLoss() {
                       </TableCell>
                       <TableCell className="text-right font-semibold">
                         {formatCurrency(expense.expense)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-green-600">
+                        {formatCurrency(vatAmount)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold text-blue-600">
+                        {formatCurrency(totalAmount)}
                       </TableCell>
                       <TableCell className="text-center">
                         <Button
@@ -438,13 +760,61 @@ export default function ProfitLoss() {
                         </Button>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* PDF Date Range Dialog */}
+      <Dialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen}>
+        <DialogContent className="w-[95vw] max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Download Expenses PDF</DialogTitle>
+            <DialogDescription>
+              Select date range to filter expenses for PDF download
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="fromDate">From Date</Label>
+              <Input
+                id="fromDate"
+                type="date"
+                value={dateRange.from}
+                onChange={(e) => setDateRange({ ...dateRange, from: e.target.value })}
+                className="h-11 sm:h-12"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="toDate">To Date</Label>
+              <Input
+                id="toDate"
+                type="date"
+                value={dateRange.to}
+                onChange={(e) => setDateRange({ ...dateRange, to: e.target.value })}
+                className="h-11 sm:h-12"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPdfDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              type="button" 
+              onClick={handlePdfDownload}
+              className="bg-[#2B3068] hover:bg-[#1a1f4a]"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Download PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

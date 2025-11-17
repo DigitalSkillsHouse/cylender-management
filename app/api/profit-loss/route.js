@@ -97,8 +97,12 @@ export async function GET() {
       }
     })
 
-    // Calculate total expenses
-    const totalExpenses = expenses.reduce((sum, expense) => sum + expense.expense, 0)
+    // Calculate total expenses (use totalAmount which includes VAT, fallback to expense for old records)
+    const totalExpenses = expenses.reduce((sum, expense) => {
+      // Use totalAmount if available (new records with VAT), otherwise use expense (old records)
+      const expenseAmount = expense.totalAmount || expense.expense
+      return sum + expenseAmount
+    }, 0)
 
     // Calculate totals
     const totalRevenue = adminGasRevenue + employeeGasRevenue + adminCylinderRevenue + employeeCylinderRevenue
