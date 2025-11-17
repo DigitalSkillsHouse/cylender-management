@@ -84,13 +84,14 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
 
-  // Choose header image by transaction type first (Deposit/Return/Collection),
+  // Choose header image by transaction type first (Deposit/Return/Collection/Rental),
   // then allow forcing Receiving header, otherwise default to Tax header.
   const headerSrc = (() => {
     const t = (sale?.type || '').toString().toLowerCase()
     if (t === 'deposit') return '/images/Header-deposit-invoice.jpg'
     if (t === 'return') return '/images/Header-Return-invoice.jpg'
     if (t === 'collection') return '/images/Header-Receiving-invoice.jpg'
+    if (t === 'rental') return '/images/rental_Invoice_page.jpg'
     if (useReceivingHeader) return '/images/Header-Receiving-invoice.jpg'
     return '/images/Header-Tax-invoice.jpg'
   })()
@@ -283,6 +284,9 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                       <>
                         <th className="text-left p-2 border">Item</th>
                         <th className="text-center p-2 border">Qty</th>
+                        {sale?.type === 'rental' && (
+                          <th className="text-center p-2 border">Days</th>
+                        )}
                         <th className="text-right p-2 border">Price</th>
                         {!disableVAT && (
                           <th className="text-right p-2 border">VAT (5%)</th>
@@ -333,6 +337,9 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                         <>
                           <td className="p-2 border">{name}</td>
                           <td className="text-center p-2 border">{qtyNum}</td>
+                          {sale?.type === 'rental' && (
+                            <td className="text-center p-2 border">{(item as any)?.days || '-'}</td>
+                          )}
                           <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
                           {!disableVAT && (
                             <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>

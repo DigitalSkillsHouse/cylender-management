@@ -110,6 +110,11 @@ const adminMenuItems = [
     icon: Receipt,
   },
   {
+    title: "Rental Collection",
+    url: "rental-collection",
+    icon: FileText,
+  },
+  {
     title: "P&L",
     url: "profit-loss",
     icon: TrendingUp,

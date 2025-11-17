@@ -26,6 +26,7 @@ import { LogoutConfirmation } from "@/components/logout-confirmation"
 import { authAPI } from "@/lib/api"
 import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
 import { CollectionPage } from "@/components/pages/collection"
+import { RentalCollection } from "@/components/pages/rental-collection"
 import { InvoiceSettingsDialog } from "@/components/invoice-settings-dialog"
 import { DailyStockReport } from "@/components/pages/daily-stock-report"
 import EmployeeDSR from "@/components/pages/employee-dsr"
@@ -218,6 +219,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         return <ProfitLoss />
       case "collection":
         return <CollectionPage user={user} />
+      case "rental-collection":
+        return <RentalCollection />
       default:
         return <Dashboard />
     }
