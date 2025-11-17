@@ -772,7 +772,7 @@ export function PurchaseManagement() {
       })
 
       // Add footer image and admin signature on the last page
-      const totalPages = pdf.internal.getNumberOfPages()
+      const totalPages = pdf.getNumberOfPages()
       pdf.setPage(totalPages) // Go to last page
       
       try {
@@ -1408,12 +1408,42 @@ export function PurchaseManagement() {
                   </div>
                 </div>
 
-                {/* Total Amount Display */}
+                {/* Total Amount Display with Breakdown */}
                 {totalAmount > 0 && (
                   <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-3 sm:p-4 rounded-lg sm:rounded-xl border border-blue-200">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm sm:text-lg font-semibold text-gray-700">Total Amount:</span>
-                      <span className="text-lg sm:text-2xl font-bold text-[#2B3068]">AED {totalAmount.toFixed(2)}</span>
+                    <div className="space-y-2">
+                      {/* Subtotal */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-600">Subtotal:</span>
+                        <span className="text-sm font-semibold text-gray-700">
+                          AED {(formData.items.reduce((sum, item) => {
+                            const quantity = Number(item.quantity) || 0;
+                            const unitPrice = Number(item.unitPrice) || 0;
+                            return sum + (quantity * unitPrice);
+                          }, 0)).toFixed(2)}
+                        </span>
+                      </div>
+                      
+                      {/* VAT */}
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-600">VAT (5%):</span>
+                        <span className="text-sm font-semibold text-gray-700">
+                          AED {(formData.items.reduce((sum, item) => {
+                            const quantity = Number(item.quantity) || 0;
+                            const unitPrice = Number(item.unitPrice) || 0;
+                            const subtotal = quantity * unitPrice;
+                            return sum + (subtotal * 0.05);
+                          }, 0)).toFixed(2)}
+                        </span>
+                      </div>
+                      
+                      {/* Separator */}
+                      <div className="border-t border-blue-200 pt-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm sm:text-lg font-semibold text-gray-700">Total Amount:</span>
+                          <span className="text-lg sm:text-2xl font-bold text-[#2B3068]">AED {totalAmount.toFixed(2)}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
