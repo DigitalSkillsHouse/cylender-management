@@ -359,171 +359,336 @@ export function Reports() {
   interface EmployeeLite { _id: string; name?: string; email?: string }
   
   // Download pending transactions PDF
-  const downloadPendingTransactionsPdf = () => {
+  const downloadPendingTransactionsPdf = async () => {
     // Filter customers with pending transactions
-    const pendingCustomers = customers.filter(customer => {
+    let pendingCustomers = customers.filter(customer => {
       // Check if customer has any pending transactions
       const hasPendingGasSales = customer.recentSales?.some((sale: any) => sale.paymentStatus === 'pending') || false;
       const hasPendingCylinders = customer.recentCylinderTransactions?.some((transaction: any) => transaction.status === 'pending') || false;
       return hasPendingGasSales || hasPendingCylinders;
     });
 
+    // If a specific customer is selected, filter to only that customer
+    if (filters.customerName.trim() !== '') {
+      pendingCustomers = pendingCustomers.filter(customer => 
+        customer.name.toLowerCase().includes(filters.customerName.toLowerCase()) ||
+        customer.trNumber.toLowerCase().includes(filters.customerName.toLowerCase())
+      );
+    }
+
     if (pendingCustomers.length === 0) {
-      alert('No pending transactions found.');
+      const message = filters.customerName.trim() !== '' 
+        ? `No pending transactions found for customer "${filters.customerName}".`
+        : 'No pending transactions found for any customers.';
+      alert(message);
       return;
     }
 
-    // Generate HTML content for PDF
-    let htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Pending Transactions Report</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .header h1 { color: #2B3068; margin-bottom: 10px; }
-          .header p { color: #666; margin: 5px 0; }
-          .customer-section { margin-bottom: 30px; page-break-inside: avoid; }
-          .customer-header { background-color: #f8f9fa; padding: 10px; border-left: 4px solid #2B3068; margin-bottom: 15px; }
-          .customer-name { font-size: 16px; font-weight: bold; color: #2B3068; margin-bottom: 5px; }
-          .customer-info { font-size: 11px; color: #666; }
-          .transactions-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-          .transactions-table th { background-color: #f1f3f4; padding: 8px; text-align: left; border: 1px solid #ddd; font-size: 11px; }
-          .transactions-table td { padding: 8px; border: 1px solid #ddd; font-size: 11px; }
-          .transactions-table tr:nth-child(even) { background-color: #f9f9f9; }
-          .total-row { background-color: #e8f4fd; font-weight: bold; }
-          .total-amount { text-align: right; font-weight: bold; color: #2B3068; }
-          .no-transactions { color: #999; font-style: italic; padding: 20px; text-align: center; }
-          @media print { 
-            body { margin: 0; } 
-            .customer-section { page-break-inside: avoid; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>Pending Transactions Report</h1>
-          <p>Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
-          <p>Total Customers with Pending Transactions: ${pendingCustomers.length}</p>
-        </div>
-    `;
+    // Load admin signature from localStorage
+    const adminSignature = typeof window !== 'undefined' ? localStorage.getItem("adminSignature") : null;
 
-    let grandTotal = 0;
+    // Import jsPDF dynamically
+    const jsPDFModule = await import("jspdf");
+    const pdf = new (jsPDFModule as any).jsPDF("p", "mm", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 15;
 
-    pendingCustomers.forEach(customer => {
-      // Get pending gas sales
-      const pendingGasSales = customer.recentSales?.filter((sale: any) => sale.paymentStatus === 'pending') || [];
+    try {
+      // Add header image
+      const headerImg = new Image();
+      headerImg.crossOrigin = "anonymous";
       
-      // Get pending cylinder transactions
-      const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
+      await new Promise<void>((resolve, reject) => {
+        headerImg.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = headerImg.width;
+            canvas.height = headerImg.height;
+            
+            if (ctx) {
+              ctx.drawImage(headerImg, 0, 0);
+              const headerImgData = canvas.toDataURL("image/png");
+              
+              const headerWidth = pageWidth - margin * 2;
+              const headerHeight = (headerImg.height * headerWidth) / headerImg.width;
+              
+              pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight);
+            }
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
+        headerImg.onerror = () => reject(new Error("Failed to load header image"));
+        headerImg.src = "/images/Customer-Ledger-header.jpg";
+      });
 
-      // Calculate customer total
-      const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0);
-      const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + (Number(transaction.amount) || 0), 0);
-      const customerTotal = gasSalesTotal + cylindersTotal;
-      grandTotal += customerTotal;
+      // Add report title and info
+      let currentY = margin + 60; // Start below header image
+      
+      
+      currentY += 10;
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, 'normal');
+      pdf.text(`Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, pageWidth / 2, currentY, { align: "center" });
+      
+      currentY += 6;
+      const filterText = filters.customerName.trim() !== '' 
+        ? `Customer Filter: ${filters.customerName}`
+        : `All Customers with Pending Transactions`;
+      pdf.text(filterText, pageWidth / 2, currentY, { align: "center" });
+      
+      currentY += 6;
+      pdf.text(`Total Customers: ${pendingCustomers.length}`, pageWidth / 2, currentY, { align: "center" });
+      
+      currentY += 15;
 
-      htmlContent += `
-        <div class="customer-section">
-          <div class="customer-header">
-            <div class="customer-name">${customer.name}</div>
-            <div class="customer-info">
-              TR Number: ${customer.trNumber}
-            </div>
-          </div>
-      `;
+      let grandTotal = 0;
 
-      if (pendingGasSales.length > 0 || pendingCylinders.length > 0) {
-        htmlContent += `
-          <table class="transactions-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Invoice Number</th>
-                <th>Reference Name</th>
-                <th>Amount (AED)</th>
-              </tr>
-            </thead>
-            <tbody>
-        `;
+      // Process each customer
+      for (const customer of pendingCustomers) {
+        // Get pending gas sales
+        const pendingGasSales = customer.recentSales?.filter((sale: any) => sale.paymentStatus === 'pending') || [];
+        
+        // Get pending cylinder transactions
+        const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
 
-        // Add gas sales
-        pendingGasSales.forEach((sale: any) => {
-          const date = new Date(sale.createdAt).toLocaleDateString();
-          const invoiceNumber = sale.invoiceNumber || 'N/A';
-          const createdBy = sale.saleSource === 'employee' ? (sale.employee?.name || 'Employee') : 'Admin';
-          const referenceName = createdBy;
-          const amount = Number(sale.totalAmount) || 0;
+        // Calculate customer total
+        const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0);
+        const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + (Number(transaction.amount) || 0), 0);
+        const customerTotal = gasSalesTotal + cylindersTotal;
+        grandTotal += customerTotal;
 
-          htmlContent += `
-            <tr>
-              <td>${date}</td>
-              <td>${invoiceNumber}</td>
-              <td>${referenceName}</td>
-              <td>${formatCurrency(amount)}</td>
-            </tr>
-          `;
-        });
+        // Check if we need a new page
+        if (currentY > pageHeight - 80) {
+          pdf.addPage();
+          currentY = margin + 20;
+        }
 
-        // Add cylinder transactions
-        pendingCylinders.forEach((transaction: any) => {
-          const date = new Date(transaction.createdAt).toLocaleDateString();
-          const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
-          const createdBy = transaction.employee ? (transaction.employee?.name || 'Employee') : 'Admin';
-          const referenceName = createdBy;
-          const amount = Number(transaction.amount) || 0;
+        // Customer header
+        pdf.setFillColor(248, 249, 250); // Light gray background
+        pdf.rect(margin, currentY, pageWidth - margin * 2, 15, 'F');
+        
+        pdf.setFontSize(12);
+        pdf.setTextColor(43, 48, 104); // #2B3068
+        pdf.setFont(undefined, 'bold');
+        pdf.text(customer.name, margin + 5, currentY + 8);
+        
+        pdf.setFontSize(9);
+        pdf.setFont(undefined, 'normal');
+        pdf.setTextColor(102, 102, 102);
+        pdf.text(`TR Number: ${customer.trNumber}`, margin + 5, currentY + 12);
+        
+        currentY += 20;
 
-          htmlContent += `
-            <tr>
-              <td>${date}</td>
-              <td>${invoiceNumber}</td>
-              <td>${referenceName}</td>
-              <td>${formatCurrency(amount)}</td>
-            </tr>
-          `;
-        });
+        if (pendingGasSales.length > 0 || pendingCylinders.length > 0) {
+          // Table header
+          pdf.setFillColor(241, 243, 244); // Light gray
+          pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
+          
+          pdf.setFontSize(9);
+          pdf.setTextColor(0, 0, 0);
+          pdf.setFont(undefined, 'bold');
+          pdf.text('Date', margin + 2, currentY + 5);
+          pdf.text('Invoice Number', margin + 35, currentY + 5);
+          pdf.text('Reference Name', margin + 80, currentY + 5);
+          pdf.text('Amount (AED)', pageWidth - margin - 25, currentY + 5, { align: 'right' });
+          
+          currentY += 10;
 
-        htmlContent += `
-            <tr class="total-row">
-              <td colspan="3" class="total-amount">Customer Total:</td>
-              <td class="total-amount">${formatCurrency(customerTotal)}</td>
-            </tr>
-            </tbody>
-          </table>
-        `;
-      } else {
-        htmlContent += `<div class="no-transactions">No pending transactions found for this customer.</div>`;
+          // Add gas sales
+          pendingGasSales.forEach((sale: any) => {
+            const date = new Date(sale.createdAt).toLocaleDateString();
+            const invoiceNumber = sale.invoiceNumber || 'N/A';
+            const createdBy = sale.saleSource === 'employee' ? (sale.employee?.name || 'Employee') : 'Admin';
+            const amount = Number(sale.totalAmount) || 0;
+
+            pdf.setFont(undefined, 'normal');
+            pdf.setFontSize(8);
+            pdf.text(date, margin + 2, currentY + 4);
+            pdf.text(invoiceNumber, margin + 35, currentY + 4);
+            pdf.text(createdBy, margin + 80, currentY + 4);
+            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 4, { align: 'right' });
+            
+            currentY += 6;
+          });
+
+          // Add cylinder transactions
+          pendingCylinders.forEach((transaction: any) => {
+            const date = new Date(transaction.createdAt).toLocaleDateString();
+            const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
+            const createdBy = transaction.employee ? (transaction.employee?.name || 'Employee') : 'Admin';
+            const amount = Number(transaction.amount) || 0;
+
+            pdf.setFont(undefined, 'normal');
+            pdf.setFontSize(8);
+            pdf.text(date, margin + 2, currentY + 4);
+            pdf.text(invoiceNumber, margin + 35, currentY + 4);
+            pdf.text(createdBy, margin + 80, currentY + 4);
+            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 4, { align: 'right' });
+            
+            currentY += 6;
+          });
+
+          // Customer total
+          pdf.setFillColor(232, 244, 253); // Light blue
+          pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
+          
+          pdf.setFont(undefined, 'bold');
+          pdf.setFontSize(9);
+          pdf.setTextColor(43, 48, 104);
+          pdf.text('Customer Total:', margin + 80, currentY + 5);
+          pdf.text(formatCurrency(customerTotal), pageWidth - margin - 2, currentY + 5, { align: 'right' });
+          
+          currentY += 12;
+        } else {
+          pdf.setFontSize(9);
+          pdf.setTextColor(153, 153, 153);
+          pdf.text('No pending transactions found for this customer.', pageWidth / 2, currentY + 10, { align: 'center' });
+          currentY += 20;
+        }
+
+        currentY += 10; // Space between customers
       }
 
-      htmlContent += `</div>`;
-    });
+      // Add grand total
+      if (currentY > pageHeight - 40) {
+        pdf.addPage();
+        currentY = margin + 20;
+      }
 
-    // Add grand total
-    htmlContent += `
-        <div style="margin-top: 30px; padding: 15px; background-color: #f8f9fa; border: 2px solid #2B3068; text-align: right;">
-          <h2 style="color: #2B3068; margin: 0;">Grand Total: ${formatCurrency(grandTotal)}</h2>
-        </div>
-      </body>
-      </html>
-    `;
-
-    // Open PDF in new window for printing
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-      printWindow.focus();
+      pdf.setFillColor(248, 249, 250);
+      pdf.setDrawColor(43, 48, 104);
+      pdf.setLineWidth(1);
+      pdf.rect(margin, currentY, pageWidth - margin * 2, 15, 'FD');
       
-      // Auto-trigger print dialog after content loads
-      printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.print();
-        }, 500);
-      };
+      pdf.setFontSize(14);
+      pdf.setTextColor(43, 48, 104);
+      pdf.setFont(undefined, 'bold');
+      pdf.text(`Grand Total: ${formatCurrency(grandTotal)}`, pageWidth - margin - 5, currentY + 10, { align: 'right' });
+
+      // Add footer image and admin signature
+      const footerY = pageHeight - 60;
+      
+      const footerImg = new Image();
+      footerImg.crossOrigin = "anonymous";
+      
+      await new Promise<void>((resolve, reject) => {
+        footerImg.onload = async () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = footerImg.width;
+            canvas.height = footerImg.height;
+            
+            if (ctx) {
+              ctx.drawImage(footerImg, 0, 0);
+              const footerImgData = canvas.toDataURL("image/png");
+              
+              const footerWidth = pageWidth - margin * 2;
+              const actualFooterHeight = (footerImg.height * footerWidth) / footerImg.width;
+              
+              pdf.addImage(footerImgData, "PNG", margin, footerY, footerWidth, actualFooterHeight);
+              
+              // Add admin signature on bottom right of footer image
+              if (adminSignature) {
+                try {
+                  await new Promise<void>((sigResolve, sigReject) => {
+                    const signatureImg = new Image();
+                    signatureImg.crossOrigin = "anonymous";
+                    signatureImg.onload = () => {
+                      try {
+                        const sigCanvas = document.createElement('canvas');
+                        const sigCtx = sigCanvas.getContext('2d');
+                        
+                        const aspectRatio = signatureImg.width / signatureImg.height;
+                        sigCanvas.width = 120;
+                        sigCanvas.height = 120 / aspectRatio;
+                        
+                        if (sigCtx) {
+                          sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+                          sigCtx.drawImage(signatureImg, 0, 0, sigCanvas.width, sigCanvas.height);
+                          
+                          // Process signature to remove background
+                          const imageData = sigCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height);
+                          const data = imageData.data;
+                          
+                          for (let i = 0; i < data.length; i += 4) {
+                            const r = data[i];
+                            const g = data[i + 1];
+                            const b = data[i + 2];
+                            
+                            const brightness = (r + g + b) / 3;
+                            if (brightness > 200) {
+                              data[i + 3] = 0; // Make transparent
+                            } else {
+                              data[i] = Math.max(0, r - 50);
+                              data[i + 1] = Math.max(0, g - 50);
+                              data[i + 2] = Math.max(0, b - 50);
+                              data[i + 3] = 255;
+                            }
+                          }
+                          
+                          sigCtx.putImageData(imageData, 0, 0);
+                          const sigImgData = sigCanvas.toDataURL("image/png");
+                          
+                          const sigWidth = 30;
+                          const sigHeight = 30 / aspectRatio;
+                          const sigX = pageWidth - margin - sigWidth - 8;
+                          const sigY = footerY + actualFooterHeight - sigHeight - 8;
+                          
+                          pdf.addImage(sigImgData, "PNG", sigX, sigY, sigWidth, sigHeight);
+                        }
+                        sigResolve();
+                      } catch (err) {
+                        console.warn("Failed to add signature image:", err);
+                        sigReject(err);
+                      }
+                    };
+                    signatureImg.onerror = () => {
+                      console.warn("Failed to load admin signature image");
+                      sigReject(new Error("Failed to load signature"));
+                    };
+                    signatureImg.src = adminSignature;
+                  });
+                } catch (sigError) {
+                  console.warn("Signature loading failed:", sigError);
+                  // Add text fallback
+                  pdf.setFontSize(8);
+                  pdf.setTextColor(43, 48, 104);
+                  pdf.setFont(undefined, 'bold');
+                  pdf.text("Admin Signature", pageWidth - margin - 30, footerY + actualFooterHeight - 8, { align: "center" });
+                }
+              } else {
+                // Add text-based admin signature
+                pdf.setFontSize(8);
+                pdf.setTextColor(43, 48, 104);
+                pdf.setFont(undefined, 'bold');
+                pdf.text("Admin Signature", pageWidth - margin - 30, footerY + actualFooterHeight - 8, { align: "center" });
+              }
+            }
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
+        footerImg.onerror = () => reject(new Error("Failed to load footer image"));
+        footerImg.src = "/images/Footer-qoute-paper.jpg";
+      });
+
+      // Save the PDF
+      const dt = new Date();
+      const stamp = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+      pdf.save(`pending-transactions-${stamp}.pdf`);
+
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      alert("Failed to generate PDF. Please try again.");
     }
   };
+
 
   // Download the grid view for a specific date as PDF
   const downloadDsrGridPdf = (date: string) => {
