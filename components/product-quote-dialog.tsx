@@ -216,7 +216,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       // Add table with perfect margins and spacing
       const tableStartY = currentYPosition + 5
       const rowHeight = 8 // Smaller row height for better fit
-      const colWidths = [12, 20, 45, 20, 15, 22, 25, 20] // S.No, Code, Item, Category, Quantity, Price, Total, VAT - smaller widths
+      const colWidths = [12, 20, 50, 15, 22, 22, 25] // S.No, Code, Item, Quantity, Price, VAT 5%, Total - removed Category, adjusted widths
       const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
       const tableX = (pageWidth - tableWidth) / 2 // Center table with equal left and right margins
 
@@ -244,24 +244,20 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       pdf.text("Item", colX + 2, tableStartY + 5.5)
       colX += colWidths[2]
       
-      // Category - centered
-      pdf.text("Category", colX + colWidths[3]/2, tableStartY + 5.5, { align: "center" })
+      // Qty - centered
+      pdf.text("Qty", colX + colWidths[3]/2, tableStartY + 5.5, { align: "center" })
       colX += colWidths[3]
       
-      // Qty - centered
-      pdf.text("Qty", colX + colWidths[4]/2, tableStartY + 5.5, { align: "center" })
+      // Price (AED) - centered
+      pdf.text("Price", colX + colWidths[4]/2, tableStartY + 5.5, { align: "center" })
       colX += colWidths[4]
       
-      // Price (AED) - centered
-      pdf.text("Price", colX + colWidths[5]/2, tableStartY + 5.5, { align: "center" })
+      // VAT 5% - centered
+      pdf.text("VAT 5%", colX + colWidths[5]/2, tableStartY + 5.5, { align: "center" })
       colX += colWidths[5]
       
       // Total (AED) - centered
       pdf.text("Total", colX + colWidths[6]/2, tableStartY + 5.5, { align: "center" })
-      colX += colWidths[6]
-      
-      // VAT 5% - centered
-      pdf.text("VAT 5%", colX + colWidths[7]/2, tableStartY + 5.5, { align: "center" })
       
       // Add vertical column separators to header for consistency
       pdf.setDrawColor(255, 255, 255) // White lines on dark header
@@ -312,28 +308,24 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         colX += colWidths[1]
         
         // Item - left aligned with smaller padding, truncate if too long
-        const itemName = (item.name || "-").length > 20 ? (item.name || "-").substring(0, 17) + "..." : (item.name || "-")
+        const itemName = (item.name || "-").length > 22 ? (item.name || "-").substring(0, 19) + "..." : (item.name || "-")
         pdf.text(itemName, colX + 2, currentY + 5.5)
         colX += colWidths[2]
         
-        // Category - centered (matching header)
-        pdf.text(item.category, colX + colWidths[3]/2, currentY + 5.5, { align: "center" })
+        // Qty - centered (matching header)
+        pdf.text(Number(item.quantity || 1).toString(), colX + colWidths[3]/2, currentY + 5.5, { align: "center" })
         colX += colWidths[3]
         
-        // Qty - centered (matching header)
-        pdf.text(Number(item.quantity || 1).toString(), colX + colWidths[4]/2, currentY + 5.5, { align: "center" })
+        // Price - right aligned with smaller padding
+        pdf.text(`${Number(item.price || 0).toFixed(2)}`, colX + colWidths[4] - 2, currentY + 5.5, { align: "right" })
         colX += colWidths[4]
         
-        // Price - right aligned with smaller padding
-        pdf.text(`${Number(item.price || 0).toFixed(2)}`, colX + colWidths[5] - 2, currentY + 5.5, { align: "right" })
+        // VAT - right aligned with smaller padding
+        pdf.text(`${((Number(item.quantity || 1) * Number(item.price || 0)) * 0.05).toFixed(2)}`, colX + colWidths[5] - 2, currentY + 5.5, { align: "right" })
         colX += colWidths[5]
         
         // Total - right aligned with smaller padding
         pdf.text(`${(Number(item.quantity || 1) * Number(item.price || 0)).toFixed(2)}`, colX + colWidths[6] - 2, currentY + 5.5, { align: "right" })
-        colX += colWidths[6]
-        
-        // VAT - right aligned with smaller padding
-        pdf.text(`${((Number(item.quantity || 1) * Number(item.price || 0)) * 0.05).toFixed(2)}`, colX + colWidths[7] - 2, currentY + 5.5, { align: "right" })
         
         currentY += rowHeight
       })
@@ -648,11 +640,10 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                     <th className="text-center p-2 border w-12">S.No</th>
                     <th className="text-left p-2 border">Code</th>
                     <th className="text-left p-2 border">Item</th>
-                    <th className="text-center p-2 border">Category</th>
                     <th className="text-center p-2 border">Enter Quantity</th>
                     <th className="text-right p-2 border">Price (AED)</th>
-                    <th className="text-right p-2 border">Total (AED)</th>
                     <th className="text-right p-2 border">VAT 5%</th>
+                    <th className="text-right p-2 border">Total (AED)</th>
                     <th className="text-center p-2 border">Actions</th>
                   </tr>
                 </thead>
@@ -664,7 +655,6 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                       </td>
                       <td className="p-2 align-middle font-mono">{it.productCode || "-"}</td>
                       <td className="p-2 align-middle">{it.name || "-"}</td>
-                      <td className="p-2 align-middle text-center capitalize">{it.category}</td>
                       <td className="p-2 align-middle min-w-[100px]">
                         <Input
                           type="number"
@@ -686,11 +676,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                           />
                         </div>
                       </td>
-                      <td className="p-2 align-middle text-right min-w-[100px]">
-                        <span className="text-[11px] font-semibold">AED {(Number(it.quantity) * Number(it.price)).toFixed(2)}</span>
-                      </td>
                       <td className="p-2 align-middle text-right min-w-[80px]">
                         <span className="text-[11px] font-medium text-green-600">AED {((Number(it.quantity) * Number(it.price)) * 0.05).toFixed(2)}</span>
+                      </td>
+                      <td className="p-2 align-middle text-right min-w-[100px]">
+                        <span className="text-[11px] font-semibold">AED {(Number(it.quantity) * Number(it.price)).toFixed(2)}</span>
                       </td>
                       <td className="p-2 text-center">
                         <Button variant="outline" size="sm" onClick={() => handleRemove(it._id)} className="text-red-600 hover:text-red-700 min-h-[36px]">
@@ -759,11 +749,10 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                         <th className="text-center p-2 border w-12">S.No</th>
                         <th className="text-left p-2 border">Code</th>
                         <th className="text-left p-2 border">Item</th>
-                        <th className="text-center p-2 border">Category</th>
                         <th className="text-center p-2 border">Quantity</th>
                         <th className="text-right p-2 border">Price (AED)</th>
-                        <th className="text-right p-2 border">Total (AED)</th>
                         <th className="text-right p-2 border">VAT 5%</th>
+                        <th className="text-right p-2 border">Total (AED)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -772,11 +761,10 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                           <td className="p-2 align-middle text-center w-12">{index + 1}</td>
                           <td className="p-2 align-middle">{it.productCode || "-"}</td>
                           <td className="p-2 align-middle">{it.name || "-"}</td>
-                          <td className="p-2 align-middle text-center capitalize">{it.category}</td>
                           <td className="p-2 align-middle text-center">{Number(it.quantity || 1)}</td>
                           <td className="p-2 align-middle text-right">AED {Number(it.price || 0).toFixed(2)}</td>
-                          <td className="p-2 align-middle text-right font-semibold">AED {(Number(it.quantity || 1) * Number(it.price || 0)).toFixed(2)}</td>
                           <td className="p-2 align-middle text-right text-green-600 font-medium">AED {((Number(it.quantity || 1) * Number(it.price || 0)) * 0.05).toFixed(2)}</td>
+                          <td className="p-2 align-middle text-right font-semibold">AED {(Number(it.quantity || 1) * Number(it.price || 0)).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -912,11 +900,10 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                         <th className="border border-gray-300 p-3 text-center font-semibold">S.No</th>
                         <th className="border border-gray-300 p-3 text-left font-semibold">Code</th>
                         <th className="border border-gray-300 p-3 text-left font-semibold">Item</th>
-                        <th className="border border-gray-300 p-3 text-center font-semibold">Category</th>
                         <th className="border border-gray-300 p-3 text-center font-semibold">Quantity</th>
                         <th className="border border-gray-300 p-3 text-right font-semibold">Price (AED)</th>
-                        <th className="border border-gray-300 p-3 text-right font-semibold">Total (AED)</th>
                         <th className="border border-gray-300 p-3 text-right font-semibold">VAT 5%</th>
+                        <th className="border border-gray-300 p-3 text-right font-semibold">Total (AED)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -925,14 +912,13 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                           <td className="border border-gray-300 p-3 text-center">{index + 1}</td>
                           <td className="border border-gray-300 p-3 font-mono">{item.productCode || "-"}</td>
                           <td className="border border-gray-300 p-3">{item.name || "-"}</td>
-                          <td className="border border-gray-300 p-3 text-center capitalize">{item.category}</td>
                           <td className="border border-gray-300 p-3 text-center">{Number(item.quantity || 1)}</td>
                           <td className="border border-gray-300 p-3 text-right">AED {Number(item.price || 0).toFixed(2)}</td>
-                          <td className="border border-gray-300 p-3 text-right font-semibold">
-                            AED {(Number(item.quantity || 1) * Number(item.price || 0)).toFixed(2)}
-                          </td>
                           <td className="border border-gray-300 p-3 text-right text-green-600 font-medium">
                             AED {((Number(item.quantity || 1) * Number(item.price || 0)) * 0.05).toFixed(2)}
+                          </td>
+                          <td className="border border-gray-300 p-3 text-right font-semibold">
+                            AED {(Number(item.quantity || 1) * Number(item.price || 0)).toFixed(2)}
                           </td>
                         </tr>
                       ))}

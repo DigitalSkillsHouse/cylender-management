@@ -840,11 +840,6 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                   <TableHead className="p-2 sm:p-4">Email</TableHead>
                   <TableHead className="p-2 sm:p-4">Phone</TableHead>
                   <TableHead className="p-2 sm:p-4">Status</TableHead>
-                  <TableHead className="p-2 sm:p-4">Product Assigned</TableHead>
-                  <TableHead className="p-2 sm:p-4">Assigned Stock</TableHead>
-                  <TableHead className="p-2 sm:p-4">Least Price (Assigned)</TableHead>
-                  <TableHead className="p-2 sm:p-4">Remaining Stock</TableHead>
-                  <TableHead className="p-2 sm:p-4">Received Back Stock</TableHead>
                   <TableHead className="p-2 sm:p-4">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -882,34 +877,6 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                           {employee.status || "active"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        {employeeProducts.length === 0 ? (
-                          <span className="text-gray-500">No products assigned</span>
-                        ) : employeeProducts.length === 1 ? (
-                          <span className="font-medium">{employeeProducts[0]}</span>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={handleViewProducts}
-                            className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white text-xs px-2 py-1"
-                          >
-                            See More ({employeeProducts.length})
-                          </Button>
-                        )}
-                      </TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        <span className="text-gray-500 italic">View in Employee Panel</span>
-                      </TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        <span className="text-gray-500 italic">View in Employee Panel</span>
-                      </TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        <span className="text-gray-500 italic">View in Employee Panel</span>
-                      </TableCell>
-                      <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">
-                        <span className="text-gray-500 italic">View in Employee Panel</span>
-                      </TableCell>
                       <TableCell className="p-2 sm:p-4">
                         <div className="flex space-x-1 sm:space-x-2">
                           <Button
@@ -943,7 +910,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                 })}
                 {filteredEmployees.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={5} className="text-center py-8 text-gray-500">
                       No employees found.
                     </TableCell>
                   </TableRow>
