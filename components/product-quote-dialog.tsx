@@ -324,8 +324,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         pdf.text(`${((Number(item.quantity || 1) * Number(item.price || 0)) * 0.05).toFixed(2)}`, colX + colWidths[5] - 2, currentY + 5.5, { align: "right" })
         colX += colWidths[5]
         
-        // Total - right aligned with smaller padding
-        pdf.text(`${(Number(item.quantity || 1) * Number(item.price || 0)).toFixed(2)}`, colX + colWidths[6] - 2, currentY + 5.5, { align: "right" })
+        // Total - right aligned with smaller padding (subtotal + VAT)
+        const itemSubtotal = Number(item.quantity || 1) * Number(item.price || 0)
+        const itemVAT = itemSubtotal * 0.05
+        const itemTotal = itemSubtotal + itemVAT
+        pdf.text(`${itemTotal.toFixed(2)}`, colX + colWidths[6] - 2, currentY + 5.5, { align: "right" })
         
         currentY += rowHeight
       })
@@ -680,7 +683,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                         <span className="text-[11px] font-medium text-green-600">AED {((Number(it.quantity) * Number(it.price)) * 0.05).toFixed(2)}</span>
                       </td>
                       <td className="p-2 align-middle text-right min-w-[100px]">
-                        <span className="text-[11px] font-semibold">AED {(Number(it.quantity) * Number(it.price)).toFixed(2)}</span>
+                        <span className="text-[11px] font-semibold">AED {((Number(it.quantity) * Number(it.price)) + ((Number(it.quantity) * Number(it.price)) * 0.05)).toFixed(2)}</span>
                       </td>
                       <td className="p-2 text-center">
                         <Button variant="outline" size="sm" onClick={() => handleRemove(it._id)} className="text-red-600 hover:text-red-700 min-h-[36px]">
@@ -764,7 +767,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                           <td className="p-2 align-middle text-center">{Number(it.quantity || 1)}</td>
                           <td className="p-2 align-middle text-right">AED {Number(it.price || 0).toFixed(2)}</td>
                           <td className="p-2 align-middle text-right text-green-600 font-medium">AED {((Number(it.quantity || 1) * Number(it.price || 0)) * 0.05).toFixed(2)}</td>
-                          <td className="p-2 align-middle text-right font-semibold">AED {(Number(it.quantity || 1) * Number(it.price || 0)).toFixed(2)}</td>
+                          <td className="p-2 align-middle text-right font-semibold">AED {((Number(it.quantity || 1) * Number(it.price || 0)) + ((Number(it.quantity || 1) * Number(it.price || 0)) * 0.05)).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
