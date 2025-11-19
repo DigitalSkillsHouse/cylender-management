@@ -602,7 +602,7 @@ export function RentalCollection() {
                       </div>
                       
                       <div className="flex items-end">
-                        <Button onClick={addItem} className="w-full">
+                        <Button onClick={addItem} className="w-full text-sm">
                           <Plus className="w-4 h-4 mr-2" />
                           Add Item
                         </Button>
@@ -659,11 +659,11 @@ export function RentalCollection() {
                   )}
 
                   {/* Submit Button */}
-                  <div className="flex justify-end space-x-2">
-                    <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  <div className="flex flex-col sm:flex-row justify-end gap-2">
+                    <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="w-full sm:w-auto">
                       Cancel
                     </Button>
-                    <Button onClick={handleSubmit} disabled={submitting}>
+                    <Button onClick={handleSubmit} disabled={submitting} className="w-full sm:w-auto">
                       {submitting ? "Generating..." : "Generate Rental"}
                     </Button>
                   </div>
@@ -681,31 +681,31 @@ export function RentalCollection() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[800px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Rental #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Subtotal</TableHead>
-                    <TableHead>VAT 5%</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead className="text-xs sm:text-sm">Rental #</TableHead>
+                    <TableHead className="text-xs sm:text-sm">Date</TableHead>
+                    <TableHead className="text-xs sm:text-sm">Customer</TableHead>
+                    <TableHead className="text-xs sm:text-sm">Items</TableHead>
+                    <TableHead className="text-xs sm:text-sm">Subtotal</TableHead>
+                    <TableHead className="text-xs sm:text-sm">VAT 5%</TableHead>
+                    <TableHead className="text-xs sm:text-sm">Total</TableHead>
+                    <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                    <TableHead className="text-xs sm:text-sm min-w-[200px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rentals.map((rental) => (
                     <TableRow key={rental._id}>
-                      <TableCell className="font-medium">{rental.rentalNumber}</TableCell>
-                      <TableCell>{new Date(rental.date).toLocaleDateString()}</TableCell>
-                      <TableCell>{rental.customerName}</TableCell>
-                      <TableCell>{rental.items.length} item(s)</TableCell>
-                      <TableCell>AED {rental.subtotal.toFixed(2)}</TableCell>
-                      <TableCell className="text-green-600">AED {rental.totalVat.toFixed(2)}</TableCell>
-                      <TableCell className="font-bold text-blue-600">AED {rental.finalTotal.toFixed(2)}</TableCell>
-                      <TableCell>
+                      <TableCell className="font-medium text-xs sm:text-sm">{rental.rentalNumber}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{new Date(rental.date).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{rental.customerName}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">{rental.items.length} item(s)</TableCell>
+                      <TableCell className="text-xs sm:text-sm">AED {rental.subtotal.toFixed(2)}</TableCell>
+                      <TableCell className="text-green-600 text-xs sm:text-sm">AED {rental.totalVat.toFixed(2)}</TableCell>
+                      <TableCell className="font-bold text-blue-600 text-xs sm:text-sm">AED {rental.finalTotal.toFixed(2)}</TableCell>
+                      <TableCell className="text-xs sm:text-sm">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           rental.status === 'active' ? 'bg-green-100 text-green-800' :
                           rental.status === 'returned' ? 'bg-gray-100 text-gray-800' :
@@ -715,30 +715,32 @@ export function RentalCollection() {
                         </span>
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
+                        <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => handleReceiptClick(rental)}
+                            className="w-full sm:w-auto text-xs sm:text-sm"
                           >
-                            <Receipt className="w-4 h-4 mr-1" />
+                            <Receipt className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                             Receipt
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => handleEditRental(rental)}
+                            className="w-full sm:w-auto text-xs sm:text-sm"
                           >
-                            <Edit className="w-4 h-4 mr-1" />
+                            <Edit className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                             Edit
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => handleDeleteRental(rental)}
-                            className="text-red-600 hover:text-red-700"
+                            className="text-red-600 hover:text-red-700 w-full sm:w-auto text-xs sm:text-sm"
                           >
-                            <Trash className="w-4 h-4 mr-1" />
+                            <Trash className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                             Delete
                           </Button>
                         </div>
