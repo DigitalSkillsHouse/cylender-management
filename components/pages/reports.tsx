@@ -2232,16 +2232,18 @@ export function Reports() {
             </div>
           </div>
 
-          <div className="flex space-x-2">
-            <Button onClick={handleFilter} style={{ backgroundColor: "#2B3068" }} disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Apply Filters
-            </Button>
-            <Button onClick={resetFilters} variant="outline">
-              Reset
-            </Button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex space-x-2">
+              <Button onClick={handleFilter} style={{ backgroundColor: "#2B3068" }} disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Apply Filters
+              </Button>
+              <Button onClick={resetFilters} variant="outline">
+                Reset
+              </Button>
+            </div>
             {filters.status === 'pending' && (
-              <Button onClick={downloadPendingTransactionsPdf} variant="outline" className="bg-red-50 hover:bg-red-100 text-red-700 border-red-200">
+              <Button onClick={downloadPendingTransactionsPdf} variant="outline" className="bg-red-50 hover:bg-red-100 text-red-700 border-red-200 w-full sm:w-auto">
                 <FileText className="mr-2 h-4 w-4" />
                 Download Pendings
               </Button>
