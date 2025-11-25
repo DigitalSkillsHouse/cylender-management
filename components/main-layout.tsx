@@ -184,6 +184,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
           return <Notifications user={user} setUnreadCount={setUnreadCount} />
         case "collection":
           return <CollectionPage user={user} />
+        case "rental-collection":
+          return <RentalCollection />
         case "employee-purchases":
           return <EmployeePurchaseManagement />
         case "dashboard":

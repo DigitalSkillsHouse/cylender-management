@@ -167,6 +167,11 @@ const employeeMenuItems = [
     url: "collection",
     icon: Receipt,
   },
+  {
+    title: "Rental Collection",
+    url: "rental-collection",
+    icon: FileText,
+  },
 ]
 
 export function AppSidebar({ currentPage, onPageChange, user, onLogout, unreadCount: externalUnreadCount, setUnreadCount, creditAmount = 0, debitAmount = 0 }: AppSidebarProps) {

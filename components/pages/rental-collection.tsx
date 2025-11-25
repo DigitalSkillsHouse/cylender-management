@@ -641,7 +641,7 @@ export function RentalCollection() {
                                   size="sm"
                                   onClick={() => removeItem(index)}
                                 >
-                                  <Trash2 className="w-4 h-4" />
+                                  <Trash className="w-4 h-4" />
                                 </Button>
                               </TableCell>
                             </TableRow>

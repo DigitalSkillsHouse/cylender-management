@@ -85,22 +85,6 @@ const rentalSchema = new mongoose.Schema({
   timestamps: true
 })
 
-// Generate rental number before saving
-rentalSchema.pre('save', async function(next) {
-  if (this.isNew && !this.rentalNumber) {
-    try {
-      const year = new Date().getFullYear()
-      const count = await this.constructor.countDocuments({
-        rentalNumber: { $regex: `^RNT-${year}-` }
-      })
-      this.rentalNumber = `RNT-${year}-${String(count + 1).padStart(4, '0')}`
-      console.log('Generated rental number:', this.rentalNumber)
-    } catch (error) {
-      console.error('Error generating rental number:', error)
-      return next(error)
-    }
-  }
-  next()
-})
+
 
 export default mongoose.models.Rental || mongoose.model('Rental', rentalSchema)
