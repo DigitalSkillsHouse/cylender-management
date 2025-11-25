@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown } from "lucide-react"
+import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown, Download, Calendar } from "lucide-react"
 import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 
@@ -51,6 +51,164 @@ interface PurchaseItem {
 }
 
 export function PurchaseManagement() {
+  // --- Employee Purchase Orders Filters & PDF State ---
+  const [showDateFilters, setShowDateFilters] = useState(false);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [showPDFDatePopup, setShowPDFDatePopup] = useState(false);
+  const [pdfFromDate, setPdfFromDate] = useState("");
+  const [pdfToDate, setPdfToDate] = useState("");
+  // Placeholder for PDF generation
+  const [adminSignature, setAdminSignature] = useState<string | null>(null);
+useEffect(() => {
+  try {
+    const sig = typeof window !== 'undefined' ? localStorage.getItem("adminSignature") : null;
+    setAdminSignature(sig);
+  } catch (e) {
+    setAdminSignature(null);
+  }
+}, []);
+
+async function generateEmployeePurchasePDF() {
+    setShowPDFDatePopup(false);
+    const jsPDF = (await import('jspdf')).default;
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 15;
+    // Filter orders by date
+    let pdfOrders = purchaseOrders;
+    if (pdfFromDate || pdfToDate) {
+      pdfOrders = pdfOrders.filter((o) => {
+        const orderDate = new Date(o.purchaseDate);
+        let match = true;
+        if (pdfFromDate) match = match && orderDate >= new Date(pdfFromDate);
+        if (pdfToDate) {
+          const to = new Date(pdfToDate);
+          to.setHours(23, 59, 59, 999);
+          match = match && orderDate <= to;
+        }
+        return match;
+      });
+    }
+    // Header image
+    const headerImg = new window.Image();
+    headerImg.src = '/images/purchase_page_header.jpg';
+    await new Promise((resolve) => {
+      headerImg.onload = resolve;
+      headerImg.onerror = resolve;
+    });
+    if (headerImg.width && headerImg.height) {
+      const aspect = headerImg.width / headerImg.height;
+      const w = pageWidth - 2 * margin;
+      const h = w / aspect;
+      pdf.addImage(headerImg, 'JPEG', margin, margin, w, h);
+    }
+    let y = margin + 65;
+    pdf.setFontSize(10);
+    pdf.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, y, { align: 'center' });
+    y += 8;
+    // Table header
+    pdf.setFontSize(9);
+    pdf.setFillColor(43, 48, 104);
+    pdf.setTextColor(255, 255, 255);
+    pdf.rect(margin, y, pageWidth - 2 * margin, 8, 'F');
+    const headers = ['Date', 'Invoice #', 'Supplier', 'Subtotal (AED)', 'VAT 5%', 'Total (AED)'];
+    let colX = margin;
+    const colWidths = [28, 34, 38, 32, 22, 32];
+    headers.forEach((h, i) => {
+      pdf.text(h, colX + 2, y + 6);
+      colX += colWidths[i];
+    });
+    y += 10;
+    pdf.setFontSize(8);
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFont('helvetica', 'normal');
+    pdfOrders.forEach((order, idx) => {
+      if (y > pageHeight - margin - 20) {
+        pdf.addPage();
+        y = margin + 10;
+      }
+      const dateStr = order.purchaseDate ? new Date(order.purchaseDate).toLocaleDateString() : 'N/A';
+      const subtotal = (order.quantity || 0) * (order.unitPrice || 0);
+      const vat = subtotal * 0.05;
+      const total = subtotal + vat;
+      const row = [
+        dateStr,
+        order.poNumber || 'N/A',
+        order.supplier?.companyName || 'Unknown',
+        subtotal.toFixed(2),
+        vat.toFixed(2),
+        total.toFixed(2),
+      ];
+      colX = margin;
+      row.forEach((cell, i) => {
+        pdf.text(String(cell), colX + 2, y + 6);
+        colX += colWidths[i];
+      });
+      y += 8;
+    });
+    // Footer image and admin signature
+    const footerImg = new window.Image();
+    footerImg.src = '/images/Footer-qoute-paper.jpg';
+    await new Promise((resolve) => {
+      footerImg.onload = resolve;
+      footerImg.onerror = resolve;
+    });
+    let footerH = 0;
+    let footerY = pageHeight - margin;
+    if (footerImg.width && footerImg.height) {
+      const aspect = footerImg.width / footerImg.height;
+      const w = pageWidth - 2 * margin;
+      const h = w / aspect;
+      footerH = h;
+      footerY = pageHeight - margin - h;
+      pdf.addImage(footerImg, 'JPEG', margin, footerY, w, h);
+    }
+    // Admin signature overlay
+    const adminSignature = typeof window !== 'undefined' ? localStorage.getItem('adminSignature') : null;
+    if (adminSignature) {
+      const sigImg = new window.Image();
+      sigImg.src = adminSignature;
+      await new Promise((resolve) => {
+        sigImg.onload = resolve;
+        sigImg.onerror = resolve;
+      });
+      if (sigImg.width && sigImg.height) {
+        // Remove white background (make transparent)
+        const aspect = sigImg.width / sigImg.height;
+        const sigW = 30;
+        const sigH = 30 / aspect;
+        const sigX = pageWidth - margin - sigW - 8;
+        const sigY = footerY + footerH - sigH - 8;
+        const canvas = document.createElement('canvas');
+        canvas.width = sigImg.width;
+        canvas.height = sigImg.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(sigImg, 0, 0);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            if ((r+g+b)/3 > 200) data[i+3] = 0; // Make white transparent
+          }
+          ctx.putImageData(imageData, 0, 0);
+          const sigImgData = canvas.toDataURL('image/png');
+          pdf.addImage(sigImgData, 'PNG', sigX, sigY, sigW, sigH);
+        } else {
+          pdf.addImage(sigImg, 'PNG', sigX, sigY, sigW, sigH);
+        }
+      }
+    } else {
+      pdf.setFontSize(8);
+      pdf.setTextColor(43, 48, 104);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Admin Signature', pageWidth - margin - 30, footerY + footerH - 8, { align: 'center' });
+    }
+    pdf.save('employee-purchase-orders.pdf');
+  }
+
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -436,11 +594,13 @@ export function PurchaseManagement() {
     })
   }
 
-  // Calculate total amount for all items
+  // Calculate total amount for all items (including VAT 5%)
   const totalAmount = formData.items.reduce((sum, item) => {
     const quantity = Number(item.quantity) || 0
     const unitPrice = Number(item.unitPrice) || 0
-    return sum + (quantity * unitPrice)
+    const subtotal = quantity * unitPrice
+    const vatAmount = subtotal * 0.05
+    return sum + (subtotal + vatAmount)
   }, 0)
 
   if (loading) {
@@ -486,11 +646,12 @@ export function PurchaseManagement() {
     date: string
     status: PurchaseOrder["status"]
     totalAmount: number
+    vatAmount: number
     items: PurchaseOrder[]
   }
 
   const groupedByInvoice: InvoiceGroup[] = (() => {
-    const map: Record<string, InvoiceGroup> = {}
+    const map: Record<string, InvoiceGroup & { vatAmount?: number }> = {}
     for (const o of filteredOrders) {
       const key = o.poNumber || `N/A-${o._id}`
       if (!map[key]) {
@@ -503,6 +664,7 @@ export function PurchaseManagement() {
           date: o.purchaseDate || "",
           status: o.status,
           totalAmount: 0,
+          vatAmount: 0,
           items: [],
         }
       }
@@ -512,6 +674,15 @@ export function PurchaseManagement() {
         : (o.quantity || 0) * (o.unitPrice || 0)
       map[key].totalAmount += itemTotal
     }
+    // Calculate VAT for each group
+    Object.values(map).forEach(group => {
+      const subtotal = group.items.reduce((sum, item) => {
+        const qty = item.quantity || 0;
+        const up = item.unitPrice || 0;
+        return sum + (qty * up);
+      }, 0);
+      group.vatAmount = subtotal * 0.05;
+    });
     // Keep order roughly by latest date desc
     return Object.values(map).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   })()
@@ -548,8 +719,72 @@ export function PurchaseManagement() {
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2 flex items-center gap-2 sm:gap-3">
               <ShoppingCart className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 flex-shrink-0" />
-              <span className="truncate">Employee Purchase Management</span>
+              <span className="truncate">Employee Purchase Orders</span>
             </h1>
+            <Dialog open={showPDFDatePopup} onOpenChange={setShowPDFDatePopup}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="text-lg font-semibold text-[#2B3068] flex items-center gap-2">
+                    <Download className="w-5 h-5" />
+                    Download PDF Report
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="pdfFromDate" className="text-sm font-medium text-gray-700">
+                      From Date (Optional)
+                    </Label>
+                    <Input
+                      id="pdfFromDate"
+                      type="date"
+                      value={pdfFromDate}
+                      onChange={e => setPdfFromDate(e.target.value)}
+                      className="h-10"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pdfToDate" className="text-sm font-medium text-gray-700">
+                      To Date (Optional)
+                    </Label>
+                    <Input
+                      id="pdfToDate"
+                      type="date"
+                      value={pdfToDate}
+                      onChange={e => setPdfToDate(e.target.value)}
+                      className="h-10"
+                    />
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Leave dates empty to include all purchase orders
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowPDFDatePopup(false)}
+                    className="text-gray-600 border-gray-300 hover:bg-gray-100"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setPdfFromDate('');
+                      setPdfToDate('');
+                    }}
+                    variant="outline"
+                    className="text-gray-600 border-gray-300 hover:bg-gray-100"
+                  >
+                    Clear Dates
+                  </Button>
+                  <Button
+                    onClick={generateEmployeePurchasePDF}
+                    className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+                  >
+                    Generate PDF
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
             <p className="text-white/80 text-sm sm:text-base lg:text-lg">Create and manage your employee purchase orders</p>
           </div>
 
@@ -778,6 +1013,20 @@ export function PurchaseManagement() {
                         className="h-10"
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label>VAT 5% (Auto)</Label>
+                      <Input
+                        type="number"
+                        readOnly
+                        value={(() => {
+                          const qty = Number(currentItem.quantity) || 0;
+                          const up = Number(currentItem.unitPrice) || 0;
+                          return ((qty * up) * 0.05).toFixed(2)
+                        })()}
+                        className="h-10 bg-gray-100 cursor-not-allowed"
+                        tabIndex={-1}
+                      />
+                    </div>
                   </div>
 
                   {/* Add/Update button below fields */}
@@ -819,17 +1068,20 @@ export function PurchaseManagement() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Product</TableHead>
+                          <TableHead className="whitespace-nowrap">Type</TableHead>
+                          <TableHead className="max-w-[220px] truncate">Product</TableHead>
                           <TableHead>Qty</TableHead>
                           <TableHead>Unit Price (AED)</TableHead>
-                          <TableHead>Total (AED)</TableHead>
-                          <TableHead>Actions</TableHead>
+                          <TableHead className="font-semibold">Subtotal (AED)</TableHead>
+                          <TableHead className="font-semibold text-green-700">VAT 5%</TableHead>
+                          <TableHead className="font-semibold">Total (AED)</TableHead>
+                          <TableHead className="font-semibold">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {formData.items.length === 0 && (
                           <TableRow>
+                            <TableCell colSpan={8} className="text-center text-gray-500">No items added yet</TableCell>
                             <TableCell colSpan={6} className="text-center text-gray-500">No items added yet</TableCell>
                           </TableRow>
                         )}
@@ -837,13 +1089,18 @@ export function PurchaseManagement() {
                           const p = products.find(p => p._id === it.productId)
                           const qty = Number(it.quantity) || 0
                           const up = Number(it.unitPrice) || 0
+                          const subtotal = qty * up
+                          const vat = subtotal * 0.05
+                          const total = subtotal + vat
                           return (
                             <TableRow key={idx}>
                               <TableCell className="whitespace-nowrap">{it.purchaseType}</TableCell>
                               <TableCell className="max-w-[220px] truncate">{p?.name || 'Product'}</TableCell>
                               <TableCell>{qty}</TableCell>
                               <TableCell>AED {up.toFixed(2)}</TableCell>
-                              <TableCell className="font-semibold">AED {(qty * up).toFixed(2)}</TableCell>
+                              <TableCell className="font-semibold">AED {subtotal.toFixed(2)}</TableCell>
+                              <TableCell className="font-semibold text-green-700">AED {vat.toFixed(2)}</TableCell>
+                              <TableCell className="font-semibold">AED {total.toFixed(2)}</TableCell>
                               <TableCell>
                                 <div className="flex gap-2">
                                   <Button
@@ -875,6 +1132,17 @@ export function PurchaseManagement() {
                     </Table>
                   </div>
                 </div>
+
+                {/* Summary Box */}
+                {formData.items.length > 0 && (
+                  <div className="flex justify-end mt-4">
+                    <div className="bg-gray-100 rounded-lg px-6 py-3 text-base font-semibold text-[#2B3068] shadow space-y-1 min-w-[220px]">
+                      <div>Subtotal: <span className="font-bold">AED {formData.items.reduce((acc, item) => acc + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0).toFixed(2)}</span></div>
+                      <div>VAT (5%): <span className="font-bold text-green-700">AED {formData.items.reduce((acc, item) => acc + ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) * 0.05), 0).toFixed(2)}</span></div>
+                      <div>Total Amount: <span className="font-bold">AED {formData.items.reduce((acc, item) => acc + ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) * 1.05), 0).toFixed(2)}</span></div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Total Amount Display */}
                 {totalAmount > 0 && (
@@ -919,23 +1187,98 @@ export function PurchaseManagement() {
         </div>
       </div>
 
+      {/* Date Filter Section */}
+      {showDateFilters && (
+        <Card className="border-0 shadow-lg rounded-xl overflow-hidden">
+          <CardHeader className="bg-gray-50 border-b border-gray-200 p-4">
+            <CardTitle className="text-lg font-semibold text-[#2B3068] flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              Date Filter
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="fromDate" className="text-sm font-medium text-gray-700 mb-2 block">
+                  From Date
+                </Label>
+                <Input
+                  id="fromDate"
+                  type="date"
+                  value={fromDate}
+                  onChange={e => setFromDate(e.target.value)}
+                  className="h-10"
+                />
+              </div>
+              <div>
+                <Label htmlFor="toDate" className="text-sm font-medium text-gray-700 mb-2 block">
+                  To Date
+                </Label>
+                <Input
+                  id="toDate"
+                  type="date"
+                  value={toDate}
+                  onChange={e => setToDate(e.target.value)}
+                  className="h-10"
+                />
+              </div>
+              <div className="col-span-2 flex justify-end">
+                <Button
+                  onClick={() => {
+                    setFromDate('');
+                    setToDate('');
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="text-gray-600 border-gray-300 hover:bg-gray-100"
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Purchase Orders Table */}
       <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
         <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
-            <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex items-center gap-2 flex-1">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 w-full">
+            <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex items-center gap-2">
               Employee Purchase Orders
               <Badge variant="secondary" className="bg-white/20 text-white ml-2 text-xs sm:text-sm">
                 {filteredOrders.length}/{purchaseOrders.length} orders
               </Badge>
             </CardTitle>
-            <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
-              <Input
-                placeholder="Search INV, supplier, product, status, date..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-10 text-gray-800"
-              />
+            <div className="flex-1 max-w-3xl ml-4">
+              <div className="flex flex-col sm:flex-row gap-2 w-full">
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => setShowDateFilters(!showDateFilters)}
+                    variant="outline"
+                    className="bg-[#2B3068] text-white border-[#2B3068]/20 hover:bg-[#2B3068]/10 font-semibold px-4 py-2 text-sm rounded-lg transition-all duration-300 whitespace-nowrap"
+                  >
+                    <Calendar className="w-4 h-4 mr-2" />
+                    {showDateFilters ? 'Hide Filters' : 'Date Filter'}
+                  </Button>
+                  <Button
+                    onClick={() => setShowPDFDatePopup(true)}
+                    variant="outline"
+                    className="bg-white/10 text-white border-[#2B3068]/20 hover:bg-[#2B3068]/10 font-semibold px-4 py-2 text-sm rounded-lg transition-all duration-300 whitespace-nowrap"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download PDF
+                  </Button>
+                </div>
+                <div className="bg-white rounded-xl p-2 flex-1 min-w-[200px]">
+                  <Input
+                    placeholder="Search INV, supplier, product, status, date..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="h-10 text-gray-800"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -950,6 +1293,7 @@ export function PurchaseManagement() {
                   <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Date</TableHead>
                   <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Items</TableHead>
                   <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Total Amount (AED)</TableHead>
+                  <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">VAT 5% (AED)</TableHead>
                   <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Status</TableHead>
                   <TableHead className="font-bold text-gray-700 p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">Actions</TableHead>
                 </TableRow>
@@ -977,6 +1321,7 @@ export function PurchaseManagement() {
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm whitespace-nowrap">{group.date ? new Date(group.date).toLocaleDateString() : "N/A"}</TableCell>
                       <TableCell className="p-2 sm:p-4 text-xs sm:text-sm">{group.items.length}</TableCell>
                       <TableCell className="p-2 sm:p-4 font-semibold text-xs sm:text-sm">AED {group.totalAmount.toFixed(2)}</TableCell>
+                      <TableCell className="p-2 sm:p-4 font-semibold text-green-700 text-xs sm:text-sm">AED {group.vatAmount.toFixed(2)}</TableCell>
                       <TableCell className="p-2 sm:p-4">
                         <Badge
                           variant={
@@ -1003,7 +1348,7 @@ export function PurchaseManagement() {
                     </TableRow>
                     {expandedGroups[group.key] && (
                       <TableRow key={`children-${group.key}`} className="bg-gray-50/50">
-                        <TableCell colSpan={8} className="p-0">
+                        <TableCell colSpan={9} className="p-0">
                           <div className="px-4 py-3">
                             <div className="overflow-x-auto">
                               <Table>
@@ -1014,7 +1359,8 @@ export function PurchaseManagement() {
                                     <TableHead className="text-xs sm:text-sm">Cylinder Size</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Qty</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Unit Price (AED)</TableHead>
-                                    <TableHead className="text-xs sm:text-sm">Total (AED)</TableHead>
+                                    <TableHead className="whitespace-nowrap">Subtotal (AED)</TableHead>
+                                    <TableHead className="whitespace-nowrap text-green-700">VAT 5%</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Status</TableHead>
                                     <TableHead className="text-xs sm:text-sm">Actions</TableHead>
                                   </TableRow>
@@ -1028,6 +1374,7 @@ export function PurchaseManagement() {
                                       <TableCell className="text-xs sm:text-sm">{order.quantity || 0}</TableCell>
                                       <TableCell className="font-semibold text-xs sm:text-sm">AED {order.unitPrice?.toFixed(2) || "0.00"}</TableCell>
                                       <TableCell className="font-semibold text-xs sm:text-sm">AED {order.totalAmount?.toFixed(2) || ((order.quantity || 0) * (order.unitPrice || 0)).toFixed(2)}</TableCell>
+                                      <TableCell className="font-semibold text-green-700 text-xs sm:text-sm">AED {((order.quantity || 0) * (order.unitPrice || 0) * 0.05).toFixed(2)}</TableCell>
                                       <TableCell className="text-xs sm:text-sm">
                                         <Badge
                                           variant={
@@ -1037,7 +1384,7 @@ export function PurchaseManagement() {
                                                 ? "secondary"
                                                 : "destructive"
                                           }
-                                          className={`${
+                                          className={`$
                                             order.status === "completed"
                                               ? "bg-green-600"
                                               : order.status === "pending"
