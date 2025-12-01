@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Download, Trash2, X, Plus, Eye, Check, ChevronsUpDown, Package } from "lucide-react"
+import { Download, Trash2, X, Plus, Eye, Check, ChevronsUpDown, Package, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { customersAPI } from "@/lib/api"
 
 export interface ProductQuoteItem {
   _id: string
@@ -41,10 +42,14 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   // Start with empty items array - no auto-population
   const [items, setItems] = useState<ProductQuoteItem[]>([])
   const [customerName, setCustomerName] = useState<string>("")
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("")
+  const [customers, setCustomers] = useState<Array<{ _id: string; name: string; phone?: string; email?: string }>>([])
   const [showPreview, setShowPreview] = useState(false)
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const [productSearchOpen, setProductSearchOpen] = useState(false)
   const [productSearchValue, setProductSearchValue] = useState("")
+  const [customerSearchOpen, setCustomerSearchOpen] = useState(false)
+  const [customerSearchValue, setCustomerSearchValue] = useState("")
 
   // Load admin signature from localStorage on component mount
   useEffect(() => {
@@ -56,6 +61,28 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       console.warn("Failed to load admin signature:", e)
       setAdminSignature(null)
     }
+  }, [])
+
+  // Fetch customers on component mount
+  useEffect(() => {
+    async function fetchCustomers() {
+      try {
+        const response = await customersAPI.getAll()
+        // Handle nested data structure: response.data.data
+        const customerData = Array.isArray(response?.data?.data) 
+          ? response.data.data 
+          : Array.isArray(response?.data) 
+            ? response.data 
+            : Array.isArray(response) 
+              ? response 
+              : []
+        setCustomers(customerData)
+      } catch (error) {
+        console.error("Failed to fetch customers:", error)
+        setCustomers([])
+      }
+    }
+    fetchCustomers()
   }, [])
 
   const handleNameChange = (id: string, value: string) => {
@@ -125,8 +152,45 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
     )
   })
 
+  // Filter customers based on search (case-insensitive)
+  const filteredCustomers = customers.filter((customer) => {
+    if (!customerSearchValue.trim()) return true // Show all if search is empty
+    const searchLower = customerSearchValue.toLowerCase().trim()
+    return (
+      customer.name.toLowerCase().includes(searchLower) ||
+      (customer.phone && customer.phone.toLowerCase().includes(searchLower)) ||
+      (customer.email && customer.email.toLowerCase().includes(searchLower))
+    )
+  })
+
   // Get already added product IDs to disable them in the list
   const addedProductIds = new Set(items.map((item) => item._id))
+
+  // Handle customer selection
+  const handleCustomerSelect = (customerId: string) => {
+    const selectedCustomer = customers.find((c) => c._id === customerId)
+    if (selectedCustomer) {
+      setSelectedCustomerId(customerId)
+      setCustomerName(selectedCustomer.name)
+      setCustomerSearchValue(selectedCustomer.name)
+      setCustomerSearchOpen(false)
+    }
+  }
+
+  // Handle manual customer name input (when user types freely)
+  const handleCustomerNameChange = (value: string) => {
+    setCustomerSearchValue(value)
+    setCustomerName(value)
+    // If user is typing manually, clear the selected customer ID
+    const matchingCustomer = customers.find(
+      (c) => c.name.toLowerCase() === value.toLowerCase().trim()
+    )
+    if (matchingCustomer) {
+      setSelectedCustomerId(matchingCustomer._id)
+    } else {
+      setSelectedCustomerId("") // Allow manual entry
+    }
+  }
 
   const visibleCount = items.length
 
@@ -655,89 +719,199 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
               <p className="text-[11px] text-gray-500">Selected Products ({visibleCount})</p>
             </div>
             
-            {/* Customer Name Input */}
+            {/* Customer Name Input - Searchable with Suggestions */}
             <div className="space-y-2 mb-4">
-              <label htmlFor="customerName" className="text-sm font-medium text-gray-700">Customer Name</label>
-              <Input
-                id="customerName"
-                type="text"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Enter customer name"
-                className="h-10"
-              />
-            </div>
-
-            {/* Select Product Field */}
-            <div className="space-y-2 mb-4">
-              <label htmlFor="selectProduct" className="text-sm font-medium text-gray-700">Select Product</label>
-              <Popover open={productSearchOpen} onOpenChange={setProductSearchOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={productSearchOpen}
-                    className="w-full justify-between h-10"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Package className="h-4 w-4 text-gray-500" />
-                      <span className={cn("text-sm", !productSearchValue && "text-muted-foreground")}>
-                        {productSearchValue || "Search and select a product..."}
-                      </span>
-                    </div>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-full p-0" align="start">
-                  <Command>
-                    <CommandInput 
-                      placeholder="Search products by name, code, or category..." 
-                      value={productSearchValue}
-                      onValueChange={setProductSearchValue}
-                    />
-                    <CommandList>
-                      <CommandEmpty>No products found.</CommandEmpty>
-                      <CommandGroup>
-                        {filteredProducts.map((product) => {
-                          const isAdded = addedProductIds.has(product._id)
+              <label htmlFor="selectCustomer" className="text-sm font-medium text-gray-700">Customer Name</label>
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 pointer-events-none">
+                  <Users className="h-4 w-4 text-gray-500" />
+                </div>
+                <Input
+                  id="selectCustomer"
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => {
+                    handleCustomerNameChange(e.target.value)
+                    if (e.target.value.trim()) {
+                      setCustomerSearchOpen(true)
+                    } else {
+                      setCustomerSearchOpen(false)
+                    }
+                  }}
+                  onFocus={() => {
+                    if (customerName.trim() || filteredCustomers.length > 0) {
+                      setCustomerSearchOpen(true)
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // Delay closing to allow clicking on suggestions
+                    setTimeout(() => {
+                      // Check if focus moved to suggestion list or if clicking outside
+                      const activeElement = document.activeElement
+                      const relatedTarget = e.relatedTarget as HTMLElement
+                      if (!activeElement?.closest('.customer-suggestions') && 
+                          !relatedTarget?.closest('.customer-suggestions')) {
+                        setCustomerSearchOpen(false)
+                      }
+                    }, 300)
+                  }}
+                  placeholder="Type to search customers or enter manually..."
+                  className="w-full pl-10 h-10"
+                />
+                
+                {/* Suggestions Dropdown - Directly below input */}
+                {customerSearchOpen && (customerName.trim() || filteredCustomers.length > 0) && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-[300px] overflow-y-auto customer-suggestions">
+                    {filteredCustomers.length === 0 && customerName.trim() ? (
+                      <div className="p-3 text-center text-sm text-gray-500">
+                        No matching customers found. You can continue typing to enter manually.
+                      </div>
+                    ) : filteredCustomers.length === 0 ? (
+                      <div className="p-3 text-center text-sm text-gray-500">
+                        No customers available. Type to enter manually.
+                      </div>
+                    ) : (
+                      <div className="py-1">
+                        {filteredCustomers.map((customer) => {
+                          const isSelected = selectedCustomerId === customer._id
                           return (
-                            <CommandItem
-                              key={product._id}
-                              value={product._id}
-                              onSelect={() => {
-                                if (!isAdded) {
-                                  handleProductSelect(product._id)
-                                }
+                            <div
+                              key={customer._id}
+                              onMouseDown={(e) => {
+                                e.preventDefault() // Prevent input blur
+                                handleCustomerSelect(customer._id)
+                                setCustomerSearchOpen(false)
                               }}
-                              disabled={isAdded}
                               className={cn(
-                                "cursor-pointer",
-                                isAdded && "opacity-50 cursor-not-allowed"
+                                "px-3 py-2 cursor-pointer hover:bg-gray-100 flex items-center gap-2 transition-colors",
+                                isSelected && "bg-blue-50"
                               )}
                             >
                               <Check
                                 className={cn(
-                                  "mr-2 h-4 w-4",
-                                  isAdded ? "opacity-100" : "opacity-0"
+                                  "h-4 w-4",
+                                  isSelected ? "opacity-100 text-blue-600" : "opacity-0"
                                 )}
                               />
-                              <div className="flex flex-col flex-1">
-                                <span className="font-medium">{product.name}</span>
-                                <span className="text-xs text-gray-500">
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <span className="font-medium text-sm">{customer.name}</span>
+                                {(customer.phone || customer.email) && (
+                                  <span className="text-xs text-gray-500 truncate">
+                                    {customer.phone && `Phone: ${customer.phone}`}
+                                    {customer.phone && customer.email && " • "}
+                                    {customer.email && `Email: ${customer.email}`}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {customerName && !selectedCustomerId && (
+                <p className="text-xs text-gray-500">Manual entry - customer not in database</p>
+              )}
+            </div>
+
+            {/* Select Product Field - Searchable with Suggestions */}
+            <div className="space-y-2 mb-4">
+              <label htmlFor="selectProduct" className="text-sm font-medium text-gray-700">Select Product</label>
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 pointer-events-none">
+                  <Package className="h-4 w-4 text-gray-500" />
+                </div>
+                <Input
+                  id="selectProduct"
+                  type="text"
+                  value={productSearchValue}
+                  onChange={(e) => {
+                    setProductSearchValue(e.target.value)
+                    if (e.target.value.trim()) {
+                      setProductSearchOpen(true)
+                    } else {
+                      setProductSearchOpen(false)
+                    }
+                  }}
+                  onFocus={() => {
+                    if (productSearchValue.trim() || filteredProducts.length > 0) {
+                      setProductSearchOpen(true)
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // Delay closing to allow clicking on suggestions
+                    setTimeout(() => {
+                      // Check if focus moved to suggestion list or if clicking outside
+                      const activeElement = document.activeElement
+                      const relatedTarget = e.relatedTarget as HTMLElement
+                      if (!activeElement?.closest('.product-suggestions') && 
+                          !relatedTarget?.closest('.product-suggestions')) {
+                        setProductSearchOpen(false)
+                      }
+                    }, 300)
+                  }}
+                  placeholder="Type to search products or enter manually..."
+                  className="w-full pl-10 h-10"
+                />
+                
+                {/* Suggestions Dropdown - Directly below input */}
+                {productSearchOpen && (productSearchValue.trim() || filteredProducts.length > 0) && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-[300px] overflow-y-auto product-suggestions">
+                    {filteredProducts.length === 0 && productSearchValue.trim() ? (
+                      <div className="p-3 text-center text-sm text-gray-500">
+                        No matching products found. Type product name to add manually.
+                      </div>
+                    ) : filteredProducts.length === 0 ? (
+                      <div className="p-3 text-center text-sm text-gray-500">
+                        No products available. Type to search.
+                      </div>
+                    ) : (
+                      <div className="py-1">
+                        {filteredProducts.map((product) => {
+                          const isAdded = addedProductIds.has(product._id)
+                          return (
+                            <div
+                              key={product._id}
+                              onMouseDown={(e) => {
+                                e.preventDefault() // Prevent input blur
+                                if (!isAdded) {
+                                  handleProductSelect(product._id)
+                                  setProductSearchValue("")
+                                  setProductSearchOpen(false)
+                                }
+                              }}
+                              className={cn(
+                                "px-3 py-2 flex items-center gap-2 transition-colors",
+                                isAdded 
+                                  ? "opacity-50 cursor-not-allowed bg-gray-50" 
+                                  : "cursor-pointer hover:bg-gray-100"
+                              )}
+                            >
+                              <Check
+                                className={cn(
+                                  "h-4 w-4",
+                                  isAdded ? "opacity-100 text-green-600" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex flex-col flex-1 min-w-0">
+                                <span className="font-medium text-sm">{product.name}</span>
+                                <span className="text-xs text-gray-500 truncate">
                                   Code: {product.productCode} • Category: {product.category} • Price: AED {Number.isFinite(product.leastPrice) ? product.leastPrice : product.costPrice}
                                 </span>
                               </div>
                               {isAdded && (
-                                <span className="text-xs text-green-600 ml-2">(Already added)</span>
+                                <span className="text-xs text-green-600 ml-2 whitespace-nowrap">(Already added)</span>
                               )}
-                            </CommandItem>
+                            </div>
                           )
                         })}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             
             <Separator className="my-4" />
