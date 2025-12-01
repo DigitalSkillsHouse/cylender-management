@@ -5,7 +5,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Download, Trash2, X, Plus, Eye } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Download, Trash2, X, Plus, Eye, Check, ChevronsUpDown, Package } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 export interface ProductQuoteItem {
   _id: string
@@ -34,25 +37,14 @@ interface ProductQuoteDialogProps {
 export default function ProductQuoteDialog({ products, totalCount, onClose }: ProductQuoteDialogProps) {
   // Reference to PRINT-ONLY content (read-only view)
   const printRef = useRef<HTMLDivElement | null>(null)
-  const initialItems = useMemo<ProductQuoteItem[]>(
-    () =>
-      (products || []).map((p) => ({
-        _id: p._id,
-        name: p.name,
-        productCode: p.productCode,
-        category: p.category,
-        cylinderSize: p.cylinderSize,
-        // Default quote price: use leastPrice if set, otherwise costPrice
-        price: Number.isFinite(p.leastPrice) ? p.leastPrice : p.costPrice,
-        quantity: 1, // Default quantity
-      })),
-    [products]
-  )
-
-  const [items, setItems] = useState<ProductQuoteItem[]>(initialItems)
+  
+  // Start with empty items array - no auto-population
+  const [items, setItems] = useState<ProductQuoteItem[]>([])
   const [customerName, setCustomerName] = useState<string>("")
   const [showPreview, setShowPreview] = useState(false)
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
+  const [productSearchOpen, setProductSearchOpen] = useState(false)
+  const [productSearchValue, setProductSearchValue] = useState("")
 
   // Load admin signature from localStorage on component mount
   useEffect(() => {
@@ -80,6 +72,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   const handleRemove = (id: string) => {
     setItems((prev) => prev.filter((it) => it._id !== id))
   }
+  
   const handleAddRow = () => {
     setItems((prev) => [
       ...prev,
@@ -93,6 +86,47 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       },
     ])
   }
+
+  // Handle product selection from search
+  const handleProductSelect = (productId: string) => {
+    const selectedProduct = products.find((p) => p._id === productId)
+    if (!selectedProduct) return
+
+    // Check if product is already in the list
+    const alreadyAdded = items.some((item) => item._id === selectedProduct._id)
+    if (alreadyAdded) {
+      alert("This product is already in the quote list")
+      return
+    }
+
+    // Add product to items list
+    const newItem: ProductQuoteItem = {
+      _id: selectedProduct._id,
+      name: selectedProduct.name,
+      productCode: selectedProduct.productCode,
+      category: selectedProduct.category,
+      cylinderSize: selectedProduct.cylinderSize,
+      price: Number.isFinite(selectedProduct.leastPrice) ? selectedProduct.leastPrice : selectedProduct.costPrice,
+      quantity: 1,
+    }
+
+    setItems((prev) => [...prev, newItem])
+    setProductSearchValue("")
+    setProductSearchOpen(false)
+  }
+
+  // Filter products based on search
+  const filteredProducts = products.filter((product) => {
+    const searchLower = productSearchValue.toLowerCase()
+    return (
+      product.name.toLowerCase().includes(searchLower) ||
+      product.productCode.toLowerCase().includes(searchLower) ||
+      product.category.toLowerCase().includes(searchLower)
+    )
+  })
+
+  // Get already added product IDs to disable them in the list
+  const addedProductIds = new Set(items.map((item) => item._id))
 
   const visibleCount = items.length
 
@@ -618,7 +652,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
           <div className="print:hidden">
             <div className="text-center">
               <h2 className="text-lg font-bold text-[#2B3068]">Product Quote</h2>
-              <p className="text-[11px] text-gray-500">Product List ({visibleCount}/{totalCount})</p>
+              <p className="text-[11px] text-gray-500">Selected Products ({visibleCount})</p>
             </div>
             
             {/* Customer Name Input */}
@@ -632,6 +666,78 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                 placeholder="Enter customer name"
                 className="h-10"
               />
+            </div>
+
+            {/* Select Product Field */}
+            <div className="space-y-2 mb-4">
+              <label htmlFor="selectProduct" className="text-sm font-medium text-gray-700">Select Product</label>
+              <Popover open={productSearchOpen} onOpenChange={setProductSearchOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={productSearchOpen}
+                    className="w-full justify-between h-10"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Package className="h-4 w-4 text-gray-500" />
+                      <span className={cn("text-sm", !productSearchValue && "text-muted-foreground")}>
+                        {productSearchValue || "Search and select a product..."}
+                      </span>
+                    </div>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command>
+                    <CommandInput 
+                      placeholder="Search products by name, code, or category..." 
+                      value={productSearchValue}
+                      onValueChange={setProductSearchValue}
+                    />
+                    <CommandList>
+                      <CommandEmpty>No products found.</CommandEmpty>
+                      <CommandGroup>
+                        {filteredProducts.map((product) => {
+                          const isAdded = addedProductIds.has(product._id)
+                          return (
+                            <CommandItem
+                              key={product._id}
+                              value={product._id}
+                              onSelect={() => {
+                                if (!isAdded) {
+                                  handleProductSelect(product._id)
+                                }
+                              }}
+                              disabled={isAdded}
+                              className={cn(
+                                "cursor-pointer",
+                                isAdded && "opacity-50 cursor-not-allowed"
+                              )}
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  isAdded ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex flex-col flex-1">
+                                <span className="font-medium">{product.name}</span>
+                                <span className="text-xs text-gray-500">
+                                  Code: {product.productCode} • Category: {product.category} • Price: AED {Number.isFinite(product.leastPrice) ? product.leastPrice : product.costPrice}
+                                </span>
+                              </div>
+                              {isAdded && (
+                                <span className="text-xs text-green-600 ml-2">(Already added)</span>
+                              )}
+                            </CommandItem>
+                          )
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             
             <Separator className="my-4" />
@@ -651,7 +757,15 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((it, index) => (
+                  {items.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="text-center py-8 text-gray-500">
+                        <Package className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No products selected. Use "Select Product" above to add products to the quote.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    items.map((it, index) => (
                     <tr key={it._id} className="border-b h-5">
                       <td className="p-2 align-middle text-center w-12">
                         <span className="text-[11px] font-medium">{index + 1}</span>
@@ -691,7 +805,8 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
