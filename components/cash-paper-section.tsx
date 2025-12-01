@@ -16,6 +16,7 @@ type CashPaperRecord = {
   paymentMethod: string
   paymentStatus: string
   createdAt: string
+  type?: string // For cylinder transactions: 'deposit', 'return', 'refill'
 }
 
 export default function CashPaperSection({
@@ -28,12 +29,14 @@ export default function CashPaperSection({
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10))
   const [loading, setLoading] = useState<boolean>(false)
   const [data, setData] = useState<{
-    counts: { credit: number; debit: number; other: number; total: number }
+    counts: { credit: number; debit: number; other: number; depositCylinder: number; returnCylinder: number; total: number }
     creditSales: CashPaperRecord[]
     debitSales: CashPaperRecord[]
     otherSales: CashPaperRecord[]
+    depositCylinderSales: CashPaperRecord[]
+    returnCylinderSales: CashPaperRecord[]
     otherByMethod: Record<string, number>
-    totals: { totalCredit: number; totalDebit: number; totalOther: number; grandTotal: number }
+    totals: { totalCredit: number; totalDebit: number; totalOther: number; totalDepositCylinder: number; totalReturnCylinder: number; grandTotal: number }
   } | null>(null)
 
   const fetchData = async () => {
@@ -76,6 +79,12 @@ export default function CashPaperSection({
         .map(r => `<tr><td>${r.invoiceNumber}</td><td>${r.customerName || "-"}</td><td class='right'>${currency(vat(r.totalAmount))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
       const otherRows = (data.otherSales || [])
+        .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(vat(Number(r.totalAmount || 0)))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
+        .join("")
+      const depositCylinderRows = (data.depositCylinderSales || [])
+        .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(vat(Number(r.totalAmount || 0)))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
+        .join("")
+      const returnCylinderRows = (data.returnCylinderSales || [])
         .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(vat(Number(r.totalAmount || 0)))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
 
@@ -130,10 +139,23 @@ export default function CashPaperSection({
       <tr><th>Inv Id</th><th>Customer</th><th class='right'>VAT 5%</th><th class='right'>Amount</th></tr>
     </thead>
     <tbody>
-      ${otherRows || `<tr><td colspan='4' style='text-align:center'>No other sales</td></tr>`}
+      ${depositCylinderRows || `<tr><td colspan='4' style='text-align:center'>No deposit cylinder transactions</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='3'><b>Total Other</b></td><td class='right'><b>${currency(data.totals.totalOther)}</b></td></tr>
+      <tr><td colspan='3'><b>Total Deposit Cylinder</b></td><td class='right'><b>${currency(data.totals.totalDepositCylinder || 0)}</b></td></tr>
+    </tfoot>
+  </table>
+
+  <h2>Return Cylinder Invoice</h2>
+  <table>
+    <thead>
+      <tr><th>Inv Id</th><th>Customer</th><th class='right'>VAT 5%</th><th class='right'>Amount</th></tr>
+    </thead>
+    <tbody>
+      ${returnCylinderRows || `<tr><td colspan='4' style='text-align:center'>No return cylinder transactions</td></tr>`}
+    </tbody>
+    <tfoot>
+      <tr><td colspan='3'><b>Total Return Cylinder</b></td><td class='right'><b>${currency(data.totals.totalReturnCylinder || 0)}</b></td></tr>
     </tfoot>
   </table>
 

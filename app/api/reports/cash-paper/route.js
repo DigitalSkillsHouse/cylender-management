@@ -47,10 +47,14 @@ export async function GET(request) {
     const creditSales = [];
     const debitSales = [];
     const otherSales = [];
+    const depositCylinderSales = [];
+    const returnCylinderSales = [];
 
     let totalCredit = 0;
     let totalDebit = 0;
     let totalOther = 0;
+    let totalDepositCylinder = 0;
+    let totalReturnCylinder = 0;
     let grandTotal = 0;
 
     // Aggregate gas sales first
@@ -80,14 +84,9 @@ export async function GET(request) {
       }
     }
 
-    // Aggregate cylinder transactions - only include DEPOSIT transactions (exclude returns)
+    // Aggregate cylinder transactions - separate deposits and returns
     for (const c of cylTxns) {
-      // Skip return transactions - only include deposit and refill
-      if (c.type === 'return') {
-        continue;
-      }
-      
-      const amount = Number(c.amount || c.depositAmount || c.refillAmount || 0);
+      const amount = Number(c.amount || c.depositAmount || c.refillAmount || c.returnAmount || 0);
       const rec = {
         _id: c._id,
         source: employeeId ? 'employee-cylinder' : 'admin-cylinder',
@@ -99,11 +98,20 @@ export async function GET(request) {
         paymentMethod: c.paymentMethod || 'cash',
         paymentStatus: c.status,
         createdAt: c.createdAt,
+        type: c.type, // Include type to distinguish deposit/return
       };
-      grandTotal += rec.totalAmount;
-      // Cylinder txns don't use credit/debit enums; bucket them as other by method (cash/cheque)
-      otherSales.push(rec);
-      totalOther += rec.totalAmount;
+      
+      if (c.type === 'return') {
+        // Return transactions
+        returnCylinderSales.push(rec);
+        totalReturnCylinder += rec.totalAmount;
+        grandTotal += rec.totalAmount;
+      } else {
+        // Deposit and refill transactions
+        depositCylinderSales.push(rec);
+        totalDepositCylinder += rec.totalAmount;
+        grandTotal += rec.totalAmount;
+      }
     }
 
     // Group other sales by payment method summary
@@ -112,6 +120,9 @@ export async function GET(request) {
       acc[k] = (acc[k] || 0) + (r.totalAmount || 0);
       return acc;
     }, {});
+
+    // Calculate totalOther to include both otherSales and cylinder transactions
+    const totalOtherIncludingCylinders = totalOther + totalDepositCylinder + totalReturnCylinder;
 
     return NextResponse.json({
       success: true,
@@ -122,16 +133,22 @@ export async function GET(request) {
           credit: creditSales.length,
           debit: debitSales.length,
           other: otherSales.length,
+          depositCylinder: depositCylinderSales.length,
+          returnCylinder: returnCylinderSales.length,
           total: gasSales.length + cylTxns.length,
         },
         creditSales,
         debitSales,
         otherSales,
+        depositCylinderSales,
+        returnCylinderSales,
         otherByMethod,
         totals: {
           totalCredit,
           totalDebit,
-          totalOther,
+          totalOther: totalOtherIncludingCylinders,
+          totalDepositCylinder,
+          totalReturnCylinder,
           grandTotal,
         },
       },
