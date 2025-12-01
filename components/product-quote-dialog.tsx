@@ -494,24 +494,41 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
 
       // Add warning message and footer on the last page only
       if (pageNum === totalPages - 1) {
-        // Calculate available space for warning and footer - more compact
+        // First, pre-calculate the actual footer image height
+        let actualFooterHeight = 35 // Default estimate
+        try {
+          const preCalcFooterImg = new Image()
+          preCalcFooterImg.crossOrigin = "anonymous"
+          await new Promise<void>((resolve) => {
+            preCalcFooterImg.onload = () => {
+              const footerWidth = pageWidth - margin * 2
+              actualFooterHeight = (preCalcFooterImg.height * footerWidth) / preCalcFooterImg.width
+              resolve()
+            }
+            preCalcFooterImg.onerror = () => resolve()
+            preCalcFooterImg.src = "/images/Footer-qoute-paper.jpg"
+          })
+        } catch (error) {
+          console.warn("Failed to pre-calculate footer height:", error)
+        }
+        
+        // Calculate available space for warning and footer
         const availableSpace = pageHeight - currentY - 25 // Leave space for page number
-        const warningHeight = 28 // Reduced from 35
-        const footerHeight = 35 // Reduced from 40
-        const totalNeeded = warningHeight + footerHeight + 12 // Reduced spacing from 20 to 12
+        const warningHeight = 28
+        const spacingBetween = 8
+        const totalNeeded = warningHeight + actualFooterHeight + spacingBetween
         
-        let warningY = currentY + 8 // Reduced from 15
+        let warningY = currentY + 8
+        let footerY = warningY + warningHeight + spacingBetween
+        let needsNewPage = false
         
-        // More aggressive fitting - try to keep everything on same page for small quotes
+        // Check if footer section (warning + footer image) will fit on current page
         if (totalNeeded > availableSpace) {
-          if (availableSpace < warningHeight + 8) {
-            // Not enough space even for warning, add new page
-            pdf.addPage()
-            warningY = margin + 15 // Reduced from 20
-          } else {
-            // Adjust warning position to fit - more compact
-            warningY = Math.max(currentY + 5, pageHeight - totalNeeded - 8)
-          }
+          // Not enough space - move entire footer section to new page
+          needsNewPage = true
+          pdf.addPage()
+          warningY = margin + 15
+          footerY = warningY + warningHeight + spacingBetween
         }
         
         // Warning box background with better styling
@@ -541,8 +558,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
           pdf.text(line, margin + 4, warningY + 14 + (index * 3)) // Tighter line spacing
         })
         
-        // Add footer image after warning message - reduced spacing
-        const footerY = warningY + warningHeight + 6 // Reduced from 10
+        // Footer Y position is already calculated above
         
         try {
           // Use admin signature from state (already loaded from localStorage)
@@ -566,13 +582,40 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                   const footerImgData = canvas.toDataURL("image/png")
                   
                   const footerWidth = pageWidth - margin * 2
-                  const actualFooterHeight = (footerImg.height * footerWidth) / footerImg.width
+                  const calculatedFooterHeight = (footerImg.height * footerWidth) / footerImg.width
                   
-                  // Ensure footer fits on page
-                  const maxFooterY = pageHeight - actualFooterHeight - 20
-                  const finalFooterY = Math.min(footerY, maxFooterY)
+                  // Use the pre-calculated footerY position (already checked for page fit)
+                  let finalFooterY = footerY
+                  let finalWarningY = warningY
                   
-                  pdf.addImage(footerImgData, "PNG", margin, finalFooterY, footerWidth, actualFooterHeight)
+                  // Ensure footer doesn't go beyond page bottom
+                  const maxFooterY = pageHeight - calculatedFooterHeight - 20
+                  if (finalFooterY > maxFooterY) {
+                    // If somehow it still doesn't fit, move to next page
+                    pdf.addPage()
+                    finalWarningY = margin + 15
+                    finalFooterY = finalWarningY + warningHeight + spacingBetween
+                    
+                    // Re-draw warning on new page
+                    pdf.setFillColor(255, 243, 205)
+                    pdf.setDrawColor(251, 191, 36)
+                    pdf.setLineWidth(0.5)
+                    pdf.rect(margin, finalWarningY, pageWidth - margin * 2, warningHeight, "FD")
+                    pdf.setFontSize(9)
+                    pdf.setTextColor(146, 64, 14)
+                    pdf.setFont(undefined, 'bold')
+                    pdf.text("PAY ATTENTION PLEASE!", margin + 4, finalWarningY + 8)
+                    pdf.setFontSize(7)
+                    pdf.setTextColor(92, 38, 5)
+                    pdf.setFont(undefined, 'normal')
+                    const newLines = pdf.splitTextToSize(warningText, maxWidth)
+                    newLines.forEach((line: string, index: number) => {
+                      pdf.text(line, margin + 4, finalWarningY + 14 + (index * 3))
+                    })
+                  }
+                  
+                  // Add footer image
+                  pdf.addImage(footerImgData, "PNG", margin, finalFooterY, footerWidth, calculatedFooterHeight)
                   
                   // Add admin signature on bottom right of footer image
                   if (adminSignature) {
@@ -630,7 +673,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                               const sigWidth = 30
                               const sigHeight = 30 / aspectRatio
                               const sigX = pageWidth - margin - sigWidth - 8
-                              const sigY = finalFooterY + actualFooterHeight - sigHeight - 8
+                              const sigY = finalFooterY + calculatedFooterHeight - sigHeight - 8
                               
                               pdf.addImage(sigImgData, "PNG", sigX, sigY, sigWidth, sigHeight)
                               console.log("Admin signature added to PDF")
@@ -653,14 +696,14 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                       pdf.setFontSize(8)
                       pdf.setTextColor(43, 48, 104)
                       pdf.setFont(undefined, 'bold')
-                      pdf.text("Admin Signature", pageWidth - margin - 30, finalFooterY + actualFooterHeight - 8, { align: "center" })
+                      pdf.text("Admin Signature", pageWidth - margin - 30, finalFooterY + calculatedFooterHeight - 8, { align: "center" })
                     }
                   } else {
                     // Add text-based admin signature
                     pdf.setFontSize(8)
                     pdf.setTextColor(43, 48, 104) // #2B3068
                     pdf.setFont(undefined, 'bold')
-                    pdf.text("Admin Signature", pageWidth - margin - 30, finalFooterY + actualFooterHeight - 8, { align: "center" })
+                    pdf.text("Admin Signature", pageWidth - margin - 30, finalFooterY + calculatedFooterHeight - 8, { align: "center" })
                     console.log("No admin signature found in localStorage")
                   }
                 }
