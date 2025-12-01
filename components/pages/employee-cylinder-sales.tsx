@@ -2798,7 +2798,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         <ReceiptDialog
           sale={receiptDialogData}
           useReceivingHeader
-          disableVAT={receiptDialogData?.type === 'deposit'}
+          disableVAT={receiptDialogData?.type === 'deposit' || receiptDialogData?.type === 'return' || receiptDialogData?.type === 'refill'}
           onClose={() => setReceiptDialogData(null)}
         />
       )}

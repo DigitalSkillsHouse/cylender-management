@@ -82,11 +82,17 @@ const ReceiptPrintPage = () => {
     return <div className="flex justify-center items-center h-screen font-semibold">Sale data is not available.</div>;
   }
 
-  // Calculate totals based on whether it's a collection receipt
+  // Calculate totals based on whether it's a collection receipt or cylinder transaction
   let subTotal, vatAmount, grandTotal
   
-  if (sale?.type === 'collection') {
-    // For collections, use the totalAmount directly without VAT calculation
+  // Disable VAT for cylinder transactions (deposit, return, refill) and collections
+  // Also check sessionStorage for disableVAT flag
+  const disableVATFromStorage = typeof window !== 'undefined' && sessionStorage.getItem('disableVAT') === 'true'
+  const isCylinderTransaction = sale?.type === 'deposit' || sale?.type === 'return' || sale?.type === 'refill'
+  const shouldDisableVAT = disableVATFromStorage || isCylinderTransaction
+  
+  if (sale?.type === 'collection' || shouldDisableVAT) {
+    // For collections and cylinder transactions, use the totalAmount directly without VAT calculation
     grandTotal = Number(sale?.totalAmount || 0)
     subTotal = grandTotal
     vatAmount = 0
@@ -196,7 +202,9 @@ const ReceiptPrintPage = () => {
                     <th className="text-left p-2 font-semibold border">Item</th>
                     <th className="text-center p-2 font-semibold border">Qty</th>
                     <th className="text-right p-2 font-semibold border">Price</th>
-                    <th className="text-right p-2 font-semibold border">VAT (5%)</th>
+                    {!shouldDisableVAT && (
+                      <th className="text-right p-2 font-semibold border">VAT (5%)</th>
+                    )}
                     <th className="text-right p-2 font-semibold border">Total</th>
                   </>
                 )}
@@ -207,9 +215,9 @@ const ReceiptPrintPage = () => {
                 const priceNum = Number(item?.price || 0)
                 const qtyNum = Number(item?.quantity || 0)
                 
-                // For collection receipts, use the item total directly without VAT calculation
+                // For collection receipts and cylinder transactions, use the item total directly without VAT calculation
                 let itemTotal
-                if (sale?.type === 'collection') {
+                if (sale?.type === 'collection' || shouldDisableVAT) {
                   itemTotal = Number(item?.total || 0)
                 } else {
                   const unitVat = priceNum * 0.05
@@ -240,7 +248,9 @@ const ReceiptPrintPage = () => {
                         <td className="p-2 border">{item.product.name}</td>
                         <td className="text-center p-2 border">{qtyNum}</td>
                         <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
-                        <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                        {!shouldDisableVAT && (
+                          <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
+                        )}
                         <td className="text-right p-2 border font-medium">AED {itemTotal.toFixed(2)}</td>
                       </>
                     )}
@@ -256,8 +266,8 @@ const ReceiptPrintPage = () => {
           <div className="w-full max-w-sm text-sm">
             <table className="w-full">
               <tbody>
-                {/* Hide subtotal and VAT breakdown for collection receipts */}
-                {sale?.type !== 'collection' && (
+                {/* Hide subtotal and VAT breakdown for collection receipts and cylinder transactions */}
+                {sale?.type !== 'collection' && !shouldDisableVAT && (
                   <>
                     <tr>
                       <td className="text-right pr-4 text-base">Subtotal</td>

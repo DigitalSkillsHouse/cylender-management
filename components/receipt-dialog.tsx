@@ -64,8 +64,11 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
   // Calculate totals based on whether VAT is disabled
   let subTotal, vatAmount, grandTotal
   
-  if (disableVAT || sale?.type === 'collection') {
-    // For collections, use the totalAmount directly without VAT calculation
+  // Disable VAT for cylinder transactions (deposit, return, refill) and collections
+  const isCylinderTransaction = sale?.type === 'deposit' || sale?.type === 'return' || sale?.type === 'refill'
+  
+  if (disableVAT || sale?.type === 'collection' || isCylinderTransaction) {
+    // For collections and cylinder transactions, use the totalAmount directly without VAT calculation
     grandTotal = Number(sale?.totalAmount || 0)
     subTotal = grandTotal
     vatAmount = 0
@@ -130,6 +133,9 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
     }
     // Persist header preference for print page
     sessionStorage.setItem('useReceivingHeader', useReceivingHeader ? 'true' : 'false')
+    // Persist disableVAT flag for print page
+    const shouldDisableVAT = disableVAT || isCylinderTransaction
+    sessionStorage.setItem('disableVAT', shouldDisableVAT ? 'true' : 'false')
     window.open(`/print/receipt/${sale._id}`, '_blank');
   }
 
@@ -288,7 +294,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                           <th className="text-center p-2 border">Days</th>
                         )}
                         <th className="text-right p-2 border">Price</th>
-                        {!disableVAT && (
+                        {!disableVAT && !isCylinderTransaction && (
                           <th className="text-right p-2 border">VAT (5%)</th>
                         )}
                         <th className="text-right p-2 border">Total</th>
@@ -303,8 +309,8 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                     const qtyNum = Number(item?.quantity || 0)
                     
                     let itemTotal
-                    if (disableVAT || sale?.type === 'collection') {
-                      // For collections, use the item total as-is without VAT
+                    if (disableVAT || sale?.type === 'collection' || isCylinderTransaction) {
+                      // For collections and cylinder transactions, use the item total as-is without VAT
                       itemTotal = Number(item?.total || 0)
                     } else {
                       // Calculate with VAT
@@ -341,7 +347,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                             <td className="text-center p-2 border">{(item as any)?.days || '-'}</td>
                           )}
                           <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
-                          {!disableVAT && (
+                          {!disableVAT && !isCylinderTransaction && (
                             <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
                           )}
                           <td className="text-right p-2 border">AED {itemTotal.toFixed(2)}</td>
@@ -362,7 +368,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
           <div className="mt-4">
             <table className="w-full text-[12px] leading-tight">
               <tbody>
-                {!disableVAT && sale?.type !== 'collection' && (
+                {!disableVAT && sale?.type !== 'collection' && !isCylinderTransaction && (
                   <>
                     <tr>
                       <td className="text-right pr-4 text-base">Subtotal</td>
@@ -374,8 +380,8 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                     </tr>
                   </>
                 )}
-                {/* Add spacing for collection receipts to maintain signature positioning */}
-                {(disableVAT || sale?.type === 'collection') && (
+                {/* Add spacing for collection receipts and cylinder transactions to maintain signature positioning */}
+                {(disableVAT || sale?.type === 'collection' || isCylinderTransaction) && (
                   <>
                     <tr>
                       <td className="text-right pr-4 text-base">&nbsp;</td>
