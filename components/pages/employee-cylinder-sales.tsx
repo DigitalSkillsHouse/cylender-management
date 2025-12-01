@@ -13,10 +13,11 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Plus, Edit, Trash2, Search, Filter, Cylinder, RotateCcw, ArrowDown, ArrowUp } from "lucide-react"
+import { Plus, Edit, Trash2, Search, Filter, Cylinder, RotateCcw, ArrowDown, ArrowUp, FileText } from "lucide-react"
 import { cylindersAPI, customersAPI, productsAPI, employeeCylindersAPI, suppliersAPI } from "@/lib/api"
 import { CustomerDropdown } from "@/components/ui/customer-dropdown"
 import { ReceiptDialog } from "@/components/receipt-dialog"
+import { DeliveryNoteDialog } from "@/components/delivery-note-dialog"
 import { SignatureDialog } from "@/components/signature-dialog"
 import SecuritySelectDialog from "@/components/security-select-dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -122,8 +123,10 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [editingTransaction, setEditingTransaction] = useState<CylinderTransaction | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [receiptDialogData, setReceiptDialogData] = useState(null as any)
+  const [deliveryNoteSale, setDeliveryNoteSale] = useState(null as any)
   const [showSignatureDialog, setShowSignatureDialog] = useState(false)
   const [pendingTransaction, setPendingTransaction] = useState<CylinderTransaction | null>(null)
+  const [pendingDialogType, setPendingDialogType] = useState<'receipt' | 'deliveryNote' | null>(null)
   const [customerSignature, setCustomerSignature] = useState<string>("") 
   const [statusFilter, setStatusFilter] = useState("all")
   const [activeTab, setActiveTab] = useState("all")
@@ -425,6 +428,14 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
               className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
             >
               Receipt
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleDeliveryNoteClick(transaction)}
+              className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
+            >
+              <FileText className="w-4 h-4" />
             </Button>
             {/* Hide edit and delete buttons for employees */}
             {user.role === 'admin' ? (
@@ -1638,7 +1649,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   }
 
   const handleReceiptClick = (transaction: CylinderTransaction) => {
-
+    setPendingDialogType('receipt')
     if (!customerSignature) {
       // No signature yet - show signature dialog first
       setPendingTransaction(transaction)
@@ -1699,70 +1710,95 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
     }
   }
 
+  const handleDeliveryNoteClick = (transaction: CylinderTransaction) => {
+    setPendingDialogType('deliveryNote')
+    if (!customerSignature) {
+      // No signature yet - show signature dialog first
+      setPendingTransaction(transaction)
+      setShowSignatureDialog(true)
+    } else {
+      // Signature already exists - show delivery note directly with existing signature
+      const saleData = convertTransactionToSale(transaction, customerSignature)
+      setDeliveryNoteSale(saleData)
+    }
+  }
+
+  const convertTransactionToSale = (transaction: CylinderTransaction, signature: string) => {
+    const itemsSrc = (transaction as any).items as any[] | undefined
+    const hasItems = Array.isArray(itemsSrc) && itemsSrc.length > 0
+
+    const items = hasItems
+      ? itemsSrc.map((it: any) => {
+          const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
+          const qty = Number(it.quantity) || 0
+          const rowTotal = Number(it.amount) || 0
+          const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
+          return {
+            product: { name: baseName },
+            quantity: qty,
+            price: unitPrice,
+            total: rowTotal,
+          }
+        })
+      : [{
+          product: {
+            name: transaction.product?.name || (transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)),
+          },
+          quantity: Number(transaction.quantity) || 0,
+          price: Number(transaction.amount) || 0,
+          total: (Number(transaction.amount) || 0) * (Number(transaction.quantity) || 0),
+        }]
+
+    const totalAmount = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
+
+    // Enrich customer data with full customer object to get trNumber
+    const fullCustomer = transaction.customer?._id 
+      ? customers.find(c => c._id === transaction.customer?._id) 
+      : transaction.customer
+    
+    return {
+      _id: transaction._id,
+      invoiceNumber: transaction.invoiceNumber || `CYL-${transaction._id.slice(-8).toUpperCase()}`,
+      customer: {
+        name: fullCustomer?.name || transaction.customer?.name || "Unknown Customer",
+        phone: fullCustomer?.phone || transaction.customer?.phone || "",
+        address: fullCustomer?.address || transaction.customer?.address || "",
+        trNumber: fullCustomer?.trNumber || transaction.customer?.trNumber || ""
+      },
+      items,
+      totalAmount,
+      paymentMethod: (transaction as any).paymentMethod || "cash",
+      paymentStatus: transaction.status || "pending",
+      type: transaction.type,
+      createdAt: transaction.createdAt,
+      customerSignature: signature,
+    }
+  }
+
   const handleSignatureComplete = (signature: string) => {
     console.log('CylinderManagement - Signature received:', signature)
     console.log('CylinderManagement - Signature length:', signature?.length)
     console.log('CylinderManagement - Pending transaction:', pendingTransaction?._id)
+    console.log('CylinderManagement - Pending dialog type:', pendingDialogType)
     
     // Set signature state for future use
     setCustomerSignature(signature)
     setShowSignatureDialog(false)
     
-    // Directly open receipt dialog with the pending transaction and signature embedded
+    // Open the appropriate dialog based on pendingDialogType
     if (pendingTransaction) {
-      console.log('CylinderManagement - Opening receipt dialog with signature embedded')
-      const itemsSrc = (pendingTransaction as any).items as any[] | undefined
-      const hasItems = Array.isArray(itemsSrc) && itemsSrc.length > 0
-
-      const items = hasItems
-        ? itemsSrc.map((it: any) => {
-            const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
-            const qty = Number(it.quantity) || 0
-            const rowTotal = Number(it.amount) || 0
-            const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
-            return {
-              product: { name: baseName },
-              quantity: qty,
-              price: unitPrice,
-              total: rowTotal,
-            }
-          })
-        : [{
-            product: {
-              name: pendingTransaction.product?.name || (pendingTransaction.type.charAt(0).toUpperCase() + pendingTransaction.type.slice(1)),
-            },
-            quantity: Number(pendingTransaction.quantity) || 0,
-            price: Number(pendingTransaction.amount) || 0,
-            total: (Number(pendingTransaction.amount) || 0) * (Number(pendingTransaction.quantity) || 0),
-          }]
-
-      const totalAmount = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
-
-      // Enrich customer data with full customer object to get trNumber
-      const fullCustomer = pendingTransaction.customer?._id 
-        ? customers.find(c => c._id === pendingTransaction.customer?._id) 
-        : pendingTransaction.customer
+      const saleData = convertTransactionToSale(pendingTransaction, signature)
       
-      const saleData = {
-        _id: pendingTransaction._id,
-        invoiceNumber: pendingTransaction.invoiceNumber || `CYL-${pendingTransaction._id.slice(-8).toUpperCase()}`,
-        customer: {
-          name: fullCustomer?.name || pendingTransaction.customer?.name || "Unknown Customer",
-          phone: fullCustomer?.phone || pendingTransaction.customer?.phone || "",
-          address: fullCustomer?.address || pendingTransaction.customer?.address || "",
-          trNumber: fullCustomer?.trNumber || pendingTransaction.customer?.trNumber || ""
-        },
-        items,
-        totalAmount,
-        paymentMethod: (pendingTransaction as any).paymentMethod || "cash",
-        paymentStatus: pendingTransaction.status || "pending",
-        // include type to support header selection logic in receipt
-        type: pendingTransaction.type,
-        createdAt: pendingTransaction.createdAt,
-        customerSignature: signature,
+      if (pendingDialogType === 'deliveryNote') {
+        console.log('CylinderManagement - Opening delivery note dialog with signature embedded')
+        setDeliveryNoteSale(saleData)
+      } else {
+        console.log('CylinderManagement - Opening receipt dialog with signature embedded')
+        setReceiptDialogData(saleData)
       }
-      setReceiptDialogData(saleData)
+      
       setPendingTransaction(null)
+      setPendingDialogType(null)
     }
   }
 
@@ -2800,6 +2836,16 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           useReceivingHeader
           disableVAT={receiptDialogData?.type === 'deposit' || receiptDialogData?.type === 'return' || receiptDialogData?.type === 'refill'}
           onClose={() => setReceiptDialogData(null)}
+        />
+      )}
+
+      {/* Delivery Note Dialog */}
+      {deliveryNoteSale && (
+        <DeliveryNoteDialog 
+          sale={deliveryNoteSale} 
+          onClose={() => {
+            setDeliveryNoteSale(null)
+          }} 
         />
       )}
 

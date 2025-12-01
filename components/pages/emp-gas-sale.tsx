@@ -12,9 +12,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Plus, Edit, Trash2, Receipt, Search, Filter } from "lucide-react"
+import { Plus, Edit, Trash2, Receipt, Search, Filter, FileText } from "lucide-react"
 import { salesAPI, customersAPI, employeeSalesAPI, productsAPI } from "@/lib/api"
 import { ReceiptDialog } from "@/components/receipt-dialog"
+import { DeliveryNoteDialog } from "@/components/delivery-note-dialog"
 import { SignatureDialog } from "@/components/signature-dialog"
 import { CustomerDropdown } from "@/components/ui/customer-dropdown"
 import { ProductDropdown } from "@/components/ui/product-dropdown"
@@ -110,8 +111,10 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null)
+  const [deliveryNoteSale, setDeliveryNoteSale] = useState<Sale | null>(null)
   const [showSignatureDialog, setShowSignatureDialog] = useState(false)
   const [pendingSale, setPendingSale] = useState<Sale | null>(null)
+  const [pendingDialogType, setPendingDialogType] = useState<'receipt' | 'deliveryNote' | null>(null)
   const [customerSignature, setCustomerSignature] = useState<string>("") 
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -1573,9 +1576,10 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
   // Handle receipt button click - show signature dialog only if no signature exists
   const handleReceiptClick = (sale: Sale) => {
-    if (!customerSignature) {
+    if (!customerSignature && !sale.customerSignature) {
       // No signature yet - show signature dialog first
       setPendingSale(sale)
+      setPendingDialogType('receipt')
       setShowSignatureDialog(true)
     } else {
       // Signature already exists - show receipt directly with existing signature
@@ -1583,21 +1587,44 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
     }
   }
 
-  // Handle signature completion - show receipt with signature
+  // Handle delivery note button click - show signature dialog only if no signature exists
+  const handleDeliveryNoteClick = (sale: Sale) => {
+    if (!customerSignature && !sale.customerSignature) {
+      // No signature yet - show signature dialog first
+      setPendingSale(sale)
+      setPendingDialogType('deliveryNote')
+      setShowSignatureDialog(true)
+    } else {
+      // Signature already exists - show delivery note directly with existing signature
+      setDeliveryNoteSale(sale)
+    }
+  }
+
+  // Handle signature completion - show receipt or delivery note with signature
   const handleSignatureComplete = (signature: string) => {
     console.log('EmployeeGasSales - Signature received:', signature)
     console.log('EmployeeGasSales - Signature length:', signature?.length)
     console.log('EmployeeGasSales - Pending sale:', pendingSale?.invoiceNumber)
+    console.log('EmployeeGasSales - Pending dialog type:', pendingDialogType)
     
     // Set signature state for future use
     setCustomerSignature(signature)
     setShowSignatureDialog(false)
     
-    // Directly open receipt dialog with the pending sale and signature embedded
+    // Open the appropriate dialog based on pendingDialogType
     if (pendingSale) {
-      console.log('EmployeeGasSales - Opening receipt dialog with signature embedded in sale')
-      setReceiptSale({ ...pendingSale, customerSignature: signature })
+      const saleWithSignature = { ...pendingSale, customerSignature: signature }
+      
+      if (pendingDialogType === 'deliveryNote') {
+        console.log('EmployeeGasSales - Opening delivery note dialog with signature embedded in sale')
+        setDeliveryNoteSale(saleWithSignature)
+      } else {
+        console.log('EmployeeGasSales - Opening receipt dialog with signature embedded in sale')
+        setReceiptSale(saleWithSignature)
+      }
+      
       setPendingSale(null)
+      setPendingDialogType(null)
     }
   }
 
@@ -1605,6 +1632,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const handleSignatureCancel = () => {
     setShowSignatureDialog(false)
     setPendingSale(null)
+    setPendingDialogType(null)
     setCustomerSignature("")
   }
 
@@ -2603,6 +2631,14 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                             >
                               <Receipt className="w-4 h-4" />
                             </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDeliveryNoteClick(group.firstSale)}
+                              className="text-green-600 border-green-600 hover:bg-green-600 hover:text-white"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </Button>
                             {/* Hide edit and delete buttons for employees */}
                             {user.role === 'admin' ? (
                               <>
@@ -2725,6 +2761,18 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
           signature={customerSignature}
           onClose={() => {
             setReceiptSale(null)
+            // Don't clear signature - keep it for reuse
+          }} 
+        />
+      )}
+
+      {/* Delivery Note Dialog */}
+      {deliveryNoteSale && (
+        <DeliveryNoteDialog 
+          sale={deliveryNoteSale} 
+          signature={customerSignature}
+          onClose={() => {
+            setDeliveryNoteSale(null)
             // Don't clear signature - keep it for reuse
           }} 
         />
