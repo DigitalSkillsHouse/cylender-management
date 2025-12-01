@@ -864,9 +864,9 @@ export function RentalCollection() {
                     Generate Rental
                   </Button>
                 </DialogTrigger>
-              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full">
                 <DialogHeader>
-                  <DialogTitle>Generate Rental</DialogTitle>
+                  <DialogTitle className="text-lg sm:text-xl">Generate Rental</DialogTitle>
                 </DialogHeader>
                 
                 {/* Debug info */}
@@ -874,20 +874,21 @@ export function RentalCollection() {
                   Debug: {customers.length} customers, {products.length} cylinder products loaded
                 </div>
                 
-                <div className="space-y-6">
+                <div className="space-y-4 sm:space-y-6">
                   {/* Date and Customer */}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div className="space-y-2">
-                      <Label>Date</Label>
+                      <Label className="text-sm">Date</Label>
                       <Input
                         type="date"
                         value={rentalData.date}
                         onChange={(e) => setRentalData({ ...rentalData, date: e.target.value })}
+                        className="h-10 text-sm"
                       />
                     </div>
                     
                     <div className="space-y-2 relative">
-                      <Label>Customer Name</Label>
+                      <Label className="text-sm">Customer Name</Label>
                       <Input
                         value={customerSearchTerm}
                         onChange={(e) => {
@@ -898,6 +899,7 @@ export function RentalCollection() {
                         onFocus={() => setShowCustomerSuggestions(customerSearchTerm.trim().length > 0)}
                         onBlur={() => setTimeout(() => setShowCustomerSuggestions(false), 150)}
                         placeholder="Type to search customers"
+                        className="h-10 text-sm"
                       />
                       {showCustomerSuggestions && (
                         <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
@@ -927,11 +929,11 @@ export function RentalCollection() {
                   </div>
 
                   {/* Add Item Section */}
-                  <div className="border rounded-lg p-4 bg-gray-50">
-                    <h3 className="font-medium mb-4">Add Rental Item</h3>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="border rounded-lg p-3 sm:p-4 bg-gray-50">
+                    <h3 className="font-medium mb-3 sm:mb-4 text-sm sm:text-base">Add Rental Item</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-3 sm:mb-4">
                       <div className="space-y-2 relative">
-                        <Label>Item (Cylinder)</Label>
+                        <Label className="text-sm">Item (Cylinder)</Label>
                         <Input
                           value={productSearchTerm}
                           onChange={(e) => {
@@ -942,6 +944,7 @@ export function RentalCollection() {
                           onFocus={() => setShowProductSuggestions(productSearchTerm.trim().length > 0)}
                           onBlur={() => setTimeout(() => setShowProductSuggestions(false), 150)}
                           placeholder="Type to search cylinders"
+                          className="h-10 text-sm"
                         />
                         {showProductSuggestions && (
                           <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
@@ -979,40 +982,43 @@ export function RentalCollection() {
                       </div>
                       
                       <div className="space-y-2">
-                        <Label>Quantity</Label>
+                        <Label className="text-sm">Quantity</Label>
                         <Input
                           type="number"
                           value={currentItem.quantity}
                           onChange={(e) => setCurrentItem({ ...currentItem, quantity: e.target.value })}
                           placeholder="Enter quantity"
+                          className="h-10 text-sm"
                         />
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-3 sm:mb-4">
                       <div className="space-y-2">
-                        <Label>Days</Label>
+                        <Label className="text-sm">Days</Label>
                         <Input
                           type="number"
                           value={currentItem.days}
                           onChange={(e) => setCurrentItem({ ...currentItem, days: e.target.value })}
                           placeholder="Enter days"
+                          className="h-10 text-sm"
                         />
                       </div>
                       
                       <div className="space-y-2">
-                        <Label>Amount (per day)</Label>
+                        <Label className="text-sm">Amount (per day)</Label>
                         <Input
                           type="number"
                           step="0.01"
                           value={currentItem.amount}
                           onChange={(e) => setCurrentItem({ ...currentItem, amount: e.target.value })}
                           placeholder="10.00"
+                          className="h-10 text-sm"
                         />
                       </div>
                       
                       <div className="flex items-end">
-                        <Button onClick={addItem} className="w-full text-sm">
+                        <Button onClick={addItem} className="w-full text-sm h-10 sm:h-auto">
                           <Plus className="w-4 h-4 mr-2" />
                           Add Item
                         </Button>
@@ -1023,57 +1029,62 @@ export function RentalCollection() {
                   {/* Items Table */}
                   {rentalData.items.length > 0 && (
                     <div>
-                      <h3 className="font-medium mb-2">Rental Items</h3>
-                      <Table>
+                      <h3 className="font-medium mb-2 text-sm sm:text-base">Rental Items</h3>
+                      <div className="overflow-x-auto -mx-2 sm:mx-0">
+                        <div className="inline-block min-w-full align-middle px-2 sm:px-0">
+                          <Table className="min-w-[600px]">
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Item</TableHead>
-                            <TableHead>Quantity</TableHead>
-                            <TableHead>Days</TableHead>
-                            <TableHead>Amount</TableHead>
-                            <TableHead>VAT 5%</TableHead>
-                            <TableHead>Total</TableHead>
-                            <TableHead>Actions</TableHead>
+                            <TableHead className="text-xs sm:text-sm">Item</TableHead>
+                            <TableHead className="text-xs sm:text-sm">Quantity</TableHead>
+                            <TableHead className="text-xs sm:text-sm">Days</TableHead>
+                            <TableHead className="text-xs sm:text-sm">Amount</TableHead>
+                            <TableHead className="text-xs sm:text-sm">VAT 5%</TableHead>
+                            <TableHead className="text-xs sm:text-sm">Total</TableHead>
+                            <TableHead className="text-xs sm:text-sm">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {rentalData.items.map((item, index) => (
                             <TableRow key={index}>
-                              <TableCell>{item.productName}</TableCell>
-                              <TableCell>{item.quantity}</TableCell>
-                              <TableCell>{item.days}</TableCell>
-                              <TableCell>AED {item.subtotal.toFixed(2)}</TableCell>
-                              <TableCell className="text-green-600">AED {item.vat.toFixed(2)}</TableCell>
-                              <TableCell className="font-bold text-blue-600">AED {item.total.toFixed(2)}</TableCell>
+                              <TableCell className="text-xs sm:text-sm">{item.productName}</TableCell>
+                              <TableCell className="text-xs sm:text-sm">{item.quantity}</TableCell>
+                              <TableCell className="text-xs sm:text-sm">{item.days}</TableCell>
+                              <TableCell className="text-xs sm:text-sm">AED {item.subtotal.toFixed(2)}</TableCell>
+                              <TableCell className="text-green-600 text-xs sm:text-sm">AED {item.vat.toFixed(2)}</TableCell>
+                              <TableCell className="font-bold text-blue-600 text-xs sm:text-sm">AED {item.total.toFixed(2)}</TableCell>
                               <TableCell>
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   onClick={() => removeItem(index)}
+                                  className="h-8 w-8 p-0"
                                 >
-                                  <Trash className="w-4 h-4" />
+                                  <Trash className="w-3 h-3 sm:w-4 sm:h-4" />
                                 </Button>
                               </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
                       </Table>
+                        </div>
+                      </div>
                       
                       {/* Totals */}
                       <div className="mt-4 space-y-2 text-right">
-                        <div>Subtotal: AED {rentalData.subtotal.toFixed(2)}</div>
-                        <div className="text-green-600">VAT 5%: AED {rentalData.totalVat.toFixed(2)}</div>
-                        <div className="text-xl font-bold text-blue-600">Final Total: AED {rentalData.finalTotal.toFixed(2)}</div>
+                        <div className="text-sm sm:text-base">Subtotal: AED {rentalData.subtotal.toFixed(2)}</div>
+                        <div className="text-green-600 text-sm sm:text-base">VAT 5%: AED {rentalData.totalVat.toFixed(2)}</div>
+                        <div className="text-lg sm:text-xl font-bold text-blue-600">Final Total: AED {rentalData.finalTotal.toFixed(2)}</div>
                       </div>
                     </div>
                   )}
 
                   {/* Submit Button */}
-                  <div className="flex flex-col sm:flex-row justify-end gap-2">
-                    <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="w-full sm:w-auto">
+                  <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2">
+                    <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="w-full sm:w-auto h-10 sm:h-auto text-sm">
                       Cancel
                     </Button>
-                    <Button onClick={handleSubmit} disabled={submitting} className="w-full sm:w-auto">
+                    <Button onClick={handleSubmit} disabled={submitting} className="w-full sm:w-auto h-10 sm:h-auto text-sm">
                       {submitting ? "Generating..." : "Generate Rental"}
                     </Button>
                   </div>
