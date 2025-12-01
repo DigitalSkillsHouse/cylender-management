@@ -157,14 +157,153 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     
     setEmployeeLoading(true)
     try {
-      const response = await fetch(`/api/employee-daily-stock-reports?employeeId=${employeeId}&date=${date}`)
-      const data = await response.json()
+      // Fetch stored DSR records (for opening/closing values)
+      const storedDsrUrl = new URL('/api/employee-daily-stock-reports', window.location.origin)
+      storedDsrUrl.searchParams.set('employeeId', employeeId)
+      storedDsrUrl.searchParams.set('date', date)
+      const storedDsrRes = await fetch(storedDsrUrl.toString(), { cache: 'no-store' })
+      const storedDsrJson = await storedDsrRes.json()
+      const storedList: any[] = Array.isArray(storedDsrJson)
+        ? storedDsrJson
+        : Array.isArray(storedDsrJson?.data?.data)
+          ? storedDsrJson.data.data
+          : Array.isArray(storedDsrJson?.data)
+            ? storedDsrJson.data
+            : []
       
-      if (data.success && Array.isArray(data.data)) {
-        setEmployeeDsrData(data.data)
-      } else {
-        setEmployeeDsrData([])
-      }
+      // Fetch actual employee transaction data for the date
+      const [salesRes, cylinderRes, refillRes] = await Promise.all([
+        fetch(`/api/daily-employee-sales?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
+        fetch(`/api/daily-employee-cylinder-aggregation?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
+        fetch(`/api/daily-refills?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' })
+      ])
+      
+      const salesJson = await salesRes.json()
+      const cylinderJson = await cylinderRes.json()
+      const refillJson = await refillRes.json()
+      
+      const salesData: any[] = salesJson?.data || []
+      const cylinderData: any[] = cylinderJson?.data || []
+      const refillData: any[] = refillJson?.data || []
+      
+      // Build a map of actual transaction data by product name
+      const transactionMap = new Map<string, {
+        refilled: number
+        fullCylinderSales: number
+        emptyCylinderSales: number
+        gasSales: number
+        deposits: number
+        returns: number
+      }>()
+      
+      // Process sales data
+      salesData.forEach((sale: any) => {
+        if (sale.category === 'gas') return // Skip gas items, only process cylinders
+        
+        const itemName = sale.productName || ''
+        if (!itemName) return
+        
+        const existing = transactionMap.get(itemName) || {
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0
+        }
+        
+        existing.fullCylinderSales += Number(sale.fullCylinderSalesQuantity || 0)
+        existing.emptyCylinderSales += Number(sale.emptyCylinderSalesQuantity || 0)
+        existing.gasSales += Number(sale.gasSalesQuantity || 0)
+        
+        transactionMap.set(itemName, existing)
+      })
+      
+      // Process cylinder transaction data
+      cylinderData.forEach((cylinder: any) => {
+        const itemName = cylinder.productName || ''
+        if (!itemName) return
+        
+        const existing = transactionMap.get(itemName) || {
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0
+        }
+        
+        existing.refilled += Number(cylinder.totalRefills || 0)
+        existing.deposits += Number(cylinder.totalDeposits || 0)
+        existing.returns += Number(cylinder.totalReturns || 0)
+        
+        transactionMap.set(itemName, existing)
+      })
+      
+      // Process refill data
+      refillData.forEach((refill: any) => {
+        const itemName = refill.cylinderName || ''
+        if (!itemName) return
+        
+        const existing = transactionMap.get(itemName) || {
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0
+        }
+        
+        existing.refilled += Number(refill.todayRefill || 0)
+        
+        transactionMap.set(itemName, existing)
+      })
+      
+      // Merge stored DSR records with actual transaction data
+      const storedMap = new Map<string, any>()
+      storedList.forEach((d: any) => {
+        storedMap.set((d.itemName || '').toLowerCase(), d)
+      })
+      
+      // Get all unique product names from both sources
+      const allProductNames = new Set<string>()
+      storedList.forEach((d: any) => {
+        if (d.itemName) allProductNames.add(d.itemName)
+      })
+      transactionMap.forEach((_, itemName) => {
+        allProductNames.add(itemName)
+      })
+      
+      // Build merged DSR entries
+      const mergedData: EmployeeDailyStockEntry[] = Array.from(allProductNames).map((itemName) => {
+        const stored = storedMap.get(itemName.toLowerCase())
+        const transactions = transactionMap.get(itemName) || {
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0
+        }
+        
+        // Use stored values for opening/closing, but use actual transaction data for "during the day" activities
+        return {
+          _id: String(stored?._id || `${itemName}-${date}`),
+          employeeId: employeeId,
+          date: date,
+          itemName: itemName,
+          openingFull: Number(stored?.openingFull || 0),
+          openingEmpty: Number(stored?.openingEmpty || 0),
+          refilled: transactions.refilled || Number(stored?.refilled || 0),
+          cylinderSales: transactions.fullCylinderSales || Number(stored?.cylinderSales || 0),
+          gasSales: transactions.gasSales || Number(stored?.gasSales || 0),
+          closingFull: typeof stored?.closingFull === 'number' ? stored.closingFull : undefined,
+          closingEmpty: typeof stored?.closingEmpty === 'number' ? stored.closingEmpty : undefined,
+          createdAt: stored?.createdAt || new Date().toISOString(),
+        }
+      })
+      
+      setEmployeeDsrData(mergedData)
     } catch (error) {
       console.error('Failed to fetch employee DSR data:', error)
       setEmployeeDsrData([])

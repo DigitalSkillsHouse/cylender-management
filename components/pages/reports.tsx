@@ -1023,36 +1023,156 @@ export function Reports() {
     if (!selectedEmployeeId || !employeeDsrDate) return
     try {
       setEmpLoading(true)
-      const url = new URL('/api/employee-daily-stock-reports', window.location.origin)
-      url.searchParams.set('employeeId', selectedEmployeeId)
-      url.searchParams.set('date', employeeDsrDate)
-      const res = await fetch(url.toString(), { cache: 'no-store' })
-      const json = await res.json()
-      const list: any[] = Array.isArray(json)
-        ? json
-        : Array.isArray(json?.data?.data)
-          ? json.data.data
-          : Array.isArray(json?.data)
-            ? json.data
+      
+      // Fetch stored DSR records (for opening/closing values)
+      const storedDsrUrl = new URL('/api/employee-daily-stock-reports', window.location.origin)
+      storedDsrUrl.searchParams.set('employeeId', selectedEmployeeId)
+      storedDsrUrl.searchParams.set('date', employeeDsrDate)
+      const storedDsrRes = await fetch(storedDsrUrl.toString(), { cache: 'no-store' })
+      const storedDsrJson = await storedDsrRes.json()
+      const storedList: any[] = Array.isArray(storedDsrJson)
+        ? storedDsrJson
+        : Array.isArray(storedDsrJson?.data?.data)
+          ? storedDsrJson.data.data
+          : Array.isArray(storedDsrJson?.data)
+            ? storedDsrJson.data
             : []
-      const mapped: DailyStockEntry[] = list.map((d: any) => ({
-        id: String(d._id || `${d.itemName}-${d.date}`),
-        date: d.date,
-        itemName: d.itemName,
-        openingFull: Number(d.openingFull || 0),
-        openingEmpty: Number(d.openingEmpty || 0),
-        refilled: Number(d.refilled || 0),
-        cylinderSales: Number(d.cylinderSales || 0),
-        gasSales: Number(d.gasSales || 0),
-        depositCylinder: Number(d.depositCylinder || 0),
-        returnCylinder: Number(d.returnCylinder || 0),
-        closingFull: typeof d?.closingFull === 'number' ? d.closingFull : undefined,
-        closingEmpty: typeof d?.closingEmpty === 'number' ? d.closingEmpty : undefined,
-        createdAt: d.createdAt || new Date().toISOString(),
-      }))
+      
+      // Fetch actual employee transaction data for the date
+      const [salesRes, cylinderRes, refillRes] = await Promise.all([
+        fetch(`/api/daily-employee-sales?employeeId=${selectedEmployeeId}&date=${employeeDsrDate}`, { cache: 'no-store' }),
+        fetch(`/api/daily-employee-cylinder-aggregation?employeeId=${selectedEmployeeId}&date=${employeeDsrDate}`, { cache: 'no-store' }),
+        fetch(`/api/daily-refills?employeeId=${selectedEmployeeId}&date=${employeeDsrDate}`, { cache: 'no-store' })
+      ])
+      
+      const salesJson = await salesRes.json()
+      const cylinderJson = await cylinderRes.json()
+      const refillJson = await refillRes.json()
+      
+      const salesData: any[] = salesJson?.data || []
+      const cylinderData: any[] = cylinderJson?.data || []
+      const refillData: any[] = refillJson?.data || []
+      
+      // Build a map of actual transaction data by product name
+      const transactionMap = new Map<string, {
+        refilled: number
+        fullCylinderSales: number
+        emptyCylinderSales: number
+        gasSales: number
+        deposits: number
+        returns: number
+      }>()
+      
+      // Process sales data
+      salesData.forEach((sale: any) => {
+        if (sale.category === 'gas') return // Skip gas items, only process cylinders
+        
+        const itemName = sale.productName || ''
+        if (!itemName) return
+        
+        const existing = transactionMap.get(itemName) || {
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0
+        }
+        
+        existing.fullCylinderSales += Number(sale.fullCylinderSalesQuantity || 0)
+        existing.emptyCylinderSales += Number(sale.emptyCylinderSalesQuantity || 0)
+        existing.gasSales += Number(sale.gasSalesQuantity || 0)
+        
+        transactionMap.set(itemName, existing)
+      })
+      
+      // Process cylinder transaction data
+      cylinderData.forEach((cylinder: any) => {
+        const itemName = cylinder.productName || ''
+        if (!itemName) return
+        
+        const existing = transactionMap.get(itemName) || {
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0
+        }
+        
+        existing.refilled += Number(cylinder.totalRefills || 0)
+        existing.deposits += Number(cylinder.totalDeposits || 0)
+        existing.returns += Number(cylinder.totalReturns || 0)
+        
+        transactionMap.set(itemName, existing)
+      })
+      
+      // Process refill data
+      refillData.forEach((refill: any) => {
+        const itemName = refill.cylinderName || ''
+        if (!itemName) return
+        
+        const existing = transactionMap.get(itemName) || {
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0
+        }
+        
+        existing.refilled += Number(refill.todayRefill || 0)
+        
+        transactionMap.set(itemName, existing)
+      })
+      
+      // Merge stored DSR records with actual transaction data
+      const storedMap = new Map<string, any>()
+      storedList.forEach((d: any) => {
+        storedMap.set((d.itemName || '').toLowerCase(), d)
+      })
+      
+      // Get all unique product names from both sources
+      const allProductNames = new Set<string>()
+      storedList.forEach((d: any) => {
+        if (d.itemName) allProductNames.add(d.itemName)
+      })
+      transactionMap.forEach((_, itemName) => {
+        allProductNames.add(itemName)
+      })
+      
+      const mapped: DailyStockEntry[] = Array.from(allProductNames).map((itemName) => {
+        const stored = storedMap.get(itemName.toLowerCase())
+        const transactions = transactionMap.get(itemName) || {
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0
+        }
+        
+        // Use stored values for opening/closing, but use actual transaction data for "during the day" activities
+        return {
+          id: String(stored?._id || `${itemName}-${employeeDsrDate}`),
+          date: employeeDsrDate,
+          itemName: itemName,
+          openingFull: Number(stored?.openingFull || 0),
+          openingEmpty: Number(stored?.openingEmpty || 0),
+          refilled: transactions.refilled || Number(stored?.refilled || 0),
+          cylinderSales: transactions.fullCylinderSales || Number(stored?.cylinderSales || 0),
+          gasSales: transactions.gasSales || Number(stored?.gasSales || 0),
+          depositCylinder: transactions.deposits || Number(stored?.depositCylinder || 0),
+          returnCylinder: transactions.returns || Number(stored?.returnCylinder || 0),
+          closingFull: typeof stored?.closingFull === 'number' ? stored.closingFull : undefined,
+          closingEmpty: typeof stored?.closingEmpty === 'number' ? stored.closingEmpty : undefined,
+          createdAt: stored?.createdAt || new Date().toISOString(),
+        }
+      })
+      
       setEmployeeDsrEntries(mapped)
 
-      const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(new Set(mapped.map(e => e.itemName))).map((n, i) => ({ _id: String(i), name: n } as any)))
+      const rowsSource = (dsrProducts.length > 0 ? dsrProducts : Array.from(allProductNames).map((n, i) => ({ _id: String(i), name: n } as any)))
       const byKey = new Map<string, DailyStockEntry>()
       mapped.forEach(e => byKey.set(e.itemName.toLowerCase(), e))
       const rows = rowsSource.map((p: any) => {
@@ -1073,6 +1193,7 @@ export function Reports() {
       })
       setEmpGridRows(rows)
     } catch (e) {
+      console.error('Error loading employee DSR:', e)
       setEmployeeDsrEntries([])
       setEmpGridRows([])
     } finally {
