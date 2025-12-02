@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Download, Trash2, X, Plus, Eye, Check, ChevronsUpDown, Package, Users } from "lucide-react"
+import { Download, Trash2, X, Eye, Check, ChevronsUpDown, Package, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { customersAPI } from "@/lib/api"
+import { toast } from "sonner"
 
 export interface ProductQuoteItem {
   _id: string
@@ -43,7 +44,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   const [items, setItems] = useState<ProductQuoteItem[]>([])
   const [customerName, setCustomerName] = useState<string>("")
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("")
-  const [customers, setCustomers] = useState<Array<{ _id: string; name: string; phone?: string; email?: string }>>([])
+  const [customerAddress, setCustomerAddress] = useState<string>("")
+  const [customerTRNumber, setCustomerTRNumber] = useState<string>("")
+  const [customers, setCustomers] = useState<Array<{ _id: string; name: string; phone?: string; email?: string; address?: string; trNumber?: string }>>([])
   const [showPreview, setShowPreview] = useState(false)
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const [productSearchOpen, setProductSearchOpen] = useState(false)
@@ -76,6 +79,15 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
             : Array.isArray(response) 
               ? response 
               : []
+        console.log("Fetched customers for quote:", customerData.length, "customers")
+        // Log first customer to verify address/trNumber fields
+        if (customerData.length > 0) {
+          console.log("Sample customer:", {
+            name: customerData[0].name,
+            address: customerData[0].address,
+            trNumber: customerData[0].trNumber
+          })
+        }
         setCustomers(customerData)
       } catch (error) {
         console.error("Failed to fetch customers:", error)
@@ -98,20 +110,6 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   }
   const handleRemove = (id: string) => {
     setItems((prev) => prev.filter((it) => it._id !== id))
-  }
-  
-  const handleAddRow = () => {
-    setItems((prev) => [
-      ...prev,
-      {
-        _id: Math.random().toString(36).slice(2),
-        name: "",
-        productCode: "",
-        category: "gas",
-        price: 0,
-        quantity: 1,
-      },
-    ])
   }
 
   // Handle product selection from search
@@ -170,8 +168,15 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   const handleCustomerSelect = (customerId: string) => {
     const selectedCustomer = customers.find((c) => c._id === customerId)
     if (selectedCustomer) {
+      console.log("Selected customer:", {
+        name: selectedCustomer.name,
+        address: selectedCustomer.address,
+        trNumber: selectedCustomer.trNumber
+      })
       setSelectedCustomerId(customerId)
       setCustomerName(selectedCustomer.name)
+      setCustomerAddress(selectedCustomer.address || "")
+      setCustomerTRNumber(selectedCustomer.trNumber || "")
       setCustomerSearchValue(selectedCustomer.name)
       setCustomerSearchOpen(false)
     }
@@ -187,8 +192,12 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
     )
     if (matchingCustomer) {
       setSelectedCustomerId(matchingCustomer._id)
+      setCustomerAddress(matchingCustomer.address || "")
+      setCustomerTRNumber(matchingCustomer.trNumber || "")
     } else {
       setSelectedCustomerId("") // Allow manual entry
+      setCustomerAddress("")
+      setCustomerTRNumber("")
     }
   }
 
@@ -240,14 +249,20 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   const grandTotal = subtotal + vatAmount
 
   const handleDownload = async () => {
-    const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
-      import("html2canvas"),
-      import("jspdf"),
-    ])
+    try {
+      const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ])
 
-    // Capture the PRINT-ONLY node to avoid inputs in the PDF
-    const node = printRef.current
-    if (!node) return
+      // Capture the PRINT-ONLY node to avoid inputs in the PDF
+      const node = printRef.current
+      if (!node) {
+        toast.error("Failed to generate PDF", {
+          description: "Content not available. Please try again.",
+        })
+        return
+      }
 
     // Ensure all images inside the print node are fully loaded (especially header)
     const imgs = Array.from(node.querySelectorAll<HTMLImageElement>("img"))
@@ -302,13 +317,37 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
 
       let currentYPosition = margin + headerHeight + 10 // Start after header with some spacing
       
-      // Add customer name with better styling
+      // Add customer information with better styling
       if (customerName) {
-        pdf.setFontSize(14)
+        pdf.setFontSize(12)
         pdf.setTextColor(43, 48, 104) // #2B3068
         pdf.setFont(undefined, 'bold')
         pdf.text(`Customer: ${customerName}`, margin, currentYPosition)
-        currentYPosition += 15 // Add spacing after customer name
+        currentYPosition += 7 // Add spacing after customer name
+        
+        // Add TR Number if available
+        if (customerTRNumber) {
+          pdf.setFontSize(10)
+          pdf.setFont(undefined, 'normal')
+          pdf.setTextColor(0, 0, 0)
+          pdf.text(`TR Number: ${customerTRNumber}`, margin, currentYPosition)
+          currentYPosition += 7
+        }
+        
+        // Add Address if available
+        if (customerAddress) {
+          pdf.setFontSize(10)
+          pdf.setFont(undefined, 'normal')
+          pdf.setTextColor(0, 0, 0)
+          // Split address into multiple lines if too long
+          const addressLines = pdf.splitTextToSize(`Address: ${customerAddress}`, pageWidth - margin * 2)
+          addressLines.forEach((line: string) => {
+            pdf.text(line, margin, currentYPosition)
+            currentYPosition += 7
+          })
+        }
+        
+        currentYPosition += 5 // Extra spacing before table
       }
 
       // Add table with perfect margins and spacing
@@ -731,9 +770,19 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       pdf.text(`Page ${pageNum + 1} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" })
     }
 
-    const dt = new Date()
-    const stamp = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
-    pdf.save(`product-quote-${stamp}.pdf`)
+      const dt = new Date()
+      const stamp = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
+      const fileName = `product-quote-${stamp}.pdf`
+      pdf.save(fileName)
+      toast.success("Quotation PDF downloaded successfully", {
+        description: `File: ${fileName}`,
+      })
+    } catch (error) {
+      console.error("Error generating PDF:", error)
+      toast.error("Failed to download quotation PDF", {
+        description: "Please try again or contact support if the issue persists.",
+      })
+    }
   }
 
   // Removed print button per request; only Download PDF remains
@@ -838,13 +887,13 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                               />
                               <div className="flex flex-col flex-1 min-w-0">
                                 <span className="font-medium text-sm">{customer.name}</span>
-                                {(customer.phone || customer.email) && (
-                                  <span className="text-xs text-gray-500 truncate">
-                                    {customer.phone && `Phone: ${customer.phone}`}
-                                    {customer.phone && customer.email && " • "}
-                                    {customer.email && `Email: ${customer.email}`}
-                                  </span>
-                                )}
+                                <span className="text-xs text-gray-500 truncate">
+                                  {customer.phone && `Phone: ${customer.phone}`}
+                                  {customer.phone && customer.email && " • "}
+                                  {customer.email && `Email: ${customer.email}`}
+                                  {(customer.phone || customer.email) && customer.trNumber && " • "}
+                                  {customer.trNumber && `TR: ${customer.trNumber}`}
+                                </span>
                               </div>
                             </div>
                           )
@@ -858,6 +907,32 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                 <p className="text-xs text-gray-500">Manual entry - customer not in database</p>
               )}
             </div>
+
+            {/* Customer Information Display */}
+            {customerName && (
+              <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <h3 className="font-semibold text-[#2B3068] mb-2 text-sm">Customer Information</h3>
+                <div className="space-y-1 text-sm">
+                  <div>
+                    <strong>Name:</strong> {customerName}
+                  </div>
+                  {customerTRNumber ? (
+                    <div>
+                      <strong>TR Number:</strong> {customerTRNumber}
+                    </div>
+                  ) : (
+                    <div className="text-gray-400 text-xs">TR Number: Not available</div>
+                  )}
+                  {customerAddress ? (
+                    <div>
+                      <strong>Address:</strong> {customerAddress}
+                    </div>
+                  ) : (
+                    <div className="text-gray-400 text-xs">Address: Not available</div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Select Product Field - Searchable with Suggestions */}
             <div className="space-y-2 mb-4">
@@ -1071,7 +1146,15 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                   <h2 className="text-sm font-bold text-[#2B3068]">Product Quote</h2>
                   <p className="text-[10px] text-gray-600">{new Date().toLocaleDateString()}</p>
                   {customerName && (
-                    <p className="text-[12px] font-semibold text-[#2B3068] mt-2">Customer: {customerName}</p>
+                    <div className="mt-2 text-left">
+                      <p className="text-[12px] font-semibold text-[#2B3068]">Customer: {customerName}</p>
+                      {customerTRNumber && (
+                        <p className="text-[11px] text-gray-700">TR Number: {customerTRNumber}</p>
+                      )}
+                      {customerAddress && (
+                        <p className="text-[11px] text-gray-700">Address: {customerAddress}</p>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -1161,11 +1244,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
           </div>
 
           {/* Action buttons - do not show in print */}
-          <div className="flex flex-wrap justify-between items-center gap-3 no-print print:hidden">
-            <Button variant="outline" onClick={handleAddRow} className="min-h-[36px]">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Row
-            </Button>
+          <div className="flex flex-wrap justify-end items-center gap-3 no-print print:hidden">
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => setShowPreview(true)}>
                 <Eye className="w-4 h-4 mr-2" />
@@ -1217,11 +1296,30 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                 </div>
 
                 {/* Title and Date */}
-                <div className="text-center mb-6">
-                  <h2 className="text-2xl font-bold text-[#2B3068] mb-2">Product Quote</h2>
-                  <p className="text-sm text-gray-600 mb-4">{new Date().toLocaleDateString()}</p>
+                <div className="mb-6">
+                  <div className="text-center mb-4">
+                    <h2 className="text-2xl font-bold text-[#2B3068] mb-2">Product Quote</h2>
+                    <p className="text-sm text-gray-600 mb-4">{new Date().toLocaleDateString()}</p>
+                  </div>
                   {customerName && (
-                    <p className="text-lg font-semibold text-[#2B3068] mb-4">Customer: {customerName}</p>
+                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                      <h3 className="font-semibold text-[#2B3068] mb-2">Customer Information</h3>
+                      <div className="space-y-1 text-sm">
+                        <div>
+                          <strong>Name:</strong> {customerName}
+                        </div>
+                        {customerTRNumber && (
+                          <div>
+                            <strong>TR Number:</strong> {customerTRNumber}
+                          </div>
+                        )}
+                        {customerAddress && (
+                          <div>
+                            <strong>Address:</strong> {customerAddress}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
 

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { X, Printer, Download } from "lucide-react"
+import { toast } from "sonner"
 
 interface ReceiptDialogProps {
   sale: {
@@ -140,47 +141,63 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
   }
 
   const handleDownload = async () => {
-    // Dynamically import to avoid SSR issues
-    const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
-      import('html2canvas'),
-      import('jspdf'),
-    ])
+    try {
+      // Dynamically import to avoid SSR issues
+      const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ])
 
-    const node = contentRef.current
-    if (!node) return
+      const node = contentRef.current
+      if (!node) {
+        toast.error("Failed to generate PDF", {
+          description: "Content not available. Please try again.",
+        })
+        return
+      }
 
-    // Render the receipt content to a canvas
-    const canvas = await html2canvas(node, {
-      scale: 4, // even sharper to reduce blurriness
-      backgroundColor: '#ffffff',
-      useCORS: true,
-    })
-    const imgData = canvas.toDataURL('image/png')
+      // Render the receipt content to a canvas
+      const canvas = await html2canvas(node, {
+        scale: 4, // even sharper to reduce blurriness
+        backgroundColor: '#ffffff',
+        useCORS: true,
+      })
+      const imgData = canvas.toDataURL('image/png')
 
-    // Create PDF (A4 portrait)
-    const pdf = new (jsPDFModule as any).jsPDF('p', 'mm', 'a4')
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
+      // Create PDF (A4 portrait)
+      const pdf = new (jsPDFModule as any).jsPDF('p', 'mm', 'a4')
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
 
-    // Add margins (10mm on each side)
-    const margin = 10
-    const imgWidth = pageWidth - margin * 2
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
+      // Add margins (10mm on each side)
+      const margin = 10
+      const imgWidth = pageWidth - margin * 2
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
 
-    let heightLeft = imgHeight
-    let position = 0
+      let heightLeft = imgHeight
+      let position = 0
 
-    pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
-    heightLeft -= pageHeight
-
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight
-      pdf.addPage()
       pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
       heightLeft -= pageHeight
-    }
 
-    pdf.save(`receipt-${sale.invoiceNumber}.pdf`)
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
+        heightLeft -= pageHeight
+      }
+
+      const fileName = `receipt-${sale.invoiceNumber}.pdf`
+      pdf.save(fileName)
+      toast.success("Receipt PDF downloaded successfully", {
+        description: `File: ${fileName}`,
+      })
+    } catch (error) {
+      console.error("Error generating PDF:", error)
+      toast.error("Failed to download receipt PDF", {
+        description: "Please try again or contact support if the issue persists.",
+      })
+    }
   }
 
 

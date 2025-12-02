@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { X, Printer, Download } from "lucide-react"
+import { toast } from "sonner"
 
 export interface CollectionPaymentItem {
   model: string // "Sale" | "EmployeeSale"
@@ -62,31 +63,47 @@ export function CollectionReceiptDialog({ open, onClose, payments, collectorName
   }
 
   const handleDownload = async () => {
-    const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
-      import('html2canvas'),
-      import('jspdf'),
-    ])
-    const node = contentRef.current
-    if (!node) return
-    const canvas = await html2canvas(node, { scale: 4, backgroundColor: '#ffffff', useCORS: true })
-    const imgData = canvas.toDataURL('image/png')
-    const pdf = new (jsPDFModule as any).jsPDF('p', 'mm', 'a4')
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 10
-    const imgWidth = pageWidth - margin * 2
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
-    let heightLeft = imgHeight
-    let position = 0
-    pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
-    heightLeft -= pageHeight
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight
-      pdf.addPage()
+    try {
+      const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ])
+      const node = contentRef.current
+      if (!node) {
+        toast.error("Failed to generate PDF", {
+          description: "Content not available. Please try again.",
+        })
+        return
+      }
+      const canvas = await html2canvas(node, { scale: 4, backgroundColor: '#ffffff', useCORS: true })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new (jsPDFModule as any).jsPDF('p', 'mm', 'a4')
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 10
+      const imgWidth = pageWidth - margin * 2
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      let heightLeft = imgHeight
+      let position = 0
       pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
       heightLeft -= pageHeight
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
+        heightLeft -= pageHeight
+      }
+      const fileName = `collection-receipt.pdf`
+      pdf.save(fileName)
+      toast.success("Collection Receipt PDF downloaded successfully", {
+        description: `File: ${fileName}`,
+      })
+    } catch (error) {
+      console.error("Error generating PDF:", error)
+      toast.error("Failed to download collection receipt PDF", {
+        description: "Please try again or contact support if the issue persists.",
+      })
     }
-    pdf.save(`collection-receipt.pdf`)
   }
 
   return (

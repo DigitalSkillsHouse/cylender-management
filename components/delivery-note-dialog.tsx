@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { X, Printer, Download } from "lucide-react"
+import { toast } from "sonner"
 
 interface DeliveryNoteDialogProps {
   sale: {
@@ -390,10 +391,16 @@ export function DeliveryNoteDialog({ sale, signature, onClose, open = true }: De
         console.warn('Failed to load footer image:', error)
       }
 
-      pdf.save(`delivery-note-${sale.invoiceNumber}.pdf`)
+      const fileName = `delivery-note-${sale.invoiceNumber}.pdf`
+      pdf.save(fileName)
+      toast.success("Delivery Note PDF downloaded successfully", {
+        description: `File: ${fileName}`,
+      })
     } catch (error) {
       console.error('Error generating PDF:', error)
-      alert('Failed to generate PDF. Please try again.')
+      toast.error("Failed to download delivery note PDF", {
+        description: "Please try again or contact support if the issue persists.",
+      })
     }
   }
 
