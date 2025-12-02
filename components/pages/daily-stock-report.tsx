@@ -171,6 +171,31 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             ? storedDsrJson.data
             : []
       
+      // Fetch employee inventory to show all cylinder products (even without sales)
+      let inventoryData: any[] = []
+      try {
+        const inventoryRes = await fetch(`/api/employee-inventory-new/received?employeeId=${employeeId}`, { cache: 'no-store' })
+        if (inventoryRes.ok) {
+          const inventoryJson = await inventoryRes.json()
+          inventoryData = inventoryJson?.data || []
+        }
+      } catch (error) {
+        console.warn('Failed to fetch employee inventory:', error)
+      }
+      
+      // If inventory API fails, try old API
+      if (inventoryData.length === 0) {
+        try {
+          const oldInventoryRes = await fetch(`/api/employee-inventory-items?employeeId=${employeeId}`, { cache: 'no-store' })
+          if (oldInventoryRes.ok) {
+            const oldInventoryJson = await oldInventoryRes.json()
+            inventoryData = oldInventoryJson?.data || []
+          }
+        } catch (error) {
+          console.warn('Failed to fetch employee inventory from old API:', error)
+        }
+      }
+      
       // Fetch actual employee transaction data for the date
       const [salesRes, cylinderRes, refillRes] = await Promise.all([
         fetch(`/api/daily-employee-sales?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
@@ -265,13 +290,19 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         storedMap.set((d.itemName || '').toLowerCase(), d)
       })
       
-      // Get all unique product names from both sources
+      // Get all unique product names from stored DSR, transactions, and inventory
       const allProductNames = new Set<string>()
       storedList.forEach((d: any) => {
         if (d.itemName) allProductNames.add(d.itemName)
       })
       transactionMap.forEach((_, itemName) => {
         allProductNames.add(itemName)
+      })
+      // Add all cylinder products from inventory (even if no transactions)
+      inventoryData.forEach((item: any) => {
+        if (item.category === 'cylinder' && item.productName) {
+          allProductNames.add(item.productName)
+        }
       })
       
       // Build merged DSR entries
@@ -286,19 +317,41 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           returns: 0
         }
         
-        // Use stored values for opening/closing, but use actual transaction data for "during the day" activities
+        // Find inventory item for this product to get opening stock if not stored
+        const inventoryItem = inventoryData.find((item: any) => 
+          item.productName === itemName && item.category === 'cylinder'
+        )
+        
+        // Use stored opening values if available, otherwise use current inventory
+        const openingFull = stored?.openingFull !== undefined 
+          ? Number(stored.openingFull) 
+          : (inventoryItem ? Number(inventoryItem.availableFull || 0) : 0)
+        const openingEmpty = stored?.openingEmpty !== undefined 
+          ? Number(stored.openingEmpty) 
+          : (inventoryItem ? Number(inventoryItem.availableEmpty || 0) : 0)
+        
+        // Calculate closing values if not stored
+        let closingFull = stored?.closingFull
+        let closingEmpty = stored?.closingEmpty
+        
+        if (closingFull === undefined || closingEmpty === undefined) {
+          // Calculate closing using DSR formula
+          closingFull = Math.max(0, openingFull + transactions.refilled - transactions.fullCylinderSales - transactions.gasSales)
+          closingEmpty = Math.max(0, openingEmpty + transactions.gasSales + transactions.fullCylinderSales - transactions.refilled + transactions.deposits - transactions.returns)
+        }
+        
         return {
           _id: String(stored?._id || `${itemName}-${date}`),
           employeeId: employeeId,
           date: date,
           itemName: itemName,
-          openingFull: Number(stored?.openingFull || 0),
-          openingEmpty: Number(stored?.openingEmpty || 0),
+          openingFull: openingFull,
+          openingEmpty: openingEmpty,
           refilled: transactions.refilled || Number(stored?.refilled || 0),
           cylinderSales: transactions.fullCylinderSales || Number(stored?.cylinderSales || 0),
           gasSales: transactions.gasSales || Number(stored?.gasSales || 0),
-          closingFull: typeof stored?.closingFull === 'number' ? stored.closingFull : undefined,
-          closingEmpty: typeof stored?.closingEmpty === 'number' ? stored.closingEmpty : undefined,
+          closingFull: typeof closingFull === 'number' ? closingFull : 0,
+          closingEmpty: typeof closingEmpty === 'number' ? closingEmpty : 0,
           createdAt: stored?.createdAt || new Date().toISOString(),
         }
       })
@@ -1243,6 +1296,65 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   })}
                 </TableBody>
                 </Table>
+              </div>
+            </div>
+          )}
+
+          {/* Summary Section */}
+          {!loading && dsrProducts.length > 0 && (
+            <div className="mt-4 pt-4 border-t flex-shrink-0">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                <div className="text-center">
+                  <div className="text-xl sm:text-2xl font-bold text-blue-600">
+                    {dsrProducts.reduce((sum, product) => {
+                      const key = normalizeName(product.name)
+                      return sum + (dailyFullCylinderSales[key] ?? 0)
+                    }, 0)}
+                  </div>
+                  <div className="text-xs sm:text-sm text-muted-foreground">Full Cylinder Sales</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xl sm:text-2xl font-bold text-green-600">
+                    {dsrProducts.reduce((sum, product) => {
+                      const key = normalizeName(product.name)
+                      return sum + (dailyEmptyCylinderSales[key] ?? 0)
+                    }, 0)}
+                  </div>
+                  <div className="text-xs sm:text-sm text-muted-foreground">Empty Cylinder Sales</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xl sm:text-2xl font-bold text-purple-600">
+                    {dsrProducts.reduce((sum, product) => {
+                      const key = normalizeName(product.name)
+                      return sum + (dailyGasSales[key] ?? 0)
+                    }, 0)}
+                  </div>
+                  <div className="text-xs sm:text-sm text-muted-foreground">Gas Sales</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xl sm:text-2xl font-bold text-red-600">
+                    {dsrProducts.reduce((sum, product) => {
+                      const key = normalizeName(product.name)
+                      return sum + (dailyTransferGas[key] ?? 0)
+                    }, 0)}
+                  </div>
+                  <div className="text-xs sm:text-sm text-muted-foreground">Transfer Gas</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xl sm:text-2xl font-bold text-yellow-600">
+                    {dsrProducts.reduce((sum, product) => {
+                      const key = normalizeName(product.name)
+                      return sum + (dailyTransferEmpty[key] ?? 0)
+                    }, 0)}
+                  </div>
+                  <div className="text-xs sm:text-sm text-muted-foreground">Transfer Empty</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xl sm:text-2xl font-bold text-orange-600">
+                    {dsrProducts.length}
+                  </div>
+                  <div className="text-xs sm:text-sm text-muted-foreground">Total Items</div>
+                </div>
               </div>
             </div>
           )}
