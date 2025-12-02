@@ -29,14 +29,15 @@ export default function CashPaperSection({
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10))
   const [loading, setLoading] = useState<boolean>(false)
   const [data, setData] = useState<{
-    counts: { credit: number; debit: number; other: number; depositCylinder: number; returnCylinder: number; total: number }
+    counts: { credit: number; debit: number; other: number; depositCylinder: number; returnCylinder: number; rental: number; total: number }
     creditSales: CashPaperRecord[]
     debitSales: CashPaperRecord[]
     otherSales: CashPaperRecord[]
     depositCylinderSales: CashPaperRecord[]
     returnCylinderSales: CashPaperRecord[]
+    rentalSales: CashPaperRecord[]
     otherByMethod: Record<string, number>
-    totals: { totalCredit: number; totalDebit: number; totalOther: number; totalDepositCylinder: number; totalReturnCylinder: number; grandTotal: number }
+    totals: { totalCredit: number; totalDebit: number; totalOther: number; totalDepositCylinder: number; totalReturnCylinder: number; totalRental: number; grandTotal: number }
   } | null>(null)
 
   const fetchData = async () => {
@@ -82,10 +83,13 @@ export default function CashPaperSection({
         .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(vat(Number(r.totalAmount || 0)))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
       const depositCylinderRows = (data.depositCylinderSales || [])
-        .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(vat(Number(r.totalAmount || 0)))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
+        .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
       const returnCylinderRows = (data.returnCylinderSales || [])
-        .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(vat(Number(r.totalAmount || 0)))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
+        .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
+        .join("")
+      const rentalRows = (data.rentalSales || [])
+        .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(Number(r.totalVat || 0))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
 
       const html = `<!doctype html>
@@ -136,26 +140,39 @@ export default function CashPaperSection({
   <h2>Deposit Cylinder Invoice</h2>
   <table>
     <thead>
-      <tr><th>Inv Id</th><th>Customer</th><th class='right'>VAT 5%</th><th class='right'>Amount</th></tr>
+      <tr><th>Inv Id</th><th>Customer</th><th class='right'>Amount</th></tr>
     </thead>
     <tbody>
-      ${depositCylinderRows || `<tr><td colspan='4' style='text-align:center'>No deposit cylinder transactions</td></tr>`}
+      ${depositCylinderRows || `<tr><td colspan='3' style='text-align:center'>No deposit cylinder transactions</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='3'><b>Total Deposit Cylinder</b></td><td class='right'><b>${currency(data.totals.totalDepositCylinder || 0)}</b></td></tr>
+      <tr><td colspan='2'><b>Total Deposit Cylinder</b></td><td class='right'><b>${currency(data.totals.totalDepositCylinder || 0)}</b></td></tr>
     </tfoot>
   </table>
 
   <h2>Return Cylinder Invoice</h2>
   <table>
     <thead>
+      <tr><th>Inv Id</th><th>Customer</th><th class='right'>Amount</th></tr>
+    </thead>
+    <tbody>
+      ${returnCylinderRows || `<tr><td colspan='3' style='text-align:center'>No return cylinder transactions</td></tr>`}
+    </tbody>
+    <tfoot>
+      <tr><td colspan='2'><b>Total Return Cylinder</b></td><td class='right'><b>${currency(data.totals.totalReturnCylinder || 0)}</b></td></tr>
+    </tfoot>
+  </table>
+
+  <h2>Rental Collection Invoice</h2>
+  <table>
+    <thead>
       <tr><th>Inv Id</th><th>Customer</th><th class='right'>VAT 5%</th><th class='right'>Amount</th></tr>
     </thead>
     <tbody>
-      ${returnCylinderRows || `<tr><td colspan='4' style='text-align:center'>No return cylinder transactions</td></tr>`}
+      ${rentalRows || `<tr><td colspan='4' style='text-align:center'>No rental invoices</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='3'><b>Total Return Cylinder</b></td><td class='right'><b>${currency(data.totals.totalReturnCylinder || 0)}</b></td></tr>
+      <tr><td colspan='3'><b>Total Rental Collection</b></td><td class='right'><b>${currency(data.totals.totalRental || 0)}</b></td></tr>
     </tfoot>
   </table>
 
@@ -165,6 +182,7 @@ export default function CashPaperSection({
       <tr><td>Total Credit</td><td class='right'>${currency(data.totals.totalCredit)}</td></tr>
       <tr><td>Total Debit</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
       <tr><td>Other</td><td class='right'>${currency(data.totals.totalOther)}</td></tr>
+      <tr><td>Total Rental Collection</td><td class='right'>${currency(data.totals.totalRental || 0)}</td></tr>
       <tr><td><b>Grand Total</b></td><td class='right'><b>${currency(data.totals.grandTotal)}</b></td></tr>
     </tbody>
   </table>

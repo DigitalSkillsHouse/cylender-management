@@ -2533,10 +2533,10 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         {reportCards.map((card, index) => (
           <Card key={index} className="col-span-1">
             <CardContent className="flex items-center p-4 sm:p-6">
-              <card.icon className="h-6 w-6 sm:h-8 sm:w-8 mr-2 sm:mr-4" style={{ color: card.color }} />
-              <div className="min-w-0">
+              <card.icon className="h-6 w-6 sm:h-8 sm:w-8 mr-2 sm:mr-4 flex-shrink-0" style={{ color: card.color }} />
+              <div className="min-w-0 flex-1">
                 <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">{card.title}</p>
-                <div className="text-lg sm:text-xl md:text-2xl font-bold truncate" style={{ color: card.color }}>
+                <div className="text-lg sm:text-xl lg:text-2xl font-bold truncate" style={{ color: card.color }}>
                   {card.value}
                 </div>
               </div>

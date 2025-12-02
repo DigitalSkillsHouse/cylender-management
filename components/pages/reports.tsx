@@ -2252,14 +2252,14 @@ export function Reports() {
       <CashPaperSection title="Cash Paper (Admin)" />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {reportCards.map((card, index) => (
           <Card key={index}>
-            <CardContent className="flex items-center p-6">
-              <card.icon className="h-8 w-8 mr-4" style={{ color: card.color }} />
-              <div>
-                <p className="text-sm font-medium text-gray-600">{card.title}</p>
-                <div className="text-2xl font-bold" style={{ color: card.color }}>
+            <CardContent className="flex items-center p-4 sm:p-6">
+              <card.icon className="h-6 w-6 sm:h-8 sm:w-8 mr-3 sm:mr-4 flex-shrink-0" style={{ color: card.color }} />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-sm font-medium text-gray-600 truncate">{card.title}</p>
+                <div className="text-lg sm:text-xl lg:text-2xl font-bold truncate" style={{ color: card.color }}>
                   {card.value}
                 </div>
               </div>

@@ -4,6 +4,7 @@ import Sale from "@/models/Sale";
 import CylinderTransaction from "@/models/Cylinder";
 import EmployeeSale from "@/models/EmployeeSale";
 import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
+import Rental from "@/models/Rental";
 
 export async function GET(request) {
   try {
@@ -49,12 +50,14 @@ export async function GET(request) {
     const otherSales = [];
     const depositCylinderSales = [];
     const returnCylinderSales = [];
+    const rentalSales = [];
 
     let totalCredit = 0;
     let totalDebit = 0;
     let totalOther = 0;
     let totalDepositCylinder = 0;
     let totalReturnCylinder = 0;
+    let totalRental = 0;
     let grandTotal = 0;
 
     // Aggregate gas sales first
@@ -114,6 +117,35 @@ export async function GET(request) {
       }
     }
 
+    // Fetch rental invoices for the given date (only for admin, not employees)
+    // Use the 'date' field from Rental model, not 'createdAt'
+    if (!employeeId) {
+      const rentalQuery = { date: { $gte: start, $lte: end } };
+      const rentals = await Rental.find(rentalQuery)
+        .populate('customer', 'name companyName')
+        .lean();
+      
+      for (const rental of rentals) {
+        const rec = {
+          _id: rental._id,
+          source: 'rental',
+          invoiceNumber: rental.rentalNumber || '-',
+          employeeName: 'Admin',
+          customerName: rental.customer?.name || rental.customer?.companyName || rental.customerName || '-',
+          totalAmount: Number(rental.finalTotal || 0),
+          receivedAmount: Number(rental.finalTotal || 0), // Rentals are typically paid in full
+          paymentMethod: 'rental',
+          paymentStatus: 'cleared',
+          createdAt: rental.createdAt,
+          subtotal: Number(rental.subtotal || 0),
+          totalVat: Number(rental.totalVat || 0),
+        };
+        rentalSales.push(rec);
+        totalRental += rec.totalAmount;
+        grandTotal += rec.totalAmount;
+      }
+    }
+
     // Group other sales by payment method summary
     const otherByMethod = otherSales.reduce((acc, r) => {
       const k = r.paymentMethod || 'unknown';
@@ -135,13 +167,15 @@ export async function GET(request) {
           other: otherSales.length,
           depositCylinder: depositCylinderSales.length,
           returnCylinder: returnCylinderSales.length,
-          total: gasSales.length + cylTxns.length,
+          rental: rentalSales.length,
+          total: gasSales.length + cylTxns.length + rentalSales.length,
         },
         creditSales,
         debitSales,
         otherSales,
         depositCylinderSales,
         returnCylinderSales,
+        rentalSales,
         otherByMethod,
         totals: {
           totalCredit,
@@ -149,6 +183,7 @@ export async function GET(request) {
           totalOther: totalOtherIncludingCylinders,
           totalDepositCylinder,
           totalReturnCylinder,
+          totalRental,
           grandTotal,
         },
       },
