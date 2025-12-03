@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server"
 
 export function middleware(request) {
-  // Only protect API routes (except auth routes)
-  if (request.nextUrl.pathname.startsWith("/api") && !request.nextUrl.pathname.startsWith("/api/auth")) {
+  // Only protect API routes (except auth routes and admin routes that handle their own auth)
+  const pathname = request.nextUrl.pathname
+  
+  // Skip middleware for auth routes and admin accept-return route (handles its own validation)
+  if (pathname.startsWith("/api/auth") || pathname.startsWith("/api/admin/accept-return")) {
+    return NextResponse.next()
+  }
+  
+  if (pathname.startsWith("/api")) {
     const token = request.cookies.get("token")?.value
 
     if (!token) {

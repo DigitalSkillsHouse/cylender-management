@@ -136,9 +136,8 @@ EmpStockEmpSchema.index({ productId: 1 })
 EmpStockEmpSchema.index({ status: 1 })
 
 // Update the updatedAt field before saving
-EmpStockEmpSchema.pre('save', function(next) {
+EmpStockEmpSchema.pre('save', function() {
   this.updatedAt = new Date()
-  next()
 })
 
 const EmpStockEmp = mongoose.models.EmpStockEmp || mongoose.model('EmpStockEmp', EmpStockEmpSchema)

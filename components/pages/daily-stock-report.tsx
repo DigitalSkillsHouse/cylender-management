@@ -584,7 +584,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         dailyCylinderRes,
         dailySalesRes,
         dailyRefillsRes,
-        empStockEmpRes
+        empStockEmpRes,
+        stockAssignmentsRes
       ] = await Promise.all([
         // Fetch admin sales only (no employee sales in admin DSR)
         fetch('/api/sales', { cache: 'no-store' }),
@@ -595,7 +596,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         fetch(`/api/daily-sales?date=${date}&adminOnly=true`, { cache: 'no-store' }),
         fetch(`/api/daily-refills?date=${date}`, { cache: 'no-store' }), // Daily refills data
         // Fetch admin EmpStockEmp assignments only
-        fetch(`/api/emp-stock-emp?date=${date}&adminOnly=true`, { cache: 'no-store' })
+        fetch(`/api/emp-stock-emp?date=${date}&adminOnly=true`, { cache: 'no-store' }),
+        // Fetch StockAssignment records (from Employee Management page) - filter by date
+        fetch(`/api/stock-assignments?date=${date}`, { cache: 'no-store' })
       ])
 
       const salesJson = await salesRes.json()
@@ -605,12 +608,30 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       const dailySalesJson = await dailySalesRes.json()
       const dailyRefillsJson = await dailyRefillsRes.json()
       const empStockEmpJson = await empStockEmpRes.json()
+      const stockAssignmentsJson = await stockAssignmentsRes.json()
 
       // Process aggregated data
-      const inSelectedDay = (dateStr: string) => {
+      const inSelectedDay = (dateStr: string | Date | undefined) => {
         if (!dateStr) return false
-        const d = new Date(dateStr)
-        return d.toISOString().slice(0, 10) === date
+        
+        // Handle Date objects
+        if (dateStr instanceof Date) {
+          return dateStr.toISOString().slice(0, 10) === date
+        }
+        
+        // Handle ISO strings or YYYY-MM-DD format
+        if (typeof dateStr === 'string') {
+          // If already in YYYY-MM-DD format, compare directly
+          if (dateStr.length === 10 && dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            return dateStr === date
+          }
+          // Otherwise parse and compare
+          const d = new Date(dateStr)
+          if (isNaN(d.getTime())) return false
+          return d.toISOString().slice(0, 10) === date
+        }
+        
+        return false
       }
 
       // Initialize aggregation objects
@@ -722,21 +743,33 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       console.log(`[DSR] Processing ${empStockEmpList.length} EmpStockEmp assignments`)
       
       for (const assignment of empStockEmpList) {
-        const productName = assignment.productName || ''
-        const category = assignment.category || ''
+        const productName = assignment.productName || assignment.product?.name || ''
+        const category = assignment.category || assignment.product?.category || ''
         const cylinderStatus = assignment.cylinderStatus || ''
-        const quantity = Number(assignment.assignedQuantity) || 0
+        const quantity = Number(assignment.assignedQuantity || assignment.quantity || 0)
         const status = assignment.status || ''
         const relatedCylinderName = assignment.relatedCylinderName || ''
         const assignmentMethod = assignment.assignmentMethod || ''
         
+        // Get assignment date - handle both Date objects and ISO strings
+        let assignmentDate = assignment.assignmentDate || assignment.createdAt || assignment.assignedDate || ''
+        if (assignmentDate && typeof assignmentDate === 'object' && assignmentDate.toISOString) {
+          assignmentDate = assignmentDate.toISOString()
+        }
+        
         if (!productName || quantity <= 0) continue
+        
+        // Check if assignment date matches selected date
+        if (assignmentDate && !inSelectedDay(assignmentDate)) {
+          console.log(`[DSR] EmpStockEmp assignment date mismatch: ${assignmentDate} vs ${date}`)
+          continue
+        }
         
         // For gas assignments, use the related cylinder name for DSR grouping
         // This shows gas transfers under the cylinder they're related to
-        let dsrKey = productName.toLowerCase().replace(/\s+/g, ' ').trim()
+        let dsrKey = normalizeName(productName)
         if (category === 'gas' && relatedCylinderName) {
-          dsrKey = relatedCylinderName.toLowerCase().replace(/\s+/g, ' ').trim()
+          dsrKey = normalizeName(relatedCylinderName)
           console.log(`[DSR] Gas assignment linked to cylinder: ${productName} → ${relatedCylinderName}`)
         }
         
@@ -747,9 +780,17 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           if (category === 'gas') {
             inc(transferGas, dsrKey, quantity)
             console.log(`[DSR] Transfer Gas: ${productName} = ${quantity} (under ${relatedCylinderName || productName})`)
-          } else if (category === 'cylinder' && cylinderStatus === 'empty') {
-            inc(transferEmpty, dsrKey, quantity)
-            console.log(`[DSR] Transfer Empty: ${productName} = ${quantity}`)
+          } else if (category === 'cylinder') {
+            if (cylinderStatus === 'empty') {
+              inc(transferEmpty, dsrKey, quantity)
+              console.log(`[DSR] Transfer Empty: ${productName} = ${quantity}`)
+            } else if (cylinderStatus === 'full') {
+              // Full cylinders transferred should also be tracked
+              // For DSR purposes, full cylinders transferred become empty at employee
+              // But we track them separately if needed
+              inc(transferEmpty, dsrKey, quantity)
+              console.log(`[DSR] Transfer Full Cylinder (counted as empty): ${productName} = ${quantity}`)
+            }
           }
         }
         
@@ -765,6 +806,111 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           }
         }
       }
+      
+      // Process StockAssignment records (from Employee Management page)
+      const stockAssignmentsList: any[] = Array.isArray(stockAssignmentsJson?.data) ? stockAssignmentsJson.data : []
+      console.log(`[DSR] Processing ${stockAssignmentsList.length} StockAssignment records for date ${date}`)
+      
+      for (const assignment of stockAssignmentsList) {
+        const productName = assignment.product?.name || assignment.productName || ''
+        const category = assignment.category || assignment.product?.category || ''
+        const cylinderStatus = assignment.cylinderStatus || ''
+        const quantity = Number(assignment.quantity || assignment.remainingQuantity || 0)
+        const status = assignment.status || ''
+        
+        // Get dates - handle both Date objects and ISO strings
+        let assignedDate = assignment.assignedDate || assignment.createdAt || ''
+        let receivedDate = assignment.receivedDate || ''
+        
+        // Convert Date objects to ISO strings if needed
+        if (assignedDate && typeof assignedDate === 'object' && assignedDate.toISOString) {
+          assignedDate = assignedDate.toISOString()
+        }
+        if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
+          receivedDate = receivedDate.toISOString()
+        }
+        
+        console.log(`[DSR] StockAssignment record:`, {
+          productName,
+          category,
+          cylinderStatus,
+          quantity,
+          status,
+          assignedDate,
+          receivedDate,
+          assignmentId: assignment._id
+        })
+        
+        if (!productName || quantity <= 0) {
+          console.log(`[DSR] ⚠️ Skipping assignment - missing productName or quantity <= 0`)
+          continue
+        }
+        
+        // Check if assignment date matches selected date (for transfers)
+        // Or if received date matches (for received items)
+        const isTransferDate = assignedDate && inSelectedDay(assignedDate)
+        const isReceivedDate = receivedDate && inSelectedDay(receivedDate)
+        
+        console.log(`[DSR] Date matching for ${productName}:`, {
+          assignedDate,
+          receivedDate,
+          selectedDate: date,
+          isTransferDate,
+          isReceivedDate
+        })
+        
+        if (!isTransferDate && !isReceivedDate) {
+          // Skip if neither date matches
+          console.log(`[DSR] ⚠️ Skipping assignment - date mismatch`)
+          continue
+        }
+        
+        const dsrKey = normalizeName(productName)
+        console.log(`[DSR] Processing assignment for DSR key: ${dsrKey}`)
+        
+        // Track transfers (when stock is assigned to employee on this date)
+        // Status 'assigned' means pending, 'received' means employee accepted it
+        // Both count as transfers on the assignment date
+        if (isTransferDate && (status === 'assigned' || status === 'received')) {
+          if (category === 'gas') {
+            inc(transferGas, dsrKey, quantity)
+            console.log(`[DSR] ✅ StockAssignment Transfer Gas: ${productName} = ${quantity} (status: ${status}, key: ${dsrKey})`)
+          } else if (category === 'cylinder') {
+            if (cylinderStatus === 'empty') {
+              inc(transferEmpty, dsrKey, quantity)
+              console.log(`[DSR] ✅ StockAssignment Transfer Empty: ${productName} = ${quantity} (status: ${status}, key: ${dsrKey})`)
+            } else if (cylinderStatus === 'full' || !cylinderStatus) {
+              // Full cylinders or unspecified status - track as empty transfer
+              // When full cylinders are transferred, they become available as empty at employee
+              inc(transferEmpty, dsrKey, quantity)
+              console.log(`[DSR] ✅ StockAssignment Transfer Full Cylinder (as empty): ${productName} = ${quantity} (status: ${status}, key: ${dsrKey})`)
+            } else {
+              console.log(`[DSR] ⚠️ StockAssignment cylinder with unknown status: ${cylinderStatus}`)
+            }
+          } else {
+            console.log(`[DSR] ⚠️ StockAssignment with unknown category: ${category}`)
+          }
+        }
+        
+        // Track received items (when employee returns stock to admin on this date)
+        // Status 'returned' means employee returned stock back to admin
+        if (isReceivedDate && status === 'returned') {
+          if (category === 'gas') {
+            inc(receivedGas, dsrKey, quantity)
+            console.log(`[DSR] StockAssignment Received Gas: ${productName} = ${quantity} (returned by employee, date: ${receivedDate})`)
+          } else if (category === 'cylinder' && (cylinderStatus === 'empty' || !cylinderStatus)) {
+            inc(receivedEmpty, dsrKey, quantity)
+            console.log(`[DSR] StockAssignment Received Empty: ${productName} = ${quantity} (returned by employee, date: ${receivedDate})`)
+          }
+        }
+      }
+      
+      console.log(`[DSR] Final transfer totals after processing:`, {
+        transferGas: Object.keys(transferGas).length > 0 ? transferGas : 'empty',
+        transferEmpty: Object.keys(transferEmpty).length > 0 ? transferEmpty : 'empty',
+        receivedGas: Object.keys(receivedGas).length > 0 ? receivedGas : 'empty',
+        receivedEmpty: Object.keys(receivedEmpty).length > 0 ? receivedEmpty : 'empty'
+      })
 
       // Set state variables for use in component render
       setDailyGasSales(gas)

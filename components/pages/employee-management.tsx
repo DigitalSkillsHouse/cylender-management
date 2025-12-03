@@ -432,32 +432,9 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       const createdAssignment = await response.json()
       console.log('✅ [STOCK ASSIGNMENT] Stock assignment created:', createdAssignment)
 
-      // Deduct stock from admin inventory
-      console.log('📉 [STOCK DEDUCTION] Deducting stock from admin inventory')
-      try {
-        const inventoryResponse = await fetch('/api/inventory-items', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            productId: stockFormData.productId,
-            action: 'deduct',
-            category: stockFormData.category,
-            cylinderStatus: stockFormData.cylinderStatus,
-            quantity: stockFormData.quantity,
-            reason: `Stock assigned to employee: ${selectedEmployee.name}`
-          })
-        })
-
-        if (inventoryResponse.ok) {
-          console.log('✅ [STOCK DEDUCTION] Admin inventory updated successfully')
-        } else {
-          console.error('❌ [STOCK DEDUCTION] Failed to update admin inventory')
-        }
-      } catch (inventoryError) {
-        console.error('❌ [STOCK DEDUCTION] Error updating inventory:', inventoryError)
-      }
+      // NOTE: Inventory deduction happens when employee ACCEPTS the assignment, not when admin assigns it
+      // This prevents double deduction. The deduction is handled in /api/stock-assignments/[id]/route.js
+      // when status changes to 'received' and createEmployeeInventory is true
 
       // Get product name for notification
       const product = products.find(p => p._id === stockFormData.productId)

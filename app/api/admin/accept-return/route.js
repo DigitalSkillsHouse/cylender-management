@@ -12,7 +12,17 @@ export async function POST(request) {
     console.log('🔍 Admin accept return API called')
     await dbConnect()
     
-    const { returnTransactionId, adminId, emptyCylinderId } = await request.json()
+    let body
+    try {
+      body = await request.json()
+    } catch (parseError) {
+      console.error('❌ Error parsing request body:', parseError)
+      return NextResponse.json({ 
+        error: "Invalid request body" 
+      }, { status: 400 })
+    }
+    
+    const { returnTransactionId, adminId, emptyCylinderId } = body || {}
     
     if (!returnTransactionId || !adminId) {
       return NextResponse.json({ 
@@ -279,8 +289,18 @@ export async function POST(request) {
     
   } catch (error) {
     console.error("❌ Error accepting return:", error)
+    console.error("❌ Error stack:", error.stack)
+    console.error("❌ Error name:", error.name)
+    console.error("❌ Error message:", error.message)
+    
+    // Check if error is related to 'next'
+    if (error.message && error.message.includes('next')) {
+      console.error("❌ This appears to be a middleware or routing issue")
+    }
+    
     return NextResponse.json({ 
-      error: `Failed to accept return: ${error.message}` 
+      error: `Failed to accept return: ${error.message}`,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     }, { status: 500 })
   }
 }

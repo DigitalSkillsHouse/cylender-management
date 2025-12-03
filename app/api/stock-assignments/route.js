@@ -16,13 +16,27 @@ export async function GET(request) {
   }
 
   try {
-    // Support filtering by employeeId and status
+    // Support filtering by employeeId, status, and date
     const { searchParams } = new URL(request.url, `http://${request.headers.get("host") || "localhost"}`);
     const employeeId = searchParams.get("employeeId");
     const status = searchParams.get("status");
+    const date = searchParams.get("date");
     const query = {};
     if (employeeId) query.employee = employeeId;
     if (status) query.status = status;
+    
+    // Filter by assignedDate if date is provided
+    if (date) {
+      const startDate = new Date(date);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(date);
+      endDate.setHours(23, 59, 59, 999);
+      query.assignedDate = {
+        $gte: startDate,
+        $lte: endDate
+      };
+      console.log(`[stock-assignments] Filtering by date: ${date} (${startDate.toISOString()} to ${endDate.toISOString()})`);
+    }
 
     let assignments = await StockAssignment.find(query)
       .populate("employee", "name email")

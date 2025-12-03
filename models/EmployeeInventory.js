@@ -103,9 +103,8 @@ const EmployeeInventorySchema = new mongoose.Schema(
 EmployeeInventorySchema.index({ employee: 1, product: 1, cylinderStatus: 1 }, { unique: true })
 
 // Update lastUpdated on save
-EmployeeInventorySchema.pre('save', function(next) {
+EmployeeInventorySchema.pre('save', function() {
   this.lastUpdated = new Date()
-  next()
 })
 
 export default mongoose.models.EmployeeInventory || mongoose.model("EmployeeInventory", EmployeeInventorySchema)
