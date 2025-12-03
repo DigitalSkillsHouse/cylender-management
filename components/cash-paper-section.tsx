@@ -38,7 +38,7 @@ export default function CashPaperSection({
     returnCylinderSales: CashPaperRecord[]
     rentalSales: CashPaperRecord[]
     otherByMethod: Record<string, number>
-    totals: { totalCredit: number; totalDebit: number; totalOther: number; totalDepositCylinder: number; totalReturnCylinder: number; totalRental: number; grandTotal: number }
+    totals: { totalCredit: number; totalDebit: number; totalOther: number; totalDepositCylinder: number; totalReturnCylinder: number; totalRental: number; totalVat?: number; grandTotal: number }
     fromDate?: string
     toDate?: string
   } | null>(null)
@@ -197,6 +197,7 @@ export default function CashPaperSection({
       <tr><td>Total Debit</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
       <tr><td>Other</td><td class='right'>${currency(data.totals.totalOther)}</td></tr>
       <tr><td>Total Rental Collection</td><td class='right'>${currency(data.totals.totalRental || 0)}</td></tr>
+      <tr><td>Total VAT (5%)</td><td class='right'>${currency(data.totals.totalVat || 0)}</td></tr>
       <tr><td><b>Grand Total</b></td><td class='right'><b>${currency(data.totals.grandTotal)}</b></td></tr>
     </tbody>
   </table>

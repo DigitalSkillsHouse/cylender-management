@@ -163,8 +163,11 @@ export async function GET(request) {
       return acc;
     }, {});
 
-    // Calculate totalOther to include both otherSales and cylinder transactions
-    const totalOtherIncludingCylinders = totalOther + totalDepositCylinder + totalReturnCylinder;
+    // Calculate total VAT (5% of credit + debit + other sales, plus rental VAT)
+    // Note: Cylinder deposits/returns don't have VAT
+    const totalVatFromSales = (totalCredit + totalDebit + totalOther) * 0.05;
+    const totalVatFromRentals = rentalSales.reduce((sum, r) => sum + (Number(r.totalVat || 0)), 0);
+    const totalVat = totalVatFromSales + totalVatFromRentals;
 
     return NextResponse.json({
       success: true,
@@ -191,10 +194,11 @@ export async function GET(request) {
         totals: {
           totalCredit,
           totalDebit,
-          totalOther: totalOtherIncludingCylinders,
+          totalOther, // Only other sales, NOT including cylinder deposits/returns
           totalDepositCylinder,
           totalReturnCylinder,
           totalRental,
+          totalVat, // Total VAT amount
           grandTotal,
         },
       },
