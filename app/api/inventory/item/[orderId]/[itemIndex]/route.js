@@ -750,39 +750,37 @@ export async function PATCH(request, { params }) {
         let cylinderName = ''
         let quantity = Number(item.quantity) || 0
         
-        // Method 1: Direct cylinder purchase (purchaseType = 'cylinder', cylinderStatus = 'full')
-        if (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') {
-          cylinderProductId = item.product
-          cylinderName = item.product?.name || 'Unknown Cylinder'
-          console.log(`🔄 Daily Refill (Method 1): ${cylinderName} - ${quantity} cylinders`)
-        }
-        // Method 2: Gas purchase with empty cylinder (purchaseType = 'gas', emptyCylinderId provided)
-        else if (item.purchaseType === 'gas' && item.emptyCylinderId) {
+        // Only create DailyRefill records for gas purchases with empty cylinders (refilling empty cylinders)
+        // Do NOT create refill records for direct full cylinder purchases - those are just inventory additions
+        if (item.purchaseType === 'gas' && item.emptyCylinderId) {
           cylinderProductId = item.emptyCylinderId
           // Get cylinder name from product
           const cylinderProduct = await Product.findById(item.emptyCylinderId)
           cylinderName = cylinderProduct?.name || 'Unknown Cylinder'
-          console.log(`🔄 Daily Refill (Method 2): ${cylinderName} - ${quantity} cylinders via gas purchase`)
-        }
-        
-        if (cylinderProductId && quantity > 0) {
-          // Create or update daily refill entry
-          await DailyRefill.findOneAndUpdate(
-            {
-              date: today,
-              cylinderProductId: cylinderProductId,
-              employeeId: null // Admin refills
-            },
-            {
-              $inc: { todayRefill: quantity },
-              $set: { cylinderName: cylinderName }
-            },
-            {
-              upsert: true,
-              new: true
-            }
-          )
-          console.log(`✅ Updated daily refill: ${cylinderName} +${quantity} (total refills for ${today})`)
+          console.log(`🔄 Daily Refill: ${cylinderName} - ${quantity} cylinders refilled via gas purchase`)
+          
+          if (cylinderProductId && quantity > 0) {
+            // Create or update daily refill entry
+            await DailyRefill.findOneAndUpdate(
+              {
+                date: today,
+                cylinderProductId: cylinderProductId,
+                employeeId: null // Admin refills
+              },
+              {
+                $inc: { todayRefill: quantity },
+                $set: { cylinderName: cylinderName }
+              },
+              {
+                upsert: true,
+                new: true
+              }
+            )
+            console.log(`✅ Updated daily refill: ${cylinderName} +${quantity} (total refills for ${today})`)
+          }
+        } else if (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') {
+          // Full cylinder purchase - do NOT count as refilled, just inventory addition
+          console.log(`ℹ️ Full cylinder purchase (${item.product?.name || 'Unknown'}) - NOT counted as refilled, just inventory addition`)
         }
       } catch (refillError) {
         console.warn("Failed to update daily refill entries:", refillError.message)
