@@ -142,15 +142,11 @@ export function DeliveryNoteDialog({ sale, signature, onClose, open = true }: De
       pdf.setFontSize(9)
       pdf.setTextColor(0, 0, 0)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(`Invoice #: ${sale?.invoiceNumber || '-'}`, rightColX, currentY)
+      pdf.text(`Invoice #: ${sale?.invoiceNumber ? `DN-${sale.invoiceNumber}` : '-'}`, rightColX, currentY)
       currentY += lineHeight
       const dateStr = sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-'
       pdf.text(`Date: ${dateStr}`, rightColX, currentY)
-      currentY += lineHeight
-      const paymentMethod = sale?.paymentMethod
-        ? sale.paymentMethod.toString().replace(/[\-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-        : '-'
-      pdf.text(`Payment Method: ${paymentMethod}`, rightColX, currentY)
+      // Payment Method removed for delivery notes
       
       // Get max Y from both columns
       currentY = Math.max(currentY, infoStartY + 26) + 10
@@ -391,7 +387,7 @@ export function DeliveryNoteDialog({ sale, signature, onClose, open = true }: De
         console.warn('Failed to load footer image:', error)
       }
 
-      const fileName = `delivery-note-${sale.invoiceNumber}.pdf`
+      const fileName = `delivery-note-DN-${sale.invoiceNumber}.pdf`
       pdf.save(fileName)
       toast.success("Delivery Note PDF downloaded successfully", {
         description: `File: ${fileName}`,
@@ -418,7 +414,7 @@ export function DeliveryNoteDialog({ sale, signature, onClose, open = true }: De
         
         {/* Hidden description for accessibility */}
         <div id="delivery-note-dialog-description" className="sr-only">
-          Delivery note for invoice {sale.invoiceNumber} showing customer information and items delivered.
+          Delivery note for invoice DN-{sale.invoiceNumber} showing customer information and items delivered.
         </div>
 
         <div className="space-y-6">
@@ -454,21 +450,12 @@ export function DeliveryNoteDialog({ sale, signature, onClose, open = true }: De
                 <h3 className="font-semibold text-[#2B3068] mb-2">Invoice Information</h3>
                 <div className="space-y-1 text-sm">
                   <div>
-                    <strong>Invoice #:</strong> {sale?.invoiceNumber || '-'}
+                    <strong>Invoice #:</strong> {sale?.invoiceNumber ? `DN-${sale.invoiceNumber}` : '-'}
                   </div>
                   <div>
                     <strong>Date:</strong> {sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-'}
                   </div>
-                  <div>
-                    <strong>Payment Method:</strong> {(
-                      sale?.paymentMethod
-                        ? sale.paymentMethod
-                            .toString()
-                            .replace(/[\-_]/g, ' ')
-                            .replace(/\b\w/g, (c) => c.toUpperCase())
-                        : '-'
-                    )}
-                  </div>
+                  {/* Payment Method removed for delivery notes */}
                 </div>
               </div>
             </div>
