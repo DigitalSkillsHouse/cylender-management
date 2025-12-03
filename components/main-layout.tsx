@@ -185,7 +185,7 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         case "collection":
           return <CollectionPage user={user} />
         case "rental-collection":
-          return <RentalCollection />
+          return <RentalCollection user={user} />
         case "employee-purchases":
           return <EmployeePurchaseManagement />
         case "dashboard":
@@ -222,7 +222,7 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
       case "collection":
         return <CollectionPage user={user} />
       case "rental-collection":
-        return <RentalCollection />
+        return <RentalCollection user={user} />
       default:
         return <Dashboard />
     }

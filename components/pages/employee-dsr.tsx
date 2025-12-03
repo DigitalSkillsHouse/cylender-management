@@ -516,17 +516,111 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
     return () => clearInterval(interval)
   }, [autoSaveEnabled, user.id, isInventoryFetched, dsrDate])
 
+  // Download DSR as PDF
+  const downloadDsrGridPdf = (date: string) => {
+    try {
+      if (dsrData.length === 0) {
+        alert('No DSR data available to download')
+        return
+      }
+
+      const rows = dsrData.map(item => {
+        return `
+          <tr>
+            <td>${item.itemName}</td>
+            <td>${item.openingFull}</td>
+            <td>${item.openingEmpty}</td>
+            <td>${item.refilled}</td>
+            <td>${item.fullCylinderSales}</td>
+            <td>${item.emptyCylinderSales}</td>
+            <td>${item.gasSales}</td>
+            <td>${item.deposits}</td>
+            <td>${item.returns}</td>
+            <td>${item.transferGas}</td>
+            <td>${item.transferEmpty}</td>
+            <td>${item.receivedGas}</td>
+            <td>${item.receivedEmpty}</td>
+            <td>${item.closingFull}</td>
+            <td>${item.closingEmpty}</td>
+          </tr>
+        `
+      }).join('')
+
+      const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Daily Stock Report – ${date}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 16px; }
+            h1 { font-size: 18px; margin: 0 0 12px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #ddd; padding: 6px 8px; font-size: 12px; }
+            th { background: #f7f7f7; text-align: left; }
+          </style>
+        </head>
+        <body>
+          <h1>Daily Stock Report – ${date}</h1>
+          <p><strong>Employee:</strong> ${user.name}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Items</th>
+                <th colspan=2>Opening</th>
+                <th colspan=8>During the day</th>
+                <th colspan=2>Closing</th>
+              </tr>
+              <tr>
+                <th></th>
+                <th>Full</th>
+                <th>Empty</th>
+                <th>Refilled</th>
+                <th>Full Cyl Sales</th>
+                <th>Empty Cyl Sales</th>
+                <th>Gas Sales</th>
+                <th>Deposit Cylinder</th>
+                <th>Return Cylinder</th>
+                <th>Transfer Gas</th>
+                <th>Transfer Empty</th>
+                <th>Received Gas</th>
+                <th>Received Empty</th>
+                <th>Full</th>
+                <th>Empty</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </body>
+      </html>`
+
+      const w = window.open('', '_blank')
+      if (!w) {
+        alert('Please allow popups to download the PDF.')
+        return
+      }
+      w.document.write(html)
+      w.document.close()
+      w.focus()
+      w.print()
+    } catch (err) {
+      console.error('Failed to prepare PDF:', err)
+      alert('Failed to prepare PDF')
+    }
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6 p-2 sm:p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">My Daily Stock Report</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">My Daily Stock Report</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             View your daily stock activities and inventory status
           </p>
         </div>
-        <Button onClick={fetchEmployeeDSR} disabled={loading}>
+        <Button onClick={fetchEmployeeDSR} disabled={loading} size="sm" className="w-full sm:w-auto">
           <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
@@ -534,39 +628,39 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
 
       {/* Date Selection */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarIcon className="h-5 w-5" />
+        <CardHeader className="p-3 sm:p-6">
+          <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <CalendarIcon className="h-4 w-4 sm:h-5 sm:w-5" />
             Select Date
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="flex-1 max-w-sm">
-                <Label htmlFor="dsr-date">DSR Date</Label>
+        <CardContent className="p-3 sm:p-4 md:p-6">
+          <div className="space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+              <div className="flex-1 w-full sm:max-w-sm">
+                <Label htmlFor="dsr-date" className="text-xs sm:text-sm">DSR Date</Label>
                 <Input
                   id="dsr-date"
                   type="date"
                   value={dsrDate}
                   onChange={(e) => setDsrDate(e.target.value)}
-                  className="mt-1"
+                  className="mt-1 text-sm"
                 />
               </div>
-              <div className="text-sm text-muted-foreground">
+              <div className="text-xs sm:text-sm text-muted-foreground self-center">
                 Employee: <span className="font-medium">{user.name}</span>
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 flex-wrap">
               <Button
                 onClick={fetchAndLockEmployeeInventory}
                 variant="outline"
                 size="sm"
                 disabled={loading}
-                className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 w-full sm:w-auto text-xs sm:text-sm"
               >
-                <Eye className="h-4 w-4 mr-1" />
+                <Eye className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
                 {isInventoryFetched ? 'Refresh Inventory' : 'Fetch Inventory'}
               </Button>
               
@@ -575,26 +669,26 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
                   onClick={saveEmployeeDsrRecord}
                   size="sm"
                   disabled={loading}
-                  className="bg-green-600 hover:bg-green-700 text-white"
+                  className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto text-xs sm:text-sm"
                 >
-                  <PlusCircle className="h-4 w-4 mr-1" />
+                  <PlusCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
                   Save Record
                 </Button>
               )}
               
-              <span className="text-sm text-gray-500 ml-2">
+              <span className="text-xs sm:text-sm text-gray-500">
                 {isInventoryFetched ? '✓ Inventory Locked' : '⚠ Click Fetch Inventory'}
               </span>
               
               {isInventoryFetched && (
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-xs sm:text-sm">
                   <input
                     type="checkbox"
                     checked={autoSaveEnabled}
                     onChange={(e) => setAutoSaveEnabled(e.target.checked)}
                     className="rounded"
                   />
-                  Auto-save at 11:55 PM Dubai time
+                  Auto-save at 11:55 PM
                 </label>
               )}
             </div>
@@ -604,69 +698,84 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
 
       {/* DSR Table */}
       <Card>
-        <CardHeader>
-          <CardTitle>Daily Stock Report - {dsrDate}</CardTitle>
+        <CardHeader className="p-3 sm:p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <CardTitle className="text-base sm:text-lg">Daily Stock Report - {dsrDate}</CardTitle>
+            {dsrData.length > 0 && (
+              <Button
+                onClick={() => downloadDsrGridPdf(dsrDate)}
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+              >
+                <FileText className="h-4 w-4 mr-1" />
+                Download PDF
+              </Button>
+            )}
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-2 sm:p-4 md:p-6">
           {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="h-6 w-6 animate-spin mr-2" />
-              Loading DSR data...
+            <div className="flex items-center justify-center py-6 sm:py-8">
+              <RefreshCw className="h-5 w-5 sm:h-6 sm:w-6 animate-spin mr-2" />
+              <span className="text-sm sm:text-base">Loading DSR data...</span>
             </div>
           ) : dsrData.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>No DSR data found for {dsrDate}</p>
-              <p className="text-sm">Your daily stock activities will appear here</p>
+            <div className="text-center py-6 sm:py-8 text-muted-foreground">
+              <p className="text-sm sm:text-base">No DSR data found for {dsrDate}</p>
+              <p className="text-xs sm:text-sm mt-1">Your daily stock activities will appear here</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead rowSpan={2} className="border-r">Items</TableHead>
-                    <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
-                    <TableHead colSpan={8} className="text-center border-r">During the day</TableHead>
-                    <TableHead colSpan={2} className="text-center">Closing</TableHead>
-                  </TableRow>
-                  <TableRow>
-                    <TableHead className="text-center">Full</TableHead>
-                    <TableHead className="text-center border-r">Empty</TableHead>
-                    <TableHead className="text-center">Refilled</TableHead>
-                    <TableHead className="text-center">Full Cyl Sales</TableHead>
-                    <TableHead className="text-center">Empty Cyl Sales</TableHead>
-                    <TableHead className="text-center">Gas Sales</TableHead>
-                    <TableHead className="text-center">Deposit Cylinder</TableHead>
-                    <TableHead className="text-center">Return Cylinder</TableHead>
-                    <TableHead className="text-center">Transfer Gas</TableHead>
-                    <TableHead className="text-center">Transfer Empty</TableHead>
-                    <TableHead className="text-center">Received Gas</TableHead>
-                    <TableHead className="text-center border-r">Received Empty</TableHead>
-                    <TableHead className="text-center">Full</TableHead>
-                    <TableHead className="text-center">Empty</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dsrData.map((item, index) => (
-                    <TableRow key={index}>
-                      <TableCell className="font-medium border-r">{item.itemName}</TableCell>
-                      <TableCell className="text-center">{item.openingFull}</TableCell>
-                      <TableCell className="text-center border-r">{item.openingEmpty}</TableCell>
-                      <TableCell className="text-center">{item.refilled}</TableCell>
-                      <TableCell className="text-center">{item.fullCylinderSales}</TableCell>
-                      <TableCell className="text-center">{item.emptyCylinderSales}</TableCell>
-                      <TableCell className="text-center">{item.gasSales}</TableCell>
-                      <TableCell className="text-center">{item.deposits}</TableCell>
-                      <TableCell className="text-center">{item.returns}</TableCell>
-                      <TableCell className="text-center">{item.transferGas}</TableCell>
-                      <TableCell className="text-center">{item.transferEmpty}</TableCell>
-                      <TableCell className="text-center">{item.receivedGas}</TableCell>
-                      <TableCell className="text-center border-r">{item.receivedEmpty}</TableCell>
-                      <TableCell className="text-center">{item.closingFull}</TableCell>
-                      <TableCell className="text-center">{item.closingEmpty}</TableCell>
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <div className="inline-block min-w-full align-middle">
+                <Table className="text-xs sm:text-sm min-w-[1200px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead rowSpan={2} className="border-r sticky left-0 bg-background z-10 min-w-[120px]">Items</TableHead>
+                      <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
+                      <TableHead colSpan={8} className="text-center border-r">During the day</TableHead>
+                      <TableHead colSpan={2} className="text-center">Closing</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                    <TableRow>
+                      <TableHead className="text-center min-w-[60px]">Full</TableHead>
+                      <TableHead className="text-center border-r min-w-[60px]">Empty</TableHead>
+                      <TableHead className="text-center min-w-[70px]">Refilled</TableHead>
+                      <TableHead className="text-center min-w-[90px]">Full Cyl Sales</TableHead>
+                      <TableHead className="text-center min-w-[90px]">Empty Cyl Sales</TableHead>
+                      <TableHead className="text-center min-w-[70px]">Gas Sales</TableHead>
+                      <TableHead className="text-center min-w-[100px]">Deposit Cylinder</TableHead>
+                      <TableHead className="text-center min-w-[100px]">Return Cylinder</TableHead>
+                      <TableHead className="text-center min-w-[90px]">Transfer Gas</TableHead>
+                      <TableHead className="text-center min-w-[100px]">Transfer Empty</TableHead>
+                      <TableHead className="text-center min-w-[90px]">Received Gas</TableHead>
+                      <TableHead className="text-center border-r min-w-[100px]">Received Empty</TableHead>
+                      <TableHead className="text-center min-w-[60px]">Full</TableHead>
+                      <TableHead className="text-center min-w-[60px]">Empty</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dsrData.map((item, index) => (
+                      <TableRow key={index}>
+                        <TableCell className="font-medium border-r sticky left-0 bg-background z-10 min-w-[120px]">{item.itemName}</TableCell>
+                        <TableCell className="text-center min-w-[60px]">{item.openingFull}</TableCell>
+                        <TableCell className="text-center border-r min-w-[60px]">{item.openingEmpty}</TableCell>
+                        <TableCell className="text-center min-w-[70px]">{item.refilled}</TableCell>
+                        <TableCell className="text-center min-w-[90px]">{item.fullCylinderSales}</TableCell>
+                        <TableCell className="text-center min-w-[90px]">{item.emptyCylinderSales}</TableCell>
+                        <TableCell className="text-center min-w-[70px]">{item.gasSales}</TableCell>
+                        <TableCell className="text-center min-w-[100px]">{item.deposits}</TableCell>
+                        <TableCell className="text-center min-w-[100px]">{item.returns}</TableCell>
+                        <TableCell className="text-center min-w-[90px]">{item.transferGas}</TableCell>
+                        <TableCell className="text-center min-w-[100px]">{item.transferEmpty}</TableCell>
+                        <TableCell className="text-center min-w-[90px]">{item.receivedGas}</TableCell>
+                        <TableCell className="text-center border-r min-w-[100px]">{item.receivedEmpty}</TableCell>
+                        <TableCell className="text-center min-w-[60px]">{item.closingFull}</TableCell>
+                        <TableCell className="text-center min-w-[60px]">{item.closingEmpty}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>
@@ -675,46 +784,46 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       {/* Summary */}
       {dsrData.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Summary</CardTitle>
+          <CardHeader className="p-3 sm:p-6">
+            <CardTitle className="text-base sm:text-lg">Summary</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">
+          <CardContent className="p-2 sm:p-4 md:p-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 sm:gap-4">
+              <div className="text-center p-2 sm:p-3">
+                <div className="text-lg sm:text-xl md:text-2xl font-bold text-blue-600">
                   {dsrData.reduce((sum, item) => sum + item.fullCylinderSales, 0)}
                 </div>
-                <div className="text-sm text-muted-foreground">Full Cylinder Sales</div>
+                <div className="text-xs sm:text-sm text-muted-foreground mt-1">Full Cylinder Sales</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">
+              <div className="text-center p-2 sm:p-3">
+                <div className="text-lg sm:text-xl md:text-2xl font-bold text-green-600">
                   {dsrData.reduce((sum, item) => sum + item.emptyCylinderSales, 0)}
                 </div>
-                <div className="text-sm text-muted-foreground">Empty Cylinder Sales</div>
+                <div className="text-xs sm:text-sm text-muted-foreground mt-1">Empty Cylinder Sales</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">
+              <div className="text-center p-2 sm:p-3">
+                <div className="text-lg sm:text-xl md:text-2xl font-bold text-purple-600">
                   {dsrData.reduce((sum, item) => sum + item.gasSales, 0)}
                 </div>
-                <div className="text-sm text-muted-foreground">Gas Sales</div>
+                <div className="text-xs sm:text-sm text-muted-foreground mt-1">Gas Sales</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">
+              <div className="text-center p-2 sm:p-3">
+                <div className="text-lg sm:text-xl md:text-2xl font-bold text-red-600">
                   {dsrData.reduce((sum, item) => sum + item.transferGas, 0)}
                 </div>
-                <div className="text-sm text-muted-foreground">Transfer Gas</div>
+                <div className="text-xs sm:text-sm text-muted-foreground mt-1">Transfer Gas</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-yellow-600">
+              <div className="text-center p-2 sm:p-3">
+                <div className="text-lg sm:text-xl md:text-2xl font-bold text-yellow-600">
                   {dsrData.reduce((sum, item) => sum + item.transferEmpty, 0)}
                 </div>
-                <div className="text-sm text-muted-foreground">Transfer Empty</div>
+                <div className="text-xs sm:text-sm text-muted-foreground mt-1">Transfer Empty</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">
+              <div className="text-center p-2 sm:p-3">
+                <div className="text-lg sm:text-xl md:text-2xl font-bold text-orange-600">
                   {dsrData.length}
                 </div>
-                <div className="text-sm text-muted-foreground">Total Items</div>
+                <div className="text-xs sm:text-sm text-muted-foreground mt-1">Total Items</div>
               </div>
             </div>
           </CardContent>

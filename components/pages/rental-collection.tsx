@@ -45,7 +45,15 @@ interface RentalData {
   finalTotal: number
 }
 
-export function RentalCollection() {
+interface RentalCollectionProps {
+  user?: {
+    id: string
+    name: string
+    role: "admin" | "employee"
+  }
+}
+
+export function RentalCollection({ user }: RentalCollectionProps = {}) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -1201,24 +1209,28 @@ export function RentalCollection() {
                             <Receipt className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                             Receipt
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEditRental(rental)}
-                            className="w-full sm:w-auto text-xs sm:text-sm"
-                          >
-                            <Edit className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDeleteRental(rental)}
-                            className="text-red-600 hover:text-red-700 w-full sm:w-auto text-xs sm:text-sm"
-                          >
-                            <Trash className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                            Delete
-                          </Button>
+                          {(!user || user.role === 'admin') && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEditRental(rental)}
+                                className="w-full sm:w-auto text-xs sm:text-sm"
+                              >
+                                <Edit className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteRental(rental)}
+                                className="text-red-600 hover:text-red-700 w-full sm:w-auto text-xs sm:text-sm"
+                              >
+                                <Trash className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                                Delete
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
