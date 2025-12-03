@@ -3,6 +3,7 @@ import dbConnect from '@/lib/mongodb'
 import Rental from '@/models/Rental'
 import Customer from '@/models/Customer'
 import Product from '@/models/Product'
+import Counter from '@/models/Counter'
 
 export async function GET(request) {
   try {
@@ -105,13 +106,9 @@ export async function POST(request) {
     
     const finalTotal = subtotal + totalVat
     
-    // Generate rental number manually
-    const year = new Date().getFullYear()
-    const count = await Rental.countDocuments({
-      rentalNumber: { $regex: `^RNT-${year}-` }
-    })
-    const rentalNumber = `RNT-${year}-${String(count + 1).padStart(4, '0')}`
-    console.log('Generated rental number manually:', rentalNumber)
+    // Generate rental number using counter system (format: 0001, 0002, etc.)
+    const rentalNumber = await getNextRentalInvoiceNumber()
+    console.log('Generated rental number:', rentalNumber)
     
     // Create rental record
     const rental = new Rental({
@@ -197,6 +194,125 @@ export async function PUT(request) {
       { success: false, error: 'Failed to update rental' },
       { status: 500 }
     )
+  }
+}
+
+/**
+ * Get next rental invoice number using counter system
+ * Format: 0001, 0002, 0003, etc. (4-digit padded)
+ */
+async function getNextRentalInvoiceNumber() {
+  try {
+    // Initialize counter if needed
+    await initializeRentalCounter()
+    
+    // Use current year for counter (required by Counter model)
+    const currentYear = new Date().getFullYear()
+    
+    // Use MongoDB's atomic findOneAndUpdate to prevent race conditions
+    const counter = await Counter.findOneAndUpdate(
+      { 
+        key: 'rental_invoice_counter',
+        year: currentYear 
+      },
+      { $inc: { seq: 1 } },
+      { 
+        new: true, 
+        upsert: true,
+        setDefaultsOnInsert: { seq: 1 } // Start from 1
+      }
+    )
+    
+    // Format as 4-digit padded string
+    const invoiceNumber = counter.seq.toString().padStart(4, '0')
+    
+    console.log(`[RENTAL INVOICE] Generated: ${invoiceNumber} (counter: ${counter.seq})`)
+    
+    return invoiceNumber
+    
+  } catch (error) {
+    console.error('[RENTAL INVOICE] Error generating invoice number:', error)
+    
+    // Fallback: use timestamp-based number
+    const timestamp = Date.now()
+    const fallbackNumber = (timestamp % 10000).toString().padStart(4, '0')
+    console.warn(`[RENTAL INVOICE] Using fallback: ${fallbackNumber}`)
+    
+    return fallbackNumber
+  }
+}
+
+/**
+ * Initialize rental invoice counter by finding the highest existing rental number
+ * Handles both old format (RNT-YYYY-XXXX) and new format (XXXX)
+ */
+async function initializeRentalCounter() {
+  try {
+    const currentYear = new Date().getFullYear()
+    
+    // Check if counter already exists
+    const existingCounter = await Counter.findOne({ 
+      key: 'rental_invoice_counter',
+      year: currentYear 
+    })
+    
+    if (existingCounter) {
+      console.log(`[RENTAL INVOICE] Counter already initialized: ${existingCounter.seq}`)
+      return existingCounter.seq
+    }
+    
+    // Find all rentals and extract numeric parts
+    const allRentals = await Rental.find({ rentalNumber: { $exists: true, $ne: null } })
+      .select('rentalNumber')
+      .lean()
+    
+    let highestNumber = 0
+    
+    // Extract numbers from both old format (RNT-YYYY-XXXX) and new format (XXXX)
+    for (const rental of allRentals) {
+      if (!rental.rentalNumber) continue
+      
+      let number = 0
+      
+      // Check if it's old format: RNT-YYYY-XXXX
+      const oldFormatMatch = rental.rentalNumber.match(/RNT-\d{4}-(\d+)$/)
+      if (oldFormatMatch) {
+        number = parseInt(oldFormatMatch[1]) || 0
+      } else {
+        // Check if it's new format: just numbers (XXXX)
+        const newFormatMatch = rental.rentalNumber.match(/^(\d+)$/)
+        if (newFormatMatch) {
+          number = parseInt(newFormatMatch[1]) || 0
+        }
+      }
+      
+      if (number > highestNumber) {
+        highestNumber = number
+      }
+    }
+    
+    // Start from the next number (or 1 if no rentals exist)
+    const startingSeq = highestNumber + 1
+    
+    // Create counter
+    const counter = await Counter.findOneAndUpdate(
+      { 
+        key: 'rental_invoice_counter',
+        year: currentYear 
+      },
+      { seq: startingSeq },
+      { 
+        new: true, 
+        upsert: true
+      }
+    )
+    
+    console.log(`[RENTAL INVOICE] Initialized counter starting from: ${startingSeq}`)
+    return startingSeq
+    
+  } catch (error) {
+    console.error('[RENTAL INVOICE] Error initializing counter:', error)
+    return 1 // Fallback to start from 1
   }
 }
 

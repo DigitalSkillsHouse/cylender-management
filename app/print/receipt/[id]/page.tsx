@@ -116,6 +116,7 @@ const ReceiptPrintPage = () => {
     if (t === 'deposit') return '/images/Header-deposit-invoice.jpg'
     if (t === 'return') return '/images/Header-Return-invoice.jpg'
     if (t === 'collection') return '/images/Header-Receiving-invoice.jpg'
+    if (t === 'rental') return '/images/rental_Invoice_page.jpg'
     if (useReceivingHeader) return '/images/Header-Receiving-invoice.jpg'
     return '/images/Header-Tax-invoice.jpg'
   })()
@@ -158,16 +159,19 @@ const ReceiptPrintPage = () => {
                 <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
               )}
               <div><strong>Date:</strong> {new Date(sale.createdAt).toLocaleDateString()}</div>
-              <div>
-                <strong>Payment Method:</strong> {(
-                  sale?.paymentMethod
-                    ? sale.paymentMethod
-                        .toString()
-                        .replace(/[\-_]/g, ' ')
-                        .replace(/\b\w/g, (c) => c.toUpperCase())
-                    : '-'
-                )}
-              </div>
+              {/* Hide Payment Method for rental receipts */}
+              {sale?.type !== 'rental' && (
+                <div>
+                  <strong>Payment Method:</strong> {(
+                    sale?.paymentMethod
+                      ? sale.paymentMethod
+                          .toString()
+                          .replace(/[\-_]/g, ' ')
+                          .replace(/\b\w/g, (c) => c.toUpperCase())
+                      : '-'
+                  )}
+                </div>
+              )}
               {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
                 <>
                   {sale?.bankName && (

@@ -258,16 +258,19 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                 <div>
                   <strong>Date:</strong> {sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-'}
                 </div>
-                <div>
-                  <strong>Payment Method:</strong> {(
-                    sale?.paymentMethod
-                      ? sale.paymentMethod
-                          .toString()
-                          .replace(/[\-_]/g, ' ')
-                          .replace(/\b\w/g, (c) => c.toUpperCase())
-                      : '-'
-                  )}
-                </div>
+                {/* Hide Payment Method for rental receipts */}
+                {sale?.type !== 'rental' && (
+                  <div>
+                    <strong>Payment Method:</strong> {(
+                      sale?.paymentMethod
+                        ? sale.paymentMethod
+                            .toString()
+                            .replace(/[\-_]/g, ' ')
+                            .replace(/\b\w/g, (c) => c.toUpperCase())
+                        : '-'
+                    )}
+                  </div>
+                )}
                 {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
                   <>
                     {sale?.bankName && (
