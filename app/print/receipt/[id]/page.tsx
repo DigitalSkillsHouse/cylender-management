@@ -144,7 +144,6 @@ const ReceiptPrintPage = () => {
 
         <section className="grid grid-cols-2 gap-8 my-8">
           <div>
-            <h2 className="font-bold text-lg text-[#2B3068] mb-2">Customer Information</h2>
             <div className="space-y-1 text-sm text-gray-700">
               <div><strong>Name:</strong> {sale.customer.name}</div>
               <div><strong>TR Number:</strong> {sale.customer.trNumber || '-'}</div>
@@ -152,7 +151,6 @@ const ReceiptPrintPage = () => {
             </div>
           </div>
           <div>
-            <h2 className="font-bold text-lg text-[#2B3068] mb-2">Invoice Information</h2>
             <div className="space-y-1 text-sm text-gray-700">
               {/* Hide Invoice # for collection receipts */}
               {sale?.type !== 'collection' && (

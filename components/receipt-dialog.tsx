@@ -232,7 +232,6 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
           {/* Customer (left) and Invoice (right) Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <h3 className="font-semibold text-[#2B3068] mb-2">Customer Information</h3>
               <div className="space-y-1 text-sm">
                 <div>
                   <strong>Name:</strong> {sale?.customer?.name || '-'}
@@ -247,7 +246,6 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
             </div>
 
             <div>
-              <h3 className="font-semibold text-[#2B3068] mb-2">Invoice Information</h3>
               <div className="space-y-1 text-sm">
                 {/* Hide Invoice # for collection receipts */}
                 {sale?.type !== 'collection' && (
