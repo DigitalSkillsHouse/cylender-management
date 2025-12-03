@@ -11,15 +11,25 @@ export async function GET(request) {
     await dbConnect();
 
     const { searchParams } = new URL(request.url);
-    const date = searchParams.get("date"); // YYYY-MM-DD
+    const fromDate = searchParams.get("fromDate"); // YYYY-MM-DD
+    const toDate = searchParams.get("toDate"); // YYYY-MM-DD
     const employeeId = searchParams.get("employeeId"); // optional
 
-    if (!date) {
-      return NextResponse.json({ success: false, error: "Missing required 'date' (YYYY-MM-DD)" }, { status: 400 });
+    if (!fromDate || !toDate) {
+      return NextResponse.json({ success: false, error: "Missing required 'fromDate' and 'toDate' (YYYY-MM-DD)" }, { status: 400 });
     }
 
-    const start = new Date(`${date}T00:00:00.000Z`);
-    const end = new Date(`${date}T23:59:59.999Z`);
+    if (fromDate > toDate) {
+      return NextResponse.json({ success: false, error: "From Date cannot be greater than To Date" }, { status: 400 });
+    }
+
+    // Create date range - parse YYYY-MM-DD format and create UTC dates
+    // This ensures we get the full day range regardless of timezone
+    const [startYear, startMonth, startDay] = fromDate.split('-').map(Number);
+    const [endYear, endMonth, endDay] = toDate.split('-').map(Number);
+    
+    const start = new Date(Date.UTC(startYear, startMonth - 1, startDay, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(endYear, endMonth - 1, endDay, 23, 59, 59, 999));
 
     // Decide sources based on scope
     // - If employeeId present: use employee collections only (EmployeeSale, EmployeeCylinderTransaction)
@@ -159,7 +169,8 @@ export async function GET(request) {
     return NextResponse.json({
       success: true,
       data: {
-        date,
+        fromDate,
+        toDate,
         employeeId: employeeId || null,
         counts: {
           credit: creditSales.length,

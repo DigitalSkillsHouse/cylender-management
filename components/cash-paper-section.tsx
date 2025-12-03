@@ -26,7 +26,8 @@ export default function CashPaperSection({
   title?: string
   employeeId?: string
 }) {
-  const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10))
+  const [fromDate, setFromDate] = useState<string>(new Date().toISOString().slice(0, 10))
+  const [toDate, setToDate] = useState<string>(new Date().toISOString().slice(0, 10))
   const [loading, setLoading] = useState<boolean>(false)
   const [data, setData] = useState<{
     counts: { credit: number; debit: number; other: number; depositCylinder: number; returnCylinder: number; rental: number; total: number }
@@ -38,23 +39,35 @@ export default function CashPaperSection({
     rentalSales: CashPaperRecord[]
     otherByMethod: Record<string, number>
     totals: { totalCredit: number; totalDebit: number; totalOther: number; totalDepositCylinder: number; totalReturnCylinder: number; totalRental: number; grandTotal: number }
+    fromDate?: string
+    toDate?: string
   } | null>(null)
 
   const fetchData = async () => {
-    if (!date) return
+    if (!fromDate || !toDate) return
+    if (fromDate > toDate) {
+      alert('From Date cannot be greater than To Date')
+      return
+    }
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      params.set("date", date)
+      params.set("fromDate", fromDate)
+      params.set("toDate", toDate)
       if (employeeId) params.set("employeeId", employeeId)
-      const res = await fetch(`/api/reports/cash-paper?${params.toString()}`, { cache: "no-store" })
+      const url = `/api/reports/cash-paper?${params.toString()}`
+      const res = await fetch(url, { cache: "no-store" })
       const json = await res.json()
       if (json?.success) {
         setData(json.data)
       } else {
+        console.error('Cash paper API error:', json.error)
+        alert(json.error || 'Failed to fetch cash paper data')
         setData(null)
       }
-    } catch {
+    } catch (error) {
+      console.error('Cash paper fetch error:', error)
+      alert('Failed to fetch cash paper data. Please check your connection and try again.')
       setData(null)
     } finally {
       setLoading(false)
@@ -64,7 +77,7 @@ export default function CashPaperSection({
   useEffect(() => {
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, employeeId])
+  }, [fromDate, toDate, employeeId])
 
   const currency = (n: number) => new Intl.NumberFormat("en-AE", { style: "currency", currency: "AED" }).format(n || 0)
 
@@ -92,11 +105,12 @@ export default function CashPaperSection({
         .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(Number(r.totalVat || 0))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
         .join("")
 
+      const dateRange = fromDate === toDate ? fromDate : `${fromDate} to ${toDate}`
       const html = `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Cash Paper - ${date}</title>
+  <title>Cash Paper - ${dateRange}</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 16px; }
     h1 { font-size: 18px; margin: 0 0 12px; }
@@ -109,7 +123,7 @@ export default function CashPaperSection({
   </style>
 </head>
 <body>
-  <h1>${title} – ${date}${employeeId ? ` (Employee: ${data.creditSales?.[0]?.employeeName || ''})` : ''}</h1>
+  <h1>${title} – ${dateRange}${employeeId ? ` (Employee: ${data.creditSales?.[0]?.employeeName || ''})` : ''}</h1>
 
   <h2>Credit Sale Invoices List</h2>
   <table>
@@ -207,10 +221,14 @@ export default function CashPaperSection({
         <CardTitle style={{ color: "#2B3068" }}>{title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="space-y-2">
-            <Label htmlFor="cashPaperDate">Date</Label>
-            <Input id="cashPaperDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <Label htmlFor="cashPaperFromDate">From Date</Label>
+            <Input id="cashPaperFromDate" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="cashPaperToDate">To Date</Label>
+            <Input id="cashPaperToDate" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </div>
           <div className="flex items-end">
             <Button onClick={fetchData} disabled={loading} style={{ backgroundColor: "#2B3068" }}>
@@ -219,11 +237,36 @@ export default function CashPaperSection({
             </Button>
           </div>
           <div className="flex items-end">
-            <Button onClick={downloadPdf} variant="outline">
+            <Button onClick={downloadPdf} variant="outline" disabled={!data}>
               <FileText className="h-4 w-4 mr-2" /> Download PDF
             </Button>
           </div>
         </div>
+
+        {/* Date Range Info */}
+        {data && (
+          <div className="text-sm text-gray-600 mb-2">
+            Showing data from <strong>{data.fromDate || fromDate}</strong> to <strong>{data.toDate || toDate}</strong>
+            {data.counts && (
+              <span className="ml-2">({data.counts.total} transactions)</span>
+            )}
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading && (
+          <div className="text-center py-4 text-gray-500">
+            <Loader2 className="h-5 w-5 animate-spin inline-block mr-2" />
+            Loading cash paper data...
+          </div>
+        )}
+
+        {/* No Data State */}
+        {!loading && !data && (
+          <div className="text-center py-4 text-gray-500">
+            No data found for the selected date range. Please try a different date range.
+          </div>
+        )}
 
         {/* Quick totals */}
         {data && (
@@ -231,18 +274,22 @@ export default function CashPaperSection({
             <div className="border rounded p-3">
               <div className="text-gray-600">Credit</div>
               <div className="font-semibold">{currency(data.totals.totalCredit)}</div>
+              {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.credit} transactions</div>}
             </div>
             <div className="border rounded p-3">
               <div className="text-gray-600">Debit</div>
               <div className="font-semibold">{currency(data.totals.totalDebit)}</div>
+              {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.debit} transactions</div>}
             </div>
             <div className="border rounded p-3">
               <div className="text-gray-600">Other</div>
               <div className="font-semibold">{currency(data.totals.totalOther)}</div>
+              {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.other} transactions</div>}
             </div>
             <div className="border rounded p-3">
               <div className="text-gray-600">Grand Total</div>
               <div className="font-semibold">{currency(data.totals.grandTotal)}</div>
+              {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.total} total</div>}
             </div>
           </div>
         )}
