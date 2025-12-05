@@ -1187,15 +1187,15 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       {/* Employee DSR Dialog */}
       {user.role === 'admin' && (
         <Dialog open={showEmployeeDSR} onOpenChange={setShowEmployeeDSR}>
-          <DialogContent className="w-[95vw] max-w-[900px] p-3 sm:p-6 rounded-lg">
-            <DialogHeader>
-              <DialogTitle>Employee Daily Stock Report – {employeeDsrDate}</DialogTitle>
+          <DialogContent className="w-[95vw] max-w-[900px] h-[90vh] max-h-[90vh] p-3 sm:p-4 md:p-6 rounded-lg overflow-hidden flex flex-col">
+            <DialogHeader className="flex-shrink-0">
+              <DialogTitle className="text-base sm:text-lg">Employee Daily Stock Report – {employeeDsrDate}</DialogTitle>
             </DialogHeader>
             
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1 overflow-auto space-y-4">
+              <div className="flex flex-col sm:flex-row gap-4 flex-shrink-0">
                 <div className="flex-1">
-                  <Label htmlFor="employee-select">Select Employee</Label>
+                  <Label htmlFor="employee-select" className="text-sm">Select Employee</Label>
                   <select
                     id="employee-select"
                     value={selectedEmployeeId}
@@ -1203,7 +1203,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       console.log('Employee selected:', e.target.value)
                       setSelectedEmployeeId(e.target.value)
                     }}
-                    className="w-full mt-1 p-2 border rounded-md"
+                    className="w-full mt-1 p-2 border rounded-md text-sm"
                   >
                     <option value="">Select an employee ({employees.length} available)</option>
                     {employees.map((emp) => {
@@ -1217,60 +1217,62 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   </select>
                 </div>
                 <div className="flex-1">
-                  <Label htmlFor="employee-dsr-date">Date</Label>
+                  <Label htmlFor="employee-dsr-date" className="text-sm">Date</Label>
                   <Input
                     id="employee-dsr-date"
                     type="date"
                     value={employeeDsrDate}
                     onChange={(e) => setEmployeeDsrDate(e.target.value)}
-                    className="mt-1"
+                    className="mt-1 text-sm"
                   />
                 </div>
               </div>
               
               {employeeLoading ? (
                 <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
-                  <span>Loading employee DSR data...</span>
+                  <Loader2 className="h-5 w-5 sm:h-6 sm:w-6 animate-spin mr-2" />
+                  <span className="text-sm sm:text-base">Loading employee DSR data...</span>
                 </div>
               ) : employeeDsrData.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <Table className="text-xs sm:text-sm">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item Name</TableHead>
-                        <TableHead className="text-center">Opening Full</TableHead>
-                        <TableHead className="text-center">Opening Empty</TableHead>
-                        <TableHead className="text-center">Refilled</TableHead>
-                        <TableHead className="text-center">Cylinder Sales</TableHead>
-                        <TableHead className="text-center">Gas Sales</TableHead>
-                        <TableHead className="text-center">Deposit</TableHead>
-                        <TableHead className="text-center">Return</TableHead>
-                        <TableHead className="text-center">Closing Full</TableHead>
-                        <TableHead className="text-center">Closing Empty</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {employeeDsrData.map((entry) => (
-                        <TableRow key={entry._id}>
-                          <TableCell className="font-medium">{entry.itemName}</TableCell>
-                          <TableCell className="text-center">{entry.openingFull || 0}</TableCell>
-                          <TableCell className="text-center">{entry.openingEmpty || 0}</TableCell>
-                          <TableCell className="text-center">{entry.refilled || 0}</TableCell>
-                          <TableCell className="text-center">{entry.cylinderSales || 0}</TableCell>
-                          <TableCell className="text-center">{entry.gasSales || 0}</TableCell>
-                          <TableCell className="text-center">-</TableCell>
-                          <TableCell className="text-center">-</TableCell>
-                          <TableCell className="text-center">{entry.closingFull || 0}</TableCell>
-                          <TableCell className="text-center">{entry.closingEmpty || 0}</TableCell>
+                <div className="overflow-x-auto -mx-3 sm:-mx-4 md:-mx-6 px-3 sm:px-4 md:px-6">
+                  <div className="min-w-[700px]">
+                    <Table className="text-xs sm:text-sm">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="whitespace-nowrap">Item Name</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Opening Full</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Opening Empty</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Refilled</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Cylinder Sales</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Gas Sales</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Deposit</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Return</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Closing Full</TableHead>
+                          <TableHead className="text-center whitespace-nowrap">Closing Empty</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {employeeDsrData.map((entry) => (
+                          <TableRow key={entry._id}>
+                            <TableCell className="font-medium whitespace-nowrap">{entry.itemName}</TableCell>
+                            <TableCell className="text-center">{entry.openingFull || 0}</TableCell>
+                            <TableCell className="text-center">{entry.openingEmpty || 0}</TableCell>
+                            <TableCell className="text-center">{entry.refilled || 0}</TableCell>
+                            <TableCell className="text-center">{entry.cylinderSales || 0}</TableCell>
+                            <TableCell className="text-center">{entry.gasSales || 0}</TableCell>
+                            <TableCell className="text-center">-</TableCell>
+                            <TableCell className="text-center">-</TableCell>
+                            <TableCell className="text-center">{entry.closingFull || 0}</TableCell>
+                            <TableCell className="text-center">{entry.closingEmpty || 0}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-gray-500">
+                  <p className="text-gray-500 text-sm sm:text-base">
                     {selectedEmployeeId ? 'No DSR data found for this employee on the selected date.' : 'Please select an employee to view their DSR data.'}
                   </p>
                 </div>
