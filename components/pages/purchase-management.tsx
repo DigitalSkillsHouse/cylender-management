@@ -683,12 +683,18 @@ export function PurchaseManagement() {
       pdf.setFont('helvetica', 'normal')
       
       let currentRowY = tableStartY + rowHeight
+      let currentPage = 1 // Track current page number
       const itemsPerPage = Math.floor((pageHeight - currentRowY - 60) / rowHeight) // Reserve space for footer
+      
+      // Calculate totals for summary
+      let totalAmount = 0
+      let totalVAT = 0
       
       pdfFilteredOrders.forEach((order, index) => {
         // Add new page if needed
         if (index > 0 && index % itemsPerPage === 0) {
           pdf.addPage()
+          currentPage = pdf.getNumberOfPages()
           currentRowY = margin + 20
           
           // Repeat header on new page
@@ -723,6 +729,10 @@ export function PurchaseManagement() {
         }, 0) || 0
         const orderVat = orderSubtotal * 0.05
         const orderTotal = orderSubtotal + orderVat
+        
+        // Accumulate totals for summary
+        totalAmount += orderSubtotal
+        totalVAT += orderVat
 
         // Alternate row background
         if (index % 2 === 0) {
@@ -771,9 +781,82 @@ export function PurchaseManagement() {
         currentRowY += rowHeight
       })
 
+      // Calculate final totals
+      const totalPlusVAT = totalAmount + totalVAT
+      const grandTotal = totalPlusVAT
+
+      // Add summary section at the end of the table
+      // Ensure we're on the last page where the table ended
+      pdf.setPage(currentPage)
+      let summaryY = currentRowY + 10 // Space after last row
+      
+      // Check if we need a new page for summary (reserve space for footer ~60mm)
+      if (summaryY > pageHeight - 80) {
+        pdf.addPage()
+        summaryY = margin + 20
+      }
+
+      // Summary section - align with table columns
+      const summaryRowHeight = 8
+      const labelStartX = tableX
+      const labelWidth = colWidths[0] + colWidths[1] + colWidths[2] // First 3 columns for label
+      const subtotalColX = tableX + colWidths[0] + colWidths[1] + colWidths[2] // Start of Subtotal column
+      const vatColX = subtotalColX + colWidths[3] // Start of VAT column
+      const totalColX = vatColX + colWidths[4] // Start of Total column
+      
+      // Add a separator line
+      pdf.setDrawColor(200, 200, 200)
+      pdf.setLineWidth(0.5)
+      pdf.line(tableX, summaryY, tableX + tableWidth, summaryY)
+      summaryY += 5
+
+      // Total Amount row
+      pdf.setFillColor(245, 245, 245)
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight, "F")
+      pdf.setDrawColor(229, 231, 235)
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight)
+      pdf.setFontSize(9)
+      pdf.setTextColor(0, 0, 0)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text("Total Amount", labelStartX + 2, summaryY + 5.5)
+      pdf.text(`${totalAmount.toFixed(2)}`, subtotalColX + colWidths[3] - 2, summaryY + 5.5, { align: "right" })
+      summaryY += summaryRowHeight
+
+      // Total VAT row
+      pdf.setFillColor(250, 250, 250)
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight, "F")
+      pdf.setDrawColor(229, 231, 235)
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight)
+      pdf.setTextColor(0, 128, 0) // Green for VAT
+      pdf.text("Total VAT", labelStartX + 2, summaryY + 5.5)
+      pdf.text(`${totalVAT.toFixed(2)}`, vatColX + colWidths[4] - 2, summaryY + 5.5, { align: "right" })
+      pdf.setTextColor(0, 0, 0) // Reset color
+      summaryY += summaryRowHeight
+
+      // Total + VAT row
+      pdf.setFillColor(245, 245, 245)
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight, "F")
+      pdf.setDrawColor(229, 231, 235)
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight)
+      pdf.text("Total + VAT", labelStartX + 2, summaryY + 5.5)
+      pdf.text(`${totalPlusVAT.toFixed(2)}`, totalColX + colWidths[5] - 2, summaryY + 5.5, { align: "right" })
+      summaryY += summaryRowHeight
+
+      // Grand Total row (highlighted)
+      pdf.setFillColor(43, 48, 104) // #2B3068
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight, "F")
+      pdf.setDrawColor(43, 48, 104)
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight)
+      pdf.setFontSize(10)
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text("Grand Total", labelStartX + 2, summaryY + 5.5)
+      pdf.text(`${grandTotal.toFixed(2)}`, totalColX + colWidths[5] - 2, summaryY + 5.5, { align: "right" })
+
       // Add footer image and admin signature on the last page
-      const totalPages = pdf.getNumberOfPages()
-      pdf.setPage(totalPages) // Go to last page
+      // Get the actual last page number (might have changed if we added a page for summary)
+      const finalPageNumber = pdf.getNumberOfPages()
+      pdf.setPage(finalPageNumber)
       
       try {
         // Load and add footer image
