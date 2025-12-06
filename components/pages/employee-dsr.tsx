@@ -548,6 +548,59 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         `
       }).join('')
 
+      // Calculate totals for PDF
+      const totals = dsrData.reduce((acc, item) => ({
+        openingFull: acc.openingFull + item.openingFull,
+        openingEmpty: acc.openingEmpty + item.openingEmpty,
+        refilled: acc.refilled + item.refilled,
+        fullCylinderSales: acc.fullCylinderSales + item.fullCylinderSales,
+        emptyCylinderSales: acc.emptyCylinderSales + item.emptyCylinderSales,
+        gasSales: acc.gasSales + item.gasSales,
+        deposits: acc.deposits + item.deposits,
+        returns: acc.returns + item.returns,
+        transferGas: acc.transferGas + item.transferGas,
+        transferEmpty: acc.transferEmpty + item.transferEmpty,
+        receivedGas: acc.receivedGas + item.receivedGas,
+        receivedEmpty: acc.receivedEmpty + item.receivedEmpty,
+        closingFull: acc.closingFull + item.closingFull,
+        closingEmpty: acc.closingEmpty + item.closingEmpty
+      }), {
+        openingFull: 0,
+        openingEmpty: 0,
+        refilled: 0,
+        fullCylinderSales: 0,
+        emptyCylinderSales: 0,
+        gasSales: 0,
+        deposits: 0,
+        returns: 0,
+        transferGas: 0,
+        transferEmpty: 0,
+        receivedGas: 0,
+        receivedEmpty: 0,
+        closingFull: 0,
+        closingEmpty: 0
+      })
+
+      const totalsRow = `
+        <tr style="background-color: #f3f4f6; font-weight: bold;">
+          <td><strong>TOTAL</strong></td>
+          <td>${totals.openingFull}</td>
+          <td>${totals.openingEmpty}</td>
+          <td>${totals.refilled}</td>
+          <td>${totals.fullCylinderSales}</td>
+          <td>${totals.emptyCylinderSales}</td>
+          <td>${totals.gasSales}</td>
+          <td>${totals.deposits}</td>
+          <td>${totals.returns}</td>
+          <td>${totals.transferGas}</td>
+          <td>${totals.transferEmpty}</td>
+          <td>${totals.receivedGas}</td>
+          <td>${totals.receivedEmpty}</td>
+          <td>${totals.closingFull}</td>
+          <td>${totals.closingEmpty}</td>
+        </tr>
+      `
+
       const html = `<!doctype html>
       <html>
         <head>
@@ -592,6 +645,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
             </thead>
             <tbody>
               ${rows}
+              ${totalsRow}
             </tbody>
           </table>
         </body>
@@ -775,6 +829,52 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
                         <TableCell className="text-center font-semibold bg-blue-50 min-w-[60px]">{item.closingEmpty}</TableCell>
                       </TableRow>
                     ))}
+                    {/* Totals Row */}
+                    <TableRow className="bg-gray-100 font-bold">
+                      <TableCell className="font-bold border-r sticky left-0 bg-gray-100 z-10 min-w-[120px]">TOTAL</TableCell>
+                      <TableCell className="text-center min-w-[60px]">
+                        {dsrData.reduce((sum, item) => sum + item.openingFull, 0)}
+                      </TableCell>
+                      <TableCell className="text-center border-r min-w-[60px]">
+                        {dsrData.reduce((sum, item) => sum + item.openingEmpty, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[70px]">
+                        {dsrData.reduce((sum, item) => sum + item.refilled, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[90px]">
+                        {dsrData.reduce((sum, item) => sum + item.fullCylinderSales, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[90px]">
+                        {dsrData.reduce((sum, item) => sum + item.emptyCylinderSales, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[70px]">
+                        {dsrData.reduce((sum, item) => sum + item.gasSales, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[100px]">
+                        {dsrData.reduce((sum, item) => sum + item.deposits, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[100px]">
+                        {dsrData.reduce((sum, item) => sum + item.returns, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[90px]">
+                        {dsrData.reduce((sum, item) => sum + item.transferGas, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[100px]">
+                        {dsrData.reduce((sum, item) => sum + item.transferEmpty, 0)}
+                      </TableCell>
+                      <TableCell className="text-center min-w-[90px]">
+                        {dsrData.reduce((sum, item) => sum + item.receivedGas, 0)}
+                      </TableCell>
+                      <TableCell className="text-center border-r min-w-[100px]">
+                        {dsrData.reduce((sum, item) => sum + item.receivedEmpty, 0)}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold bg-blue-50 min-w-[60px]">
+                        {dsrData.reduce((sum, item) => sum + item.closingFull, 0)}
+                      </TableCell>
+                      <TableCell className="text-center font-semibold bg-blue-50 min-w-[60px]">
+                        {dsrData.reduce((sum, item) => sum + item.closingEmpty, 0)}
+                      </TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               </div>

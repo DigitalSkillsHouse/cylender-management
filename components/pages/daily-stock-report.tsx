@@ -1290,6 +1290,87 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         `
       }).join('')
 
+      // Calculate totals for PDF
+      const totals = rowsSource.reduce((acc, p) => {
+        const key = normalizeName(p.name)
+        const e = byKey.get(key)
+        
+        const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
+        const fullCylinderSalesVal = dailyFullCylinderSales[key] ?? 0
+        const emptyCylinderSalesVal = dailyEmptyCylinderSales[key] ?? 0
+        const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
+        const depositVal = dailyAggDeposits[key] ?? (e ? e.depositCylinder : 0)
+        const returnVal = dailyAggReturns[key] ?? (e ? e.returnCylinder : 0)
+        
+        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+        const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull
+        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty
+        
+        const transferGasVal = dailyTransferGas[key] ?? 0
+        const transferEmptyVal = dailyTransferEmpty[key] ?? 0
+        const receivedGasVal = dailyReceivedGas[key] ?? 0
+        const receivedEmptyVal = dailyReceivedEmpty[key] ?? 0
+        
+        const closingFull = Math.max(0, 
+          openingFull + (refilledVal || 0) - (fullCylinderSalesVal || 0) - (gasSalesVal || 0) - transferGasVal + receivedGasVal
+        )
+        const closingEmpty = Math.max(0, 
+          openingFull + openingEmpty - (fullCylinderSalesVal || 0) - (emptyCylinderSalesVal || 0) - (depositVal || 0) + (returnVal || 0) - transferEmptyVal + receivedEmptyVal
+        )
+        
+        return {
+          openingFull: acc.openingFull + openingFull,
+          openingEmpty: acc.openingEmpty + openingEmpty,
+          refilled: acc.refilled + (refilledVal || 0),
+          fullCylinderSales: acc.fullCylinderSales + (fullCylinderSalesVal || 0),
+          emptyCylinderSales: acc.emptyCylinderSales + (emptyCylinderSalesVal || 0),
+          gasSales: acc.gasSales + (gasSalesVal || 0),
+          deposits: acc.deposits + (depositVal || 0),
+          returns: acc.returns + (returnVal || 0),
+          transferGas: acc.transferGas + transferGasVal,
+          transferEmpty: acc.transferEmpty + transferEmptyVal,
+          receivedGas: acc.receivedGas + receivedGasVal,
+          receivedEmpty: acc.receivedEmpty + receivedEmptyVal,
+          closingFull: acc.closingFull + closingFull,
+          closingEmpty: acc.closingEmpty + closingEmpty
+        }
+      }, {
+        openingFull: 0,
+        openingEmpty: 0,
+        refilled: 0,
+        fullCylinderSales: 0,
+        emptyCylinderSales: 0,
+        gasSales: 0,
+        deposits: 0,
+        returns: 0,
+        transferGas: 0,
+        transferEmpty: 0,
+        receivedGas: 0,
+        receivedEmpty: 0,
+        closingFull: 0,
+        closingEmpty: 0
+      })
+
+      const totalsRow = `
+        <tr style="background-color: #f3f4f6; font-weight: bold;">
+          <td><strong>TOTAL</strong></td>
+          <td>${totals.openingFull}</td>
+          <td>${totals.openingEmpty}</td>
+          <td>${totals.refilled}</td>
+          <td>${totals.fullCylinderSales}</td>
+          <td>${totals.emptyCylinderSales}</td>
+          <td>${totals.gasSales}</td>
+          <td>${totals.deposits}</td>
+          <td>${totals.returns}</td>
+          <td>${totals.transferGas}</td>
+          <td>${totals.transferEmpty}</td>
+          <td>${totals.receivedGas}</td>
+          <td>${totals.receivedEmpty}</td>
+          <td>${totals.closingFull}</td>
+          <td>${totals.closingEmpty}</td>
+        </tr>
+      `
+
       const html = `<!doctype html>
       <html>
         <head>
@@ -1333,6 +1414,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             </thead>
             <tbody>
               ${rows}
+              ${totalsRow}
             </tbody>
           </table>
         </body>
@@ -1491,6 +1573,52 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                             <TableCell className="text-center font-semibold bg-blue-50">{entry.closingEmpty || 0}</TableCell>
                           </TableRow>
                         ))}
+                        {/* Totals Row */}
+                        <TableRow className="bg-gray-100 font-bold">
+                          <TableCell className="font-bold border-r">TOTAL</TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.openingFull || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center border-r">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.openingEmpty || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.refilled || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.fullCylinderSales || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.emptyCylinderSales || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.gasSales || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.deposits || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.returns || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.transferGas || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.transferEmpty || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.receivedGas || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center border-r">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.receivedEmpty || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center font-semibold bg-blue-50">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.closingFull || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center font-semibold bg-blue-50">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.closingEmpty || 0), 0)}
+                          </TableCell>
+                        </TableRow>
                       </TableBody>
                     </Table>
                   </div>
@@ -1668,6 +1796,116 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       </TableRow>
                     )
                   })}
+                  {/* Totals Row */}
+                  <TableRow className="bg-gray-100 font-bold">
+                    <TableCell className="font-bold border-r">TOTAL</TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+                        const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : inventoryInfo.availableFull)
+                        return sum + openingFull
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center border-r">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? (isInventoryFetched ? 0 : inventoryInfo.availableEmpty)
+                        return sum + openingEmpty
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyCylinderRefills[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyFullCylinderSales[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyEmptyCylinderSales[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyGasSales[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyAggDeposits[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyAggReturns[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyTransferGas[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyTransferEmpty[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyReceivedGas[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center border-r">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyReceivedEmpty[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center font-semibold bg-blue-50">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+                        const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : inventoryInfo.availableFull)
+                        const refilled = dailyCylinderRefills[key] ?? 0
+                        const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
+                        const gasSales = dailyGasSales[key] ?? 0
+                        const transferGasQuantity = dailyTransferGas[key] ?? 0
+                        const receivedGasQuantity = dailyReceivedGas[key] ?? 0
+                        const closingFull = Math.max(0, openingFull + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity)
+                        return sum + closingFull
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center font-semibold bg-blue-50">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+                        const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : inventoryInfo.availableFull)
+                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? (isInventoryFetched ? 0 : inventoryInfo.availableEmpty)
+                        const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
+                        const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
+                        const deposits = dailyAggDeposits[key] ?? 0
+                        const returns = dailyAggReturns[key] ?? 0
+                        const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
+                        const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
+                        const closingEmpty = Math.max(0, openingFull + openingEmpty - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity)
+                        return sum + closingEmpty
+                      }, 0)}
+                    </TableCell>
+                  </TableRow>
                 </TableBody>
                 </Table>
               </div>
