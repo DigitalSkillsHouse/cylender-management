@@ -181,10 +181,15 @@ export async function GET(request) {
               createdAt: sale.createdAt,
               items: sale.items,
               // Flag to distinguish which API to call when updating payment
-              saleSource: sale._saleSource === 'employee' ? 'employee' : 'admin'
+              saleSource: sale._saleSource === 'employee' ? 'employee' : 'admin',
+              // Include employee information for reference name in PDF
+              employee: sale.employee ? {
+                _id: sale.employee._id,
+                name: sale.employee.name
+              } : null
             })),
             
-            recentCylinderTransactions: cylinderTransactions.slice(0, 5).map(transaction => ({
+            recentCylinderTransactions: cylinderTransactions.map(transaction => ({
               _id: transaction._id,
               type: transaction.type,
               cylinderSize: transaction.cylinderSize,
@@ -193,7 +198,12 @@ export async function GET(request) {
               status: transaction.status,
               createdAt: transaction.createdAt,
               invoiceNumber: transaction.invoiceNumber,
-              transactionId: transaction.transactionId
+              transactionId: transaction.transactionId,
+              // Include employee information for reference name in PDF
+              employee: transaction.employee ? {
+                _id: transaction.employee._id,
+                name: transaction.employee.name
+              } : null
             }))
           };
         } catch (error) {

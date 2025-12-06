@@ -502,7 +502,14 @@ export function Reports() {
           pendingGasSales.forEach((sale: any) => {
             const date = new Date(sale.createdAt).toLocaleDateString();
             const invoiceNumber = sale.invoiceNumber || 'N/A';
-            const createdBy = sale.saleSource === 'employee' ? (sale.employee?.name || 'Employee') : 'Admin';
+            // Get employee name properly - check if sale is from employee and get name
+            let createdBy = 'Admin';
+            if (sale.employee && sale.employee.name) {
+              createdBy = sale.employee.name;
+            } else if (sale.saleSource === 'employee' || sale._saleSource === 'employee') {
+              // Employee sale but name not available
+              createdBy = 'Employee';
+            }
             const amount = Number(sale.totalAmount) || 0;
 
             pdf.setFont(undefined, 'normal');
@@ -519,7 +526,11 @@ export function Reports() {
           pendingCylinders.forEach((transaction: any) => {
             const date = new Date(transaction.createdAt).toLocaleDateString();
             const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
-            const createdBy = transaction.employee ? (transaction.employee?.name || 'Employee') : 'Admin';
+            // Get employee name properly - employee should be populated with name from API
+            let createdBy = 'Admin';
+            if (transaction.employee && transaction.employee.name) {
+              createdBy = transaction.employee.name;
+            }
             const amount = Number(transaction.amount) || 0;
 
             pdf.setFont(undefined, 'normal');
