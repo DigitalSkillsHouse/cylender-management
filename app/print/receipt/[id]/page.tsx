@@ -152,8 +152,10 @@ const ReceiptPrintPage = () => {
           </div>
           <div>
             <div className="space-y-1 text-sm text-gray-700">
-              {/* Hide Invoice # for collection receipts */}
-              {sale?.type !== 'collection' && (
+              {/* Show RC-NO for collection receipts, regular Invoice # for others */}
+              {sale?.type === 'collection' ? (
+                <div><strong>RC-NO-{sale?.invoiceNumber || '-'}</strong></div>
+              ) : (
                 <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
               )}
               <div><strong>Date:</strong> {new Date(sale.createdAt).toLocaleDateString()}</div>

@@ -206,7 +206,9 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" aria-describedby="receipt-dialog-description">
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <DialogTitle>Receipt</DialogTitle>
+            <DialogTitle>
+              {sale?.type === 'collection' ? `Receipt - RC-NO-${sale?.invoiceNumber || '-'}` : 'Receipt'}
+            </DialogTitle>
             <Button variant="ghost" size="sm" onClick={onClose}>
               <X className="w-4 h-4" />
             </Button>
@@ -247,8 +249,12 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
 
             <div>
               <div className="space-y-1 text-sm">
-                {/* Hide Invoice # for collection receipts */}
-                {sale?.type !== 'collection' && (
+                {/* Show RC-NO for collection receipts, regular Invoice # for others */}
+                {sale?.type === 'collection' ? (
+                  <div>
+                    <strong>RC-NO-{sale?.invoiceNumber || '-'}</strong>
+                  </div>
+                ) : (
                   <div>
                     <strong>Invoice #:</strong> {sale?.invoiceNumber || '-'}
                   </div>

@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/hooks/use-toast"
 import { format } from "date-fns"
-import { Printer, RefreshCcw } from "lucide-react"
+import { Printer, RefreshCcw, FileText, Download } from "lucide-react"
 import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 
@@ -24,7 +24,7 @@ interface User {
 }
 
 interface PendingInvoiceItem {
-  product: { name: string }
+  product: { name: string; price?: number }
   quantity: number
   price: number
   total: number
@@ -35,13 +35,16 @@ interface PendingInvoice {
   model: "Sale" | "EmployeeSale"
   source: "admin" | "employee"
   invoiceNumber: string
-  customer: { _id: string; name: string; phone?: string } | null
+  customer: { _id: string; name: string; phone?: string; address?: string; trNumber?: string } | null
   employee?: { _id: string; name: string; email?: string } | null
   items: PendingInvoiceItem[]
   totalAmount: number
   receivedAmount: number
   balance: number
   paymentStatus: string
+  paymentMethod?: string
+  bankName?: string
+  chequeNumber?: string
   createdAt: string
 }
 
@@ -52,9 +55,13 @@ interface CollectionPageProps {
 export function CollectionPage({ user }: CollectionPageProps) {
   const [loading, setLoading] = useState(false)
   const [invoices, setInvoices] = useState<PendingInvoice[]>([])
+  const [collectedInvoices, setCollectedInvoices] = useState<PendingInvoice[]>([])
+  const [loadingCollected, setLoadingCollected] = useState(false)
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [amounts, setAmounts] = useState<Record<string, string>>({})
   const [signatureOpen, setSignatureOpen] = useState(false)
+  const [collectedInvoiceSignatureOpen, setCollectedInvoiceSignatureOpen] = useState(false)
+  const [pendingCollectedInvoice, setPendingCollectedInvoice] = useState<PendingInvoice | null>(null)
   const [pendingPaymentsCache, setPendingPaymentsCache] = useState<Array<{ model: string; id: string; amount: number }>>([])
   // Receipt dialog state
   const [showReceiptDialog, setShowReceiptDialog] = useState(false)
@@ -71,6 +78,23 @@ export function CollectionPage({ user }: CollectionPageProps) {
     type: string
     createdAt: string
     customerSignature?: string  // Changed from signature to customerSignature to match ReceiptDialogProps
+  } | null>(null)
+  
+  // Receipt dialog state for individual collected invoices
+  const [showCollectedReceiptDialog, setShowCollectedReceiptDialog] = useState(false)
+  const [collectedReceiptData, setCollectedReceiptData] = useState<{
+    _id: string
+    invoiceNumber: string
+    customer: { name: string; phone: string; address: string; trNumber?: string }
+    items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number }>
+    totalAmount: number
+    paymentMethod: string
+    bankName?: string
+    chequeNumber?: string
+    paymentStatus: string
+    type: string
+    createdAt: string
+    customerSignature?: string
   } | null>(null)
   // Customer selection state
   const [customers, setCustomers] = useState<any[]>([])
@@ -124,7 +148,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
       } else {
         // Load pending invoices only for the selected customer with cache busting
         const timestamp = forceRefresh ? `&_t=${Date.now()}` : ''
-        const res = await fetch(`/api/collections?customerId=${customerId}${timestamp}`, {
+        const res = await fetch(`/api/collections?customerId=${customerId}&type=pending${timestamp}`, {
           method: 'GET',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -157,6 +181,44 @@ export function CollectionPage({ user }: CollectionPageProps) {
     }
   }
 
+  const fetchCollectedInvoices = async (customerId?: string, forceRefresh = false) => {
+    setLoadingCollected(true)
+    try {
+      if (!customerId) {
+        setCollectedInvoices([])
+      } else {
+        const timestamp = forceRefresh ? `&_t=${Date.now()}` : ''
+        const res = await fetch(`/api/collections?customerId=${customerId}&type=collected${timestamp}`, {
+          method: 'GET',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        })
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+        }
+        
+        const data = await res.json()
+        
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to fetch collected invoices')
+        }
+        
+        const arr: PendingInvoice[] = Array.isArray(data?.data) ? data.data : []
+        setCollectedInvoices(arr)
+      }
+    } catch (e: any) {
+      console.error('fetchCollectedInvoices error:', e)
+      toast({ title: "Failed to load collected invoices", description: e?.message || "", variant: "destructive" })
+      setCollectedInvoices([])
+    } finally {
+      setLoadingCollected(false)
+    }
+  }
+
   useEffect(() => {
     fetchCustomers()
   }, [])
@@ -167,6 +229,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
       console.log("Collection page focused, refreshing data...")
       if (selectedCustomer?._id) {
         fetchData(selectedCustomer._id, true) // Force refresh on focus
+        fetchCollectedInvoices(selectedCustomer._id, true) // Also refresh collected invoices
       }
     }
 
@@ -174,12 +237,14 @@ export function CollectionPage({ user }: CollectionPageProps) {
     return () => window.removeEventListener('focus', handleFocus)
   }, [selectedCustomer?._id])
 
-  // When customer is selected, load their pending invoices
+  // When customer is selected, load their pending and collected invoices
   useEffect(() => {
     if (selectedCustomer?._id) {
       fetchData(selectedCustomer._id, true) // Force refresh when customer changes
+      fetchCollectedInvoices(selectedCustomer._id, true) // Also fetch collected invoices
     } else {
       setInvoices([])
+      setCollectedInvoices([])
     }
     // reset selections and amounts when changing customer
     setSelected({})
@@ -434,6 +499,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
       setSelected({})
       setAmounts({})
       await fetchData(selectedCustomer?._id, true) // Force refresh after collection
+      await fetchCollectedInvoices(selectedCustomer?._id, true) // Also refresh collected invoices
       // Format receipt data to show invoice numbers instead of individual items
       const receiptItems = payments.map(p => {
         const invoice = invoices.find(inv => inv._id === p.id)
@@ -460,8 +526,10 @@ export function CollectionPage({ user }: CollectionPageProps) {
         }
       }).filter((item): item is NonNullable<typeof item> => item !== null)
 
-      // Use collection receipt number instead of individual invoice number
-      const invoiceNumber = `COL-${Date.now().toString().slice(-6)}`
+      // Use the actual invoice number from the first invoice being collected
+      // If multiple invoices, use the first one's invoice number
+      const firstInvoice = invoices.find(inv => inv._id === payments[0]?.id)
+      const invoiceNumber = firstInvoice?.invoiceNumber || payments[0]?.id || ''
       
       // Fetch full customer details including TR number and address
       const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
@@ -492,6 +560,49 @@ export function CollectionPage({ user }: CollectionPageProps) {
       setLoading(false)
       setPendingPaymentsCache([])
     }
+  }
+
+  const generateReceiptForCollectedInvoice = (invoice: PendingInvoice) => {
+    // Store the invoice and open signature dialog first
+    setPendingCollectedInvoice(invoice)
+    setCollectedInvoiceSignatureOpen(true)
+  }
+
+  const generateReceiptWithSignature = (invoice: PendingInvoice, signature: string | null) => {
+    // Fetch full customer details including TR number and address
+    const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
+    
+    // Format items for receipt
+    const receiptItems = invoice.items?.map(item => ({
+      product: {
+        name: item.product.name,
+        price: item.price || 0
+      },
+      quantity: item.quantity,
+      price: item.price,
+      total: item.total
+    })) || []
+    
+    setCollectedReceiptData({
+      _id: invoice._id,
+      invoiceNumber: invoice.invoiceNumber, // Keep original invoice number for RC-NO format
+      customer: {
+        name: selectedCustomer?.name || invoice.customer?.name || 'Customer',
+        phone: selectedCustomer?.phone || invoice.customer?.phone || '',
+        address: customerDetails?.address || '',
+        trNumber: customerDetails?.trNumber || ''
+      },
+      items: receiptItems,
+      totalAmount: invoice.totalAmount,
+      paymentMethod: invoice.paymentMethod || 'Cash',
+      bankName: invoice.bankName || '',
+      chequeNumber: invoice.chequeNumber || '',
+      paymentStatus: invoice.paymentStatus,
+      type: 'collection',
+      createdAt: invoice.createdAt,
+      customerSignature: signature || undefined
+    })
+    setShowCollectedReceiptDialog(true)
   }
 
   const openPrintWindow = (payments: Array<{ model: string; id: string; amount: number }>, signature?: string) => {
@@ -558,7 +669,10 @@ export function CollectionPage({ user }: CollectionPageProps) {
             <p className="text-white/80 text-sm">Search a customer to view and collect their pending invoices</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => fetchData(selectedCustomer?._id, true)} disabled={loading}>
+            <Button variant="secondary" onClick={() => {
+              fetchData(selectedCustomer?._id, true)
+              fetchCollectedInvoices(selectedCustomer?._id, true)
+            }} disabled={loading || loadingCollected}>
               <RefreshCcw className="w-4 h-4 mr-2" /> Refresh
             </Button>
           </div>
@@ -798,6 +912,86 @@ export function CollectionPage({ user }: CollectionPageProps) {
         </CardContent>
       </Card>
 
+      {/* Collected Invoices Section */}
+      {selectedCustomer && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base sm:text-lg">Collected Invoices</CardTitle>
+            <p className="text-sm text-gray-600">All invoices that have received payments</p>
+          </CardHeader>
+          <CardContent>
+            {loadingCollected ? (
+              <div className="p-6 text-center text-gray-500">Loading collected invoices...</div>
+            ) : collectedInvoices.length === 0 ? (
+              <div className="p-6 text-center text-gray-500">No collected invoices found</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[800px] text-sm">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="text-left p-2">Invoice Number</th>
+                      <th className="text-left p-2">Source</th>
+                      <th className="text-left p-2">Items Summary</th>
+                      <th className="text-right p-2">Total Amount (AED)</th>
+                      <th className="text-right p-2">Received (AED)</th>
+                      <th className="text-right p-2">Balance (AED)</th>
+                      <th className="text-left p-2">Status</th>
+                      <th className="text-left p-2">Date</th>
+                      <th className="text-center p-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {collectedInvoices.map((inv) => {
+                      const itemsSummary = inv.items && inv.items.length > 0 
+                        ? inv.items.map(item => `${item.product.name} (${item.quantity})`).join(', ')
+                        : 'No items'
+                      
+                      return (
+                        <tr key={inv._id} className="border-b hover:bg-gray-50">
+                          <td className="p-2 align-middle font-medium">{inv.invoiceNumber}</td>
+                          <td className="p-2 align-middle">
+                            <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
+                              {inv.source}
+                            </Badge>
+                          </td>
+                          <td className="p-2 align-middle">
+                            <div className="text-sm max-w-xs truncate" title={itemsSummary}>
+                              {itemsSummary}
+                            </div>
+                          </td>
+                          <td className="p-2 align-middle text-right font-semibold">{inv.totalAmount.toFixed(2)}</td>
+                          <td className="p-2 align-middle text-right text-green-600">{inv.receivedAmount.toFixed(2)}</td>
+                          <td className="p-2 align-middle text-right font-semibold text-red-600">{inv.balance.toFixed(2)}</td>
+                          <td className="p-2 align-middle">
+                            <Badge className={inv.paymentStatus === 'cleared' ? 'bg-green-600' : 'bg-yellow-500'}>
+                              {inv.paymentStatus}
+                            </Badge>
+                          </td>
+                          <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
+                          <td className="p-2 align-middle">
+                            <div className="flex gap-2 justify-center">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => generateReceiptForCollectedInvoice(inv)}
+                                className="text-xs"
+                              >
+                                <FileText className="w-3 h-3 mr-1" />
+                                Receipt
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Payment Collection Dialog */}
       <Dialog open={paymentDialog.open} onOpenChange={(v) => v ? setPaymentDialog(prev => ({ ...prev, open: true })) : closePaymentDialog()}>
         <DialogContent className="max-w-[420px]">
@@ -885,6 +1079,23 @@ export function CollectionPage({ user }: CollectionPageProps) {
         })()}
       />
 
+      {/* Signature capture dialog for collected invoice receipts */}
+      <SignatureDialog
+        isOpen={collectedInvoiceSignatureOpen}
+        onClose={() => {
+          setCollectedInvoiceSignatureOpen(false)
+          setPendingCollectedInvoice(null)
+        }}
+        onSignatureComplete={(sig) => {
+          setCollectedInvoiceSignatureOpen(false)
+          if (pendingCollectedInvoice) {
+            generateReceiptWithSignature(pendingCollectedInvoice, sig)
+            setPendingCollectedInvoice(null)
+          }
+        }}
+        customerName={pendingCollectedInvoice?.customer?.name || selectedCustomer?.name}
+      />
+
       {/* Use the standard ReceiptDialog for consistency */}
       {receiptData && (
         <ReceiptDialog
@@ -897,6 +1108,22 @@ export function CollectionPage({ user }: CollectionPageProps) {
           onClose={() => {
             setShowReceiptDialog(false)
             setReceiptData(null)
+          }}
+        />
+      )}
+
+      {/* Receipt Dialog for Collected Invoices */}
+      {collectedReceiptData && (
+        <ReceiptDialog
+          sale={{
+            ...collectedReceiptData,
+            customerSignature: collectedReceiptData.customerSignature || undefined
+          }}
+          signature={collectedReceiptData.customerSignature}
+          open={showCollectedReceiptDialog}
+          onClose={() => {
+            setShowCollectedReceiptDialog(false)
+            setCollectedReceiptData(null)
           }}
         />
       )}
