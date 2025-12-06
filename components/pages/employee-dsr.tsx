@@ -198,8 +198,9 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         const closingFull = Math.max(0, 
           openingFull + item.refilled - item.fullCylinderSales - item.gasSales - item.transferGas + item.receivedGas
         )
+        // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
         const closingEmpty = Math.max(0, 
-          openingEmpty + item.gasSales + item.fullCylinderSales - item.refilled + item.deposits - item.returns - item.transferEmpty + item.receivedEmpty
+          openingFull + openingEmpty - item.fullCylinderSales - item.emptyCylinderSales - item.deposits + item.returns - item.transferEmpty + item.receivedEmpty
         )
         
         await fetch('/api/employee-daily-stock-reports', {
@@ -420,7 +421,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
           existing.openingFull = openingFull
           existing.openingEmpty = openingEmpty
           existing.closingFull = Math.max(0, openingFull + existing.refilled - existing.fullCylinderSales - existing.gasSales - existing.transferGas + existing.receivedGas)
-          existing.closingEmpty = Math.max(0, openingEmpty + existing.gasSales + existing.fullCylinderSales - existing.refilled + existing.deposits - existing.returns - existing.transferEmpty + existing.receivedEmpty)
+          // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
+          existing.closingEmpty = Math.max(0, openingFull + openingEmpty - existing.fullCylinderSales - existing.emptyCylinderSales - existing.deposits + existing.returns - existing.transferEmpty + existing.receivedEmpty)
         } else {
           // Create new entry from inventory data (no sales)
           dsrMap.set(itemName, {
@@ -567,7 +569,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
               <tr>
                 <th>Items</th>
                 <th colspan=2>Opening</th>
-                <th colspan=8>During the day</th>
+                <th colspan=10>During the day</th>
                 <th colspan=2>Closing</th>
               </tr>
               <tr>
@@ -733,8 +735,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
                     <TableRow>
                       <TableHead rowSpan={2} className="border-r sticky left-0 bg-background z-10 min-w-[120px]">Items</TableHead>
                       <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
-                      <TableHead colSpan={8} className="text-center border-r">During the day</TableHead>
-                      <TableHead colSpan={2} className="text-center">Closing</TableHead>
+                      <TableHead colSpan={10} className="text-center border-r">During the day</TableHead>
+                      <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
                     </TableRow>
                     <TableRow>
                       <TableHead className="text-center min-w-[60px]">Full</TableHead>
@@ -749,8 +751,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
                       <TableHead className="text-center min-w-[100px]">Transfer Empty</TableHead>
                       <TableHead className="text-center min-w-[90px]">Received Gas</TableHead>
                       <TableHead className="text-center border-r min-w-[100px]">Received Empty</TableHead>
-                      <TableHead className="text-center min-w-[60px]">Full</TableHead>
-                      <TableHead className="text-center min-w-[60px]">Empty</TableHead>
+                      <TableHead className="text-center bg-blue-100 font-semibold min-w-[60px]">Full</TableHead>
+                      <TableHead className="text-center bg-blue-100 font-semibold min-w-[60px]">Empty</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -769,8 +771,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
                         <TableCell className="text-center min-w-[100px]">{item.transferEmpty}</TableCell>
                         <TableCell className="text-center min-w-[90px]">{item.receivedGas}</TableCell>
                         <TableCell className="text-center border-r min-w-[100px]">{item.receivedEmpty}</TableCell>
-                        <TableCell className="text-center min-w-[60px]">{item.closingFull}</TableCell>
-                        <TableCell className="text-center min-w-[60px]">{item.closingEmpty}</TableCell>
+                        <TableCell className="text-center font-semibold bg-blue-50 min-w-[60px]">{item.closingFull}</TableCell>
+                        <TableCell className="text-center font-semibold bg-blue-50 min-w-[60px]">{item.closingEmpty}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

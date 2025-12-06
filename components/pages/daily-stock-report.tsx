@@ -745,11 +745,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const receivedGasQuantity = dailyReceivedGas[key] ?? 0
         const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
         
+        const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
+        
         const closingFull = Math.max(0, 
           openingFull + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
         )
+        // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
         const closingEmpty = Math.max(0, 
-          openingEmpty + gasSales + fullCylinderSales - refilled + deposits - returns - transferEmptyQuantity + receivedEmptyQuantity
+          openingFull + openingEmpty - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity
         )
         
         await fetch('/api/daily-stock-reports', {
@@ -1307,7 +1310,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
               <tr>
                 <th>Items</th>
                 <th colspan=2>Opening</th>
-                <th colspan=8>During the day</th>
+                <th colspan=10>During the day</th>
                 <th colspan=2>Closing</th>
               </tr>
               <tr>
@@ -1448,8 +1451,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                         <TableRow>
                           <TableHead rowSpan={2} className="border-r whitespace-nowrap">Items</TableHead>
                           <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
-                          <TableHead colSpan={8} className="text-center border-r">During the day</TableHead>
-                          <TableHead colSpan={2} className="text-center">Closing</TableHead>
+                          <TableHead colSpan={10} className="text-center border-r">During the day</TableHead>
+                          <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
                         </TableRow>
                         <TableRow>
                           <TableHead className="text-center">Full</TableHead>
@@ -1464,8 +1467,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                           <TableHead className="text-center">Transfer Empty</TableHead>
                           <TableHead className="text-center">Received Gas</TableHead>
                           <TableHead className="text-center border-r">Received Empty</TableHead>
-                          <TableHead className="text-center">Full</TableHead>
-                          <TableHead className="text-center">Empty</TableHead>
+                          <TableHead className="text-center bg-blue-100 font-semibold">Full</TableHead>
+                          <TableHead className="text-center bg-blue-100 font-semibold">Empty</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1484,8 +1487,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                             <TableCell className="text-center">{entry.transferEmpty || 0}</TableCell>
                             <TableCell className="text-center">{entry.receivedGas || 0}</TableCell>
                             <TableCell className="text-center border-r">{entry.receivedEmpty || 0}</TableCell>
-                            <TableCell className="text-center">{entry.closingFull || 0}</TableCell>
-                            <TableCell className="text-center">{entry.closingEmpty || 0}</TableCell>
+                            <TableCell className="text-center font-semibold bg-blue-50">{entry.closingFull || 0}</TableCell>
+                            <TableCell className="text-center font-semibold bg-blue-50">{entry.closingEmpty || 0}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1593,8 +1596,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   <TableRow>
                     <TableHead rowSpan={2} className="border-r">Items</TableHead>
                     <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
-                    <TableHead colSpan={8} className="text-center border-r">During the day</TableHead>
-                    <TableHead colSpan={2} className="text-center">Closing</TableHead>
+                    <TableHead colSpan={10} className="text-center border-r">During the day</TableHead>
+                    <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
                   </TableRow>
                   <TableRow>
                     <TableHead className="text-center">Full</TableHead>
@@ -1660,8 +1663,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                         <TableCell className="text-center">{transferEmptyQuantity}</TableCell>
                         <TableCell className="text-center">{receivedGasQuantity}</TableCell>
                         <TableCell className="text-center border-r">{receivedEmptyQuantity}</TableCell>
-                        <TableCell className="text-center">{closingFull}</TableCell>
-                        <TableCell className="text-center">{closingEmpty}</TableCell>
+                        <TableCell className="text-center font-semibold bg-blue-50">{closingFull}</TableCell>
+                        <TableCell className="text-center font-semibold bg-blue-50">{closingEmpty}</TableCell>
                       </TableRow>
                     )
                   })}
