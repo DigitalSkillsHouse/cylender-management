@@ -130,6 +130,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
   const [customerSignature, setCustomerSignature] = useState<string>("") 
   const [statusFilter, setStatusFilter] = useState("all")
   const [activeTab, setActiveTab] = useState("all")
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
   // Export controls
   const [showExportInput, setShowExportInput] = useState(false)
   const [exportSearch, setExportSearch] = useState("")
@@ -328,11 +329,15 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       cylinderSize: () => {
         const items = (transaction as any).items as any[] | undefined
         const hasItems = items && items.length > 0
+        const transactionId = transaction._id?.toString() || ''
+        const isExpanded = expandedItems[transactionId] || false
+        const showAll = isExpanded || items!.length <= 1
+        
         return (
           <TableCell className="p-4">
             {hasItems ? (
               <div className="text-sm space-y-1">
-                {items!.map((it, idx) => (
+                {(showAll ? items! : items!.slice(0, 1)).map((it, idx) => (
                   <div key={idx} className="flex items-center gap-2">
                     <span className="font-medium text-gray-800">{it.productName || products.find(p=>p._id===it.productId)?.name || 'Product'}</span>
                     <span className="text-gray-500">({it.cylinderSize || products.find(p=>p._id===it.productId)?.cylinderSize || '-'})</span>
@@ -340,6 +345,28 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                     <span className="text-gray-700">- AED {(Number(it.amount)||0).toFixed(2)}</span>
                   </div>
                 ))}
+                {items!.length > 1 && !isExpanded && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setExpandedItems(prev => ({ ...prev, [transactionId]: true }))
+                    }}
+                    className="text-blue-600 hover:text-blue-800 text-xs font-medium mt-1"
+                  >
+                    See more ({items!.length - 1} more)
+                  </button>
+                )}
+                {items!.length > 1 && isExpanded && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setExpandedItems(prev => ({ ...prev, [transactionId]: false }))
+                    }}
+                    className="text-blue-600 hover:text-blue-800 text-xs font-medium mt-1"
+                  >
+                    Show less
+                  </button>
+                )}
               </div>
             ) : (
               <span className="font-medium capitalize">{transaction.cylinderSize || '-'}</span>
