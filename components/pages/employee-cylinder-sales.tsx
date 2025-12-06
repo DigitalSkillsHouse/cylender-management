@@ -779,8 +779,26 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       // Add summary table at bottom right
       const deposits = list.filter(t => t.type === 'deposit')
       const returns = list.filter(t => t.type === 'return')
-      const totalDeposits = deposits.length
-      const totalReturns = returns.length
+      
+      // Calculate total quantities (sum of quantities, not count of transactions)
+      const totalDeposits = deposits.reduce((sum, t) => {
+        const items = (t as any).items as any[] | undefined
+        const hasItems = items && items.length > 0
+        if (hasItems) {
+          return sum + items!.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
+        }
+        return sum + (Number(t.quantity) || 0)
+      }, 0)
+      
+      const totalReturns = returns.reduce((sum, t) => {
+        const items = (t as any).items as any[] | undefined
+        const hasItems = items && items.length > 0
+        if (hasItems) {
+          return sum + items!.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
+        }
+        return sum + (Number(t.quantity) || 0)
+      }, 0)
+      
       const totalRemaining = totalDeposits - totalReturns
 
       // Add some space before summary
