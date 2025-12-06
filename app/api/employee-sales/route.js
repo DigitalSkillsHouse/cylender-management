@@ -508,7 +508,9 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
       )
       console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale tracked: ${product.name} - ${quantity} units`)
       
-      // Also record cylinder usage if cylinderProductId is provided
+      // Also record gas sales under cylinder product if cylinderProductId is provided
+      // When gas is sold, it should ONLY record gasSalesQuantity, NOT fullCylinderSalesQuantity
+      // Full cylinder sales should only be recorded when a full cylinder is sold directly
       if (item.cylinderProductId) {
         const cylinderProduct = await Product.findById(item.cylinderProductId)
         if (cylinderProduct) {
@@ -525,15 +527,15 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
                 cylinderStatus: null
               },
               $inc: {
-                gasSalesQuantity: quantity,  // Gas was sold using this cylinder
-                gasSalesAmount: amount,
-                fullCylinderSalesQuantity: quantity,  // Customer took full cylinder
-                fullCylinderSalesAmount: amount
+                // Record ONLY gas sales (gas was sold using this cylinder)
+                // Do NOT record fullCylinderSalesQuantity here - that's only for direct full cylinder sales
+                gasSalesQuantity: quantity,
+                gasSalesAmount: amount
               }
             },
             { upsert: true, new: true }
           )
-          console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale + cylinder usage recorded for ${cylinderProduct.name}: ${quantity} units`)
+          console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale recorded for ${cylinderProduct.name}: ${quantity} units`)
         }
       }
       

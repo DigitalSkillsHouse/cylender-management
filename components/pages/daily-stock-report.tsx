@@ -35,8 +35,15 @@ interface EmployeeDailyStockEntry {
   openingFull: number
   openingEmpty: number
   refilled: number
-  cylinderSales: number
+  fullCylinderSales: number
+  emptyCylinderSales: number
   gasSales: number
+  deposits: number
+  returns: number
+  transferGas: number
+  transferEmpty: number
+  receivedGas: number
+  receivedEmpty: number
   closingFull?: number
   closingEmpty?: number
   createdAt: string
@@ -197,19 +204,33 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       }
       
       // Fetch actual employee transaction data for the date
-      const [salesRes, cylinderRes, refillRes] = await Promise.all([
+      const [salesRes, cylinderRes, refillRes, empStockEmpRes, stockAssignmentsRes] = await Promise.all([
         fetch(`/api/daily-employee-sales?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
         fetch(`/api/daily-employee-cylinder-aggregation?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
-        fetch(`/api/daily-refills?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' })
+        fetch(`/api/daily-refills?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
+        fetch(`/api/emp-stock-emp?employeeId=${employeeId}`, { cache: 'no-store' }),
+        fetch(`/api/stock-assignments?employeeId=${employeeId}`, { cache: 'no-store' })
       ])
       
       const salesJson = await salesRes.json()
       const cylinderJson = await cylinderRes.json()
       const refillJson = await refillRes.json()
+      const empStockEmpJson = await empStockEmpRes.json()
+      const stockAssignmentsJson = await stockAssignmentsRes.json()
       
       const salesData: any[] = salesJson?.data || []
       const cylinderData: any[] = cylinderJson?.data || []
       const refillData: any[] = refillJson?.data || []
+      const empStockEmpData: any[] = empStockEmpJson?.data || []
+      const stockAssignmentsData: any[] = stockAssignmentsJson?.data || []
+      
+      // Helper to check if date is in selected day
+      const inSelectedDay = (dateStr: string) => {
+        if (!dateStr) return false
+        const d = new Date(dateStr)
+        const selected = new Date(`${date}T00:00:00.000`)
+        return d.toISOString().slice(0, 10) === selected.toISOString().slice(0, 10)
+      }
       
       // Build a map of actual transaction data by product name
       const transactionMap = new Map<string, {
@@ -219,6 +240,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         gasSales: number
         deposits: number
         returns: number
+        transferGas: number
+        transferEmpty: number
+        receivedGas: number
+        receivedEmpty: number
       }>()
       
       // Process sales data
@@ -234,7 +259,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           emptyCylinderSales: 0,
           gasSales: 0,
           deposits: 0,
-          returns: 0
+          returns: 0,
+          transferGas: 0,
+          transferEmpty: 0,
+          receivedGas: 0,
+          receivedEmpty: 0
         }
         
         existing.fullCylinderSales += Number(sale.fullCylinderSalesQuantity || 0)
@@ -255,7 +284,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           emptyCylinderSales: 0,
           gasSales: 0,
           deposits: 0,
-          returns: 0
+          returns: 0,
+          transferGas: 0,
+          transferEmpty: 0,
+          receivedGas: 0,
+          receivedEmpty: 0
         }
         
         existing.refilled += Number(cylinder.totalRefills || 0)
@@ -276,12 +309,165 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           emptyCylinderSales: 0,
           gasSales: 0,
           deposits: 0,
-          returns: 0
+          returns: 0,
+          transferGas: 0,
+          transferEmpty: 0,
+          receivedGas: 0,
+          receivedEmpty: 0
         }
         
         existing.refilled += Number(refill.todayRefill || 0)
         
         transactionMap.set(itemName, existing)
+      })
+      
+      // Process EmpStockEmp assignments (transfers from admin to employee)
+      empStockEmpData.forEach((assignment: any) => {
+        const productName = assignment.productName || assignment.product?.name || ''
+        const category = assignment.category || assignment.product?.category || ''
+        const cylinderStatus = assignment.cylinderStatus || ''
+        const quantity = Number(assignment.assignedQuantity || assignment.quantity || 0)
+        const status = assignment.status || ''
+        const relatedCylinderName = assignment.relatedCylinderName || ''
+        const assignmentMethod = assignment.assignmentMethod || ''
+        
+        let assignmentDate = assignment.assignmentDate || assignment.createdAt || assignment.assignedDate || ''
+        if (assignmentDate && typeof assignmentDate === 'object' && assignmentDate.toISOString) {
+          assignmentDate = assignmentDate.toISOString()
+        }
+        
+        if (!productName || quantity <= 0) return
+        if (!inSelectedDay(assignmentDate)) return
+        
+        // For gas assignments, use the related cylinder name for DSR grouping
+        let dsrKey = normalizeName(productName)
+        if (category === 'gas' && relatedCylinderName) {
+          dsrKey = normalizeName(relatedCylinderName)
+        }
+        
+        // Track transfers (when stock is assigned to employee)
+        if ((status === 'assigned' || status === 'accepted') && assignmentMethod !== 'return_transaction') {
+          const existing = transactionMap.get(dsrKey) || {
+            refilled: 0,
+            fullCylinderSales: 0,
+            emptyCylinderSales: 0,
+            gasSales: 0,
+            deposits: 0,
+            returns: 0,
+            transferGas: 0,
+            transferEmpty: 0,
+            receivedGas: 0,
+            receivedEmpty: 0
+          }
+          
+          if (category === 'gas') {
+            existing.transferGas += quantity
+          } else if (category === 'cylinder') {
+            existing.transferEmpty += quantity // Full cylinders transferred become empty at employee
+          }
+          
+          transactionMap.set(dsrKey, existing)
+        }
+        
+        // Track received items (when employee returns stock to admin)
+        if (assignmentMethod === 'return_transaction' && status === 'accepted') {
+          const existing = transactionMap.get(dsrKey) || {
+            refilled: 0,
+            fullCylinderSales: 0,
+            emptyCylinderSales: 0,
+            gasSales: 0,
+            deposits: 0,
+            returns: 0,
+            transferGas: 0,
+            transferEmpty: 0,
+            receivedGas: 0,
+            receivedEmpty: 0
+          }
+          
+          if (category === 'gas') {
+            existing.receivedGas += quantity
+          } else if (category === 'cylinder' && cylinderStatus === 'empty') {
+            existing.receivedEmpty += quantity
+          }
+          
+          transactionMap.set(dsrKey, existing)
+        }
+      })
+      
+      // Process StockAssignment records (from Employee Management page)
+      stockAssignmentsData.forEach((assignment: any) => {
+        const productName = assignment.product?.name || assignment.productName || ''
+        const category = assignment.category || assignment.product?.category || ''
+        const cylinderStatus = assignment.cylinderStatus || ''
+        const quantity = Number(assignment.quantity || assignment.remainingQuantity || 0)
+        const status = assignment.status || ''
+        
+        let assignedDate = assignment.assignedDate || assignment.createdAt || ''
+        let receivedDate = assignment.receivedDate || ''
+        
+        if (assignedDate && typeof assignedDate === 'object' && assignedDate.toISOString) {
+          assignedDate = assignedDate.toISOString()
+        }
+        if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
+          receivedDate = receivedDate.toISOString()
+        }
+        
+        if (!productName || quantity <= 0) return
+        
+        const isTransferDate = assignedDate && inSelectedDay(assignedDate)
+        const isReceivedDate = receivedDate && inSelectedDay(receivedDate)
+        
+        if (!isTransferDate && !isReceivedDate) return
+        
+        const dsrKey = normalizeName(productName)
+        
+        // Track transfers
+        if (isTransferDate && (status === 'assigned' || status === 'received')) {
+          const existing = transactionMap.get(dsrKey) || {
+            refilled: 0,
+            fullCylinderSales: 0,
+            emptyCylinderSales: 0,
+            gasSales: 0,
+            deposits: 0,
+            returns: 0,
+            transferGas: 0,
+            transferEmpty: 0,
+            receivedGas: 0,
+            receivedEmpty: 0
+          }
+          
+          if (category === 'gas') {
+            existing.transferGas += quantity
+          } else if (category === 'cylinder') {
+            existing.transferEmpty += quantity
+          }
+          
+          transactionMap.set(dsrKey, existing)
+        }
+        
+        // Track received items
+        if (isReceivedDate && status === 'returned') {
+          const existing = transactionMap.get(dsrKey) || {
+            refilled: 0,
+            fullCylinderSales: 0,
+            emptyCylinderSales: 0,
+            gasSales: 0,
+            deposits: 0,
+            returns: 0,
+            transferGas: 0,
+            transferEmpty: 0,
+            receivedGas: 0,
+            receivedEmpty: 0
+          }
+          
+          if (category === 'gas') {
+            existing.receivedGas += quantity
+          } else if (category === 'cylinder' && (cylinderStatus === 'empty' || !cylinderStatus)) {
+            existing.receivedEmpty += quantity
+          }
+          
+          transactionMap.set(dsrKey, existing)
+        }
       })
       
       // Merge stored DSR records with actual transaction data
@@ -314,7 +500,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           emptyCylinderSales: 0,
           gasSales: 0,
           deposits: 0,
-          returns: 0
+          returns: 0,
+          transferGas: 0,
+          transferEmpty: 0,
+          receivedGas: 0,
+          receivedEmpty: 0
         }
         
         // Find inventory item for this product to get opening stock if not stored
@@ -335,9 +525,13 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         let closingEmpty = stored?.closingEmpty
         
         if (closingFull === undefined || closingEmpty === undefined) {
-          // Calculate closing using DSR formula
-          closingFull = Math.max(0, openingFull + transactions.refilled - transactions.fullCylinderSales - transactions.gasSales)
-          closingEmpty = Math.max(0, openingEmpty + transactions.gasSales + transactions.fullCylinderSales - transactions.refilled + transactions.deposits - transactions.returns)
+          // Calculate closing using DSR formula (matching admin DSR)
+          closingFull = Math.max(0, 
+            openingFull + transactions.refilled - transactions.fullCylinderSales - transactions.gasSales - transactions.transferGas + transactions.receivedGas
+          )
+          closingEmpty = Math.max(0, 
+            openingEmpty + transactions.gasSales + transactions.fullCylinderSales - transactions.refilled + transactions.deposits - transactions.returns - transactions.transferEmpty + transactions.receivedEmpty
+          )
         }
         
         return {
@@ -348,8 +542,15 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           openingFull: openingFull,
           openingEmpty: openingEmpty,
           refilled: transactions.refilled || Number(stored?.refilled || 0),
-          cylinderSales: transactions.fullCylinderSales || Number(stored?.cylinderSales || 0),
+          fullCylinderSales: transactions.fullCylinderSales || Number(stored?.fullCylinderSales || 0),
+          emptyCylinderSales: transactions.emptyCylinderSales || Number(stored?.emptyCylinderSales || 0),
           gasSales: transactions.gasSales || Number(stored?.gasSales || 0),
+          deposits: transactions.deposits || Number(stored?.deposits || 0),
+          returns: transactions.returns || Number(stored?.returns || 0),
+          transferGas: transactions.transferGas || 0,
+          transferEmpty: transactions.transferEmpty || 0,
+          receivedGas: transactions.receivedGas || 0,
+          receivedEmpty: transactions.receivedEmpty || 0,
           closingFull: typeof closingFull === 'number' ? closingFull : 0,
           closingEmpty: typeof closingEmpty === 'number' ? closingEmpty : 0,
           createdAt: stored?.createdAt || new Date().toISOString(),
@@ -1239,29 +1440,44 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     <Table className="text-xs sm:text-sm">
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="whitespace-nowrap">Item Name</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Opening Full</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Opening Empty</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Refilled</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Cylinder Sales</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Gas Sales</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Deposit</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Return</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Closing Full</TableHead>
-                          <TableHead className="text-center whitespace-nowrap">Closing Empty</TableHead>
+                          <TableHead rowSpan={2} className="border-r whitespace-nowrap">Items</TableHead>
+                          <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
+                          <TableHead colSpan={8} className="text-center border-r">During the day</TableHead>
+                          <TableHead colSpan={2} className="text-center">Closing</TableHead>
+                        </TableRow>
+                        <TableRow>
+                          <TableHead className="text-center">Full</TableHead>
+                          <TableHead className="text-center border-r">Empty</TableHead>
+                          <TableHead className="text-center">Refilled</TableHead>
+                          <TableHead className="text-center">Full Cyl Sales</TableHead>
+                          <TableHead className="text-center">Empty Cyl Sales</TableHead>
+                          <TableHead className="text-center">Gas Sales</TableHead>
+                          <TableHead className="text-center">Deposit Cylinder</TableHead>
+                          <TableHead className="text-center">Return Cylinder</TableHead>
+                          <TableHead className="text-center">Transfer Gas</TableHead>
+                          <TableHead className="text-center">Transfer Empty</TableHead>
+                          <TableHead className="text-center">Received Gas</TableHead>
+                          <TableHead className="text-center border-r">Received Empty</TableHead>
+                          <TableHead className="text-center">Full</TableHead>
+                          <TableHead className="text-center">Empty</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {employeeDsrData.map((entry) => (
                           <TableRow key={entry._id}>
-                            <TableCell className="font-medium whitespace-nowrap">{entry.itemName}</TableCell>
+                            <TableCell className="font-medium border-r whitespace-nowrap">{entry.itemName}</TableCell>
                             <TableCell className="text-center">{entry.openingFull || 0}</TableCell>
-                            <TableCell className="text-center">{entry.openingEmpty || 0}</TableCell>
+                            <TableCell className="text-center border-r">{entry.openingEmpty || 0}</TableCell>
                             <TableCell className="text-center">{entry.refilled || 0}</TableCell>
-                            <TableCell className="text-center">{entry.cylinderSales || 0}</TableCell>
+                            <TableCell className="text-center">{entry.fullCylinderSales || 0}</TableCell>
+                            <TableCell className="text-center">{entry.emptyCylinderSales || 0}</TableCell>
                             <TableCell className="text-center">{entry.gasSales || 0}</TableCell>
-                            <TableCell className="text-center">-</TableCell>
-                            <TableCell className="text-center">-</TableCell>
+                            <TableCell className="text-center">{entry.deposits || 0}</TableCell>
+                            <TableCell className="text-center">{entry.returns || 0}</TableCell>
+                            <TableCell className="text-center">{entry.transferGas || 0}</TableCell>
+                            <TableCell className="text-center">{entry.transferEmpty || 0}</TableCell>
+                            <TableCell className="text-center">{entry.receivedGas || 0}</TableCell>
+                            <TableCell className="text-center border-r">{entry.receivedEmpty || 0}</TableCell>
                             <TableCell className="text-center">{entry.closingFull || 0}</TableCell>
                             <TableCell className="text-center">{entry.closingEmpty || 0}</TableCell>
                           </TableRow>

@@ -433,7 +433,9 @@ export async function POST(request) {
                 const cylinderProduct = await Product.findById(item.cylinderProductId)
                 console.log(`✅ Cylinder conversion: ${cylinderProduct?.name || 'Cylinder'} - ${item.quantity} moved from Full to Empty`)
                 
-                // Record BOTH gas sale AND cylinder usage in daily sales tracking for DSR
+                // Record ONLY gas sale in daily sales tracking for DSR
+                // When gas is sold, it should NOT increment fullCylinderSalesQuantity
+                // Full cylinder sales should only be recorded when a full cylinder is sold directly
                 try {
                   const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
                   const DailySales = (await import('@/models/DailySales')).default
@@ -451,19 +453,16 @@ export async function POST(request) {
                         cylinderName: cylinderProduct?.name || 'Unknown Cylinder'
                       },
                       $inc: {
-                        // Record gas sales (gas was sold to customer)
+                        // Record ONLY gas sales (gas was sold to customer)
+                        // Do NOT record fullCylinderSalesQuantity here - that's only for direct full cylinder sales
                         gasSalesQuantity: item.quantity,
-                        gasSalesAmount: Number(item.price) * Number(item.quantity),
-                        // Record cylinder transactions (customer brought empty, took full)
-                        fullCylinderSalesQuantity: item.quantity,  // Customer took full cylinder
-                        // Note: Don't increment emptyCylinderSalesQuantity here as customer returned empty (not sold empty)
-                        // The DSR should show this as cylinder usage, not cylinder sales
+                        gasSalesAmount: Number(item.price) * Number(item.quantity)
                       }
                     },
                     { upsert: true, new: true }
                   )
                   
-                  console.log(`✅ Gas sale + cylinder usage recorded in daily sales tracking for ${cylinderProduct?.name}: ${item.quantity} units gas, ${item.quantity} cylinders used`)
+                  console.log(`✅ Gas sale recorded in daily sales tracking for ${cylinderProduct?.name}: ${item.quantity} units gas`)
                   console.log(`🔧 Daily sales record updated:`, {
                     date: saleDate,
                     productId: item.cylinderProductId,
