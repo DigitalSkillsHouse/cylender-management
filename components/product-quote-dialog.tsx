@@ -282,8 +282,8 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
     const pageHeight = pdf.internal.pageSize.getHeight()
     const margin = 15
 
-    // Calculate items per page (approximately 20-25 items per A4 page with compact spacing)
-    const itemsPerPage = 22
+    // Calculate items per page - maximum 10 items per page to ensure proper fit with header, footer, warning, etc.
+    const itemsPerPage = 10
     const totalPages = Math.ceil(items.length / itemsPerPage)
 
     for (let pageNum = 0; pageNum < totalPages; pageNum++) {
@@ -352,7 +352,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
 
       // Add table with perfect margins and spacing
       const tableStartY = currentYPosition + 5
-      const rowHeight = 8 // Smaller row height for better fit
+      const rowHeight = 7.5 // Optimized row height to fit 10 items per page
       const colWidths = [12, 20, 50, 15, 22, 22, 25] // S.No, Code, Item, Quantity, Price, VAT 5%, Total - removed Category, adjusted widths
       const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
       const tableX = (pageWidth - tableWidth) / 2 // Center table with equal left and right margins
@@ -470,13 +470,16 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         currentY += rowHeight
       })
 
+      // Calculate table end position
+      const tableEndY = currentY
+      
       // Add totals summary on the last page only
       if (pageNum === totalPages - 1) {
-        currentY += 15 // Add some space after table
+        currentY = tableEndY + 10 // Reduced spacing after table
         
         // Compact totals box for better space utilization
-        const totalsBoxWidth = 70 // Reduced from 85
-        const totalsBoxHeight = 35 // Reduced from 50
+        const totalsBoxWidth = 70
+        const totalsBoxHeight = 32 // Reduced to save space
         const totalsBoxX = pageWidth - margin - totalsBoxWidth
         const totalsBoxY = currentY
         
@@ -527,12 +530,15 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
           pdf.text(line, totalsBoxX + 3, totalsBoxY + 31 + (index * 3)) // Tighter line spacing
         })
         
-        // Update currentY for warning message positioning - less spacing
-        currentY = totalsBoxY + totalsBoxHeight + 8 // Reduced from 15
+        // Update currentY for warning message positioning
+        currentY = totalsBoxY + totalsBoxHeight + 5 // Reduced spacing
       }
 
       // Add warning message and footer on the last page only
       if (pageNum === totalPages - 1) {
+        // Track if warning has been drawn to prevent duplicates
+        let warningDrawn = false
+        
         // First, pre-calculate the actual footer image height
         let actualFooterHeight = 35 // Default estimate
         try {
@@ -551,51 +557,53 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
           console.warn("Failed to pre-calculate footer height:", error)
         }
         
-        // Calculate available space for warning and footer
-        const availableSpace = pageHeight - currentY - 25 // Leave space for page number
-        const warningHeight = 28
-        const spacingBetween = 8
+        // Calculate available space for warning and footer (leave 15mm for page number)
+        const availableSpace = pageHeight - currentY - 15
+        const warningTitle = "PAY ATTENTION HERE:"
+        const warningText = "Prices mentioned in the quotation are valid for one week only, and may be updated after this time. During cylinder use, if the Valve, spindle, Valve Guard, Paint Charge, or cylinder is found Damaged or Broken the customer will need to pay for the necessary repairs or part replacement."
+        
+        // Calculate warning text height (title + text lines)
+        pdf.setFontSize(8) // Title font size
+        const maxWidth = pageWidth - margin * 2
+        const warningLines = pdf.splitTextToSize(warningText, maxWidth)
+        const titleHeight = 5 // Height for title
+        const warningHeight = titleHeight + (warningLines.length * 4) + 3 // Title + text lines + spacing
+        
+        const spacingBetween = 5
         const totalNeeded = warningHeight + actualFooterHeight + spacingBetween
         
-        let warningY = currentY + 8
+        let warningY = currentY + 5 // Reduced spacing
         let footerY = warningY + warningHeight + spacingBetween
         let needsNewPage = false
         
         // Check if footer section (warning + footer image) will fit on current page
-        if (totalNeeded > availableSpace) {
-          // Not enough space - move entire footer section to new page
+        // Only move to new page if absolutely necessary (when items are more than 10)
+        if (totalNeeded > availableSpace && items.length > itemsPerPage) {
+          // Not enough space - move entire footer section to new page (only if multiple pages)
           needsNewPage = true
           pdf.addPage()
-          warningY = margin + 15
+          warningY = margin + 10
           footerY = warningY + warningHeight + spacingBetween
+        } else if (totalNeeded > availableSpace) {
+          // For single page, reduce spacing to fit everything
+          warningY = currentY + 3
+          footerY = warningY + warningHeight + 3
         }
         
-        // Warning box background with better styling
-        pdf.setFillColor(255, 243, 205) // yellow-100
-        pdf.setDrawColor(251, 191, 36) // yellow-400
-        pdf.setLineWidth(0.5)
-        pdf.rect(margin, warningY, pageWidth - margin * 2, warningHeight, "FD")
-        
-        // Warning title - more compact
-        pdf.setFontSize(9) // Reduced from 11
-        pdf.setTextColor(146, 64, 14) // yellow-800
-        pdf.setFont(undefined, 'bold')
-        pdf.text("PAY ATTENTION PLEASE!", margin + 4, warningY + 8) // Reduced spacing
-        
-        // Warning text - more compact
-        pdf.setFontSize(7) // Reduced from 8
-        pdf.setTextColor(92, 38, 5) // yellow-900
-        pdf.setFont(undefined, 'normal')
-        const warningText = "Prices mentioned in the quotation are valid for one week only, and may be updated after this time. During cylinder use, if the Valve, spindle, Valve Guard, Paint Charge, or cylinder is found Damaged or Broken the customer will need to pay for the necessary repairs or part replacement."
-        
-        // Split text into lines that fit within the box
-        const maxWidth = pageWidth - margin * 2 - 8
-        const lines = pdf.splitTextToSize(warningText, maxWidth)
-        
-        // Draw each line with tighter spacing
-        lines.forEach((line: string, index: number) => {
-          pdf.text(line, margin + 4, warningY + 14 + (index * 3)) // Tighter line spacing
-        })
+        // Draw warning text in red bold (no box) - only on current page if not moved to new page
+        if (!needsNewPage) {
+          // Draw on current page
+          pdf.setFontSize(8)
+          pdf.setTextColor(220, 38, 38) // red-600
+          pdf.setFont(undefined, 'bold')
+          pdf.text(warningTitle, margin, warningY)
+          
+          pdf.setFontSize(7)
+          warningLines.forEach((line: string, index: number) => {
+            pdf.text(line, margin, warningY + titleHeight + (index * 4)) // Line spacing
+          })
+          warningDrawn = true // Mark as drawn
+        }
         
         // Footer Y position is already calculated above
         
@@ -625,32 +633,42 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                   
                   // Use the pre-calculated footerY position (already checked for page fit)
                   let finalFooterY = footerY
-                  let finalWarningY = warningY
                   
-                  // Ensure footer doesn't go beyond page bottom
-                  const maxFooterY = pageHeight - calculatedFooterHeight - 20
-                  if (finalFooterY > maxFooterY) {
-                    // If somehow it still doesn't fit, move to next page
-                    pdf.addPage()
-                    finalWarningY = margin + 15
-                    finalFooterY = finalWarningY + warningHeight + spacingBetween
-                    
-                    // Re-draw warning on new page
-                    pdf.setFillColor(255, 243, 205)
-                    pdf.setDrawColor(251, 191, 36)
-                    pdf.setLineWidth(0.5)
-                    pdf.rect(margin, finalWarningY, pageWidth - margin * 2, warningHeight, "FD")
-                    pdf.setFontSize(9)
-                    pdf.setTextColor(146, 64, 14)
+                  // Draw warning if it needs to be on a new page (only if moved to new page earlier AND not already drawn)
+                  if (needsNewPage && !warningDrawn) {
+                    pdf.setFontSize(8)
+                    pdf.setTextColor(220, 38, 38) // red-600
                     pdf.setFont(undefined, 'bold')
-                    pdf.text("PAY ATTENTION PLEASE!", margin + 4, finalWarningY + 8)
+                    pdf.text(warningTitle, margin, warningY)
+                    
                     pdf.setFontSize(7)
-                    pdf.setTextColor(92, 38, 5)
-                    pdf.setFont(undefined, 'normal')
                     const newLines = pdf.splitTextToSize(warningText, maxWidth)
                     newLines.forEach((line: string, index: number) => {
-                      pdf.text(line, margin + 4, finalWarningY + 14 + (index * 3))
+                      pdf.text(line, margin, warningY + titleHeight + (index * 4))
                     })
+                    warningDrawn = true // Mark as drawn
+                  }
+                  
+                  // Ensure footer doesn't go beyond page bottom (only check if not already on new page)
+                  const maxFooterY = pageHeight - calculatedFooterHeight - 20
+                  if (finalFooterY > maxFooterY && !needsNewPage && !warningDrawn) {
+                    // If somehow it still doesn't fit, move to next page
+                    pdf.addPage()
+                    const emergencyWarningY = margin + 10
+                    finalFooterY = emergencyWarningY + warningHeight + spacingBetween
+                    
+                    // Draw warning text on new page (red bold, no box) - only if not already drawn
+                    pdf.setFontSize(8)
+                    pdf.setTextColor(220, 38, 38) // red-600
+                    pdf.setFont(undefined, 'bold')
+                    pdf.text(warningTitle, margin, emergencyWarningY)
+                    
+                    pdf.setFontSize(7)
+                    const newLines = pdf.splitTextToSize(warningText, maxWidth)
+                    newLines.forEach((line: string, index: number) => {
+                      pdf.text(line, margin, emergencyWarningY + titleHeight + (index * 4))
+                    })
+                    warningDrawn = true // Mark as drawn
                   }
                   
                   // Add footer image
