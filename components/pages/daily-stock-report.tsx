@@ -529,8 +529,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           closingFull = Math.max(0, 
             openingFull + transactions.refilled - transactions.fullCylinderSales - transactions.gasSales - transactions.transferGas + transactions.receivedGas
           )
+          // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
           closingEmpty = Math.max(0, 
-            openingEmpty + transactions.gasSales + transactions.fullCylinderSales - transactions.refilled + transactions.deposits - transactions.returns - transactions.transferEmpty + transactions.receivedEmpty
+            openingFull + openingEmpty - transactions.fullCylinderSales - transactions.emptyCylinderSales - transactions.deposits + transactions.returns - transactions.transferEmpty + transactions.receivedEmpty
           )
         }
         
@@ -1240,7 +1241,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const e = byKey.get(key)
         
         const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
-        const cylSalesVal = dailyAggCylinderSales[key] ?? (e ? e.cylinderSales : 0)
+        const fullCylinderSalesVal = dailyFullCylinderSales[key] ?? 0
+        const emptyCylinderSalesVal = dailyEmptyCylinderSales[key] ?? 0
         const gasSalesVal = dailyAggGasSales[key] ?? (e ? e.gasSales : 0)
         const depositVal = dailyAggDeposits[key] ?? (e ? e.depositCylinder : 0)
         const returnVal = dailyAggReturns[key] ?? (e ? e.returnCylinder : 0)
@@ -1249,17 +1251,19 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull
         const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty
         
-        // Calculate closing stock using DSR formula
+        // Calculate closing stock using DSR formula (matching main DSR view)
         const transferGasVal = dailyTransferGas[key] ?? 0
         const transferEmptyVal = dailyTransferEmpty[key] ?? 0
         const receivedGasVal = dailyReceivedGas[key] ?? 0
         const receivedEmptyVal = dailyReceivedEmpty[key] ?? 0
         
+        // Closing Full = Opening Full + Refilled - Full Cylinder Sales - Gas Sales - Transfer Gas + Received Gas
         const closingFull = Math.max(0, 
-          openingFull + (refilledVal || 0) - (cylSalesVal || 0) - (gasSalesVal || 0) - transferGasVal + receivedGasVal
+          openingFull + (refilledVal || 0) - (fullCylinderSalesVal || 0) - (gasSalesVal || 0) - transferGasVal + receivedGasVal
         )
+        // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
         const closingEmpty = Math.max(0, 
-          openingEmpty + (gasSalesVal || 0) + (cylSalesVal || 0) - (refilledVal || 0) + (depositVal || 0) - (returnVal || 0) - transferEmptyVal + receivedEmptyVal
+          openingFull + openingEmpty - (fullCylinderSalesVal || 0) - (emptyCylinderSalesVal || 0) - (depositVal || 0) + (returnVal || 0) - transferEmptyVal + receivedEmptyVal
         )
         
         return `
@@ -1268,7 +1272,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             <td>${openingFull}</td>
             <td>${openingEmpty}</td>
             <td>${refilledVal || 0}</td>
-            <td>${cylSalesVal || 0}</td>
+            <td>${fullCylinderSalesVal || 0}</td>
+            <td>${emptyCylinderSalesVal || 0}</td>
             <td>${gasSalesVal || 0}</td>
             <td>${depositVal || 0}</td>
             <td>${returnVal || 0}</td>
@@ -1302,7 +1307,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
               <tr>
                 <th>Items</th>
                 <th colspan=2>Opening</th>
-                <th colspan=7>During the day</th>
+                <th colspan=8>During the day</th>
                 <th colspan=2>Closing</th>
               </tr>
               <tr>
@@ -1310,7 +1315,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                 <th>Full</th>
                 <th>Empty</th>
                 <th>Refilled</th>
-                <th>Cylinder Sales</th>
+                <th>Full Cyl Sales</th>
+                <th>Empty Cyl Sales</th>
                 <th>Gas Sales</th>
                 <th>Deposit Cylinder</th>
                 <th>Return Cylinder</th>
@@ -1634,8 +1640,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const closingFull = Math.max(0, 
                       openingFull + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
                     )
+                    // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
                     const closingEmpty = Math.max(0, 
-                      openingEmpty + gasSales + fullCylinderSales - refilled + deposits - returns - transferEmptyQuantity + receivedEmptyQuantity
+                      openingFull + openingEmpty - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity
                     )
 
                     return (
