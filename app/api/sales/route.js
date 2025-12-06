@@ -621,41 +621,12 @@ export async function POST(request) {
                       })
                       console.log(`✅ Gas stock deducted: ${gasProduct.name} decreased by ${item.quantity} (from full cylinder sale)`)
                       
-                      // ALSO record this as a gas sale in daily sales tracking under the CYLINDER product
-                      // This ensures DSR shows gas sales under the cylinder that contained the gas
-                      try {
-                        const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
-                        const DailySales = (await import('@/models/DailySales')).default
-                        
-                        console.log(`🔧 About to record gas sale for cylinder: ${product.name}, Date: ${saleDate}, ProductId: ${product._id}`)
-                        
-                        const gasUpdateResult = await DailySales.findOneAndUpdate(
-                          {
-                            date: saleDate,
-                            productId: product._id  // Use cylinder product ID, not gas product ID
-                          },
-                          {
-                            $inc: {
-                              gasSalesQuantity: item.quantity,  // Add gas sales to cylinder record
-                              gasSalesAmount: Number(item.price) * Number(item.quantity)
-                            }
-                          },
-                          { upsert: false, new: true }  // Don't upsert, record should already exist
-                        )
-                        
-                        console.log(`✅ Gas sale recorded under cylinder product in daily sales tracking: ${product.name} - ${item.quantity} units (from full cylinder sale)`)
-                        console.log(`🔧 Updated record:`, gasUpdateResult ? {
-                          productName: gasUpdateResult.productName,
-                          fullCylinderSalesQuantity: gasUpdateResult.fullCylinderSalesQuantity,
-                          gasSalesQuantity: gasUpdateResult.gasSalesQuantity
-                        } : 'No record returned')
-                      } catch (dailyGasTrackingError) {
-                        console.error(`❌ Error recording daily gas sale from full cylinder:`, dailyGasTrackingError)
-                        console.error(`❌ Error details:`, {
-                          message: dailyGasTrackingError.message,
-                          stack: dailyGasTrackingError.stack
-                        })
-                      }
+                      // NOTE: Do NOT record gas sales for direct full cylinder sales
+                      // Full cylinder sales should only show in "Full Cyl Sales" column, not "Gas Sales"
+                      // Gas sales are only recorded when:
+                      // 1. Gas is sold separately (category === 'gas')
+                      // 2. Gas is sold with cylinder refill (customer brings empty, takes full)
+                      // When a full cylinder is sold directly, it's just a cylinder sale, not a gas sale
                     }
                   } else {
                     console.log(`❌ Gas inventory not found for product ID: ${gasProductId}`)

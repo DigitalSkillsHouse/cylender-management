@@ -564,27 +564,12 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
         )
         console.log(`✅ [EMPLOYEE DAILY SALES] Full cylinder sale tracked: ${product.name} - ${quantity} units`)
         
-        // Also record gas sales for full cylinder (gas contained in cylinder)
-        if (item.gasProductId) {
-          const gasProduct = await Product.findById(item.gasProductId)
-          if (gasProduct) {
-            await DailyEmployeeSales.findOneAndUpdate(
-              {
-                date: saleDate,
-                employeeId: employeeId,
-                productId: product._id  // Record under cylinder product
-              },
-              {
-                $inc: {
-                  gasSalesQuantity: quantity,  // Add gas sales to cylinder record
-                  gasSalesAmount: amount
-                }
-              },
-              { upsert: false, new: true }  // Don't upsert, record should already exist
-            )
-            console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale recorded under cylinder product: ${product.name} - ${quantity} units (from full cylinder sale)`)
-          }
-        }
+        // NOTE: Do NOT record gas sales for direct full cylinder sales
+        // Full cylinder sales should only show in "Full Cyl Sales" column, not "Gas Sales"
+        // Gas sales are only recorded when:
+        // 1. Gas is sold separately (category === 'gas')
+        // 2. Gas is sold with cylinder refill (customer brings empty, takes full)
+        // When a full cylinder is sold directly, it's just a cylinder sale, not a gas sale
         
       } else {
         // Empty Cylinder Sales
