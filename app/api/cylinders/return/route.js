@@ -6,6 +6,7 @@ import Customer from "@/models/Customer";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
+import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils";
 
 // Helper function to update daily tracking for returns
 async function updateDailyTracking(cylinderProductId, quantity, amount, transactionDate) {
@@ -13,7 +14,8 @@ async function updateDailyTracking(cylinderProductId, quantity, amount, transact
     const product = await Product.findById(cylinderProductId);
     if (!product) return;
     
-    const date = transactionDate ? new Date(transactionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    // Use local date instead of UTC to ensure correct date assignment
+    const date = transactionDate ? getLocalDateStringFromDate(transactionDate) : getLocalDateString();
     
     // Update DailyCylinderTransaction for admin returns
     await DailyCylinderTransaction.findOneAndUpdate(

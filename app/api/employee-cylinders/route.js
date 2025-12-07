@@ -13,12 +13,13 @@ import Sale from "@/models/Sale"
 import EmployeeSale from "@/models/EmployeeSale"
 import CylinderTransaction from "@/models/Cylinder"
 import mongoose from "mongoose"
+import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // Helper function to update daily cylinder transaction tracking for employees
 async function updateEmployeeDailyCylinderTracking(transaction, employeeId) {
   try {
-    const transactionDate = transaction.createdAt ? new Date(transaction.createdAt) : new Date()
-    const dateStr = transactionDate.toISOString().split('T')[0] // YYYY-MM-DD format
+    // Use local date instead of UTC to ensure correct date assignment
+    const dateStr = getLocalDateStringFromDate(transaction.createdAt) // YYYY-MM-DD format
     
     // Handle both single item and multi-item transactions
     const items = transaction.items && transaction.items.length > 0 
@@ -462,7 +463,8 @@ export async function POST(request) {
 
 // Helper function to update daily employee cylinder aggregation
 async function updateDailyEmployeeCylinderAggregation(transaction, employeeId, transactionType) {
-  const transactionDate = new Date(transaction.createdAt).toISOString().slice(0, 10) // YYYY-MM-DD format
+  // Use local date instead of UTC to ensure correct date assignment
+  const transactionDate = getLocalDateStringFromDate(transaction.createdAt) // YYYY-MM-DD format
   
   console.log(`📊 [CYLINDER AGGREGATION] Processing ${transactionType} transaction for date: ${transactionDate}, employee: ${employeeId}`)
   

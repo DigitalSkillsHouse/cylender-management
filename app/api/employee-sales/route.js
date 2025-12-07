@@ -8,6 +8,7 @@ import Counter from "@/models/Counter"
 import Sale from "@/models/Sale"
 import DailyEmployeeSalesAggregation from "@/models/DailyEmployeeSalesAggregation"
 import { updateEmpGasSalesTracking } from "@/lib/emp-gas-sales-tracker"
+import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils"
 
 export async function GET(request) {
   try {
@@ -302,7 +303,8 @@ export async function POST(request) {
               
               // Record employee full cylinder sale in daily tracking system
               try {
-                const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD format
+                // Use local date instead of UTC to ensure correct date assignment
+                const today = getLocalDateString() // YYYY-MM-DD format
                 const dailyTrackingData = {
                   date: today,
                   cylinderProductId: product._id.toString(),
@@ -392,7 +394,8 @@ export async function POST(request) {
 
 // Helper function to update daily sales aggregation
 async function updateDailySalesAggregation(sale, employeeId) {
-  const saleDate = new Date(sale.createdAt).toISOString().slice(0, 10) // YYYY-MM-DD format
+  // Use local date instead of UTC to ensure correct date assignment
+  const saleDate = getLocalDateStringFromDate(sale.createdAt) // YYYY-MM-DD format
   
   console.log(`📊 [DAILY AGGREGATION] Processing sale for date: ${saleDate}, employee: ${employeeId}`)
   
@@ -465,7 +468,8 @@ async function updateDailySalesAggregation(sale, employeeId) {
 
 // Helper function to update employee daily sales tracking (same logic as admin sales)
 async function updateEmployeeDailySalesTracking(sale, employeeId) {
-  const saleDate = new Date(sale.createdAt).toISOString().slice(0, 10) // YYYY-MM-DD format
+  // Use local date instead of UTC to ensure correct date assignment
+  const saleDate = getLocalDateStringFromDate(sale.createdAt) // YYYY-MM-DD format
   const DailyEmployeeSales = (await import('@/models/DailyEmployeeSales')).default
   
   console.log(`📊 [EMPLOYEE DAILY SALES] Processing ${sale.items.length} items for date: ${saleDate}, employee: ${employeeId}`)

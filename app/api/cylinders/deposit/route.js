@@ -8,6 +8,7 @@ import Counter from "@/models/Counter";
 import Sale from "@/models/Sale";
 import EmployeeSale from "@/models/EmployeeSale";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
+import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils";
 
 // Helper: get next sequential invoice number using centralized generator
 async function getNextCylinderInvoice() {
@@ -21,7 +22,8 @@ async function updateDailyTracking(cylinderProductId, quantity, amount, transact
     const product = await Product.findById(cylinderProductId);
     if (!product) return;
     
-    const date = transactionDate ? new Date(transactionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    // Use local date instead of UTC to ensure correct date assignment
+    const date = transactionDate ? getLocalDateStringFromDate(transactionDate) : getLocalDateString();
     
     // Update DailyCylinderTransaction for admin deposits
     await DailyCylinderTransaction.findOneAndUpdate(

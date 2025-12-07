@@ -5,6 +5,7 @@ import Supplier from "@/models/Supplier";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
+import { getLocalDateStringFromDate } from "@/lib/date-utils";
 
 // Helper: get next sequential invoice number using unified system
 async function getNextCylinderInvoice() {
@@ -16,8 +17,8 @@ async function getNextCylinderInvoice() {
 // Helper function to update daily cylinder transaction tracking
 async function updateDailyCylinderTracking(transaction, isEmployeeTransaction = false) {
   try {
-    const transactionDate = transaction.createdAt ? new Date(transaction.createdAt) : new Date()
-    const dateStr = transactionDate.toISOString().split('T')[0] // YYYY-MM-DD format
+    // Use local date instead of UTC to ensure correct date assignment
+    const dateStr = getLocalDateStringFromDate(transaction.createdAt) // YYYY-MM-DD format
     
     // Handle both single item and multi-item transactions
     const items = transaction.items && transaction.items.length > 0 

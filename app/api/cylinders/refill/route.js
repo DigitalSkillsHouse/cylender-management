@@ -5,6 +5,7 @@ import Customer from "@/models/Customer";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
 import DailyRefill from "@/models/DailyRefill";
+import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils";
 
 // Helper: get next sequential invoice number using centralized generator
 async function getNextCylinderInvoice() {
@@ -70,7 +71,8 @@ export async function POST(request) {
         await product.save();
         
         // Update daily refill tracking for admin refills
-        const date = data.transactionDate ? new Date(data.transactionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+        // Use local date instead of UTC to ensure correct date assignment
+        const date = data.transactionDate ? getLocalDateStringFromDate(data.transactionDate) : getLocalDateString();
         await DailyRefill.findOneAndUpdate(
           {
             date: date,

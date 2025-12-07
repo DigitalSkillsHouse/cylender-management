@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import DailyEmployeeSales from "@/models/DailyEmployeeSales"
+import { getLocalDateStringFromDate } from "@/lib/date-utils"
 import { verifyToken } from "@/lib/auth"
 
 export async function GET(request) {
@@ -32,8 +33,8 @@ export async function updateDailyEmployeeSalesTracking(sale, employeeId) {
   try {
     await dbConnect()
     
-    const saleDate = sale.createdAt ? new Date(sale.createdAt) : new Date()
-    const dateStr = saleDate.toISOString().split('T')[0]
+    // Use local date instead of UTC to ensure correct date assignment
+    const dateStr = getLocalDateStringFromDate(sale.createdAt)
     
     const items = Array.isArray(sale.items) ? sale.items : []
 

@@ -18,7 +18,8 @@ export async function GET(request) {
 
     // If autoGenerate is requested, create reports from cylinder products only (for DSR display)
     if (autoGenerate) {
-      const currentDate = date || new Date().toISOString().split('T')[0];
+      // Use local date instead of UTC to ensure correct date assignment
+      const currentDate = date || getLocalDateString();
       
       // Get only cylinder products for DSR display (gas data still available for other purposes)
       const cylinderProducts = await Product.find({ 

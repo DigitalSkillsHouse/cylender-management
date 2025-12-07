@@ -4,6 +4,7 @@ import Sale from "@/models/Sale"
 import Customer from "@/models/Customer"
 import Product from "@/models/Product"
 import Counter from "@/models/Counter"
+import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
 export async function GET() {
   try {
@@ -274,7 +275,8 @@ export async function POST(request) {
     // Create comprehensive daily sales tracking records for DSR
     try {
       const DailySales = (await import('@/models/DailySales')).default
-      const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+      // Use local date instead of UTC to ensure correct date assignment
+      const saleDate = getLocalDateStringFromDate(savedSale.createdAt)
       
       console.log(`[Daily Sales Tracking] Processing ${items.length} items for date: ${saleDate}`)
       
@@ -437,7 +439,8 @@ export async function POST(request) {
                 // When gas is sold, it should NOT increment fullCylinderSalesQuantity
                 // Full cylinder sales should only be recorded when a full cylinder is sold directly
                 try {
-                  const saleDate = savedSale.createdAt ? new Date(savedSale.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+                  // Use local date instead of UTC to ensure correct date assignment
+                  const saleDate = getLocalDateStringFromDate(savedSale.createdAt)
                   const DailySales = (await import('@/models/DailySales')).default
                   
                   await DailySales.findOneAndUpdate(
