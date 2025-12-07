@@ -294,6 +294,10 @@ export async function POST(request) {
         // Determine the type of sale and update accordingly
         if (product.category === 'gas' || item.category === 'gas') {
           // Gas Sales
+          // Only create gas product record if there's NO cylinderProductId
+          // If cylinderProductId exists, gas sales will be recorded under the cylinder product instead
+          // This prevents double counting in DSR
+          if (!item.cylinderProductId) {
           await DailySales.findOneAndUpdate(
             {
               date: saleDate,
@@ -311,7 +315,10 @@ export async function POST(request) {
             },
             { upsert: true, new: true }
           )
-          console.log(`✅ Gas sale tracked: ${product.name} - ${quantity} units`)
+            console.log(`✅ Gas sale tracked (no cylinder): ${product.name} - ${quantity} units`)
+          } else {
+            console.log(`ℹ️ Gas sale with cylinder - will be tracked under cylinder product: ${product.name} - ${quantity} units`)
+          }
           
         } else if (product.category === 'cylinder' || item.category === 'cylinder') {
           // Cylinder Sales - distinguish between Full and Empty
@@ -471,7 +478,7 @@ export async function POST(request) {
                     productId: item.cylinderProductId,
                     productName: cylinderProduct?.name,
                     gasSalesQuantity: item.quantity,
-                    fullCylinderSalesQuantity: item.quantity
+                    note: 'Only gasSalesQuantity is recorded - NOT fullCylinderSalesQuantity'
                   })
                 } catch (error) {
                   console.error(`❌ Error recording gas sale + cylinder usage in daily sales tracking:`, error)

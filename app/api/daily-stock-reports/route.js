@@ -94,9 +94,19 @@ export async function POST(request) {
       employeeId,
       openingFull,
       openingEmpty,
+      emptyPurchase,
+      fullPurchase,
       refilled,
+      fullCylinderSales,
+      emptyCylinderSales,
       cylinderSales,
       gasSales,
+      deposits,
+      returns,
+      transferGas,
+      transferEmpty,
+      receivedGas,
+      receivedEmpty,
       closingFull,
       closingEmpty,
     } = body || {};
@@ -110,9 +120,19 @@ export async function POST(request) {
     const setDoc = update.$set;
     if (typeof openingFull === 'number') setDoc.openingFull = openingFull;
     if (typeof openingEmpty === 'number') setDoc.openingEmpty = openingEmpty;
+    if (typeof emptyPurchase === 'number') setDoc.emptyPurchase = emptyPurchase;
+    if (typeof fullPurchase === 'number') setDoc.fullPurchase = fullPurchase;
     if (typeof refilled === 'number') setDoc.refilled = refilled;
+    if (typeof fullCylinderSales === 'number') setDoc.fullCylinderSales = fullCylinderSales;
+    if (typeof emptyCylinderSales === 'number') setDoc.emptyCylinderSales = emptyCylinderSales;
     if (typeof cylinderSales === 'number') setDoc.cylinderSales = cylinderSales;
     if (typeof gasSales === 'number') setDoc.gasSales = gasSales;
+    if (typeof deposits === 'number') setDoc.deposits = deposits;
+    if (typeof returns === 'number') setDoc.returns = returns;
+    if (typeof transferGas === 'number') setDoc.transferGas = transferGas;
+    if (typeof transferEmpty === 'number') setDoc.transferEmpty = transferEmpty;
+    if (typeof receivedGas === 'number') setDoc.receivedGas = receivedGas;
+    if (typeof receivedEmpty === 'number') setDoc.receivedEmpty = receivedEmpty;
     if (typeof closingFull === 'number') setDoc.closingFull = closingFull;
     if (typeof closingEmpty === 'number') setDoc.closingEmpty = closingEmpty;
 

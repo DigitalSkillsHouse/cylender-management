@@ -4,6 +4,7 @@ import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
 import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import Product from "@/models/Product"
 import { updateEmpStockReceived } from "@/lib/emp-gas-sales-tracker"
+import { getLocalDateStringFromDate, getLocalDateString } from "@/lib/date-utils"
 
 export async function POST(request) {
   try {
@@ -300,6 +301,44 @@ export async function POST(request) {
     } catch (dsrError) {
       console.error('❌ Failed to update DSR stock received:', dsrError.message)
       // Don't fail the entire operation if DSR tracking fails
+    }
+    
+    // Track full and empty cylinder purchases for DSR
+    // Use current date (when item is received) instead of order purchase date
+    if (purchaseOrder.purchaseType === 'cylinder' && purchaseOrder.product.category === 'cylinder') {
+      try {
+        const DailyCylinderTransaction = (await import('@/models/DailyCylinderTransaction')).default
+        const purchaseDate = getLocalDateString() // Use today's date when item is marked as received
+        const quantity = Number(purchaseOrder.quantity) || 0
+        const cylinderStatus = purchaseOrder.cylinderStatus || 'empty'
+        
+        // Update DailyCylinderTransaction with purchase tracking
+        await DailyCylinderTransaction.findOneAndUpdate(
+          {
+            date: purchaseDate,
+            cylinderProductId: purchaseOrder.product._id,
+            employeeId: employeeId
+          },
+          {
+            $inc: cylinderStatus === 'full' 
+              ? { fullCylinderPurchaseQuantity: quantity }
+              : { emptyCylinderPurchaseQuantity: quantity },
+            $set: {
+              cylinderName: purchaseOrder.product.name,
+              cylinderSize: purchaseOrder.product.cylinderSize || 'Unknown',
+              isEmployeeTransaction: true
+            }
+          },
+          {
+            upsert: true,
+            new: true
+          }
+        )
+        
+        console.log(`✅ Tracked employee ${cylinderStatus} cylinder purchase: ${purchaseOrder.product.name} - ${quantity} units for date ${purchaseDate}`)
+      } catch (purchaseTrackingError) {
+        console.warn("Failed to track employee cylinder purchases:", purchaseTrackingError.message)
+      }
     }
 
     console.log('✅ Order accepted and inventory updated:', {

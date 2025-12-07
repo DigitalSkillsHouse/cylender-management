@@ -6,6 +6,7 @@ import EmpStockEmp from "@/models/EmpStockEmp"
 import Product from "@/models/Product"
 import User from "@/models/User"
 import mongoose from "mongoose"
+import { getLocalDateString } from "@/lib/date-utils"
 
 export async function POST(request) {
   try {
@@ -262,9 +263,11 @@ export async function POST(request) {
       notes: `Admin received back ${returnTransaction.quantity} ${returnTransaction.stockType} ${returnTransaction.product.name} from ${returnTransaction.employee.name}${relatedCylinderName ? ` (linked to ${relatedCylinderName})` : ''}`,
       assignmentMethod: 'return_transaction',
       
-      // Assignment date
+      // Assignment date - use current date in Dubai timezone for proper DSR tracking
       assignmentDate: new Date()
     })
+    
+    console.log(`📅 [DSR RETURN] EmpStockEmp record created with assignmentDate: ${dsrRecord.assignmentDate}, date string: ${getLocalDateString()}`)
 
     console.log('✅ DSR record created for return:', dsrRecord._id)
 

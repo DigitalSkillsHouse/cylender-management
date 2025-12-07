@@ -492,25 +492,32 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
     // Determine the type of sale and update accordingly
     if (product.category === 'gas' || item.category === 'gas') {
       // Gas Sales - record gas sales and handle cylinder conversion
-      await DailyEmployeeSales.findOneAndUpdate(
-        {
-          date: saleDate,
-          employeeId: employeeId,
-          productId: product._id
-        },
-        {
-          $set: {
-            productName: product.name,
-            category: 'gas'
+      // Only create gas product record if there's NO cylinderProductId
+      // If cylinderProductId exists, gas sales will be recorded under the cylinder product instead
+      // This prevents double counting in DSR
+      if (!item.cylinderProductId) {
+        await DailyEmployeeSales.findOneAndUpdate(
+          {
+            date: saleDate,
+            employeeId: employeeId,
+            productId: product._id
           },
-          $inc: {
-            gasSalesQuantity: quantity,
-            gasSalesAmount: amount
-          }
-        },
-        { upsert: true, new: true }
-      )
-      console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale tracked: ${product.name} - ${quantity} units`)
+          {
+            $set: {
+              productName: product.name,
+              category: 'gas'
+            },
+            $inc: {
+              gasSalesQuantity: quantity,
+              gasSalesAmount: amount
+            }
+          },
+          { upsert: true, new: true }
+        )
+        console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale tracked (no cylinder): ${product.name} - ${quantity} units`)
+      } else {
+        console.log(`ℹ️ [EMPLOYEE DAILY SALES] Gas sale with cylinder - will be tracked under cylinder product: ${product.name} - ${quantity} units`)
+      }
       
       // Also record gas sales under cylinder product if cylinderProductId is provided
       // When gas is sold, it should ONLY record gasSalesQuantity, NOT fullCylinderSalesQuantity

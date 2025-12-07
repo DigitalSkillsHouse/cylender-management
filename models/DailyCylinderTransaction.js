@@ -74,6 +74,17 @@ const DailyCylinderTransactionSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Purchase tracking (full and empty cylinders purchased from suppliers)
+    fullCylinderPurchaseQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    emptyCylinderPurchaseQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     // Employee tracking (optional for admin transactions)
     employeeId: {
       type: mongoose.Schema.Types.ObjectId,

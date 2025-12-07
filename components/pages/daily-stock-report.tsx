@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ListChecks, PlusCircle, FileText, Loader2, Eye } from "lucide-react"
+import { getLocalDateString } from "@/lib/date-utils"
 
 interface DailyStockEntry {
   id: string
@@ -34,6 +35,8 @@ interface EmployeeDailyStockEntry {
   itemName: string
   openingFull: number
   openingEmpty: number
+  emptyPurchase: number
+  fullPurchase: number
   refilled: number
   fullCylinderSales: number
   emptyCylinderSales: number
@@ -96,6 +99,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const [dailyFullCylinderSales, setDailyFullCylinderSales] = useState<Record<string, number>>({})
   const [dailyEmptyCylinderSales, setDailyEmptyCylinderSales] = useState<Record<string, number>>({})
   const [dailyCylinderRefills, setDailyCylinderRefills] = useState<Record<string, number>>({})
+  const [dailyEmptyPurchases, setDailyEmptyPurchases] = useState<Record<string, number>>({})
+  const [dailyFullPurchases, setDailyFullPurchases] = useState<Record<string, number>>({})
   const [dailyTransfers, setDailyTransfers] = useState<Record<string, number>>({})
   const [dailyReceivedBack, setDailyReceivedBack] = useState<Record<string, number>>({})
   
@@ -111,7 +116,6 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   // Stored DSR reports with locked opening values
   const [storedDsrReports, setStoredDsrReports] = useState<Record<string, { openingFull: number; openingEmpty: number }>>({})
   const [isInventoryFetched, setIsInventoryFetched] = useState(false)
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
 
   const API_BASE = '/api/daily-stock-entries'
 
@@ -204,12 +208,13 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       }
       
       // Fetch actual employee transaction data for the date
-      const [salesRes, cylinderRes, refillRes, empStockEmpRes, stockAssignmentsRes] = await Promise.all([
+      const [salesRes, cylinderRes, refillRes, empStockEmpRes, stockAssignmentsRes, purchaseRes] = await Promise.all([
         fetch(`/api/daily-employee-sales?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
         fetch(`/api/daily-employee-cylinder-aggregation?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
         fetch(`/api/daily-refills?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
         fetch(`/api/emp-stock-emp?employeeId=${employeeId}`, { cache: 'no-store' }),
-        fetch(`/api/stock-assignments?employeeId=${employeeId}`, { cache: 'no-store' })
+        fetch(`/api/stock-assignments?employeeId=${employeeId}`, { cache: 'no-store' }),
+        fetch(`/api/daily-cylinder-transactions?date=${date}&employeeId=${employeeId}`, { cache: 'no-store' })
       ])
       
       const salesJson = await salesRes.json()
@@ -217,12 +222,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       const refillJson = await refillRes.json()
       const empStockEmpJson = await empStockEmpRes.json()
       const stockAssignmentsJson = await stockAssignmentsRes.json()
+      const purchaseJson = await purchaseRes.json()
       
       const salesData: any[] = salesJson?.data || []
       const cylinderData: any[] = cylinderJson?.data || []
       const refillData: any[] = refillJson?.data || []
       const empStockEmpData: any[] = empStockEmpJson?.data || []
       const stockAssignmentsData: any[] = stockAssignmentsJson?.data || []
+      const purchaseData: any[] = purchaseJson?.data || []
       
       // Helper to check if date is in selected day
       const inSelectedDay = (dateStr: string) => {
@@ -244,6 +251,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         transferEmpty: number
         receivedGas: number
         receivedEmpty: number
+        emptyPurchase: number
+        fullPurchase: number
       }>()
       
       // Process sales data
@@ -263,7 +272,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           transferGas: 0,
           transferEmpty: 0,
           receivedGas: 0,
-          receivedEmpty: 0
+          receivedEmpty: 0,
+          emptyPurchase: 0,
+          fullPurchase: 0
         }
         
         existing.fullCylinderSales += Number(sale.fullCylinderSalesQuantity || 0)
@@ -288,12 +299,19 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           transferGas: 0,
           transferEmpty: 0,
           receivedGas: 0,
-          receivedEmpty: 0
+          receivedEmpty: 0,
+          emptyPurchase: 0,
+          fullPurchase: 0
         }
         
         existing.refilled += Number(cylinder.totalRefills || 0)
         existing.deposits += Number(cylinder.totalDeposits || 0)
         existing.returns += Number(cylinder.totalReturns || 0)
+        // Add transfers from cylinder aggregation API (already tracked, no double counting)
+        existing.transferGas += Number(cylinder.totalTransferGas || 0)
+        existing.transferEmpty += Number(cylinder.totalTransferEmpty || 0)
+        existing.receivedGas += Number(cylinder.totalReceivedGas || 0)
+        existing.receivedEmpty += Number(cylinder.totalReceivedEmpty || 0)
         
         transactionMap.set(itemName, existing)
       })
@@ -313,7 +331,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           transferGas: 0,
           transferEmpty: 0,
           receivedGas: 0,
-          receivedEmpty: 0
+          receivedEmpty: 0,
+          emptyPurchase: 0,
+          fullPurchase: 0
         }
         
         existing.refilled += Number(refill.todayRefill || 0)
@@ -322,153 +342,24 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       })
       
       // Process EmpStockEmp assignments (transfers from admin to employee)
-      empStockEmpData.forEach((assignment: any) => {
-        const productName = assignment.productName || assignment.product?.name || ''
-        const category = assignment.category || assignment.product?.category || ''
-        const cylinderStatus = assignment.cylinderStatus || ''
-        const quantity = Number(assignment.assignedQuantity || assignment.quantity || 0)
-        const status = assignment.status || ''
-        const relatedCylinderName = assignment.relatedCylinderName || ''
-        const assignmentMethod = assignment.assignmentMethod || ''
-        
-        let assignmentDate = assignment.assignmentDate || assignment.createdAt || assignment.assignedDate || ''
-        if (assignmentDate && typeof assignmentDate === 'object' && assignmentDate.toISOString) {
-          assignmentDate = assignmentDate.toISOString()
-        }
-        
-        if (!productName || quantity <= 0) return
-        if (!inSelectedDay(assignmentDate)) return
-        
-        // For gas assignments, use the related cylinder name for DSR grouping
-        let dsrKey = normalizeName(productName)
-        if (category === 'gas' && relatedCylinderName) {
-          dsrKey = normalizeName(relatedCylinderName)
-        }
-        
-        // Track transfers (when stock is assigned to employee)
-        if ((status === 'assigned' || status === 'accepted') && assignmentMethod !== 'return_transaction') {
-          const existing = transactionMap.get(dsrKey) || {
-            refilled: 0,
-            fullCylinderSales: 0,
-            emptyCylinderSales: 0,
-            gasSales: 0,
-            deposits: 0,
-            returns: 0,
-            transferGas: 0,
-            transferEmpty: 0,
-            receivedGas: 0,
-            receivedEmpty: 0
-          }
-          
-          if (category === 'gas') {
-            existing.transferGas += quantity
-          } else if (category === 'cylinder') {
-            existing.transferEmpty += quantity // Full cylinders transferred become empty at employee
-          }
-          
-          transactionMap.set(dsrKey, existing)
-        }
-        
-        // Track received items (when employee returns stock to admin)
-        if (assignmentMethod === 'return_transaction' && status === 'accepted') {
-          const existing = transactionMap.get(dsrKey) || {
-            refilled: 0,
-            fullCylinderSales: 0,
-            emptyCylinderSales: 0,
-            gasSales: 0,
-            deposits: 0,
-            returns: 0,
-            transferGas: 0,
-            transferEmpty: 0,
-            receivedGas: 0,
-            receivedEmpty: 0
-          }
-          
-          if (category === 'gas') {
-            existing.receivedGas += quantity
-          } else if (category === 'cylinder' && cylinderStatus === 'empty') {
-            existing.receivedEmpty += quantity
-          }
-          
-          transactionMap.set(dsrKey, existing)
-        }
-      })
+      // NOTE: Skipping EmpStockEmp transfer processing to avoid double counting
+      // Transfers are already tracked in:
+      // 1. StockAssignment records (processed below)
+      // 2. daily-employee-cylinder-aggregation API (cylinderData.totalTransferGas/totalTransferEmpty)
+      // Processing EmpStockEmp would cause double counting
+      console.log(`[Employee DSR] Skipping ${empStockEmpData.length} EmpStockEmp assignments - transfers already tracked in StockAssignment and cylinder aggregation`)
+      
+      // EmpStockEmp transfers are now tracked via StockAssignment and cylinder aggregation API
+      // Only process if needed for other purposes (not transfers)
       
       // Process StockAssignment records (from Employee Management page)
-      stockAssignmentsData.forEach((assignment: any) => {
-        const productName = assignment.product?.name || assignment.productName || ''
-        const category = assignment.category || assignment.product?.category || ''
-        const cylinderStatus = assignment.cylinderStatus || ''
-        const quantity = Number(assignment.quantity || assignment.remainingQuantity || 0)
-        const status = assignment.status || ''
-        
-        let assignedDate = assignment.assignedDate || assignment.createdAt || ''
-        let receivedDate = assignment.receivedDate || ''
-        
-        if (assignedDate && typeof assignedDate === 'object' && assignedDate.toISOString) {
-          assignedDate = assignedDate.toISOString()
-        }
-        if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
-          receivedDate = receivedDate.toISOString()
-        }
-        
-        if (!productName || quantity <= 0) return
-        
-        const isTransferDate = assignedDate && inSelectedDay(assignedDate)
-        const isReceivedDate = receivedDate && inSelectedDay(receivedDate)
-        
-        if (!isTransferDate && !isReceivedDate) return
-        
-        const dsrKey = normalizeName(productName)
-        
-        // Track transfers
-        if (isTransferDate && (status === 'assigned' || status === 'received')) {
-          const existing = transactionMap.get(dsrKey) || {
-            refilled: 0,
-            fullCylinderSales: 0,
-            emptyCylinderSales: 0,
-            gasSales: 0,
-            deposits: 0,
-            returns: 0,
-            transferGas: 0,
-            transferEmpty: 0,
-            receivedGas: 0,
-            receivedEmpty: 0
-          }
-          
-          if (category === 'gas') {
-            existing.transferGas += quantity
-          } else if (category === 'cylinder') {
-            existing.transferEmpty += quantity
-          }
-          
-          transactionMap.set(dsrKey, existing)
-        }
-        
-        // Track received items
-        if (isReceivedDate && status === 'returned') {
-          const existing = transactionMap.get(dsrKey) || {
-            refilled: 0,
-            fullCylinderSales: 0,
-            emptyCylinderSales: 0,
-            gasSales: 0,
-            deposits: 0,
-            returns: 0,
-            transferGas: 0,
-            transferEmpty: 0,
-            receivedGas: 0,
-            receivedEmpty: 0
-          }
-          
-          if (category === 'gas') {
-            existing.receivedGas += quantity
-          } else if (category === 'cylinder' && (cylinderStatus === 'empty' || !cylinderStatus)) {
-            existing.receivedEmpty += quantity
-          }
-          
-          transactionMap.set(dsrKey, existing)
-        }
-      })
+      // NOTE: Skipping StockAssignment processing for employee DSR to avoid double counting
+      // Transfers are already tracked in daily-employee-cylinder-aggregation API (cylinderData)
+      // This ensures consistency with the employee's own DSR view
+      console.log(`[Employee DSR] Skipping ${stockAssignmentsData.length} StockAssignment records - transfers already tracked in cylinder aggregation API`)
+      
+      // StockAssignment transfers are now tracked via cylinder aggregation API
+      // This matches how the employee DSR component processes data
       
       // Merge stored DSR records with actual transaction data
       const storedMap = new Map<string, any>()
@@ -504,7 +395,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           transferGas: 0,
           transferEmpty: 0,
           receivedGas: 0,
-          receivedEmpty: 0
+          receivedEmpty: 0,
+          emptyPurchase: 0,
+          fullPurchase: 0
         }
         
         // Find inventory item for this product to get opening stock if not stored
@@ -526,12 +419,13 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         
         if (closingFull === undefined || closingEmpty === undefined) {
           // Calculate closing using DSR formula (matching admin DSR)
+          // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
           closingFull = Math.max(0, 
-            openingFull + transactions.refilled - transactions.fullCylinderSales - transactions.gasSales - transactions.transferGas + transactions.receivedGas
+            openingFull + (transactions.fullPurchase || 0) + transactions.refilled - transactions.fullCylinderSales - transactions.gasSales - transactions.transferGas + transactions.receivedGas
           )
-          // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
+          // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
           closingEmpty = Math.max(0, 
-            openingFull + openingEmpty - transactions.fullCylinderSales - transactions.emptyCylinderSales - transactions.deposits + transactions.returns - transactions.transferEmpty + transactions.receivedEmpty
+            openingFull + openingEmpty + (transactions.fullPurchase || 0) + (transactions.emptyPurchase || 0) - transactions.fullCylinderSales - transactions.emptyCylinderSales - transactions.deposits + transactions.returns - transactions.transferEmpty + transactions.receivedEmpty - closingFull
           )
         }
         
@@ -542,6 +436,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           itemName: itemName,
           openingFull: openingFull,
           openingEmpty: openingEmpty,
+          emptyPurchase: transactions.emptyPurchase || 0,
+          fullPurchase: transactions.fullPurchase || 0,
           refilled: transactions.refilled || Number(stored?.refilled || 0),
           fullCylinderSales: transactions.fullCylinderSales || Number(stored?.fullCylinderSales || 0),
           emptyCylinderSales: transactions.emptyCylinderSales || Number(stored?.emptyCylinderSales || 0),
@@ -624,25 +520,135 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       let hasStoredData = false
       
       if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-        data.data.forEach((report: any) => {
-          const key = normalizeName(report.itemName)
-          reports[key] = {
-            openingFull: report.openingFull || 0,
-            openingEmpty: report.openingEmpty || 0
+        // Check if stored data has valid opening stock (non-zero) or if we need to fetch previous day's closing stock
+        const hasValidOpeningStock = data.data.some((report: any) => 
+          (report.openingFull && report.openingFull > 0) || (report.openingEmpty && report.openingEmpty > 0)
+        )
+        
+        if (hasValidOpeningStock) {
+          // Use stored data with valid opening stock
+          data.data.forEach((report: any) => {
+            const key = normalizeName(report.itemName)
+            reports[key] = {
+              openingFull: report.openingFull || 0,
+              openingEmpty: report.openingEmpty || 0
+            }
+          })
+          hasStoredData = true
+          setIsInventoryFetched(true)
+          setStoredDsrReports(reports)
+          console.log(`✅ [DSR] Using stored data for ${date} with valid opening stock`)
+        } else {
+          // Stored data exists but has zero opening stock - fetch previous day's closing stock instead
+          console.log(`⚠️ [DSR] Stored data for ${date} has zero opening stock, fetching previous day's closing stock...`)
+          setIsInventoryFetched(false)
+          
+          // Get previous day's date to fetch closing stock
+          const currentDate = new Date(date + 'T00:00:00')
+          const previousDate = new Date(currentDate)
+          previousDate.setDate(previousDate.getDate() - 1)
+          const previousDateStr = previousDate.toISOString().slice(0, 10)
+          
+          console.log(`🔍 [DSR] Fetching previous day (${previousDateStr}) closing stock for ${date}...`)
+          
+          const prevResponse = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)
+          const prevData = await prevResponse.json()
+          
+          const prevReports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+          
+          if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
+            console.log(`📊 [DSR] Found ${prevData.data.length} reports from previous day (${previousDateStr})`)
+            prevData.data.forEach((report: any) => {
+              const key = normalizeName(report.itemName)
+              // Use previous day's closing stock as opening stock
+              const prevClosingFull = report.closingFull ?? 0
+              const prevClosingEmpty = report.closingEmpty ?? 0
+              prevReports[key] = {
+                openingFull: prevClosingFull,
+                openingEmpty: prevClosingEmpty
+              }
+              console.log(`✅ [DSR] ${report.itemName} (key: ${key}): Previous day closing = ${prevClosingFull} Full, ${prevClosingEmpty} Empty → Using as opening stock`)
+            })
+            setStoredDsrReports(prevReports)
+            console.log(`✅ [DSR] Set storedDsrReports with ${Object.keys(prevReports).length} items for ${date}`)
+            console.log(`📋 [DSR] storedDsrReports contents:`, prevReports)
+            
+            // Update the stored DSR records in database with correct opening stock
+            if (dsrProducts.length > 0) {
+              for (const product of dsrProducts) {
+                const key = normalizeName(product.name)
+                const prevClosing = prevReports[key]
+                if (prevClosing) {
+                  await fetch('/api/daily-stock-reports', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      date,
+                      itemName: product.name,
+                      openingFull: prevClosing.openingFull,
+                      openingEmpty: prevClosing.openingEmpty
+                    })
+                  })
+                }
+              }
+              console.log(`✅ [DSR] Updated stored DSR records with previous day's closing stock`)
+            }
+          } else {
+            console.log(`⚠️ [DSR] No previous day data found for ${previousDateStr}, will use current inventory`)
           }
-        })
-        hasStoredData = true
-        setIsInventoryFetched(true)
+        }
       } else {
-        // No stored data for this date - auto-fetch inventory for new days
+        // No stored data for this date - fetch previous day's closing stock to use as opening stock
+        console.log(`📅 [DSR] No stored data for ${date}, fetching previous day's closing stock...`)
         setIsInventoryFetched(false)
+        
+        // Get previous day's date to fetch closing stock
+        const currentDate = new Date(date + 'T00:00:00')
+        const previousDate = new Date(currentDate)
+        previousDate.setDate(previousDate.getDate() - 1)
+        const previousDateStr = previousDate.toISOString().slice(0, 10)
+        
+        console.log(`🔍 [DSR] Fetching previous day (${previousDateStr}) closing stock for ${date}...`)
+        
+        const prevResponse = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)
+        const prevData = await prevResponse.json()
+        
+        const prevReports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+        
+        if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
+          console.log(`📊 [DSR] Found ${prevData.data.length} reports from previous day (${previousDateStr})`)
+          prevData.data.forEach((report: any) => {
+            const key = normalizeName(report.itemName)
+            // Use previous day's closing stock as opening stock
+            const prevClosingFull = report.closingFull ?? 0
+            const prevClosingEmpty = report.closingEmpty ?? 0
+            prevReports[key] = {
+              openingFull: prevClosingFull,
+              openingEmpty: prevClosingEmpty
+            }
+            console.log(`✅ [DSR] ${report.itemName} (key: ${key}): Previous day closing = ${prevClosingFull} Full, ${prevClosingEmpty} Empty → Using as opening stock`)
+          })
+          // IMPORTANT: Set storedDsrReports BEFORE calling autoFetchInventoryForNewDay
+          // This ensures the table displays the correct opening stock immediately
+          setStoredDsrReports(prevReports)
+          console.log(`✅ [DSR] Set storedDsrReports with ${Object.keys(prevReports).length} items for ${date}`)
+          console.log(`📋 [DSR] storedDsrReports contents:`, prevReports)
+        } else {
+          console.log(`⚠️ [DSR] No previous day data found for ${previousDateStr} (response: ${prevData.success ? 'success but empty' : 'failed'}), will use current inventory`)
+        }
+        
+        // If products are loaded, also call autoFetchInventoryForNewDay to create DSR entries in database
+        // But don't let it overwrite storedDsrReports - we already set it above
         if (dsrProducts.length > 0) {
           await autoFetchInventoryForNewDay(date)
-          return
+          // After autoFetchInventoryForNewDay, ensure storedDsrReports still has the previous day's closing stock
+          // (autoFetchInventoryForNewDay should use the same values, but we'll preserve what we set)
+          if (Object.keys(prevReports).length > 0) {
+            setStoredDsrReports(prevReports)
+            console.log(`✅ [DSR] Preserved previous day's closing stock after autoFetchInventoryForNewDay`)
+          }
         }
       }
-      
-      setStoredDsrReports(reports)
     } catch (error) {
       console.error('Failed to fetch stored DSR reports:', error)
       setIsInventoryFetched(false)
@@ -654,31 +660,75 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     try {
       await fetchInventoryData()
       
+      // Get previous day's date to fetch closing stock
+      const currentDate = new Date(date + 'T00:00:00')
+      const previousDate = new Date(currentDate)
+      previousDate.setDate(previousDate.getDate() - 1)
+      const previousDateStr = previousDate.toISOString().slice(0, 10)
+      
+      // Fetch previous day's DSR to get closing stock
+      const prevResponse = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)
+      const prevData = await prevResponse.json()
+      const prevReports: Record<string, { closingFull: number; closingEmpty: number }> = {}
+      
+      if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
+        prevData.data.forEach((report: any) => {
+          const key = normalizeName(report.itemName)
+          prevReports[key] = {
+            closingFull: report.closingFull || 0,
+            closingEmpty: report.closingEmpty || 0
+          }
+        })
+        console.log(`📦 [AUTO-FETCH] Loaded ${Object.keys(prevReports).length} items from previous day (${previousDateStr})`)
+      }
+      
       const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
       
       for (const product of dsrProducts) {
         const key = normalizeName(product.name)
+        const prevClosing = prevReports[key]
         const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
         
-        // Auto-create DSR entry with current inventory for new day
+        // Use previous day's closing stock as opening stock, fallback to current inventory
+        const openingFull = prevClosing?.closingFull ?? inventoryInfo.availableFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? inventoryInfo.availableEmpty ?? 0
+        
+        console.log(`📅 [AUTO-FETCH] ${product.name}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A'})`)
+        
+        // Auto-create DSR entry with previous day's closing stock as opening stock
         await fetch('/api/daily-stock-reports', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             date,
             itemName: product.name,
-            openingFull: inventoryInfo.availableFull,
-            openingEmpty: inventoryInfo.availableEmpty
+            openingFull: openingFull,
+            openingEmpty: openingEmpty
           })
         })
         
         reports[key] = {
-          openingFull: inventoryInfo.availableFull,
-          openingEmpty: inventoryInfo.availableEmpty
+          openingFull: openingFull,
+          openingEmpty: openingEmpty
         }
       }
       
-      setStoredDsrReports(reports)
+      // Only update storedDsrReports if it's not already set (to preserve values from fetchStoredDsrReports)
+      // This prevents overwriting the correct opening stock values
+      setStoredDsrReports((prev) => {
+        // If prev is empty, use reports. Otherwise, merge but prefer prev values
+        if (Object.keys(prev).length === 0) {
+          return reports
+        } else {
+          // Merge: use prev if it exists, otherwise use reports
+          const merged: Record<string, { openingFull: number; openingEmpty: number }> = {}
+          for (const product of dsrProducts) {
+            const key = normalizeName(product.name)
+            merged[key] = prev[key] || reports[key] || { openingFull: 0, openingEmpty: 0 }
+          }
+          return merged
+        }
+      })
       setIsInventoryFetched(true)
     } catch (error) {
       console.error('Failed to auto-fetch inventory for new day:', error)
@@ -691,27 +741,55 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       setLoading(true)
       await fetchInventoryData()
       
+      // Get previous day's date to fetch closing stock
+      const currentDate = new Date(dsrViewDate + 'T00:00:00')
+      const previousDate = new Date(currentDate)
+      previousDate.setDate(previousDate.getDate() - 1)
+      const previousDateStr = previousDate.toISOString().slice(0, 10)
+      
+      // Fetch previous day's DSR to get closing stock
+      const prevResponse = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)
+      const prevData = await prevResponse.json()
+      const prevReports: Record<string, { closingFull: number; closingEmpty: number }> = {}
+      
+      if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
+        prevData.data.forEach((report: any) => {
+          const key = normalizeName(report.itemName)
+          prevReports[key] = {
+            closingFull: report.closingFull || 0,
+            closingEmpty: report.closingEmpty || 0
+          }
+        })
+      }
+      
       const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
       
       for (const product of dsrProducts) {
         const key = normalizeName(product.name)
+        const prevClosing = prevReports[key]
         const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
         
-        // Create/update DSR entry with current inventory
+        // Use previous day's closing stock as opening stock, fallback to current inventory
+        const openingFull = prevClosing?.closingFull ?? inventoryInfo.availableFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? inventoryInfo.availableEmpty ?? 0
+        
+        console.log(`📅 [OPENING STOCK] ${product.name}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A'})`)
+        
+        // Create/update DSR entry with previous day's closing stock as opening stock
         await fetch('/api/daily-stock-reports', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             date: dsrViewDate,
             itemName: product.name,
-            openingFull: inventoryInfo.availableFull,
-            openingEmpty: inventoryInfo.availableEmpty
+            openingFull: openingFull,
+            openingEmpty: openingEmpty
           })
         })
         
         reports[key] = {
-          openingFull: inventoryInfo.availableFull,
-          openingEmpty: inventoryInfo.availableEmpty
+          openingFull: openingFull,
+          openingEmpty: openingEmpty
         }
       }
       
@@ -725,18 +803,33 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   }
 
   // Save DSR record with closing values
-  const saveDsrRecord = async () => {
+  const saveDsrRecord = async (date: string, isManual: boolean = false) => {
+    const saveType = isManual ? 'MANUAL SAVE' : 'AUTO-SAVE'
+    
     try {
-      setLoading(true)
+      // Get current Dubai time for logging
+      const now = new Date()
+      const dubaiTime = now.toLocaleString('en-US', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      })
+      console.log(`💾 [${saveType}] Saving DSR records for date: ${date} at Dubai time: ${dubaiTime}`)
       
       for (const product of dsrProducts) {
         const key = normalizeName(product.name)
         const openingFull = storedDsrReports[key]?.openingFull || 0
         const openingEmpty = storedDsrReports[key]?.openingEmpty || 0
         
-        // Calculate closing values
+        // Get all transaction data
         const refilled = dailyCylinderRefills[key] ?? 0
         const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
+        const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
         const gasSales = dailyGasSales[key] ?? 0
         const deposits = dailyAggDeposits[key] ?? 0
         const returns = dailyAggReturns[key] ?? 0
@@ -744,34 +837,151 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
         const receivedGasQuantity = dailyReceivedGas[key] ?? 0
         const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
+        const emptyPurchase = dailyEmptyPurchases[key] ?? 0
+        const fullPurchase = dailyFullPurchases[key] ?? 0
         
-        const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
-        
+        // Calculate closing values using the correct formula
+        // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
         const closingFull = Math.max(0, 
-          openingFull + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
+          openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
         )
-        // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
+        // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
         const closingEmpty = Math.max(0, 
-          openingFull + openingEmpty - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity
+          openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity - closingFull
         )
         
         await fetch('/api/daily-stock-reports', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            date: dsrViewDate,
+            date: date,
             itemName: product.name,
             openingFull,
             openingEmpty,
+            emptyPurchase,
+            fullPurchase,
+            refilled,
+            fullCylinderSales,
+            emptyCylinderSales,
+            gasSales,
+            deposits,
+            returns,
+            transferGas: transferGasQuantity,
+            transferEmpty: transferEmptyQuantity,
+            receivedGas: receivedGasQuantity,
+            receivedEmpty: receivedEmptyQuantity,
             closingFull,
             closingEmpty
           })
         })
       }
       
-      alert('DSR record saved successfully!')
+      // Log completion with Dubai time
+      const completionTime = new Date().toLocaleString('en-US', {
+        timeZone: 'Asia/Dubai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      })
+      console.log(`✅ [${saveType}] DSR records saved successfully for date: ${date} at Dubai time: ${completionTime}`)
+      
+      // Verify next day's opening stock would use today's closing stock
+      if (isManual) {
+        const currentDate = new Date(date + 'T00:00:00')
+        const nextDate = new Date(currentDate)
+        nextDate.setDate(nextDate.getDate() + 1)
+        const nextDateStr = nextDate.toISOString().slice(0, 10)
+        
+        console.log(`🔍 [VERIFICATION] Checking if next day (${nextDateStr}) would use today's closing stock as opening stock...`)
+        
+        // Calculate today's closing stock for verification
+        const todayClosingStocks: Record<string, { closingFull: number; closingEmpty: number }> = {}
+        for (const product of dsrProducts) {
+          const key = normalizeName(product.name)
+          const openingFull = storedDsrReports[key]?.openingFull || 0
+          const openingEmpty = storedDsrReports[key]?.openingEmpty || 0
+          const refilled = dailyCylinderRefills[key] ?? 0
+          const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
+          const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
+          const gasSales = dailyGasSales[key] ?? 0
+          const deposits = dailyAggDeposits[key] ?? 0
+          const returns = dailyAggReturns[key] ?? 0
+          const transferGasQuantity = dailyTransferGas[key] ?? 0
+          const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
+          const receivedGasQuantity = dailyReceivedGas[key] ?? 0
+          const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
+          const emptyPurchase = dailyEmptyPurchases[key] ?? 0
+          const fullPurchase = dailyFullPurchases[key] ?? 0
+          
+          const closingFull = Math.max(0, 
+            openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
+          )
+          const closingEmpty = Math.max(0, 
+            openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity - closingFull
+          )
+          
+          todayClosingStocks[key] = { closingFull, closingEmpty }
+        }
+        
+        // Fetch what would be used as opening stock for next day
+        const nextDayResponse = await fetch(`/api/daily-stock-reports?date=${nextDateStr}`)
+        const nextDayData = await nextDayResponse.json()
+        
+        // Check a few products to verify
+        let verifiedCount = 0
+        let totalChecked = 0
+        
+        for (const product of dsrProducts.slice(0, 5)) { // Check first 5 products
+          const key = normalizeName(product.name)
+          const todayClosing = todayClosingStocks[key] || { closingFull: 0, closingEmpty: 0 }
+          
+          if (nextDayData.success && Array.isArray(nextDayData.data)) {
+            const nextDayReport = nextDayData.data.find((r: any) => normalizeName(r.itemName) === key)
+            if (nextDayReport) {
+              totalChecked++
+              const nextDayOpeningFull = nextDayReport.openingFull || 0
+              const nextDayOpeningEmpty = nextDayReport.openingEmpty || 0
+              
+              if (nextDayOpeningFull === todayClosing.closingFull && nextDayOpeningEmpty === todayClosing.closingEmpty) {
+                verifiedCount++
+                console.log(`✅ [VERIFICATION] ${product.name}: Next day opening matches today's closing (${todayClosing.closingFull} Full, ${todayClosing.closingEmpty} Empty)`)
+              } else {
+                console.log(`⚠️ [VERIFICATION] ${product.name}: Next day opening (${nextDayOpeningFull} Full, ${nextDayOpeningEmpty} Empty) does NOT match today's closing (${todayClosing.closingFull} Full, ${todayClosing.closingEmpty} Empty)`)
+              }
+            } else {
+              console.log(`ℹ️ [VERIFICATION] ${product.name}: Next day DSR not created yet - will use today's closing (${todayClosing.closingFull} Full, ${todayClosing.closingEmpty} Empty) when created`)
+            }
+          }
+        }
+        
+        if (totalChecked > 0) {
+          console.log(`📊 [VERIFICATION] Verified ${verifiedCount}/${totalChecked} products - Next day opening stock correctly uses today's closing stock`)
+        } else {
+          console.log(`ℹ️ [VERIFICATION] Next day DSR not created yet - will use today's closing stock when created`)
+        }
+      }
     } catch (error) {
-      console.error('Failed to save DSR record:', error)
+      console.error(`❌ [${saveType}] Failed to save DSR record:`, error)
+    }
+  }
+  
+  // Manual save handler
+  const handleManualSave = async () => {
+    if (!isInventoryFetched || dsrProducts.length === 0) {
+      alert('Please wait for inventory to be fetched first')
+      return
+    }
+    
+    setLoading(true)
+    try {
+      await saveDsrRecord(dsrViewDate, true)
+      alert('DSR saved successfully! Next day\'s opening stock will use today\'s closing stock.')
+    } catch (error) {
+      console.error('Failed to save DSR:', error)
       alert('Failed to save DSR record')
     } finally {
       setLoading(false)
@@ -861,6 +1071,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       }
 
       // Process sales data
+      // NOTE: We skip processing raw sales here because gas/cylinder sales are now tracked in DailySales model
+      // Processing both would cause double counting. DailySales model provides accurate tracking.
+      // The old sales processing is kept for backward compatibility but gas/cylinder sales are skipped
       const salesList: any[] = Array.isArray(salesJson?.data) ? salesJson.data : []
       for (const s of salesList) {
         if (!inSelectedDay(s?.createdAt)) continue
@@ -875,10 +1088,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           
           const key = normalizeName(productName)
           
+          // Skip gas and cylinder sales - these are now tracked in DailySales model to avoid double counting
+          // Only process other categories if needed
           if (category === 'gas') {
-            inc(gas, key, quantity)
+            // Skip - gas sales are tracked in DailySales model
+            console.log(`[DSR] Skipping gas sale from raw sales (tracked in DailySales): ${productName} = ${quantity}`)
           } else if (category === 'cylinder') {
-            inc(cyl, key, quantity)
+            // Skip - cylinder sales are tracked in DailySales model
+            console.log(`[DSR] Skipping cylinder sale from raw sales (tracked in DailySales): ${productName} = ${quantity}`)
           }
         }
       }
@@ -891,10 +1108,15 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const productName = dailySale.productName || ''
         const key = normalizeName(productName)
         
-        // Gas Sales
-        if (dailySale.gasSalesQuantity > 0) {
+        // Gas Sales - Only count gas sales from cylinder products (not from gas products)
+        // Gas sales are recorded under cylinder products when gas is sold with a cylinder
+        // We should NOT count gas sales from gas product records to avoid double counting
+        if (dailySale.gasSalesQuantity > 0 && dailySale.category === 'cylinder') {
           inc(gas, key, dailySale.gasSalesQuantity)
           console.log(`[DSR] Gas Sale: ${productName} = ${dailySale.gasSalesQuantity}`)
+        } else if (dailySale.gasSalesQuantity > 0 && dailySale.category === 'gas') {
+          // Skip gas product records - gas sales should only be counted from cylinder product records
+          console.log(`[DSR] Skipping gas sale from gas product record: ${productName} = ${dailySale.gasSalesQuantity} (should be counted under cylinder product)`)
         }
         
         // Full Cylinder Sales
@@ -916,9 +1138,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         }
         
         // Transfer tracking (admin assigns stock to employees)
+        // NOTE: Skipping DailySales transferQuantity to avoid double counting
+        // Transfers are already tracked in StockAssignment records (processed below)
+        // which provides more detailed tracking (transferGas vs transferEmpty)
         if (dailySale.transferQuantity > 0) {
-          inc(transfer, key, dailySale.transferQuantity)
-          console.log(`[DSR] Transfer: ${productName} = ${dailySale.transferQuantity}`)
+          console.log(`[DSR] Skipping DailySales transferQuantity: ${productName} = ${dailySale.transferQuantity} (tracked in StockAssignment)`)
         }
         
         // Received back tracking (employees return stock to admin)
@@ -943,9 +1167,12 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         }
       }
       
-      // Process EmpStockEmp assignments for separate gas/empty tracking
+      // Process EmpStockEmp assignments for received items (returns from employees)
+      // NOTE: We skip EmpStockEmp TRANSFERS to avoid double counting (transfers are tracked in StockAssignment)
+      // But we MUST process EmpStockEmp RETURN TRANSACTIONS for "Received Gas" and "Received Empty" columns
+      // Return transactions have assignmentMethod: 'return_transaction' and status: 'accepted'
       const empStockEmpList: any[] = Array.isArray(empStockEmpJson?.data) ? empStockEmpJson.data : []
-      console.log(`[DSR] Processing ${empStockEmpList.length} EmpStockEmp assignments`)
+      console.log(`[DSR] Processing ${empStockEmpList.length} EmpStockEmp records - filtering for return transactions only`)
       
       for (const assignment of empStockEmpList) {
         const productName = assignment.productName || assignment.product?.name || ''
@@ -953,8 +1180,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const cylinderStatus = assignment.cylinderStatus || ''
         const quantity = Number(assignment.assignedQuantity || assignment.quantity || 0)
         const status = assignment.status || ''
-        const relatedCylinderName = assignment.relatedCylinderName || ''
         const assignmentMethod = assignment.assignmentMethod || ''
+        const relatedCylinderName = assignment.relatedCylinderName || ''
         
         // Get assignment date - handle both Date objects and ISO strings
         let assignmentDate = assignment.assignmentDate || assignment.createdAt || assignment.assignedDate || ''
@@ -964,51 +1191,38 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         
         if (!productName || quantity <= 0) continue
         
-        // Check if assignment date matches selected date
-        if (assignmentDate && !inSelectedDay(assignmentDate)) {
-          console.log(`[DSR] EmpStockEmp assignment date mismatch: ${assignmentDate} vs ${date}`)
+        // Only process RETURN TRANSACTIONS (when employees send stock back to admin)
+        // These have assignmentMethod: 'return_transaction' and status: 'accepted'
+        // Skip regular transfers (those are tracked in StockAssignment)
+        if (assignmentMethod !== 'return_transaction' || status !== 'accepted') {
           continue
         }
         
-        // For gas assignments, use the related cylinder name for DSR grouping
-        // This shows gas transfers under the cylinder they're related to
+        // Check if assignment date matches selected date (when admin accepted the return)
+        if (assignmentDate && !inSelectedDay(assignmentDate)) {
+          console.log(`[DSR] EmpStockEmp return transaction date mismatch: ${assignmentDate} vs ${date}`)
+          continue
+        }
+        
+        // For gas returns, use the related cylinder name for DSR grouping
+        // This shows gas returns under the cylinder they're related to
         let dsrKey = normalizeName(productName)
         if (category === 'gas' && relatedCylinderName) {
           dsrKey = normalizeName(relatedCylinderName)
-          console.log(`[DSR] Gas assignment linked to cylinder: ${productName} → ${relatedCylinderName}`)
+          console.log(`[DSR] Gas return linked to cylinder: ${productName} → ${relatedCylinderName}`)
         }
         
-        // Only process assignments (transfers from admin to employee)
-        // For received back, we would need a different status or separate tracking
-        // For transfer tracking - exclude return transactions
-        if ((status === 'assigned' || status === 'accepted') && assignmentMethod !== 'return_transaction') {
-          if (category === 'gas') {
-            inc(transferGas, dsrKey, quantity)
-            console.log(`[DSR] Transfer Gas: ${productName} = ${quantity} (under ${relatedCylinderName || productName})`)
-          } else if (category === 'cylinder') {
-            if (cylinderStatus === 'empty') {
-              inc(transferEmpty, dsrKey, quantity)
-              console.log(`[DSR] Transfer Empty: ${productName} = ${quantity}`)
-            } else if (cylinderStatus === 'full') {
-              // Full cylinders transferred should also be tracked
-              // For DSR purposes, full cylinders transferred become empty at employee
-              // But we track them separately if needed
-              inc(transferEmpty, dsrKey, quantity)
-              console.log(`[DSR] Transfer Full Cylinder (counted as empty): ${productName} = ${quantity}`)
-            }
-          }
-        }
-        
-        // For received back tracking - check for return transactions
-        // Return transactions have assignmentMethod: 'return_transaction' and status: 'accepted'
-        if (assignmentMethod === 'return_transaction' && status === 'accepted') {
-          if (category === 'gas') {
-            inc(receivedGas, dsrKey, quantity)
-            console.log(`[DSR] Received Gas: ${productName} = ${quantity} (returned by employee)`)
-          } else if (category === 'cylinder' && cylinderStatus === 'empty') {
-            inc(receivedEmpty, dsrKey, quantity)
-            console.log(`[DSR] Received Empty: ${productName} = ${quantity} (returned by employee)`)
-          }
+        // Track received items (when admin accepts return from employee)
+        if (category === 'gas') {
+          inc(receivedGas, dsrKey, quantity)
+          console.log(`[DSR] ✅ Received Gas (from return): ${productName} = ${quantity} (under ${relatedCylinderName || productName})`)
+        } else if (category === 'cylinder' && cylinderStatus === 'empty') {
+          inc(receivedEmpty, dsrKey, quantity)
+          console.log(`[DSR] ✅ Received Empty (from return): ${productName} = ${quantity}`)
+        } else if (category === 'cylinder' && !cylinderStatus) {
+          // If no cylinder status specified, assume empty (most common case for returns)
+          inc(receivedEmpty, dsrKey, quantity)
+          console.log(`[DSR] ✅ Received Empty (from return, no status): ${productName} = ${quantity}`)
         }
       }
       
@@ -1136,17 +1350,39 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
 
       // Process daily cylinder transactions
       const dailyCylinderList: any[] = Array.isArray(dailyCylinderJson?.data) ? dailyCylinderJson.data : []
+      console.log(`[DSR] Processing ${dailyCylinderList.length} daily cylinder transactions for date ${date}`)
+      const emptyPur: Record<string, number> = {}
+      const fullPur: Record<string, number> = {}
+      
       for (const dailyEntry of dailyCylinderList) {
         const cylinderName = dailyEntry.cylinderName || ''
         const depositQty = Number(dailyEntry.depositQuantity) || 0
         const returnQty = Number(dailyEntry.returnQuantity) || 0
+        const emptyPurQty = Number(dailyEntry.emptyCylinderPurchaseQuantity) || 0
+        const fullPurQty = Number(dailyEntry.fullCylinderPurchaseQuantity) || 0
         
         if (cylinderName) {
           const key = normalizeName(cylinderName)
           if (depositQty > 0) inc(dep, key, depositQty)
           if (returnQty > 0) inc(ret, key, returnQty)
+          if (emptyPurQty > 0) {
+            emptyPur[key] = (emptyPur[key] || 0) + emptyPurQty
+            console.log(`[DSR] ✅ Empty Purchase: ${cylinderName} (key: ${key}) = ${emptyPurQty} (total: ${emptyPur[key]})`)
+          }
+          if (fullPurQty > 0) {
+            fullPur[key] = (fullPur[key] || 0) + fullPurQty
+            console.log(`[DSR] ✅ Full Purchase: ${cylinderName} (key: ${key}) = ${fullPurQty} (total: ${fullPur[key]})`)
+          }
         }
       }
+      
+      console.log(`[DSR] Final purchase totals:`, {
+        emptyPurchases: Object.keys(emptyPur).length > 0 ? emptyPur : 'none',
+        fullPurchases: Object.keys(fullPur).length > 0 ? fullPur : 'none'
+      })
+      
+      setDailyEmptyPurchases(emptyPur)
+      setDailyFullPurchases(fullPur)
 
       // Update state
       setDailyAggGasSales(gas)
@@ -1156,7 +1392,16 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       setDailyAggReturns(ret)
       
       // Fetch stored DSR reports for opening values
+      // This will also fetch previous day's closing stock if current day has zero opening stock
       await fetchStoredDsrReports(date)
+      
+      // Auto-save DSR data after fetching (silently, no alerts)
+      // This ensures all data is saved automatically for historical viewing
+      // Note: fetchStoredDsrReports will have already updated storedDsrReports state
+      // and will have updated the database with correct opening stock if needed
+      if (isInventoryFetched && dsrProducts.length > 0) {
+        await saveDsrRecord(date)
+      }
       
     } catch (error) {
       console.error('Failed to fetch DSR data:', error)
@@ -1189,41 +1434,79 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     }
   }, [dsrViewDate, showDSRView])
 
-  // Auto-fetch inventory when DSR opens for the first time (today's date)
+  // Auto-fetch inventory when DSR opens (for today's date)
   useEffect(() => {
     if (showDSRView && dsrProducts.length > 0 && !isInventoryFetched) {
       const today = new Date().toISOString().slice(0, 10)
       if (dsrViewDate === today) {
+        // Auto-fetch and lock inventory for today's date
+        console.log('🔄 [AUTO-FETCH] Auto-fetching inventory for today\'s DSR')
+        fetchAndLockInventory()
+      } else {
+        // For previous dates, just fetch stored reports
         fetchStoredDsrReports(dsrViewDate)
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDSRView, dsrProducts.length, dsrViewDate, isInventoryFetched])
 
-  // Auto-save DSR at 11:55 PM Dubai time
+  // Scheduled auto-save at 11:55 PM Dubai time
   useEffect(() => {
-    if (!autoSaveEnabled || !showDSRView || !isInventoryFetched) return
-
-    const checkAutoSave = () => {
+    let lastSavedMinute = -1 // Track last saved minute to prevent duplicate saves
+    
+    const checkAndSave = async () => {
       const now = new Date()
-      // Convert to Dubai time (UTC+4)
-      const dubaiTime = new Date(now.getTime() + (4 * 60 * 60 * 1000))
-      const hours = dubaiTime.getHours()
-      const minutes = dubaiTime.getMinutes()
+      // Get Dubai time
+      const dubaiTime = now.toLocaleString('en-US', {
+        timeZone: 'Asia/Dubai',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      })
       
-      // Check if it's 11:55 PM Dubai time
-      if (hours === 23 && minutes === 55) {
-        const today = new Date().toISOString().slice(0, 10)
-        if (dsrViewDate === today) {
-          saveDsrRecord()
-          console.log('🕚 Auto-saved DSR at 11:55 PM Dubai time')
+      const [hours, minutes] = dubaiTime.split(':').map(Number)
+      
+      // Check if it's 11:55 PM Dubai time and we haven't saved in this minute yet
+      if (hours === 23 && minutes === 55 && lastSavedMinute !== 55) {
+        // Get current Dubai date
+        const todayStr = getLocalDateString()
+        
+        const dubaiTimeFull = now.toLocaleString('en-US', {
+          timeZone: 'Asia/Dubai',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        })
+        
+        console.log(`🕚 [SCHEDULED SAVE] 11:55 PM Dubai time reached (${dubaiTimeFull}). Saving DSR for date: ${todayStr}`)
+        
+        // Only save if we have products and inventory is fetched
+        if (dsrProducts.length > 0 && isInventoryFetched) {
+          lastSavedMinute = 55
+          await saveDsrRecord(todayStr)
+          console.log(`✅ [SCHEDULED SAVE] DSR saved successfully for ${todayStr} at 11:55 PM Dubai time`)
+        } else {
+          console.log('⚠️ [SCHEDULED SAVE] Skipping - products or inventory not ready')
         }
+      } else if (minutes !== 55) {
+        // Reset the flag when we're not at 55 minutes
+        lastSavedMinute = -1
       }
     }
-
+    
     // Check every minute
-    const interval = setInterval(checkAutoSave, 60000)
+    const interval = setInterval(checkAndSave, 60000)
+    
+    // Also check immediately in case we're already at 11:55 PM
+    checkAndSave()
+    
     return () => clearInterval(interval)
-  }, [autoSaveEnabled, showDSRView, isInventoryFetched, dsrViewDate])
+  }, [dsrProducts.length, isInventoryFetched])
 
   // Fetch employee DSR data when employee or date changes
   useEffect(() => {
@@ -1243,6 +1526,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const key = normalizeName(p.name)
         const e = byKey.get(key)
         
+        const emptyPurchaseVal = dailyEmptyPurchases[key] ?? 0
+        const fullPurchaseVal = dailyFullPurchases[key] ?? 0
         const refilledVal = dailyAggRefills[key] ?? (e ? e.refilled : 0)
         const fullCylinderSalesVal = dailyFullCylinderSales[key] ?? 0
         const emptyCylinderSalesVal = dailyEmptyCylinderSales[key] ?? 0
@@ -1260,13 +1545,13 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const receivedGasVal = dailyReceivedGas[key] ?? 0
         const receivedEmptyVal = dailyReceivedEmpty[key] ?? 0
         
-        // Closing Full = Opening Full + Refilled - Full Cylinder Sales - Gas Sales - Transfer Gas + Received Gas
+        // Closing Full = Opening Full + Full Purchase + Refilled - Full Cylinder Sales - Gas Sales - Transfer Gas + Received Gas
         const closingFull = Math.max(0, 
-          openingFull + (refilledVal || 0) - (fullCylinderSalesVal || 0) - (gasSalesVal || 0) - transferGasVal + receivedGasVal
+          openingFull + fullPurchaseVal + (refilledVal || 0) - (fullCylinderSalesVal || 0) - (gasSalesVal || 0) - transferGasVal + receivedGasVal
         )
-        // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
+        // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
         const closingEmpty = Math.max(0, 
-          openingFull + openingEmpty - (fullCylinderSalesVal || 0) - (emptyCylinderSalesVal || 0) - (depositVal || 0) + (returnVal || 0) - transferEmptyVal + receivedEmptyVal
+          openingFull + openingEmpty + fullPurchaseVal + emptyPurchaseVal - (fullCylinderSalesVal || 0) - (emptyCylinderSalesVal || 0) - (depositVal || 0) + (returnVal || 0) - transferEmptyVal + receivedEmptyVal - closingFull
         )
         
         return `
@@ -1274,6 +1559,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             <td>${p.name}</td>
             <td>${openingFull}</td>
             <td>${openingEmpty}</td>
+            <td>${emptyPurchaseVal}</td>
+            <td>${fullPurchaseVal}</td>
             <td>${refilledVal || 0}</td>
             <td>${fullCylinderSalesVal || 0}</td>
             <td>${emptyCylinderSalesVal || 0}</td>
@@ -1306,21 +1593,27 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull
         const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty
         
+        const emptyPurchaseVal = dailyEmptyPurchases[key] ?? 0
+        const fullPurchaseVal = dailyFullPurchases[key] ?? 0
         const transferGasVal = dailyTransferGas[key] ?? 0
         const transferEmptyVal = dailyTransferEmpty[key] ?? 0
         const receivedGasVal = dailyReceivedGas[key] ?? 0
         const receivedEmptyVal = dailyReceivedEmpty[key] ?? 0
         
+        // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
         const closingFull = Math.max(0, 
-          openingFull + (refilledVal || 0) - (fullCylinderSalesVal || 0) - (gasSalesVal || 0) - transferGasVal + receivedGasVal
+          openingFull + fullPurchaseVal + (refilledVal || 0) - (fullCylinderSalesVal || 0) - (gasSalesVal || 0) - transferGasVal + receivedGasVal
         )
+        // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
         const closingEmpty = Math.max(0, 
-          openingFull + openingEmpty - (fullCylinderSalesVal || 0) - (emptyCylinderSalesVal || 0) - (depositVal || 0) + (returnVal || 0) - transferEmptyVal + receivedEmptyVal
+          openingFull + openingEmpty + fullPurchaseVal + emptyPurchaseVal - (fullCylinderSalesVal || 0) - (emptyCylinderSalesVal || 0) - (depositVal || 0) + (returnVal || 0) - transferEmptyVal + receivedEmptyVal - closingFull
         )
         
         return {
           openingFull: acc.openingFull + openingFull,
           openingEmpty: acc.openingEmpty + openingEmpty,
+          emptyPurchase: acc.emptyPurchase + emptyPurchaseVal,
+          fullPurchase: acc.fullPurchase + fullPurchaseVal,
           refilled: acc.refilled + (refilledVal || 0),
           fullCylinderSales: acc.fullCylinderSales + (fullCylinderSalesVal || 0),
           emptyCylinderSales: acc.emptyCylinderSales + (emptyCylinderSalesVal || 0),
@@ -1337,6 +1630,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       }, {
         openingFull: 0,
         openingEmpty: 0,
+        emptyPurchase: 0,
+        fullPurchase: 0,
         refilled: 0,
         fullCylinderSales: 0,
         emptyCylinderSales: 0,
@@ -1356,6 +1651,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           <td><strong>TOTAL</strong></td>
           <td>${totals.openingFull}</td>
           <td>${totals.openingEmpty}</td>
+          <td>${totals.emptyPurchase}</td>
+          <td>${totals.fullPurchase}</td>
           <td>${totals.refilled}</td>
           <td>${totals.fullCylinderSales}</td>
           <td>${totals.emptyCylinderSales}</td>
@@ -1391,13 +1688,15 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
               <tr>
                 <th>Items</th>
                 <th colspan=2>Opening</th>
-                <th colspan=10>During the day</th>
+                <th colspan=12>During the day</th>
                 <th colspan=2>Closing</th>
               </tr>
               <tr>
                 <th></th>
                 <th>Full</th>
                 <th>Empty</th>
+                <th>Empty Pur</th>
+                <th>Full Pur</th>
                 <th>Refilled</th>
                 <th>Full Cyl Sales</th>
                 <th>Empty Cyl Sales</th>
@@ -1533,12 +1832,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                         <TableRow>
                           <TableHead rowSpan={2} className="border-r whitespace-nowrap">Items</TableHead>
                           <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
-                          <TableHead colSpan={10} className="text-center border-r">During the day</TableHead>
+                          <TableHead colSpan={12} className="text-center border-r">During the day</TableHead>
                           <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
                         </TableRow>
                         <TableRow>
                           <TableHead className="text-center">Full</TableHead>
                           <TableHead className="text-center border-r">Empty</TableHead>
+                          <TableHead className="text-center">Empty Pur</TableHead>
+                          <TableHead className="text-center">Full Pur</TableHead>
                           <TableHead className="text-center">Refilled</TableHead>
                           <TableHead className="text-center">Full Cyl Sales</TableHead>
                           <TableHead className="text-center">Empty Cyl Sales</TableHead>
@@ -1559,6 +1860,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                             <TableCell className="font-medium border-r whitespace-nowrap">{entry.itemName}</TableCell>
                             <TableCell className="text-center">{entry.openingFull || 0}</TableCell>
                             <TableCell className="text-center border-r">{entry.openingEmpty || 0}</TableCell>
+                            <TableCell className="text-center">{entry.emptyPurchase || 0}</TableCell>
+                            <TableCell className="text-center">{entry.fullPurchase || 0}</TableCell>
                             <TableCell className="text-center">{entry.refilled || 0}</TableCell>
                             <TableCell className="text-center">{entry.fullCylinderSales || 0}</TableCell>
                             <TableCell className="text-center">{entry.emptyCylinderSales || 0}</TableCell>
@@ -1581,6 +1884,12 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                           </TableCell>
                           <TableCell className="text-center border-r">
                             {employeeDsrData.reduce((sum, entry) => sum + (entry.openingEmpty || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.emptyPurchase || 0), 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {employeeDsrData.reduce((sum, entry) => sum + (entry.fullPurchase || 0), 0)}
                           </TableCell>
                           <TableCell className="text-center">
                             {employeeDsrData.reduce((sum, entry) => sum + (entry.refilled || 0), 0)}
@@ -1666,46 +1975,20 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             </div>
             
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-              <div className="flex flex-col sm:flex-row gap-2 w-full">
-                <Button
-                  onClick={fetchAndLockInventory}
-                  variant="outline"
-                  size="sm"
-                  disabled={loading}
-                  className="bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 w-full sm:w-auto text-xs sm:text-sm"
-                >
-                  <Eye className="h-4 w-4 mr-1" />
-                  {isInventoryFetched ? 'Refresh' : 'Fetch'}
-                </Button>
-                
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">
+                  {isInventoryFetched ? '✓ Inventory Locked - Data auto-saved' : '⏳ Fetching inventory and auto-saving data...'}
+                </span>
                 {isInventoryFetched && (
                   <Button
-                    onClick={saveDsrRecord}
+                    onClick={handleManualSave}
                     size="sm"
                     disabled={loading}
-                    className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto text-xs sm:text-sm"
+                    className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm ml-2"
                   >
                     <PlusCircle className="h-4 w-4 mr-1" />
                     Save
                   </Button>
-                )}
-              </div>
-              
-              <div className="flex flex-col gap-1 w-full sm:w-auto">
-                <span className="text-xs text-gray-500">
-                  {isInventoryFetched ? '✓ Inventory Locked' : '⚠ Click Fetch Inventory'}
-                </span>
-                
-                {isInventoryFetched && (
-                  <label className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={autoSaveEnabled}
-                      onChange={(e) => setAutoSaveEnabled(e.target.checked)}
-                      className="rounded"
-                    />
-                    Auto-save at 11:55 PM
-                  </label>
                 )}
               </div>
             </div>
@@ -1724,12 +2007,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   <TableRow>
                     <TableHead rowSpan={2} className="border-r">Items</TableHead>
                     <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
-                    <TableHead colSpan={10} className="text-center border-r">During the day</TableHead>
+                    <TableHead colSpan={12} className="text-center border-r">During the day</TableHead>
                     <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
                   </TableRow>
                   <TableRow>
                     <TableHead className="text-center">Full</TableHead>
                     <TableHead className="text-center border-r">Empty</TableHead>
+                    <TableHead className="text-center">Empty Pur</TableHead>
+                    <TableHead className="text-center">Full Pur</TableHead>
                     <TableHead className="text-center">Refilled</TableHead>
                     <TableHead className="text-center">Full Cyl Sales</TableHead>
                     <TableHead className="text-center">Empty Cyl Sales</TableHead>
@@ -1750,8 +2035,16 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const entry = dsrEntries.find(e => e.date === dsrViewDate && normalizeName(e.itemName) === key)
                     
                     const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                    const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : inventoryInfo.availableFull)
-                    const openingEmpty = storedDsrReports[key]?.openingEmpty ?? (isInventoryFetched ? 0 : inventoryInfo.availableEmpty)
+                    // Use stored opening stock (which should be previous day's closing stock for new days)
+                    // If not available, use current inventory (for first day ever)
+                    const storedOpening = storedDsrReports[key]
+                    const openingFull = storedOpening?.openingFull ?? inventoryInfo.availableFull ?? 0
+                    const openingEmpty = storedOpening?.openingEmpty ?? inventoryInfo.availableEmpty ?? 0
+                    
+                    // Debug log for first few products to verify values
+                    if (dsrProducts.indexOf(product) < 3) {
+                      console.log(`🔍 [TABLE RENDER] ${product.name} (key: ${key}): storedDsrReports[key] =`, storedOpening, `→ openingFull=${openingFull}, openingEmpty=${openingEmpty}`)
+                    }
                     const refilled = dailyCylinderRefills[key] ?? 0
                     const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
                     const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
@@ -1767,13 +2060,18 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const receivedGasQuantity = dailyReceivedGas[key] ?? 0
                     const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
                     
-                    // Calculate closing stock using DSR formula
+                    // Purchase quantities
+                    const emptyPurchase = dailyEmptyPurchases[key] ?? 0
+                    const fullPurchase = dailyFullPurchases[key] ?? 0
+                    
+                    // Calculate closing stock using DSR formula (including purchases)
+                    // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
                     const closingFull = Math.max(0, 
-                      openingFull + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
+                      openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
                     )
-                    // Closing Empty = Opening Full + Opening Empty - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty
+                    // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
                     const closingEmpty = Math.max(0, 
-                      openingFull + openingEmpty - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity
+                      openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity - closingFull
                     )
 
                     return (
@@ -1781,6 +2079,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                         <TableCell className="font-medium border-r">{product.name}</TableCell>
                         <TableCell className="text-center">{openingFull}</TableCell>
                         <TableCell className="text-center border-r">{openingEmpty}</TableCell>
+                        <TableCell className="text-center">{emptyPurchase}</TableCell>
+                        <TableCell className="text-center">{fullPurchase}</TableCell>
                         <TableCell className="text-center">{refilled}</TableCell>
                         <TableCell className="text-center">{fullCylinderSales}</TableCell>
                         <TableCell className="text-center">{emptyCylinderSales}</TableCell>
@@ -1803,7 +2103,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       {dsrProducts.reduce((sum, product) => {
                         const key = normalizeName(product.name)
                         const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                        const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : inventoryInfo.availableFull)
+                        const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull ?? 0
                         return sum + openingFull
                       }, 0)}
                     </TableCell>
@@ -1811,8 +2111,20 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       {dsrProducts.reduce((sum, product) => {
                         const key = normalizeName(product.name)
                         const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? (isInventoryFetched ? 0 : inventoryInfo.availableEmpty)
+                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty ?? 0
                         return sum + openingEmpty
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyEmptyPurchases[key] ?? 0)
+                      }, 0)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {dsrProducts.reduce((sum, product) => {
+                        const key = normalizeName(product.name)
+                        return sum + (dailyFullPurchases[key] ?? 0)
                       }, 0)}
                     </TableCell>
                     <TableCell className="text-center">
@@ -1879,13 +2191,19 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       {dsrProducts.reduce((sum, product) => {
                         const key = normalizeName(product.name)
                         const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                        const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : inventoryInfo.availableFull)
+                        const storedOpening = storedDsrReports[key]
+                        const openingFull = storedOpening?.openingFull ?? inventoryInfo.availableFull ?? 0
                         const refilled = dailyCylinderRefills[key] ?? 0
                         const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
                         const gasSales = dailyGasSales[key] ?? 0
                         const transferGasQuantity = dailyTransferGas[key] ?? 0
                         const receivedGasQuantity = dailyReceivedGas[key] ?? 0
-                        const closingFull = Math.max(0, openingFull + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity)
+                        const fullPurchase = dailyFullPurchases[key] ?? 0
+                        // Use the same formula as individual rows
+                        // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
+                        const closingFull = Math.max(0, 
+                          openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
+                        )
                         return sum + closingFull
                       }, 0)}
                     </TableCell>
@@ -1893,15 +2211,24 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       {dsrProducts.reduce((sum, product) => {
                         const key = normalizeName(product.name)
                         const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                        const openingFull = storedDsrReports[key]?.openingFull ?? (isInventoryFetched ? 0 : inventoryInfo.availableFull)
-                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? (isInventoryFetched ? 0 : inventoryInfo.availableEmpty)
+                        const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull ?? 0
+                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty ?? 0
                         const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
                         const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
                         const deposits = dailyAggDeposits[key] ?? 0
                         const returns = dailyAggReturns[key] ?? 0
                         const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
                         const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
-                        const closingEmpty = Math.max(0, openingFull + openingEmpty - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity)
+                        const emptyPurchase = dailyEmptyPurchases[key] ?? 0
+                        const fullPurchase = dailyFullPurchases[key] ?? 0
+                        const refilled = dailyCylinderRefills[key] ?? 0
+                        const gasSales = dailyGasSales[key] ?? 0
+                        const transferGasQuantity = dailyTransferGas[key] ?? 0
+                        const receivedGasQuantity = dailyReceivedGas[key] ?? 0
+                        // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
+                        const closingFull = Math.max(0, openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity)
+                        // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
+                        const closingEmpty = Math.max(0, openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity - closingFull)
                         return sum + closingEmpty
                       }, 0)}
                     </TableCell>

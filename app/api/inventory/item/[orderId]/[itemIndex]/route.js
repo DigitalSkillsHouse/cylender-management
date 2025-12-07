@@ -4,6 +4,7 @@ import PurchaseOrder from "@/models/PurchaseOrder"
 import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
 import Product from "@/models/Product"
 import { verifyToken } from "@/lib/auth"
+import { getLocalDateStringFromDate, getLocalDateString } from "@/lib/date-utils"
 
 // ENHANCED PRODUCT MATCHING FUNCTION
 async function findProductByEnhancedMatching(item) {
@@ -784,6 +785,95 @@ export async function PATCH(request, { params }) {
         }
       } catch (refillError) {
         console.warn("Failed to update daily refill entries:", refillError.message)
+      }
+      
+      // Track full and empty cylinder purchases for DSR
+      // Use current date (when item is received) instead of order purchase date
+      try {
+        const DailyCylinderTransaction = (await import('@/models/DailyCylinderTransaction')).default
+        const purchaseDate = getLocalDateString() // Use today's date when item is marked as received
+        
+        console.log(`🔍 [PURCHASE TRACKING] Checking item for purchase tracking:`, {
+          purchaseType: updatedItem.purchaseType,
+          hasProduct: !!updatedItem.product,
+          productId: updatedItem.product?._id || updatedItem.product,
+          cylinderStatus: updatedItem.cylinderStatus,
+          quantity: updatedItem.quantity
+        })
+        
+        const item = updatedItem
+        if (item.purchaseType === 'cylinder' && item.product) {
+          // Get product - handle both populated and unpopulated cases
+          let product = null
+          if (item.product._id) {
+            product = await Product.findById(item.product._id)
+          } else if (typeof item.product === 'string') {
+            product = await Product.findById(item.product)
+          } else if (item.product.name) {
+            // Already populated
+            product = item.product
+          }
+          
+          console.log(`🔍 [PURCHASE TRACKING] Product lookup result:`, {
+            found: !!product,
+            productName: product?.name,
+            productCategory: product?.category,
+            productId: product?._id
+          })
+          
+          if (product && product.category === 'cylinder') {
+            const quantity = Number(item.quantity) || 0
+            const cylinderStatus = item.cylinderStatus || 'empty'
+            
+            // Update DailyCylinderTransaction with purchase tracking
+            const updateResult = await DailyCylinderTransaction.findOneAndUpdate(
+              {
+                date: purchaseDate,
+                cylinderProductId: product._id,
+                employeeId: null, // Admin purchases
+                isEmployeeTransaction: false // Explicitly set to false for admin purchases
+              },
+              {
+                $inc: cylinderStatus === 'full' 
+                  ? { fullCylinderPurchaseQuantity: quantity }
+                  : { emptyCylinderPurchaseQuantity: quantity },
+                $set: {
+                  cylinderName: product.name,
+                  cylinderSize: product.cylinderSize || 'Unknown',
+                  isEmployeeTransaction: false // Explicitly set to false for admin purchases
+                }
+              },
+              {
+                upsert: true,
+                new: true
+              }
+            )
+            
+            console.log(`✅ Tracked ${cylinderStatus} cylinder purchase: ${product.name} - ${quantity} units for date ${purchaseDate}`)
+            console.log(`📊 DailyCylinderTransaction update result:`, {
+              date: purchaseDate,
+              cylinderName: product.name,
+              cylinderStatus,
+              quantity,
+              purchaseType: cylinderStatus === 'full' ? 'fullCylinderPurchaseQuantity' : 'emptyCylinderPurchaseQuantity',
+              result: updateResult ? 'Updated/Created' : 'Failed'
+            })
+          } else {
+            console.log(`⚠️ [PURCHASE TRACKING] Product not found or not a cylinder:`, {
+              productFound: !!product,
+              productCategory: product?.category,
+              expectedCategory: 'cylinder'
+            })
+          }
+        } else {
+          console.log(`⚠️ [PURCHASE TRACKING] Skipping - not a cylinder purchase:`, {
+            purchaseType: item.purchaseType,
+            hasProduct: !!item.product
+          })
+        }
+      } catch (purchaseTrackingError) {
+        console.error("❌ Failed to track cylinder purchases:", purchaseTrackingError.message)
+        console.error("❌ Purchase tracking error stack:", purchaseTrackingError.stack)
       }
     }
 

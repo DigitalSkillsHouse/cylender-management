@@ -62,6 +62,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   const [isProductListDialogOpen, setIsProductListDialogOpen] = useState(false)
   const [selectedEmployeeProducts, setSelectedEmployeeProducts] = useState<any[]>([])
   const [updateNotification, setUpdateNotification] = useState<{ message: string; visible: boolean; type: 'success' | 'warning' }>({ message: "", visible: false, type: 'success' })
+  const [isSubmittingStock, setIsSubmittingStock] = useState(false)
   
   // Use optimized notifications hook with 60-second polling
   const { 
@@ -334,8 +335,20 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
 
   const handleStockAssignment = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Prevent double submission
+    if (isSubmittingStock) {
+      console.log('⚠️ [STOCK ASSIGNMENT] Already submitting, ignoring duplicate request')
+      return
+    }
+    
+    setIsSubmittingStock(true)
+    
     try {
-      if (!selectedEmployee) return
+      if (!selectedEmployee) {
+        setIsSubmittingStock(false)
+        return
+      }
 
       // Get the selected product and validate stock availability
       const selectedProduct = products.find(p => p._id === stockFormData.productId)
@@ -348,6 +361,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         setTimeout(() => {
           setUpdateNotification({ message: '', visible: false, type: 'success' })
         }, 5000)
+        setIsSubmittingStock(false)
         return
       }
 
@@ -372,6 +386,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         setTimeout(() => {
           setUpdateNotification({ message: '', visible: false, type: 'success' })
         }, 5000)
+        setIsSubmittingStock(false)
         return
       }
 
@@ -384,6 +399,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         setTimeout(() => {
           setUpdateNotification({ message: '', visible: false, type: 'success' })
         }, 5000)
+        setIsSubmittingStock(false)
         return
       }
 
@@ -592,6 +608,9 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       localStorage.setItem('stockUpdated', Date.now().toString())
       window.dispatchEvent(new Event('stockUpdated'))
       console.log('✅ [STOCK ASSIGNMENT] Complete! Assignment created and all notifications sent')
+      
+      // Reset submitting state
+      setIsSubmittingStock(false)
     } catch (error: any) {
       console.error('❌ [STOCK ASSIGNMENT] Failed with error:', error)
       console.error('❌ [STOCK ASSIGNMENT] Error details:', {
@@ -610,6 +629,9 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       setTimeout(() => {
         setUpdateNotification({ message: '', visible: false, type: 'success' })
       }, 5000)
+      
+      // Reset submitting state on error
+      setIsSubmittingStock(false)
     }
   }
 
@@ -1146,11 +1168,20 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Button type="button" variant="outline" onClick={() => setIsStockDialogOpen(false)}>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setIsStockDialogOpen(false)}
+                disabled={isSubmittingStock}
+              >
                 Cancel
               </Button>
-              <Button type="submit" className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white">
-                Assign Stock
+              <Button 
+                type="submit" 
+                className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+                disabled={isSubmittingStock || !stockFormData.productId}
+              >
+                {isSubmittingStock ? 'Assigning...' : 'Assign Stock'}
               </Button>
             </div>
           </form>
