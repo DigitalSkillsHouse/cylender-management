@@ -102,6 +102,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
   const [filteredCustomers, setFilteredCustomers] = useState<any[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<{ _id: string; name: string; phone?: string } | null>(null)
+  const [collectedInvoiceSearch, setCollectedInvoiceSearch] = useState("")
   
   // Payment collection dialog state
   const [paymentDialog, setPaymentDialog] = useState({
@@ -277,6 +278,17 @@ export function CollectionPage({ user }: CollectionPageProps) {
 
   // Currently, we don't need extra filtering; we show the selected customer's invoices directly
   const filtered = invoices
+
+  // Filter collected invoices by invoice number search
+  const filteredCollectedInvoices = useMemo(() => {
+    if (!collectedInvoiceSearch.trim()) {
+      return collectedInvoices
+    }
+    const searchTerm = collectedInvoiceSearch.toLowerCase().trim()
+    return collectedInvoices.filter((inv) => 
+      inv.invoiceNumber.toLowerCase().includes(searchTerm)
+    )
+  }, [collectedInvoices, collectedInvoiceSearch])
 
   // Group by customer for list-wise display
   const groupedByCustomer = useMemo(() => {
@@ -916,14 +928,28 @@ export function CollectionPage({ user }: CollectionPageProps) {
       {selectedCustomer && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base sm:text-lg">Collected Invoices</CardTitle>
-            <p className="text-sm text-gray-600">All invoices that have received payments</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-base sm:text-lg">Collected Invoices</CardTitle>
+                <p className="text-sm text-gray-600">All invoices that have received payments</p>
+              </div>
+              <div className="w-full sm:w-auto sm:min-w-[250px]">
+                <Input
+                  placeholder="Search by invoice number..."
+                  value={collectedInvoiceSearch}
+                  onChange={(e) => setCollectedInvoiceSearch(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {loadingCollected ? (
               <div className="p-6 text-center text-gray-500">Loading collected invoices...</div>
             ) : collectedInvoices.length === 0 ? (
               <div className="p-6 text-center text-gray-500">No collected invoices found</div>
+            ) : filteredCollectedInvoices.length === 0 ? (
+              <div className="p-6 text-center text-gray-500">No invoices found matching "{collectedInvoiceSearch}"</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[800px] text-sm">
@@ -941,7 +967,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {collectedInvoices.map((inv) => {
+                    {filteredCollectedInvoices.map((inv) => {
                       const itemsSummary = inv.items && inv.items.length > 0 
                         ? inv.items.map(item => `${item.product.name} (${item.quantity})`).join(', ')
                         : 'No items'

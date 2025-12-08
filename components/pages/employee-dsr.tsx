@@ -227,13 +227,13 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         
         const key = item.productName.toLowerCase().replace(/\s+/g, ' ').trim()
         const prevClosing = prevReports[key]
-        const inventoryInfo = { availableFull: item.availableFull || 0, availableEmpty: item.availableEmpty || 0 }
         
-        // Use previous day's closing stock as opening stock, fallback to current inventory
-        const openingFull = prevClosing?.closingFull ?? inventoryInfo.availableFull ?? 0
-        const openingEmpty = prevClosing?.closingEmpty ?? inventoryInfo.availableEmpty ?? 0
+        // Opening should ALWAYS be from previous day's closing stock, never from current inventory
+        // If no previous day data exists, use 0 (not current inventory)
+        const openingFull = prevClosing?.closingFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? 0
         
-        console.log(`📅 [EMPLOYEE DSR] ${item.productName}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A'})`)
+        console.log(`📅 [EMPLOYEE DSR] ${item.productName}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A - using 0'})`)
         
         // Auto-create employee DSR entry with previous day's closing stock as opening stock
         await fetch('/api/employee-daily-stock-reports', {
@@ -336,13 +336,13 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         
         const key = item.productName.toLowerCase().replace(/\s+/g, ' ').trim()
         const prevClosing = prevReports[key]
-        const inventoryInfo = { availableFull: item.availableFull || 0, availableEmpty: item.availableEmpty || 0 }
         
-        // Use previous day's closing stock as opening stock, fallback to current inventory
-        const openingFull = prevClosing?.closingFull ?? inventoryInfo.availableFull ?? 0
-        const openingEmpty = prevClosing?.closingEmpty ?? inventoryInfo.availableEmpty ?? 0
+        // Opening should ALWAYS be from previous day's closing stock, never from current inventory
+        // If no previous day data exists, use 0 (not current inventory)
+        const openingFull = prevClosing?.closingFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? 0
         
-        console.log(`📅 [EMPLOYEE DSR] ${item.productName}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A'})`)
+        console.log(`📅 [EMPLOYEE DSR] ${item.productName}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A - using 0'})`)
         
         // Create/update employee DSR entry with previous day's closing stock as opening stock
         await fetch('/api/employee-daily-stock-reports', {
@@ -656,12 +656,11 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         const itemName = item.productName
         const key = itemName.toLowerCase().replace(/\s+/g, ' ').trim()
         
-        // Use stored opening values if available, otherwise use current inventory
-        // Use stored opening stock (which should be previous day's closing stock for new days)
-        // If not available, use current inventory (for first day ever)
+        // Opening should ALWAYS be from previous day's closing stock, never from current inventory
+        // If no stored opening data exists, use 0 (not current inventory)
         const storedOpening = storedDsrReports[key]
-        const openingFull = storedOpening?.openingFull ?? (item.availableFull || 0)
-        const openingEmpty = storedOpening?.openingEmpty ?? (item.availableEmpty || 0)
+        const openingFull = storedOpening?.openingFull ?? 0
+        const openingEmpty = storedOpening?.openingEmpty ?? 0
         
         if (dsrMap.has(itemName)) {
           // Merge with existing sales entry
@@ -989,7 +988,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
               )}
               
               <span className="text-xs sm:text-sm text-gray-500">
-                {isInventoryFetched ? '✓ Inventory Locked - Data auto-saved' : '⏳ Fetching inventory and auto-saving data...'}
+                {isInventoryFetched ? '✓ Opening stock loaded from previous day - Data auto-saved' : '⏳ Loading previous day\'s closing stock as opening stock...'}
               </span>
             </div>
           </div>

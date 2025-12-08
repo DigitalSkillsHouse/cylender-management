@@ -400,18 +400,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           fullPurchase: 0
         }
         
-        // Find inventory item for this product to get opening stock if not stored
-        const inventoryItem = inventoryData.find((item: any) => 
-          item.productName === itemName && item.category === 'cylinder'
-        )
-        
-        // Use stored opening values if available, otherwise use current inventory
+        // Opening should ALWAYS be from previous day's closing stock, never from current inventory
+        // If no stored opening data exists, use 0 (not current inventory)
         const openingFull = stored?.openingFull !== undefined 
           ? Number(stored.openingFull) 
-          : (inventoryItem ? Number(inventoryItem.availableFull || 0) : 0)
+          : 0
         const openingEmpty = stored?.openingEmpty !== undefined 
           ? Number(stored.openingEmpty) 
-          : (inventoryItem ? Number(inventoryItem.availableEmpty || 0) : 0)
+          : 0
         
         // Calculate closing values if not stored
         let closingFull = stored?.closingFull
@@ -687,13 +683,13 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       for (const product of dsrProducts) {
         const key = normalizeName(product.name)
         const prevClosing = prevReports[key]
-        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
         
-        // Use previous day's closing stock as opening stock, fallback to current inventory
-        const openingFull = prevClosing?.closingFull ?? inventoryInfo.availableFull ?? 0
-        const openingEmpty = prevClosing?.closingEmpty ?? inventoryInfo.availableEmpty ?? 0
+        // Opening should ALWAYS be from previous day's closing stock, never from current inventory
+        // If no previous day data exists, use 0 (not current inventory)
+        const openingFull = prevClosing?.closingFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? 0
         
-        console.log(`📅 [AUTO-FETCH] ${product.name}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A'})`)
+        console.log(`📅 [AUTO-FETCH] ${product.name}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A - using 0'})`)
         
         // Auto-create DSR entry with previous day's closing stock as opening stock
         await fetch('/api/daily-stock-reports', {
@@ -767,13 +763,13 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       for (const product of dsrProducts) {
         const key = normalizeName(product.name)
         const prevClosing = prevReports[key]
-        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
         
-        // Use previous day's closing stock as opening stock, fallback to current inventory
-        const openingFull = prevClosing?.closingFull ?? inventoryInfo.availableFull ?? 0
-        const openingEmpty = prevClosing?.closingEmpty ?? inventoryInfo.availableEmpty ?? 0
+        // Opening should ALWAYS be from previous day's closing stock, never from current inventory
+        // If no previous day data exists, use 0 (not current inventory)
+        const openingFull = prevClosing?.closingFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? 0
         
-        console.log(`📅 [OPENING STOCK] ${product.name}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A'})`)
+        console.log(`📅 [OPENING STOCK] ${product.name}: Opening = ${openingFull} Full, ${openingEmpty} Empty (from previous day closing: ${prevClosing ? `${prevClosing.closingFull}/${prevClosing.closingEmpty}` : 'N/A - using 0'})`)
         
         // Create/update DSR entry with previous day's closing stock as opening stock
         await fetch('/api/daily-stock-reports', {
@@ -1535,9 +1531,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const depositVal = dailyAggDeposits[key] ?? (e ? e.depositCylinder : 0)
         const returnVal = dailyAggReturns[key] ?? (e ? e.returnCylinder : 0)
         
-        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-        const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull
-        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty
+        // Opening should be from previous day's closing, not current inventory
+        const openingFull = storedDsrReports[key]?.openingFull ?? 0
+        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? 0
         
         // Calculate closing stock using DSR formula (matching main DSR view)
         const transferGasVal = dailyTransferGas[key] ?? 0
@@ -1589,9 +1585,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const depositVal = dailyAggDeposits[key] ?? (e ? e.depositCylinder : 0)
         const returnVal = dailyAggReturns[key] ?? (e ? e.returnCylinder : 0)
         
-        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-        const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull
-        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty
+        // Opening should be from previous day's closing, not current inventory
+        const openingFull = storedDsrReports[key]?.openingFull ?? 0
+        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? 0
         
         const emptyPurchaseVal = dailyEmptyPurchases[key] ?? 0
         const fullPurchaseVal = dailyFullPurchases[key] ?? 0
@@ -1977,7 +1973,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-500">
-                  {isInventoryFetched ? '✓ Inventory Locked - Data auto-saved' : '⏳ Fetching inventory and auto-saving data...'}
+                  {isInventoryFetched ? '✓ Opening stock loaded from previous day - Data auto-saved' : '⏳ Loading previous day\'s closing stock as opening stock...'}
                 </span>
                 {isInventoryFetched && (
                   <Button
@@ -2034,12 +2030,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const key = normalizeName(product.name)
                     const entry = dsrEntries.find(e => e.date === dsrViewDate && normalizeName(e.itemName) === key)
                     
-                    const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                    // Use stored opening stock (which should be previous day's closing stock for new days)
-                    // If not available, use current inventory (for first day ever)
+                    // Use stored opening stock (which should be previous day's closing stock)
+                    // Never use current inventory as opening - opening should always be from previous day's closing
                     const storedOpening = storedDsrReports[key]
-                    const openingFull = storedOpening?.openingFull ?? inventoryInfo.availableFull ?? 0
-                    const openingEmpty = storedOpening?.openingEmpty ?? inventoryInfo.availableEmpty ?? 0
+                    const openingFull = storedOpening?.openingFull ?? 0
+                    const openingEmpty = storedOpening?.openingEmpty ?? 0
                     
                     // Debug log for first few products to verify values
                     if (dsrProducts.indexOf(product) < 3) {
@@ -2102,16 +2097,16 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     <TableCell className="text-center">
                       {dsrProducts.reduce((sum, product) => {
                         const key = normalizeName(product.name)
-                        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                        const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull ?? 0
+                        // Opening should be from previous day's closing, not current inventory
+                        const openingFull = storedDsrReports[key]?.openingFull ?? 0
                         return sum + openingFull
                       }, 0)}
                     </TableCell>
                     <TableCell className="text-center border-r">
                       {dsrProducts.reduce((sum, product) => {
                         const key = normalizeName(product.name)
-                        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty ?? 0
+                        // Opening should be from previous day's closing, not current inventory
+                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? 0
                         return sum + openingEmpty
                       }, 0)}
                     </TableCell>
@@ -2190,9 +2185,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     <TableCell className="text-center font-semibold bg-blue-50">
                       {dsrProducts.reduce((sum, product) => {
                         const key = normalizeName(product.name)
-                        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
+                        // Opening should be from previous day's closing, not current inventory
                         const storedOpening = storedDsrReports[key]
-                        const openingFull = storedOpening?.openingFull ?? inventoryInfo.availableFull ?? 0
+                        const openingFull = storedOpening?.openingFull ?? 0
                         const refilled = dailyCylinderRefills[key] ?? 0
                         const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
                         const gasSales = dailyGasSales[key] ?? 0
@@ -2210,9 +2205,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     <TableCell className="text-center font-semibold bg-blue-50">
                       {dsrProducts.reduce((sum, product) => {
                         const key = normalizeName(product.name)
-                        const inventoryInfo = inventoryData[key] || { availableFull: 0, availableEmpty: 0, currentStock: 0 }
-                        const openingFull = storedDsrReports[key]?.openingFull ?? inventoryInfo.availableFull ?? 0
-                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? inventoryInfo.availableEmpty ?? 0
+                        // Opening should be from previous day's closing, not current inventory
+                        const openingFull = storedDsrReports[key]?.openingFull ?? 0
+                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? 0
                         const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
                         const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
                         const deposits = dailyAggDeposits[key] ?? 0
