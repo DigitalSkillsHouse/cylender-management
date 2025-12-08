@@ -105,14 +105,44 @@ export function RentalCollection({ user }: RentalCollectionProps = {}) {
   const [generatingPDF, setGeneratingPDF] = useState(false)
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   
-  // Load admin signature from localStorage
+  // Load admin signature from database first, fallback to localStorage
   useEffect(() => {
-    try {
-      const sig = typeof window !== 'undefined' ? localStorage.getItem("adminSignature") : null
-      setAdminSignature(sig)
-    } catch (e) {
-      setAdminSignature(null)
+    const loadAdminSignature = async () => {
+      try {
+        // Try database first
+        const response = await fetch("/api/admin-signature", {
+          cache: "no-store",
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.data?.signature) {
+            // Cache in localStorage
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem("adminSignature", data.data.signature)
+              } catch (e) {
+                console.warn("Failed to cache admin signature", e)
+              }
+            }
+            setAdminSignature(data.data.signature)
+            return
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to fetch admin signature from database:", error)
+      }
+
+      // Fallback to localStorage
+      try {
+        const sig = typeof window !== "undefined" ? localStorage.getItem("adminSignature") : null
+        setAdminSignature(sig)
+      } catch (e) {
+        setAdminSignature(null)
+      }
     }
+
+    loadAdminSignature()
   }, [])
 
   useEffect(() => {

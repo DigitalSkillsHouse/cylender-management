@@ -134,15 +134,47 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
   useEffect(() => {
     if (!mounted) return
     if (user?.role === "admin") {
-      try {
-        const sig = typeof window !== 'undefined' ? localStorage.getItem("adminSignature") : null
-        if (!sig) {
+      // Fetch from database first, then check localStorage
+      const checkAdminSignature = async () => {
+        try {
+          const response = await fetch("/api/admin-signature", {
+            cache: "no-store",
+          })
+          
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.data?.signature) {
+              // Save to localStorage as cache
+              if (typeof window !== "undefined") {
+                try {
+                  localStorage.setItem("adminSignature", data.data.signature)
+                } catch (e) {
+                  console.warn("Failed to cache admin signature", e)
+                }
+              }
+              setShowAdminSignatureDialog(false)
+              return
+            }
+          }
+        } catch (error) {
+          console.warn("Failed to fetch admin signature from database:", error)
+        }
+
+        // Fallback to localStorage check
+        try {
+          const sig = typeof window !== "undefined" ? localStorage.getItem("adminSignature") : null
+          if (!sig) {
+            setShowAdminSignatureDialog(true)
+          } else {
+            setShowAdminSignatureDialog(false)
+          }
+        } catch (e) {
+          // If localStorage is unavailable, still prompt
           setShowAdminSignatureDialog(true)
         }
-      } catch (e) {
-        // If localStorage is unavailable, still prompt
-        setShowAdminSignatureDialog(true)
       }
+
+      checkAdminSignature()
     } else {
       setShowAdminSignatureDialog(false)
     }
@@ -196,7 +228,7 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
 
     switch (currentPage) {
       case "dashboard":
-        return <Dashboard />
+        return <Dashboard user={user} />
       case "products":
         return <ProductManagement />
       case "suppliers":
@@ -267,6 +299,11 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         <AdminSignatureDialog 
           isOpen={showAdminSignatureDialog}
           onClose={() => setShowAdminSignatureDialog(false)}
+          onSave={(signature) => {
+            // Signature is already saved to database and localStorage by the dialog
+            // Just close the dialog
+            setShowAdminSignatureDialog(false)
+          }}
           onSave={() => {
             // no-op; saved in component and localStorage
           }}

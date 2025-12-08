@@ -1,10 +1,11 @@
 "use client"
 
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
 import SignatureCanvas from "react-signature-canvas"
+import { toast } from "@/hooks/use-toast"
 
 interface AdminSignatureDialogProps {
   isOpen: boolean
@@ -14,19 +15,53 @@ interface AdminSignatureDialogProps {
 
 export function AdminSignatureDialog({ isOpen, onClose, onSave }: AdminSignatureDialogProps) {
   const signatureRef = useRef<SignatureCanvas>(null)
+  const [saving, setSaving] = useState(false)
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const signatureData = signatureRef.current?.toDataURL()
     if (signatureData) {
+      setSaving(true)
       try {
-        // Persist to localStorage for long-term reuse
-        localStorage.setItem("adminSignature", signatureData)
-      } catch (e) {
-        console.warn("Failed to save admin signature to localStorage", e)
+        // Save to database first
+        const response = await fetch("/api/admin-signature", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ signature: signatureData }),
+        })
+
+        const data = await response.json()
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Failed to save signature to database")
+        }
+
+        // Also save to localStorage as fallback
+        try {
+          localStorage.setItem("adminSignature", signatureData)
+        } catch (e) {
+          console.warn("Failed to save admin signature to localStorage", e)
+        }
+
+        toast({
+          title: "Signature saved",
+          description: "Admin signature has been saved successfully and will be available on all devices.",
+        })
+
+        onSave?.(signatureData)
+        onClose()
+      } catch (error: any) {
+        console.error("Error saving admin signature:", error)
+        toast({
+          title: "Failed to save signature",
+          description: error.message || "Please try again.",
+          variant: "destructive",
+        })
+      } finally {
+        setSaving(false)
       }
-      onSave?.(signatureData)
     }
-    onClose()
   }
 
   const clearSignature = () => {
@@ -80,11 +115,15 @@ export function AdminSignatureDialog({ isOpen, onClose, onSave }: AdminSignature
           </div>
 
           <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={handleCancel}>
+            <Button variant="outline" onClick={handleCancel} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={handleSave} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white">
-              Save Signature
+            <Button 
+              onClick={handleSave} 
+              className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+              disabled={saving}
+            >
+              {saving ? "Saving..." : "Save Signature"}
             </Button>
           </div>
         </div>

@@ -2,11 +2,22 @@
 
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { DollarSign, Users, Package, TrendingUp, AlertCircle, Fuel, Cylinder } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { DollarSign, Users, Package, TrendingUp, AlertCircle, Fuel, Cylinder, PenTool } from "lucide-react"
 import { dashboardAPI } from "@/lib/api"
 import { InactiveCustomersNotification } from "@/components/inactive-customers-notification"
+import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
 
-export function Dashboard() {
+interface DashboardProps {
+  user?: {
+    id: string
+    email: string
+    role: "admin" | "employee"
+    name: string
+  }
+}
+
+export function Dashboard({ user }: DashboardProps) {
   const [stats, setStats] = useState({
     totalRevenue: 0,
     totalDue: 0,
@@ -20,6 +31,7 @@ export function Dashboard() {
     inactiveCustomersCount: 0,
   })
   const [loading, setLoading] = useState(true)
+  const [showAdminSignatureDialog, setShowAdminSignatureDialog] = useState(false)
 
   useEffect(() => {
     fetchStats()
@@ -142,16 +154,43 @@ export function Dashboard() {
             <p className="text-white/80 text-sm sm:text-base lg:text-lg">Welcome to SYED TAYYAB INDUSTRIAL Gas Management System</p>
           </div>
           
-          {/* Inactive Customers Notification */}
-          <div className="w-full sm:w-auto sm:self-end">
-            <InactiveCustomersNotification 
-              inactiveCustomers={stats.inactiveCustomers}
-              inactiveCustomersCount={stats.inactiveCustomersCount}
-              onMarkAsViewed={fetchStats}
-            />
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
+            {/* Admin Signature Button - Only show for admin users */}
+            {user?.role === "admin" && (
+              <Button
+                onClick={() => setShowAdminSignatureDialog(true)}
+                variant="secondary"
+                className="bg-white/10 hover:bg-white/20 text-white border border-white/20"
+                size="sm"
+              >
+                <PenTool className="w-4 h-4 mr-2" />
+                Manage Admin Signature
+              </Button>
+            )}
+            
+            {/* Inactive Customers Notification */}
+            <div className="w-full sm:w-auto">
+              <InactiveCustomersNotification 
+                inactiveCustomers={stats.inactiveCustomers}
+                inactiveCustomersCount={stats.inactiveCustomersCount}
+                onMarkAsViewed={fetchStats}
+              />
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Admin Signature Dialog */}
+      {user?.role === "admin" && (
+        <AdminSignatureDialog
+          isOpen={showAdminSignatureDialog}
+          onClose={() => setShowAdminSignatureDialog(false)}
+          onSave={(signature) => {
+            // Signature is already saved to database and localStorage by the dialog
+            setShowAdminSignatureDialog(false)
+          }}
+        />
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
         {cards.map((card, index) => (

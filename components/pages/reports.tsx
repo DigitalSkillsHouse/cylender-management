@@ -384,8 +384,39 @@ export function Reports() {
       return;
     }
 
-    // Load admin signature from localStorage
-    const adminSignature = typeof window !== 'undefined' ? localStorage.getItem("adminSignature") : null;
+    // Load admin signature from database first, fallback to localStorage
+    let adminSignature: string | null = null;
+    try {
+      const response = await fetch("/api/admin-signature", {
+        cache: "no-store",
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data?.signature) {
+          adminSignature = data.data.signature;
+          // Cache in localStorage
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem("adminSignature", adminSignature);
+            } catch (e) {
+              console.warn("Failed to cache admin signature", e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to fetch admin signature from database:", error);
+    }
+    
+    // Fallback to localStorage if database fetch failed
+    if (!adminSignature && typeof window !== "undefined") {
+      try {
+        adminSignature = localStorage.getItem("adminSignature");
+      } catch (e) {
+        console.warn("Failed to read admin signature from localStorage", e);
+      }
+    }
 
     // Import jsPDF dynamically
     const jsPDFModule = await import("jspdf");
