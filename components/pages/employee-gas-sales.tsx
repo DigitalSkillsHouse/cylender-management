@@ -1183,17 +1183,30 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
         const itemsNormalized = (saved?.items && Array.isArray(saved.items) && saved.items.length > 0)
           ? saved.items.map((it: any) => {
               const prodId = it?.product?._id || it?.product
-              const pName = it?.product?.name || (allProducts.find(p=>p._id === prodId)?.name) || 'Product'
+              const product = allProducts.find(p=>p._id === prodId)
+              const pName = it?.product?.name || product?.name || 'Product'
               const qty = Number(it.quantity) || 0
               const price = Number(it.price) || 0
               const total = Number(it.total) || (price * qty)
-              return { product: { _id: prodId, name: pName }, quantity: qty, price, total }
+              return { 
+                product: { _id: prodId, name: pName }, 
+                quantity: qty, 
+                price, 
+                total,
+                category: (it.category || product?.category || 'gas') as "gas" | "cylinder"
+              }
             })
           : (formData.items || []).map((it: any) => {
               const p = (allProducts || []).find(p => p._id === it.productId)
               const qty = Number(it.quantity)||0
               const price = Number(it.price)||0
-              return { product: { _id: p?._id || it.productId, name: p?.name || 'Product' }, quantity: qty, price, total: price*qty }
+              return { 
+                product: { _id: p?._id || it.productId, name: p?.name || 'Product' }, 
+                quantity: qty, 
+                price, 
+                total: price*qty,
+                category: (it.category || p?.category || 'gas') as "gas" | "cylinder"
+              }
             })
 
         const subtotalAmt = itemsNormalized.reduce((s: number, it: any) => s + (Number(it.total) || 0), 0)

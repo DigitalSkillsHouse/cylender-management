@@ -25,6 +25,7 @@ interface ReceiptDialogProps {
       quantity: number
       price: number
       total: number
+      category?: "gas" | "cylinder"
     }>
     totalAmount: number
     paymentMethod: string
@@ -344,6 +345,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                     ) : (
                       <>
                         <th className="text-left p-2 border">Item</th>
+                        <th className="text-center p-2 border">Category</th>
                         <th className="text-center p-2 border">Qty</th>
                         {sale?.type === 'rental' && (
                           <th className="text-center p-2 border">Days</th>
@@ -397,6 +399,7 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                       ) : (
                         <>
                           <td className="p-2 border">{name}</td>
+                          <td className="text-center p-2 border capitalize">{(item as any)?.category || (item?.product as any)?.category || '-'}</td>
                           <td className="text-center p-2 border">{qtyNum}</td>
                           {sale?.type === 'rental' && (
                             <td className="text-center p-2 border">{(item as any)?.days || '-'}</td>

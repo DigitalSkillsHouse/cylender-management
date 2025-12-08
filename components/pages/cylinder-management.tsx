@@ -1613,6 +1613,7 @@ export function CylinderManagement() {
       const items = hasItems
         ? itemsSrc.map((it: any) => {
             const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
+            const product = products.find(p => p._id === it.productId)
             const qty = Number(it.quantity) || 0
             const rowTotal = Number(it.amount) || 0
             const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
@@ -1621,6 +1622,7 @@ export function CylinderManagement() {
               quantity: qty,
               price: unitPrice,
               total: rowTotal,
+              category: (it.category || product?.category || 'cylinder') as "gas" | "cylinder",
             }
           })
         : [{
@@ -1630,6 +1632,7 @@ export function CylinderManagement() {
             quantity: Number(transaction.quantity) || 0,
             price: Number(transaction.amount) || 0,
             total: (Number(transaction.amount) || 0) * (Number(transaction.quantity) || 0),
+            category: (transaction.product?.category || 'cylinder') as "gas" | "cylinder",
           }]
 
       const totalAmount = items.reduce((s, it) => s + (Number(it.total) || 0), 0)

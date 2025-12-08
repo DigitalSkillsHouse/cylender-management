@@ -22,6 +22,7 @@ interface Sale {
     quantity: number;
     price: number;
     total: number;
+    category?: "gas" | "cylinder";
     // Additional fields for collection receipts
     invoiceNumber?: string;
     invoiceDate?: string;
@@ -204,6 +205,7 @@ const ReceiptPrintPage = () => {
                 ) : (
                   <>
                     <th className="text-left p-2 font-semibold border">Item</th>
+                    <th className="text-center p-2 font-semibold border">Category</th>
                     <th className="text-center p-2 font-semibold border">Qty</th>
                     <th className="text-right p-2 font-semibold border">Price</th>
                     {!shouldDisableVAT && (
@@ -250,6 +252,7 @@ const ReceiptPrintPage = () => {
                     ) : (
                       <>
                         <td className="p-2 border">{item.product.name}</td>
+                        <td className="text-center p-2 border capitalize">{item.category || (item.product as any)?.category || '-'}</td>
                         <td className="text-center p-2 border">{qtyNum}</td>
                         <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
                         {!shouldDisableVAT && (
