@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, Edit, Trash2, Users, Loader2, AlertCircle, Search } from "lucide-react"
+import { Plus, Edit, Trash2, Users, Loader2, AlertCircle, Search, Upload } from "lucide-react"
 import { customersAPI } from "@/lib/api"
+import { CustomerImportDialog } from "@/components/customer-import-dialog"
 
 interface Customer {
   _id: string
@@ -26,6 +27,7 @@ export function CustomerManagement() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
@@ -46,6 +48,20 @@ export function CustomerManagement() {
   useEffect(() => {
     fetchCustomers()
   }, [])
+
+  // Initialize form with next serial number when dialog opens
+  useEffect(() => {
+    if (isDialogOpen && !editingCustomer) {
+      setFormData({
+        name: "",
+        serialNumber: generateNextSerialNumber(),
+        trNumber: "",
+        phone: "",
+        email: "",
+        address: "",
+      })
+    }
+  }, [isDialogOpen, editingCustomer, customers])
 
   // Generate next serial number
   const generateNextSerialNumber = () => {
@@ -164,6 +180,7 @@ export function CustomerManagement() {
     if (value.trim().length > 0) {
       const filtered = customers.filter(customer => 
         customer.name.toLowerCase().includes(value.toLowerCase()) ||
+        customer.serialNumber?.toLowerCase().includes(value.toLowerCase()) ||
         customer.trNumber.toLowerCase().includes(value.toLowerCase()) ||
         customer.phone.includes(value) ||
         customer.email.toLowerCase().includes(value.toLowerCase())
@@ -201,6 +218,7 @@ export function CustomerManagement() {
     .filter(customer => {
       if (!searchTerm.trim()) return true
       return customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+             customer.serialNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
              customer.trNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
              customer.phone.includes(searchTerm) ||
              customer.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -243,7 +261,15 @@ export function CustomerManagement() {
             <p className="text-gray-600 text-sm sm:text-base">Manage customer information</p>
           </div>
         </div>
-        <div className="w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <Button
+            onClick={() => setIsImportDialogOpen(true)}
+            variant="outline"
+            className="w-full sm:w-auto border-[#2B3068] text-[#2B3068] hover:bg-[#2B3068] hover:text-white"
+          >
+            <Upload className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
+            Import Names
+          </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button
@@ -384,7 +410,7 @@ export function CustomerManagement() {
         <div className="relative">
           <Input
             type="text"
-            placeholder="Search by name, TR number, phone, or email..."
+            placeholder="Search by name, serial number, TR number, phone, or email..."
             value={searchTerm}
             onChange={(e) => handleSearchChange(e.target.value)}
             onFocus={handleSearchInputFocus}
@@ -404,7 +430,7 @@ export function CustomerManagement() {
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <p className="font-medium text-gray-900">{customer.name}</p>
-                      <p className="text-sm text-gray-600">TR: {customer.trNumber}</p>
+                      <p className="text-sm text-gray-600">Serial: {customer.serialNumber || 'N/A'} • TR: {customer.trNumber}</p>
                       <p className="text-sm text-gray-600">{customer.phone}</p>
                     </div>
                     <div className="text-right">
@@ -492,8 +518,18 @@ export function CustomerManagement() {
             </Table>
             </div>
           </div>
-        </CardContent>
+          </CardContent>
       </Card>
+
+      {/* Customer Import Dialog */}
+      <CustomerImportDialog
+        isOpen={isImportDialogOpen}
+        onClose={() => setIsImportDialogOpen(false)}
+        onImportComplete={() => {
+          fetchCustomers()
+          setIsImportDialogOpen(false)
+        }}
+      />
     </div>
   )
 }
