@@ -101,7 +101,17 @@ export function PurchaseManagement() {
     loadAdminSignature();
   }, []);
 
-async function generateEmployeePurchasePDF() {
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
+  const [suppliers, setSuppliers] = useState<any[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
+  const [error, setError] = useState<string>("")
+  const [searchTerm, setSearchTerm] = useState("")
+
+  const generateEmployeePurchasePDF = async () => {
     setShowPDFDatePopup(false);
     const jsPDF = (await import('jspdf')).default;
     const pdf = new jsPDF('p', 'mm', 'a4');
@@ -197,8 +207,8 @@ async function generateEmployeePurchasePDF() {
       footerY = pageHeight - margin - h;
       pdf.addImage(footerImg, 'JPEG', margin, footerY, w, h);
     }
-    // Admin signature overlay
-    const adminSignature = typeof window !== 'undefined' ? localStorage.getItem('adminSignature') : null;
+    // Admin signature overlay - use state variable (already loaded from database)
+    // The adminSignature state is already loaded from database in useEffect
     if (adminSignature) {
       const sigImg = new window.Image();
       sigImg.src = adminSignature;
@@ -239,17 +249,7 @@ async function generateEmployeePurchasePDF() {
       pdf.text('Admin Signature', pageWidth - margin - 30, footerY + footerH - 8, { align: 'center' });
     }
     pdf.save('employee-purchase-orders.pdf');
-  }
-
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
-  const [suppliers, setSuppliers] = useState<any[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
-  const [error, setError] = useState<string>("")
-  const [searchTerm, setSearchTerm] = useState("")
+  };
   // Expanded state for grouped invoice rows
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   // Single entry item state (2x2 form)
