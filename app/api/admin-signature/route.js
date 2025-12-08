@@ -2,6 +2,7 @@ import dbConnect from "@/lib/mongodb"
 import { NextResponse } from "next/server"
 import AdminSignature from "@/models/AdminSignature"
 import { verifyToken } from "@/lib/auth"
+import jwt from "jsonwebtoken"
 
 // GET: Retrieve the active admin signature
 export async function GET(request) {
@@ -44,7 +45,39 @@ export async function POST(request) {
     await dbConnect()
 
     // Check if user is authenticated and is admin
-    const user = await verifyToken(request)
+    // Try to verify token - if user not found in DB but token is valid with admin role, allow it
+    let user = await verifyToken(request)
+    
+    // If user not found in DB but token is valid, try to extract from token directly
+    if (!user) {
+      try {
+        const cookieHeader = request.headers.get("cookie")
+        if (cookieHeader) {
+          const cookies = Object.fromEntries(
+            cookieHeader.split("; ").map(cookie => {
+              const [key, ...valueParts] = cookie.split("=")
+              return [key, valueParts.join("=")]
+            })
+          )
+          const token = cookies.token
+          if (token) {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key")
+            // If token is valid and has admin role, allow it
+            if (decoded && decoded.role === "admin") {
+              user = {
+                id: decoded.userId,
+                role: decoded.role,
+                email: decoded.email || "",
+                name: decoded.name || "",
+              }
+            }
+          }
+        }
+      } catch (tokenError) {
+        console.error("Error extracting user from token:", tokenError)
+      }
+    }
+    
     if (!user || user.role !== "admin") {
       return NextResponse.json(
         {
