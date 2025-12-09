@@ -115,6 +115,7 @@ export function CylinderManagement() {
   // Live availability from inventory-items (authoritative for cylinder availability)
   const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
   const [loading, setLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingTransaction, setEditingTransaction] = useState<CylinderTransaction | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -1312,11 +1313,14 @@ export function CylinderManagement() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSubmitting) return // Prevent double submission
+    setIsSubmitting(true)
     try {
       
       // Validate required fields
       if (!formData.customerId || formData.customerId === '') {
         alert("Please select a customer")
+        setIsSubmitting(false)
         return
       }
       
@@ -1331,17 +1335,19 @@ export function CylinderManagement() {
         }
         if (!formData.quantity || formData.quantity <= 0) {
           alert("Please enter a valid quantity")
+          setIsSubmitting(false)
           return
         }
         if (!formData.amount || formData.amount <= 0) {
           alert("Please enter a valid amount")
+          setIsSubmitting(false)
           return
         }
       } else {
         // Validate items rows
-        if (formData.items.some(it => !it.productId)) { alert('Please select product for all items'); return }
-        if (formData.items.some(it => !it.quantity || it.quantity <= 0)) { alert('Please enter valid quantity for all items'); return }
-        if (formData.items.some(it => !it.amount || it.amount <= 0)) { alert('Please enter amount for all items'); return }
+        if (formData.items.some(it => !it.productId)) { alert('Please select product for all items'); setIsSubmitting(false); return }
+        if (formData.items.some(it => !it.quantity || it.quantity <= 0)) { alert('Please enter valid quantity for all items'); setIsSubmitting(false); return }
+        if (formData.items.some(it => !it.amount || it.amount <= 0)) { alert('Please enter amount for all items'); setIsSubmitting(false); return }
       }
 
       console.log("Form validation passed, creating transaction data:", formData);
@@ -1350,11 +1356,11 @@ export function CylinderManagement() {
       if (formData.type !== 'return') {
         if (formData.items.length === 0) {
           const ok = validateStock(formData.productId, Number(formData.quantity) || 0)
-          if (!ok) return
+          if (!ok) { setIsSubmitting(false); return }
         } else {
           for (const it of formData.items) {
             const ok = validateStock(it.productId, Number(it.quantity) || 0)
-            if (!ok) return
+            if (!ok) { setIsSubmitting(false); return }
           }
         }
       }
@@ -1510,6 +1516,8 @@ export function CylinderManagement() {
         error?.message ||
         "Failed to save transaction"
       )
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -2583,8 +2591,8 @@ export function CylinderManagement() {
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white">
-                  {editingTransaction ? 'Update Transaction' : 'Create Transaction'}
+                <Button type="submit" className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white" disabled={isSubmitting}>
+                  {isSubmitting ? (editingTransaction ? 'Updating...' : 'Creating...') : (editingTransaction ? 'Update Transaction' : 'Create Transaction')}
                 </Button>
               </div>
             </form>

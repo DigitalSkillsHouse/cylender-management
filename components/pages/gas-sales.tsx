@@ -99,6 +99,7 @@ export function GasSales() {
   const [stockErrorMessage, setStockErrorMessage] = useState("")
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null)
@@ -719,6 +720,8 @@ export function GasSales() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSubmitting) return // Prevent double submission
+    setIsSubmitting(true)
     try {
       console.log('GasSales - Form submission attempt')
       console.log('GasSales - formData.customerId:', formData.customerId)
@@ -1016,6 +1019,8 @@ export function GasSales() {
         // For other errors, still use alert for now
         alert(errorMessage)
       }
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -2363,8 +2368,8 @@ export function GasSales() {
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" className="bg-[#2B3068] hover:bg-[#1a1f4a]">
-                  {editingSale ? "Update Sale" : "Create Sale"}
+                <Button type="submit" className="bg-[#2B3068] hover:bg-[#1a1f4a]" disabled={isSubmitting}>
+                  {isSubmitting ? (editingSale ? "Updating..." : "Creating...") : (editingSale ? "Update Sale" : "Create Sale")}
                 </Button>
               </div>
             </form>

@@ -100,6 +100,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [priceAlert, setPriceAlert] = useState<{ message: string; index: number | null }>({ message: '', index: null })
@@ -941,37 +942,42 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.customerId) {
-      alert("Please select a customer")
-      return
-    }
-    
-    // Validate items
-    const hasValidItems = formData.items.some(item => 
-      item.productId && item.quantity && parseFloat(item.quantity) > 0 && item.price && parseFloat(item.price) > 0
-    )
-    
-    if (!hasValidItems) {
-      alert("Please add at least one valid item with product, quantity, and price")
-      return
-    }
-
-    const totalAmount = calculateTotalAmount()
-    if (totalAmount <= 0) {
-      alert("Total amount must be greater than 0")
-      return
-    }
-
-    // Validate debit amount is required when debit payment option is selected
-    if (formData.paymentOption === 'debit') {
-      const receivedAmount = parseFloat(formData.receivedAmount) || 0
-      if (receivedAmount <= 0) {
-        alert("Please enter the debit amount when 'Debit' payment option is selected")
+    if (isSubmitting) return // Prevent double submission
+    setIsSubmitting(true)
+    try {
+      if (!formData.customerId) {
+        alert("Please select a customer")
+        setIsSubmitting(false)
         return
       }
-    }
+      
+      // Validate items
+      const hasValidItems = formData.items.some(item => 
+        item.productId && item.quantity && parseFloat(item.quantity) > 0 && item.price && parseFloat(item.price) > 0
+      )
+      
+      if (!hasValidItems) {
+        alert("Please add at least one valid item with product, quantity, and price")
+        setIsSubmitting(false)
+        return
+      }
 
-    try {
+      const totalAmount = calculateTotalAmount()
+      if (totalAmount <= 0) {
+        alert("Total amount must be greater than 0")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Validate debit amount is required when debit payment option is selected
+      if (formData.paymentOption === 'debit') {
+        const receivedAmount = parseFloat(formData.receivedAmount) || 0
+        if (receivedAmount <= 0) {
+          alert("Please enter the debit amount when 'Debit' payment option is selected")
+          setIsSubmitting(false)
+          return
+        }
+      }
       const saleItems = formData.items
         .filter((item) => {
           const quantity = Number(item.quantity) || 0
@@ -1046,6 +1052,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
       if (saleItems.length === 0) {
         alert("Please add at least one item")
+        setIsSubmitting(false)
         return
       }
 
@@ -1247,6 +1254,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
         // For other errors, still use alert for now
         alert(errorMessage)
       }
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -2375,7 +2384,9 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit">{editingSale ? "Update" : "Save"}</Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (editingSale ? "Updating..." : "Saving...") : (editingSale ? "Update" : "Save")}
+              </Button>
             </div>
           </form>
         </DialogContent>
