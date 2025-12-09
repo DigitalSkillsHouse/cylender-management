@@ -133,8 +133,16 @@ export async function POST(request) {
     if (typeof transferEmpty === 'number') setDoc.transferEmpty = transferEmpty;
     if (typeof receivedGas === 'number') setDoc.receivedGas = receivedGas;
     if (typeof receivedEmpty === 'number') setDoc.receivedEmpty = receivedEmpty;
-    if (typeof closingFull === 'number') setDoc.closingFull = closingFull;
-    if (typeof closingEmpty === 'number') setDoc.closingEmpty = closingEmpty;
+    // Always save closing values if they are numbers (including 0)
+    // This ensures closing stock is properly saved for next day's opening stock
+    if (typeof closingFull === 'number') {
+      setDoc.closingFull = closingFull;
+      console.log(`💾 [API] Saving closingFull=${closingFull} for ${itemName} on ${date}`);
+    }
+    if (typeof closingEmpty === 'number') {
+      setDoc.closingEmpty = closingEmpty;
+      console.log(`💾 [API] Saving closingEmpty=${closingEmpty} for ${itemName} on ${date}`);
+    }
 
     // Upsert to ensure uniqueness on (itemName, date)
     const query = { itemName, date };

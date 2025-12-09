@@ -81,10 +81,12 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
           console.log(`⚠️ [EMPLOYEE DSR] Stored data for ${date} has zero opening stock, fetching previous day's closing stock...`)
           setIsInventoryFetched(false)
           
-          // Get previous day's date to fetch closing stock
-          const currentDate = new Date(date + 'T00:00:00')
+          // Get previous day's date to fetch closing stock (timezone-safe)
+          // Parse date as YYYY-MM-DD and subtract 1 day
+          const [year, month, day] = date.split('-').map(Number)
+          const currentDate = new Date(Date.UTC(year, month - 1, day))
           const previousDate = new Date(currentDate)
-          previousDate.setDate(previousDate.getDate() - 1)
+          previousDate.setUTCDate(previousDate.getUTCDate() - 1)
           const previousDateStr = previousDate.toISOString().slice(0, 10)
           
           console.log(`🔍 [EMPLOYEE DSR] Fetching previous day (${previousDateStr}) closing stock for ${date}...`)
@@ -99,13 +101,53 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
             prevData.data.forEach((report: any) => {
               const key = report.itemName.toLowerCase().replace(/\s+/g, ' ').trim()
               // Use previous day's closing stock as opening stock
-              const prevClosingFull = report.closingFull ?? 0
-              const prevClosingEmpty = report.closingEmpty ?? 0
+              // IMPORTANT: Check both closingFull/closingEmpty and also check if they're null/undefined
+              // If closing values are 0 or missing, try to calculate them from the report data
+              let prevClosingFull = (report.closingFull !== null && report.closingFull !== undefined) ? report.closingFull : null
+              let prevClosingEmpty = (report.closingEmpty !== null && report.closingEmpty !== undefined) ? report.closingEmpty : null
+              
+              // If closing values are missing or 0, try to calculate them from the report data
+              if (prevClosingFull === null || prevClosingFull === 0 || prevClosingEmpty === null || prevClosingEmpty === 0) {
+                console.log(`⚠️ [EMPLOYEE DSR] ${report.itemName}: Closing values missing or 0, attempting to calculate from report data...`)
+                const openingFull = report.openingFull || 0
+                const openingEmpty = report.openingEmpty || 0
+                const fullPurchase = report.fullPurchase || 0
+                const emptyPurchase = report.emptyPurchase || 0
+                const refilled = report.refilled || 0
+                const fullCylinderSales = report.fullCylinderSales || 0
+                const emptyCylinderSales = report.emptyCylinderSales || 0
+                const gasSales = report.gasSales || 0
+                const deposits = report.deposits || 0
+                const returns = report.returns || 0
+                const transferGas = report.transferGas || 0
+                const transferEmpty = report.transferEmpty || 0
+                const receivedGas = report.receivedGas || 0
+                const receivedEmpty = report.receivedEmpty || 0
+                
+                // Calculate closing using the same formula
+                const calculatedClosingFull = Math.max(0, 
+                  openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + receivedGas
+                )
+                const calculatedClosingEmpty = Math.max(0, 
+                  openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmpty + receivedEmpty - calculatedClosingFull
+                )
+                
+                if (prevClosingFull === null || prevClosingFull === 0) {
+                  prevClosingFull = calculatedClosingFull
+                  console.log(`📊 [EMPLOYEE DSR] Calculated closingFull=${calculatedClosingFull} for ${report.itemName}`)
+                }
+                if (prevClosingEmpty === null || prevClosingEmpty === 0) {
+                  prevClosingEmpty = calculatedClosingEmpty
+                  console.log(`📊 [EMPLOYEE DSR] Calculated closingEmpty=${calculatedClosingEmpty} for ${report.itemName}`)
+                }
+              }
+              
               prevReports[key] = {
                 openingFull: prevClosingFull,
                 openingEmpty: prevClosingEmpty
               }
               console.log(`✅ [EMPLOYEE DSR] ${report.itemName} (key: ${key}): Previous day closing = ${prevClosingFull} Full, ${prevClosingEmpty} Empty → Using as opening stock`)
+              console.log(`🔍 [EMPLOYEE DSR] Raw report data:`, { closingFull: report.closingFull, closingEmpty: report.closingEmpty, itemName: report.itemName, openingFull: report.openingFull, openingEmpty: report.openingEmpty, fullPurchase: report.fullPurchase, emptyPurchase: report.emptyPurchase, refilled: report.refilled, fullCylinderSales: report.fullCylinderSales, emptyCylinderSales: report.emptyCylinderSales, gasSales: report.gasSales, deposits: report.deposits, returns: report.returns, transferGas: report.transferGas, transferEmpty: report.transferEmpty, receivedGas: report.receivedGas, receivedEmpty: report.receivedEmpty })
             })
             setStoredDsrReports(prevReports)
             console.log(`✅ [EMPLOYEE DSR] Set storedDsrReports with ${Object.keys(prevReports).length} items for ${date}`)
@@ -212,12 +254,53 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
         prevData.data.forEach((report: any) => {
           const key = report.itemName.toLowerCase().replace(/\s+/g, ' ').trim()
-          prevReports[key] = {
-            closingFull: report.closingFull || 0,
-            closingEmpty: report.closingEmpty || 0
+          // IMPORTANT: Check both closingFull/closingEmpty and also check if they're null/undefined
+          // If closing values are 0 or missing, try to calculate them from the report data
+          let closingFull = (report.closingFull !== null && report.closingFull !== undefined) ? report.closingFull : null
+          let closingEmpty = (report.closingEmpty !== null && report.closingEmpty !== undefined) ? report.closingEmpty : null
+          
+          // If closing values are missing or 0, try to calculate them from the report data
+          if (closingFull === null || closingFull === 0 || closingEmpty === null || closingEmpty === 0) {
+            const openingFull = report.openingFull || 0
+            const openingEmpty = report.openingEmpty || 0
+            const fullPurchase = report.fullPurchase || 0
+            const emptyPurchase = report.emptyPurchase || 0
+            const refilled = report.refilled || 0
+            const fullCylinderSales = report.fullCylinderSales || 0
+            const emptyCylinderSales = report.emptyCylinderSales || 0
+            const gasSales = report.gasSales || 0
+            const deposits = report.deposits || 0
+            const returns = report.returns || 0
+            const transferGas = report.transferGas || 0
+            const transferEmpty = report.transferEmpty || 0
+            const receivedGas = report.receivedGas || 0
+            const receivedEmpty = report.receivedEmpty || 0
+            
+            // Calculate closing using the same formula
+            const calculatedClosingFull = Math.max(0, 
+              openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + receivedGas
+            )
+            const calculatedClosingEmpty = Math.max(0, 
+              openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmpty + receivedEmpty - calculatedClosingFull
+            )
+            
+            if (closingFull === null || closingFull === 0) {
+              closingFull = calculatedClosingFull
+            }
+            if (closingEmpty === null || closingEmpty === 0) {
+              closingEmpty = calculatedClosingEmpty
+            }
           }
+          
+          prevReports[key] = {
+            closingFull: closingFull || 0,
+            closingEmpty: closingEmpty || 0
+          }
+          console.log(`📦 [EMPLOYEE DSR] ${report.itemName} (key: ${key}): Previous day closing = ${closingFull} Full, ${closingEmpty} Empty`)
         })
         console.log(`📦 [EMPLOYEE DSR] Loaded ${Object.keys(prevReports).length} items from previous day (${previousDateStr})`)
+      } else {
+        console.log(`⚠️ [EMPLOYEE DSR] No previous day data found for ${previousDateStr}`)
       }
       
       const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
@@ -397,7 +480,10 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
           openingFull + openingEmpty + (item.fullPurchase || 0) + (item.emptyPurchase || 0) - item.fullCylinderSales - item.emptyCylinderSales - item.deposits + item.returns - item.transferEmpty + item.receivedEmpty - closingFull
         )
         
-        await fetch('/api/employee-daily-stock-reports', {
+        // Log the calculation for debugging
+        console.log(`💾 [EMPLOYEE SAVE] ${item.itemName}: Opening=${openingFull}/${openingEmpty}, FullPur=${item.fullPurchase || 0}, EmptyPur=${item.emptyPurchase || 0}, Refilled=${item.refilled}, FullCylSales=${item.fullCylinderSales}, EmptyCylSales=${item.emptyCylinderSales}, GasSales=${item.gasSales}, Deposits=${item.deposits}, Returns=${item.returns}, TransferGas=${item.transferGas}, TransferEmpty=${item.transferEmpty}, ReceivedGas=${item.receivedGas}, ReceivedEmpty=${item.receivedEmpty} → Closing=${closingFull}/${closingEmpty}`)
+        
+        const response = await fetch('/api/employee-daily-stock-reports', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -410,6 +496,13 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
             closingEmpty
           })
         })
+        
+        const saveResult = await response.json()
+        if (!saveResult.success) {
+          console.error(`❌ [EMPLOYEE SAVE] Failed to save ${item.itemName}:`, saveResult.error)
+        } else {
+          console.log(`✅ [EMPLOYEE SAVE] Saved ${item.itemName} with closing=${closingFull}/${closingEmpty}`)
+        }
       }
       
       alert('Employee DSR record saved successfully!')
