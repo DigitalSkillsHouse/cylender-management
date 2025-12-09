@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useNotifications } from "@/hooks/useNotifications"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Package, Warehouse, FileDown, Pen } from "lucide-react"
+import { Package, Warehouse, FileDown, PenTool } from "lucide-react"
 import { productsAPI } from "@/lib/api"
 import ProductQuoteDialog from "@/components/product-quote-dialog"
 import { EmployeeSignatureDialog } from "@/components/employee-signature-dialog"
@@ -94,23 +94,30 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
 
   return (
     <div className="pt-5 space-y-8 " >
-      <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 text-white">
+        <div className="flex flex-col gap-4">
           <div className="flex-1">
-            <h1 className="text-4xl font-bold mb-2">Welcome back, {user?.name || "User"}!</h1>
-            <p className="text-white/80 text-lg">Here's your current status and assignments</p>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2">Welcome back, {user?.name || "User"}!</h1>
+            <p className="text-white/80 text-sm sm:text-base lg:text-lg">Here's your current status and assignments</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button 
-              onClick={() => setShowSignatureDialog(true)} 
-              className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold min-h-[44px]"
+          
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
+            {/* Employee Signature Button */}
+            <Button
+              onClick={() => setShowSignatureDialog(true)}
+              variant="secondary"
+              className="bg-white/10 hover:bg-white/20 text-white border border-white/20"
+              size="sm"
             >
-              <Pen className="w-4 h-4 mr-2" />
+              <PenTool className="w-4 h-4 mr-2" />
               Manage Signature
             </Button>
+            
             <Button 
-              onClick={() => setShowQuoteDialog(true)} 
-              className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold min-h-[44px]"
+              onClick={() => setShowQuoteDialog(true)}
+              variant="secondary"
+              className="bg-white/10 hover:bg-white/20 text-white border border-white/20"
+              size="sm"
             >
               <FileDown className="w-4 h-4 mr-2" />
               Generate Quote Paper

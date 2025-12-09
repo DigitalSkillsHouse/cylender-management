@@ -42,6 +42,8 @@ export async function GET(request) {
       .populate("employee", "name email")
       .populate("product", "name productCode category cylinderSize")
       .populate("assignedBy", "name")
+      .populate("cylinderProductId", "name productCode category")
+      .populate("gasProductId", "name productCode category")
       .sort({ createdAt: -1 });
     // Inject leastPrice from assignment into product object for frontend compatibility
     assignments = assignments.map(a => {

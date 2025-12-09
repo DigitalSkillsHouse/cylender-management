@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -47,11 +47,36 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
   const [isInventoryFetched, setIsInventoryFetched] = useState(false)
   const [inventoryData, setInventoryData] = useState<any[]>([])
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
+  
+  // Track current fetch to cancel previous ones when date changes
+  const fetchAbortControllerRef = useRef<AbortController | null>(null)
+  const currentFetchDateRef = useRef<string>('')
+
+  // Helper function to normalize product names (same as admin DSR)
+  const normalizeName = (s: any): string => {
+    if (typeof s === 'string' || typeof s === 'number') {
+      return String(s).replace(/\s+/g, ' ').trim().toLowerCase()
+    }
+    return ''
+  }
 
   // Fetch stored employee DSR reports for opening values
   const fetchStoredEmployeeDsrReports = async (date: string) => {
+    // Check if this fetch is for the current date (cancel if date changed)
+    if (currentFetchDateRef.current !== date) {
+      console.log(`⚠️ [EMPLOYEE DSR] Date changed during fetch, cancelling fetch for ${date}`)
+      return
+    }
+    
     try {
       const response = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${date}`)
+      
+      // Check again if date changed during fetch
+      if (currentFetchDateRef.current !== date) {
+        console.log(`⚠️ [EMPLOYEE DSR] Date changed after fetch started, ignoring results for ${date}`)
+        return
+      }
+      
       const data = await response.json()
       
       const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
@@ -186,10 +211,11 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         console.log(`📅 [EMPLOYEE DSR] No stored data for ${date}, fetching previous day's closing stock...`)
         setIsInventoryFetched(false)
         
-        // Get previous day's date to fetch closing stock
-        const currentDate = new Date(date + 'T00:00:00')
+        // Get previous day's date to fetch closing stock (timezone-safe)
+        const [year, month, day] = date.split('-').map(Number)
+        const currentDate = new Date(Date.UTC(year, month - 1, day))
         const previousDate = new Date(currentDate)
-        previousDate.setDate(previousDate.getDate() - 1)
+        previousDate.setUTCDate(previousDate.getUTCDate() - 1)
         const previousDateStr = previousDate.toISOString().slice(0, 10)
         
         console.log(`🔍 [EMPLOYEE DSR] Fetching previous day (${previousDateStr}) closing stock for ${date}...`)
@@ -240,10 +266,11 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
   // Auto-fetch inventory for new days
   const autoFetchEmployeeInventoryForNewDay = async (date: string) => {
     try {
-      // Get previous day's date to fetch closing stock
-      const currentDate = new Date(date + 'T00:00:00')
+      // Get previous day's date to fetch closing stock (timezone-safe)
+      const [year, month, day] = date.split('-').map(Number)
+      const currentDate = new Date(Date.UTC(year, month - 1, day))
       const previousDate = new Date(currentDate)
-      previousDate.setDate(previousDate.getDate() - 1)
+      previousDate.setUTCDate(previousDate.getUTCDate() - 1)
       const previousDateStr = previousDate.toISOString().slice(0, 10)
       
       // Fetch previous day's DSR to get closing stock
@@ -364,10 +391,11 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
     try {
       setLoading(true)
       
-      // Get previous day's date to fetch closing stock
-      const currentDate = new Date(dsrDate + 'T00:00:00')
+      // Get previous day's date to fetch closing stock (timezone-safe)
+      const [year, month, day] = dsrDate.split('-').map(Number)
+      const currentDate = new Date(Date.UTC(year, month - 1, day))
       const previousDate = new Date(currentDate)
-      previousDate.setDate(previousDate.getDate() - 1)
+      previousDate.setUTCDate(previousDate.getUTCDate() - 1)
       const previousDateStr = previousDate.toISOString().slice(0, 10)
       
       // Fetch previous day's DSR to get closing stock
@@ -451,7 +479,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       
       // Auto-save DSR data after fetching (silently, no alerts)
       if (dsrData.length > 0) {
-        await saveEmployeeDsrRecord()
+        await saveEmployeeDsrRecord(false) // false = don't show alert
       }
     } catch (error) {
       console.error('Failed to fetch and lock employee inventory:', error)
@@ -461,7 +489,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
   }
 
   // Save employee DSR record with closing values
-  const saveEmployeeDsrRecord = async () => {
+  const saveEmployeeDsrRecord = async (showAlert: boolean = true) => {
     try {
       setLoading(true)
       
@@ -505,10 +533,15 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         }
       }
       
-      alert('Employee DSR record saved successfully!')
+      // Only show alert if explicitly requested (for manual saves)
+      if (showAlert) {
+        alert('Employee DSR record saved successfully!')
+      }
     } catch (error) {
       console.error('Failed to save employee DSR record:', error)
-      alert('Failed to save employee DSR record')
+      if (showAlert) {
+        alert('Failed to save employee DSR record')
+      }
     } finally {
       setLoading(false)
     }
@@ -517,6 +550,21 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
   // Fetch employee DSR data
   const fetchEmployeeDSR = async () => {
     if (!user.id || !dsrDate) return
+    
+    // Cancel any previous fetch
+    if (fetchAbortControllerRef.current) {
+      fetchAbortControllerRef.current.abort()
+    }
+    
+    // Create new abort controller for this fetch
+    const abortController = new AbortController()
+    fetchAbortControllerRef.current = abortController
+    currentFetchDateRef.current = dsrDate
+    
+    // Clear previous data immediately to prevent stale data from showing
+    setDsrData([])
+    setStoredDsrReports({})
+    setIsInventoryFetched(false)
     
     setLoading(true)
     try {
@@ -560,6 +608,20 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         const purchaseResult = await purchaseResponse.json()
         purchaseData = purchaseResult.data || []
         console.log('🛒 Purchase data fetched:', purchaseData.length, 'records')
+      }
+      
+      // Step 1.8: Fetch stock assignments to track received stock (when employee accepts stock)
+      const stockAssignmentsResponse = await fetch(`/api/stock-assignments?employeeId=${user.id}`)
+      let stockAssignmentsData = []
+      
+      if (stockAssignmentsResponse.ok) {
+        const stockAssignmentsResult = await stockAssignmentsResponse.json()
+        stockAssignmentsData = Array.isArray(stockAssignmentsResult?.data) 
+          ? stockAssignmentsResult.data 
+          : Array.isArray(stockAssignmentsResult) 
+            ? stockAssignmentsResult 
+            : []
+        console.log('📦 Stock assignments fetched:', stockAssignmentsData.length, 'records')
       }
       
       // Step 2: Fetch inventory data for opening/closing stock
@@ -739,10 +801,230 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         }
       })
       
+      // CRITICAL: Add all cylinders from inventory to dsrMap BEFORE processing stock assignments
+      // This ensures all cylinder rows exist so stock assignments can match to them
       // Store inventory data for later use
       setInventoryData(inventoryData)
       
-      // Add inventory data to DSR (only cylinder items)
+      // Pre-populate dsrMap with all cylinder items from inventory (with empty values)
+      // This ensures stock assignments can always find the correct cylinder row to add receivedGas/receivedEmpty to
+      inventoryData.forEach((item: any) => {
+        if (item.category !== 'cylinder') return
+        
+        const itemName = item.productName
+        const key = normalizeName(itemName)
+        
+        // Only create entry if it doesn't exist yet
+        if (!dsrMap.has(itemName)) {
+          // Check if it exists by normalized name
+          let exists = false
+          for (const [mapKey] of dsrMap.entries()) {
+            if (normalizeName(mapKey) === key) {
+              exists = true
+              break
+            }
+          }
+          
+          if (!exists) {
+            // Create empty entry for this cylinder - it will be populated with opening stock later
+            dsrMap.set(itemName, {
+              itemName: itemName,
+              openingFull: 0,
+              openingEmpty: 0,
+              emptyPurchase: 0,
+              fullPurchase: 0,
+              refilled: 0,
+              fullCylinderSales: 0,
+              emptyCylinderSales: 0,
+              gasSales: 0,
+              deposits: 0,
+              returns: 0,
+              transferGas: 0,
+              transferEmpty: 0,
+              receivedGas: 0,
+              receivedEmpty: 0,
+              closingFull: 0,
+              closingEmpty: 0,
+              category: 'cylinder'
+            })
+            console.log(`📦 [EMPLOYEE DSR] Pre-created cylinder entry for: ${itemName}`)
+          }
+        }
+      })
+      
+      console.log(`📊 [EMPLOYEE DSR] After pre-populating inventory, dsrMap has ${dsrMap.size} entries`)
+      
+      // Process stock assignments to track received stock (when employee accepts stock)
+      // Helper function to check if a date matches the DSR date
+      const inSelectedDay = (dateStr: string | Date): boolean => {
+        if (!dateStr) return false
+        let dateObj: Date
+        if (typeof dateStr === 'string') {
+          dateObj = new Date(dateStr)
+        } else {
+          dateObj = dateStr
+        }
+        const dateOnly = dateObj.toISOString().slice(0, 10)
+        return dateOnly === dsrDate
+      }
+      
+      console.log(`🔍 [EMPLOYEE DSR] Processing ${stockAssignmentsData.length} stock assignments for date ${dsrDate}`)
+      
+      stockAssignmentsData.forEach((assignment: any) => {
+        const productName = assignment.product?.name || assignment.productName || ''
+        // Get category from multiple possible sources
+        let category = assignment.category || assignment.displayCategory || assignment.product?.category || ''
+        // Normalize category to lowercase for comparison
+        if (category) {
+          category = category.toLowerCase()
+        }
+        const cylinderStatus = assignment.cylinderStatus || ''
+        const quantity = Number(assignment.quantity || assignment.remainingQuantity || 0)
+        const status = assignment.status || ''
+        
+        // Get received date - check multiple possible fields
+        let receivedDate = assignment.receivedDate || assignment.updatedAt || assignment.createdAt || ''
+        if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
+          receivedDate = receivedDate.toISOString()
+        }
+        
+        // Also check if status is 'received' and use assignedDate if receivedDate is not available
+        // (some assignments might be marked as received immediately)
+        if (status === 'received' && !receivedDate) {
+          receivedDate = assignment.assignedDate || assignment.createdAt || ''
+          if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
+            receivedDate = receivedDate.toISOString()
+          }
+        }
+        
+        console.log(`🔍 [EMPLOYEE DSR] Checking assignment: ${productName}, status: ${status}, receivedDate: ${receivedDate}, category: ${category} (from assignment.category=${assignment.category}, assignment.displayCategory=${assignment.displayCategory}, product.category=${assignment.product?.category}), quantity: ${quantity}`)
+        
+        // Only process assignments that were received on the selected date
+        // Also check if status is 'received' even if receivedDate doesn't match (might be same day)
+        const isReceived = status === 'received' || status === 'active'
+        const dateMatches = receivedDate && inSelectedDay(receivedDate)
+        const isToday = !receivedDate && dsrDate === new Date().toISOString().slice(0, 10) // If no receivedDate but status is received and it's today
+        
+        if (isReceived && (dateMatches || isToday)) {
+          // Determine which cylinder row this should be added to
+          // For gas assignments, check if there's a related cylinder
+          let targetCylinderName = productName
+          let targetItemName = productName
+          
+          // If this is gas, try to find the related cylinder
+          if (category === 'gas') {
+            // Check for related cylinder in multiple possible fields
+            // Priority: cylinderProductId (populated) > relatedCylinderName > cylinderProductId (ID only)
+            const relatedCylinderName = (assignment.cylinderProductId?.name) || 
+                                       assignment.relatedCylinderName || 
+                                       (assignment.cylinderProductId && typeof assignment.cylinderProductId === 'string' ? '' : '') ||
+                                       ''
+            
+            if (relatedCylinderName) {
+              targetCylinderName = relatedCylinderName
+              targetItemName = relatedCylinderName
+              console.log(`🔗 [EMPLOYEE DSR] Gas assignment linked to cylinder: ${productName} → ${relatedCylinderName}`)
+            } else {
+              // If no related cylinder, try to infer from product name or find matching cylinder
+              // For gas products, they're usually related to a cylinder - try to find a matching cylinder in inventory
+              for (const invItem of inventoryData) {
+                if (invItem.category === 'cylinder') {
+                  // Check if the gas product name contains the cylinder name or vice versa
+                  const gasNameLower = productName.toLowerCase()
+                  const cylNameLower = invItem.productName.toLowerCase()
+                  // Simple heuristic: if cylinder name is in gas name or gas name suggests a cylinder
+                  if (gasNameLower.includes(cylNameLower) || cylNameLower.includes(gasNameLower.split(' ')[0])) {
+                    targetCylinderName = invItem.productName
+                    targetItemName = invItem.productName
+                    console.log(`🔗 [EMPLOYEE DSR] Inferred cylinder from gas name: ${productName} → ${targetCylinderName}`)
+                    break
+                  }
+                }
+              }
+              if (targetItemName === productName) {
+                console.log(`⚠️ [EMPLOYEE DSR] Gas assignment ${productName} has no related cylinder, will try to match by name to existing cylinder rows`)
+              }
+            }
+          }
+          
+          // Normalize the target name for matching
+          const normalizedTargetName = normalizeName(targetItemName)
+          
+          console.log(`📥 [EMPLOYEE DSR] Processing received stock assignment: ${productName} (${quantity}), category: ${category}, targetCylinder: ${targetCylinderName}, receivedDate: ${receivedDate}, dateMatches: ${dateMatches}, isToday: ${isToday}`)
+          
+          // Try to find the item in dsrMap by exact name or normalized name
+          let foundItem: DSRItem | null = null
+          let foundKey: string | null = null
+          
+          // First try exact match with target item name
+          if (dsrMap.has(targetItemName)) {
+            foundItem = dsrMap.get(targetItemName)!
+            foundKey = targetItemName
+          } else {
+            // Try to find by normalized name
+            for (const [key, value] of dsrMap.entries()) {
+              const normalizedKey = normalizeName(key)
+              if (normalizedKey === normalizedTargetName) {
+                foundItem = value
+                foundKey = key
+                break
+              }
+            }
+          }
+          
+          if (foundItem && foundKey) {
+            // Merge with existing entry - add to the correct cylinder row
+            if (category === 'gas') {
+              foundItem.receivedGas += quantity
+              console.log(`✅ [EMPLOYEE DSR] Added ${quantity} to Received Gas for ${foundKey} (cylinder row). New total: ${foundItem.receivedGas}`)
+            } else if (category === 'cylinder' || !category) {
+              // For cylinders or if category is not set, track as received empty
+              // Full cylinders transferred become empty at employee location
+              foundItem.receivedEmpty += quantity
+              console.log(`✅ [EMPLOYEE DSR] Added ${quantity} to Received Empty for ${foundKey} (cylinder row). New total: ${foundItem.receivedEmpty}`)
+            } else {
+              console.log(`⚠️ [EMPLOYEE DSR] Unknown category "${category}" for ${targetItemName}, defaulting to receivedEmpty`)
+              foundItem.receivedEmpty += quantity
+            }
+          } else {
+            // Item not found in dsrMap - this shouldn't happen for cylinders, but might for gas
+            // Only create a new entry if it's a cylinder (gas should always match to a cylinder row)
+            if (category === 'cylinder' || !category) {
+              const newEntry: DSRItem = {
+                itemName: targetItemName,
+                openingFull: 0,
+                openingEmpty: 0,
+                emptyPurchase: 0,
+                fullPurchase: 0,
+                refilled: 0,
+                fullCylinderSales: 0,
+                emptyCylinderSales: 0,
+                gasSales: 0,
+                deposits: 0,
+                returns: 0,
+                transferGas: 0,
+                transferEmpty: 0,
+                receivedGas: 0,
+                receivedEmpty: quantity,
+                closingFull: 0,
+                closingEmpty: 0,
+                category: 'cylinder'
+              }
+              dsrMap.set(targetItemName, newEntry)
+              console.log(`✅ [EMPLOYEE DSR] Created new cylinder entry for received stock: ${targetItemName} with receivedEmpty=${quantity}`)
+            } else {
+              console.log(`⚠️ [EMPLOYEE DSR] Gas assignment ${productName} could not be matched to any cylinder row. Related cylinder: ${targetCylinderName}`)
+            }
+          }
+        } else {
+          console.log(`⚠️ [EMPLOYEE DSR] Skipping assignment: ${productName}, isReceived: ${isReceived}, dateMatches: ${dateMatches}, isToday: ${isToday}`)
+        }
+      })
+      
+      console.log(`📊 [EMPLOYEE DSR] After processing stock assignments, dsrMap has ${dsrMap.size} entries`)
+      
+      // Now update inventory data entries with opening stock and calculate closing
+      // (inventory entries were already created above, now we just update them with opening stock)
       inventoryData.forEach((item: any) => {
         if (item.category !== 'cylinder') return
         
@@ -755,15 +1037,37 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         const openingFull = storedOpening?.openingFull ?? 0
         const openingEmpty = storedOpening?.openingEmpty ?? 0
         
+        // Try to find existing entry by exact name or normalized name
+        let existingEntry: DSRItem | null = null
+        let existingKey: string | null = null
+        
         if (dsrMap.has(itemName)) {
-          // Merge with existing sales entry
-          const existing = dsrMap.get(itemName)!
-          existing.openingFull = openingFull
-          existing.openingEmpty = openingEmpty
+          existingEntry = dsrMap.get(itemName)!
+          existingKey = itemName
+        } else {
+          // Try to find by normalized name
+          for (const [mapKey, mapValue] of dsrMap.entries()) {
+            const normalizedMapKey = mapKey.toLowerCase().replace(/\s+/g, ' ').trim()
+            if (normalizedMapKey === key) {
+              existingEntry = mapValue
+              existingKey = mapKey
+              break
+            }
+          }
+        }
+        
+        if (existingEntry && existingKey) {
+          // Merge with existing entry - preserve receivedGas and receivedEmpty values
+          existingEntry.openingFull = openingFull
+          existingEntry.openingEmpty = openingEmpty
+          // Preserve receivedGas and receivedEmpty if they were already set from stock assignments
+          const preservedReceivedGas = existingEntry.receivedGas || 0
+          const preservedReceivedEmpty = existingEntry.receivedEmpty || 0
           // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
-          existing.closingFull = Math.max(0, openingFull + (existing.fullPurchase || 0) + existing.refilled - existing.fullCylinderSales - existing.gasSales - existing.transferGas + existing.receivedGas)
+          existingEntry.closingFull = Math.max(0, openingFull + (existingEntry.fullPurchase || 0) + existingEntry.refilled - existingEntry.fullCylinderSales - existingEntry.gasSales - existingEntry.transferGas + preservedReceivedGas)
           // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
-          existing.closingEmpty = Math.max(0, openingFull + openingEmpty + (existing.fullPurchase || 0) + (existing.emptyPurchase || 0) - existing.fullCylinderSales - existing.emptyCylinderSales - existing.deposits + existing.returns - existing.transferEmpty + existing.receivedEmpty - existing.closingFull)
+          existingEntry.closingEmpty = Math.max(0, openingFull + openingEmpty + (existingEntry.fullPurchase || 0) + (existingEntry.emptyPurchase || 0) - existingEntry.fullCylinderSales - existingEntry.emptyCylinderSales - existingEntry.deposits + existingEntry.returns - existingEntry.transferEmpty + preservedReceivedEmpty - existingEntry.closingFull)
+          console.log(`🔄 [EMPLOYEE DSR] Updated existing entry for ${itemName}, preserved receivedGas=${preservedReceivedGas}, receivedEmpty=${preservedReceivedEmpty}`)
         } else {
           // Create new entry from inventory data (no sales)
           dsrMap.set(itemName, {
@@ -790,16 +1094,83 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       })
       
       // Filter to show only cylinder items in DSR (exclude gas products)
+      // BUT include items that have receivedGas or receivedEmpty > 0 (even if they're gas products)
       const finalDsrData = Array.from(dsrMap.values()).filter(item => {
         const itemNameLower = item.itemName.toLowerCase()
+        // Include items with receivedGas or receivedEmpty (these are stock assignments that were received)
+        if (item.receivedGas > 0 || item.receivedEmpty > 0) {
+          console.log(`✅ [EMPLOYEE DSR] Including item with received stock: ${item.itemName} (receivedGas=${item.receivedGas}, receivedEmpty=${item.receivedEmpty})`)
+          return true
+        }
         // Exclude items that start with "gas " but include items with "cylinder" in the name
         return !itemNameLower.startsWith('gas ') || itemNameLower.includes('cylinder')
       })
       
+      // Check if fetch was cancelled (date changed)
+      if (abortController.signal.aborted || currentFetchDateRef.current !== dsrDate) {
+        console.log(`⚠️ [EMPLOYEE DSR] Fetch cancelled or date changed, not updating data`)
+        return
+      }
+      
       setDsrData(finalDsrData)
       
-      // Fetch stored DSR reports for opening values
+      // Fetch stored DSR reports for opening values (must complete before showing data)
       await fetchStoredEmployeeDsrReports(dsrDate)
+      
+      // Check again if date changed during fetchStoredEmployeeDsrReports
+      if (abortController.signal.aborted || currentFetchDateRef.current !== dsrDate) {
+        console.log(`⚠️ [EMPLOYEE DSR] Fetch cancelled or date changed after fetching stored reports, not updating data`)
+        return
+      }
+      
+      // Recalculate and save closing stock after all data is loaded
+      // This ensures closing values are persisted to the database for next day's opening stock
+      setTimeout(async () => {
+        // Check if date changed during timeout
+        if (currentFetchDateRef.current !== dsrDate) {
+          console.log(`⚠️ [EMPLOYEE RECALC] Date changed during recalculation, cancelling for ${dsrDate}`)
+          return
+        }
+        
+        if (finalDsrData.length > 0 && storedDsrReports) {
+          console.log(`🔄 [EMPLOYEE RECALC] Recalculating and saving closing stock for ${dsrDate}...`)
+          for (const item of finalDsrData) {
+            // Check again inside loop
+            if (currentFetchDateRef.current !== dsrDate) {
+              console.log(`⚠️ [EMPLOYEE RECALC] Date changed during save loop, cancelling`)
+              return
+            }
+            const key = item.itemName.toLowerCase().replace(/\s+/g, ' ').trim()
+            const openingFull = storedDsrReports[key]?.openingFull || item.openingFull || 0
+            const openingEmpty = storedDsrReports[key]?.openingEmpty || item.openingEmpty || 0
+            
+            // Calculate closing values using DSR formula
+            const closingFull = Math.max(0, 
+              openingFull + (item.fullPurchase || 0) + item.refilled - item.fullCylinderSales - item.gasSales - item.transferGas + item.receivedGas
+            )
+            const closingEmpty = Math.max(0, 
+              openingFull + openingEmpty + (item.fullPurchase || 0) + (item.emptyPurchase || 0) - item.fullCylinderSales - item.emptyCylinderSales - item.deposits + item.returns - item.transferEmpty + item.receivedEmpty - closingFull
+            )
+            
+            // Save closing values to database
+            console.log(`💾 [EMPLOYEE RECALC-SAVE] ${item.itemName} for ${dsrDate}: Closing=${closingFull}/${closingEmpty}`)
+            await fetch('/api/employee-daily-stock-reports', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                employeeId: user.id,
+                date: dsrDate,
+                itemName: item.itemName,
+                openingFull,
+                openingEmpty,
+                closingFull,
+                closingEmpty
+              })
+            })
+          }
+          console.log(`✅ [EMPLOYEE RECALC-SAVE] Recalculated and saved closing values for ${dsrDate}`)
+        }
+      }, 1000) // Wait 1 second for all state to be updated
       
       console.log('✅ Employee DSR data processed:', {
         salesRecords: salesData.length,
@@ -810,18 +1181,41 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         items: finalDsrData
       })
       
-    } catch (error) {
+    } catch (error: any) {
+      // Don't show error if fetch was aborted (user changed date)
+      if (error.name === 'AbortError' || abortController.signal.aborted) {
+        console.log('ℹ️ [EMPLOYEE DSR] Fetch aborted (date changed)')
+        return
+      }
       console.error('❌ Failed to fetch employee DSR:', error)
-      setDsrData([])
+      // Only clear data if this is still the current date
+      if (currentFetchDateRef.current === dsrDate) {
+        setDsrData([])
+      }
     } finally {
-      setLoading(false)
+      // Only update loading state if this is still the current date
+      if (currentFetchDateRef.current === dsrDate) {
+        setLoading(false)
+      }
     }
   }
 
   // Fetch DSR data when component mounts or date changes
   useEffect(() => {
     if (user.id && dsrDate) {
+      // Clear previous data immediately when date changes
+      setDsrData([])
+      setStoredDsrReports({})
+      setIsInventoryFetched(false)
+      
       fetchEmployeeDSR()
+    }
+    
+    // Cleanup: abort fetch when component unmounts or date changes
+    return () => {
+      if (fetchAbortControllerRef.current) {
+        fetchAbortControllerRef.current.abort()
+      }
     }
   }, [user.id, dsrDate])
 
@@ -856,7 +1250,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       if (hours === 23 && minutes === 55) {
         const today = new Date().toISOString().slice(0, 10)
         if (dsrDate === today) {
-          saveEmployeeDsrRecord()
+          saveEmployeeDsrRecord(false) // false = don't show alert for auto-save
           console.log('🕚 Auto-saved Employee DSR at 11:55 PM Dubai time')
         }
       }

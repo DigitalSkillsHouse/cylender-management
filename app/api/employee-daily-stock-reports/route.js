@@ -65,8 +65,18 @@ export async function POST(request) {
     if (typeof refilled === 'number') setDoc.refilled = refilled;
     if (typeof cylinderSales === 'number') setDoc.cylinderSales = cylinderSales;
     if (typeof gasSales === 'number') setDoc.gasSales = gasSales;
-    if (typeof closingFull === 'number') setDoc.closingFull = closingFull;
-    if (typeof closingEmpty === 'number') setDoc.closingEmpty = closingEmpty;
+    // Always save closing values if they are numbers (including 0)
+    // This ensures closing stock is properly saved for next day's opening stock
+    if (typeof closingFull === 'number') {
+      setDoc.closingFull = closingFull;
+    } else if (closingFull === null || closingFull === undefined) {
+      setDoc.closingFull = 0; // Explicitly set to 0 if null/undefined
+    }
+    if (typeof closingEmpty === 'number') {
+      setDoc.closingEmpty = closingEmpty;
+    } else if (closingEmpty === null || closingEmpty === undefined) {
+      setDoc.closingEmpty = 0; // Explicitly set to 0 if null/undefined
+    }
 
     const query = { employeeId, itemName, date };
     const updated = await EmployeeDailyStockReport.findOneAndUpdate(
