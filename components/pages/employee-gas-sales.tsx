@@ -1280,6 +1280,9 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
         address: sale.customer.address || "N/A",
         phone: sale.customer.phone || "N/A",
       },
+      // Ensure employee ID is included for signature lookup
+      employee: (sale as any).employee?._id || (sale as any).employee || user.id,
+      employeeId: (sale as any).employee?._id || (sale as any).employee || user.id,
     };
     setSaleForSignature(saleWithAddress);
     setIsSignatureDialogOpen(true);
@@ -2388,6 +2391,7 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
         <ReceiptDialog
           onClose={() => setIsReceiptDialogOpen(false)}
           sale={saleForReceipt}
+          user={user}
         />
       )}
 

@@ -4,9 +4,10 @@ import { useState, useEffect } from "react"
 import { useNotifications } from "@/hooks/useNotifications"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Package, Warehouse, FileDown } from "lucide-react"
+import { Package, Warehouse, FileDown, Pen } from "lucide-react"
 import { productsAPI } from "@/lib/api"
 import ProductQuoteDialog from "@/components/product-quote-dialog"
+import { EmployeeSignatureDialog } from "@/components/employee-signature-dialog"
 
 interface EmployeeDashboardProps {
   user: { id: string; email: string; name: string; debitAmount?: number; creditAmount?: number }
@@ -21,6 +22,7 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
   const [pendingItemsCount, setPendingItemsCount] = useState(0)
   const [products, setProducts] = useState<any[]>([])
   const [showQuoteDialog, setShowQuoteDialog] = useState(false)
+  const [showSignatureDialog, setShowSignatureDialog] = useState(false)
 
   useEffect(() => {
     if (user?.id) {
@@ -98,13 +100,22 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
             <h1 className="text-4xl font-bold mb-2">Welcome back, {user?.name || "User"}!</h1>
             <p className="text-white/80 text-lg">Here's your current status and assignments</p>
           </div>
-          <Button 
-            onClick={() => setShowQuoteDialog(true)} 
-            className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold min-h-[44px]"
-          >
-            <FileDown className="w-4 h-4 mr-2" />
-            Generate Quote Paper
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button 
+              onClick={() => setShowSignatureDialog(true)} 
+              className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold min-h-[44px]"
+            >
+              <Pen className="w-4 h-4 mr-2" />
+              Manage Signature
+            </Button>
+            <Button 
+              onClick={() => setShowQuoteDialog(true)} 
+              className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold min-h-[44px]"
+            >
+              <FileDown className="w-4 h-4 mr-2" />
+              Generate Quote Paper
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -143,6 +154,15 @@ export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardPro
           onClose={() => setShowQuoteDialog(false)}
         />
       )}
+
+      <EmployeeSignatureDialog
+        isOpen={showSignatureDialog}
+        onClose={() => setShowSignatureDialog(false)}
+        onSave={() => {
+          setShowSignatureDialog(false)
+        }}
+        employeeId={user?.id}
+      />
     </div>
   )
 }

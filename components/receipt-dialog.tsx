@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { X, Printer, Download } from "lucide-react"
 import { toast } from "sonner"
+import { fetchAdminSignature } from "@/lib/admin-signature"
+import { fetchEmployeeSignature } from "@/lib/employee-signature"
 
 interface ReceiptDialogProps {
   sale: {
@@ -36,6 +38,9 @@ interface ReceiptDialogProps {
     type?: 'deposit' | 'refill' | 'return' | 'collection' | string
     createdAt: string
     customerSignature?: string // Add signature to sale object
+    // Employee who created this sale (for employee sales)
+    employee?: string | { _id: string; id?: string }
+    employeeId?: string
   }
   signature?: string
   onClose: () => void
@@ -45,51 +50,72 @@ interface ReceiptDialogProps {
   open?: boolean
   // If true, disable VAT calculation and show total amount as-is
   disableVAT?: boolean
+  // User object to determine if we should use employee signature
+  user?: { id: string; role: "admin" | "employee" }
+  // Or directly pass employeeId if user object is not available
+  employeeId?: string
 }
 
-export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, open = true, disableVAT = false }: ReceiptDialogProps) {
+export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, open = true, disableVAT = false, user, employeeId }: ReceiptDialogProps) {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    // Fetch from database first, fallback to localStorage
-    const loadAdminSignature = async () => {
-      try {
-        // Try database first
-        const response = await fetch("/api/admin-signature", {
-          cache: "no-store",
-        })
-        
-        if (response.ok) {
-          const data = await response.json()
-          if (data.success && data.data?.signature) {
-            // Cache in localStorage
-            if (typeof window !== "undefined") {
-              try {
-                localStorage.setItem("adminSignature", data.data.signature)
-              } catch (e) {
-                console.warn("Failed to cache admin signature", e)
-              }
-            }
-            setAdminSignature(data.data.signature)
-            return
+    // Determine which employee ID to use for signature
+    // Priority: 1. sale.employee, 2. sale.employeeId, 3. user.id (if employee), 4. employeeId prop
+    let targetEmployeeId: string | null = null
+    
+    // Check if sale has employee info
+    if (sale?.employee) {
+      // Handle both string ID and populated object
+      if (typeof sale.employee === 'string') {
+        targetEmployeeId = sale.employee
+      } else if (sale.employee._id) {
+        targetEmployeeId = sale.employee._id
+      } else if (sale.employee.id) {
+        targetEmployeeId = sale.employee.id
+      }
+    } else if (sale?.employeeId) {
+      targetEmployeeId = sale.employeeId
+    } else if (user?.role === "employee" && user?.id) {
+      // If current user is employee, use their ID
+      targetEmployeeId = user.id
+    } else if (employeeId) {
+      targetEmployeeId = employeeId
+    }
+
+    const loadSignature = async () => {
+      if (targetEmployeeId) {
+        // Fetch employee signature for this specific employee
+        try {
+          const empSig = await fetchEmployeeSignature(targetEmployeeId)
+          setAdminSignature(empSig)
+          console.log("Loaded employee signature for employee:", targetEmployeeId)
+        } catch (error) {
+          console.warn("Failed to fetch employee signature:", error)
+          // Fallback to admin signature if employee signature not found
+          try {
+            const adminSig = await fetchAdminSignature()
+            setAdminSignature(adminSig)
+          } catch (adminError) {
+            console.warn("Failed to fetch admin signature:", adminError)
+            setAdminSignature(null)
           }
         }
-      } catch (error) {
-        console.warn("Failed to fetch admin signature from database:", error)
-      }
-
-      // Fallback to localStorage
-      try {
-        const sig = typeof window !== "undefined" ? localStorage.getItem("adminSignature") : null
-        setAdminSignature(sig)
-      } catch (e) {
-        setAdminSignature(null)
+      } else {
+        // No employee ID - fetch admin signature
+        try {
+          const adminSig = await fetchAdminSignature()
+          setAdminSignature(adminSig)
+        } catch (error) {
+          console.warn("Failed to fetch admin signature:", error)
+          setAdminSignature(null)
+        }
       }
     }
 
-    loadAdminSignature()
-  }, [])
+    loadSignature()
+  }, [sale?.employee, sale?.employeeId, user?.id, user?.role, employeeId])
 
   // Prepare items safely
   const itemsSafe = Array.isArray(sale?.items) ? sale.items : []

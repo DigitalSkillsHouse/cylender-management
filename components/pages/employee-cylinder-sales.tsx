@@ -1753,6 +1753,9 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
         type: transaction.type,
         createdAt: transaction.createdAt,
         customerSignature: customerSignature,
+        // Ensure employee ID is included for signature lookup
+        employee: (transaction as any).employee?._id || (transaction as any).employee || user.id,
+        employeeId: (transaction as any).employee?._id || (transaction as any).employee || user.id,
       }
       setReceiptDialogData(saleData)
     }
@@ -1820,6 +1823,9 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       type: transaction.type,
       createdAt: transaction.createdAt,
       customerSignature: signature,
+      // Ensure employee ID is included for signature lookup
+      employee: (transaction as any).employee?._id || (transaction as any).employee || user.id,
+      employeeId: (transaction as any).employee?._id || (transaction as any).employee || user.id,
     }
   }
 
@@ -2884,6 +2890,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
           useReceivingHeader
           disableVAT={receiptDialogData?.type === 'deposit' || receiptDialogData?.type === 'return' || receiptDialogData?.type === 'refill'}
           onClose={() => setReceiptDialogData(null)}
+          user={user}
         />
       )}
 
