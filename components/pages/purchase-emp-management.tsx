@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown, Download, Calendar } from "lucide-react"
 import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
+import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
 
 interface PurchaseOrder {
   _id: string
@@ -148,7 +149,7 @@ export function PurchaseManagement() {
     }
     let y = margin + 65;
     pdf.setFontSize(10);
-    pdf.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, y, { align: 'center' });
+    pdf.text(`Generated on: ${getDubaiDateDisplayString()}`, pageWidth / 2, y, { align: 'center' });
     y += 8;
     // Table header
     pdf.setFontSize(9);
@@ -271,7 +272,7 @@ export function PurchaseManagement() {
   const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
   const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string }>(() => ({
     supplierId: "",
-    purchaseDate: new Date().toISOString().split("T")[0],
+    purchaseDate: getLocalDateString(),
     invoiceNumber: "",
     items: [],
     notes: "",
@@ -498,7 +499,7 @@ export function PurchaseManagement() {
   const resetForm = () => {
     setFormData({
       supplierId: "",
-      purchaseDate: new Date().toISOString().split("T")[0],
+      purchaseDate: getLocalDateString(),
       invoiceNumber: "",
       items: [],
       notes: "",

@@ -5,6 +5,7 @@ import CylinderTransaction from "@/models/Cylinder";
 import EmployeeSale from "@/models/EmployeeSale";
 import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
 import Rental from "@/models/Rental";
+import { getDateRangeForPeriod } from "@/lib/date-utils";
 
 export async function GET(request) {
   try {
@@ -23,13 +24,9 @@ export async function GET(request) {
       return NextResponse.json({ success: false, error: "From Date cannot be greater than To Date" }, { status: 400 });
     }
 
-    // Create date range - parse YYYY-MM-DD format and create UTC dates
-    // This ensures we get the full day range regardless of timezone
-    const [startYear, startMonth, startDay] = fromDate.split('-').map(Number);
-    const [endYear, endMonth, endDay] = toDate.split('-').map(Number);
-    
-    const start = new Date(Date.UTC(startYear, startMonth - 1, startDay, 0, 0, 0, 0));
-    const end = new Date(Date.UTC(endYear, endMonth - 1, endDay, 23, 59, 59, 999));
+    // Create date range in Dubai timezone (UTC+4)
+    // This ensures we get the full day range based on Dubai timezone
+    const { start, end } = getDateRangeForPeriod(fromDate, toDate);
 
     // Decide sources based on scope
     // - If employeeId present: use employee collections only (EmployeeSale, EmployeeCylinderTransaction)

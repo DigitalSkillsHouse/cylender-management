@@ -16,6 +16,7 @@ import { ReceiptDialog } from "@/components/receipt-dialog"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import CashPaperSection from "@/components/cash-paper-section"
+import { getStartOfDate, getEndOfDate, getDubaiDateDisplayString, getDubaiDateTimeString } from "@/lib/date-utils"
 
 interface CustomerLedgerData {
   _id: string
@@ -331,7 +332,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       currentY += 10;
       pdf.setFontSize(10);
       pdf.setFont(undefined, 'normal');
-      pdf.text(`Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, pageWidth / 2, currentY, { align: "center" });
+      pdf.text(`Generated on: ${getDubaiDateTimeString()}`, pageWidth / 2, currentY, { align: "center" });
       
       currentY += 6;
       const filterText = filters.customerName.trim() !== '' 
@@ -1527,8 +1528,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       return
     }
     
-    const dayStart = new Date(dsrViewDate + 'T00:00:00').getTime()
-    const dayEnd = new Date(dsrViewDate + 'T23:59:59.999').getTime()
+    const dayStart = getStartOfDate(dsrViewDate).getTime()
+    const dayEnd = getEndOfDate(dsrViewDate).getTime()
     const isOnDay = (t: any) => {
       const ts = t ? new Date(t).getTime() : NaN
       return Number.isFinite(ts) && ts >= dayStart && ts <= dayEnd

@@ -201,7 +201,8 @@ export async function PATCH(request, { params }) {
       // Create/update daily refill entries for DSR tracking
       try {
         const DailyRefill = (await import('@/models/DailyRefill')).default
-        const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+        const { getLocalDateString } = await import('@/lib/date-utils')
+        const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
         
         console.log("Processing daily refill entries for purchase order:", updatedOrder._id)
         console.log("Purchase order structure:", {
@@ -355,7 +356,8 @@ export async function PATCH(request, { params }) {
           // Create/update daily refill entries for employee refills
           try {
             const DailyRefill = (await import('@/models/DailyRefill')).default
-            const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+            const { getLocalDateString } = await import('@/lib/date-utils')
+        const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
             const employeeId = updatedOrder.employee?._id || updatedOrder.employee || employeePurchaseOrder?.employee
             
             console.log("Processing employee daily refill entries for purchase order:", updatedOrder._id)

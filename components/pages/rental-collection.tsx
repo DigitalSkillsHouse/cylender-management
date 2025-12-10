@@ -11,6 +11,7 @@ import { Plus, FileText, Receipt, Edit, Trash, Download, Calendar, Loader2 } fro
 import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import jsPDF from "jspdf"
+import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
 
 interface Customer {
   _id: string
@@ -69,7 +70,7 @@ export function RentalCollection({ user }: RentalCollectionProps = {}) {
   
   // Form state
   const [rentalData, setRentalData] = useState<RentalData>({
-    date: new Date().toISOString().split("T")[0],
+    date: getLocalDateString(),
     customerId: "",
     customerName: "",
     items: [],
@@ -385,7 +386,7 @@ export function RentalCollection({ user }: RentalCollectionProps = {}) {
         
         // Reset form
         setRentalData({
-          date: new Date().toISOString().split("T")[0],
+          date: getLocalDateString(),
           customerId: "",
           customerName: "",
           items: [],
@@ -579,7 +580,7 @@ export function RentalCollection({ user }: RentalCollectionProps = {}) {
       pdf.setFontSize(10)
       pdf.setTextColor(100, 100, 100)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, currentY, { align: "center" })
+      pdf.text(`Generated on: ${getDubaiDateDisplayString()}`, pageWidth / 2, currentY, { align: "center" })
       currentY += 6
 
       // Add date range if filtering is applied
@@ -837,7 +838,7 @@ export function RentalCollection({ user }: RentalCollectionProps = {}) {
       }
 
       // Generate filename with date range
-      const dateRange = pdfFromDate && pdfToDate ? `_${pdfFromDate}_to_${pdfToDate}` : `_${new Date().toISOString().split('T')[0]}`
+      const dateRange = pdfFromDate && pdfToDate ? `_${pdfFromDate}_to_${pdfToDate}` : `_${getLocalDateString()}`
       const filename = `Rental_Collection_Report${dateRange}.pdf`
       
       pdf.save(filename)

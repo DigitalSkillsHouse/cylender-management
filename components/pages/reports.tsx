@@ -16,6 +16,7 @@ import { ReceiptDialog } from "@/components/receipt-dialog"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { DialogDescription } from "@radix-ui/react-dialog"
 import CashPaperSection from "@/components/cash-paper-section"
+import { getDubaiDateTimeString } from "@/lib/date-utils"
 
 interface CustomerLedgerData {
   _id: string
@@ -463,7 +464,7 @@ export function Reports() {
       currentY += 10;
       pdf.setFontSize(10);
       pdf.setFont(undefined, 'normal');
-      pdf.text(`Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, pageWidth / 2, currentY, { align: "center" });
+      pdf.text(`Generated on: ${getDubaiDateTimeString()}`, pageWidth / 2, currentY, { align: "center" });
       
       currentY += 6;
       const filterText = filters.customerName.trim() !== '' 

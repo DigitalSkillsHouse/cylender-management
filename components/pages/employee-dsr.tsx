@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CalendarIcon, RefreshCw, Eye, PlusCircle, FileText } from "lucide-react"
+import { getLocalDateString, getPreviousDate, getNextDate, getLocalDateStringFromDate, isToday } from "@/lib/date-utils"
 
 interface EmployeeDSRProps {
   user: {
@@ -38,7 +39,7 @@ interface DSRItem {
 }
 
 export default function EmployeeDSR({ user }: EmployeeDSRProps) {
-  const [dsrDate, setDsrDate] = useState(new Date().toISOString().slice(0, 10))
+  const [dsrDate, setDsrDate] = useState(getLocalDateString())
   const [dsrData, setDsrData] = useState<DSRItem[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -67,8 +68,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       return
     }
     
-    const today = new Date().toISOString().slice(0, 10)
-    const isToday = date === today
+    const today = getLocalDateString()
+    const isTodayDate = date === today
     
     console.log(`🔍 [DIAGNOSTIC] fetchStoredEmployeeDsrReports called for date: ${date}`)
     console.log(`🔍 [DIAGNOSTIC] Is today's date? ${isToday}`)
@@ -125,11 +126,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
             if (isToday && missingProducts.length > 0) {
               console.log(`🔍 [DIAGNOSTIC] ${missingProducts.length} products missing for ${date}, checking yesterday's closing stock...`)
               
-              const [year, month, day] = date.split('-').map(Number)
-              const currentDate = new Date(Date.UTC(year, month - 1, day))
-              const previousDate = new Date(currentDate)
-              previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-              const previousDateStr = previousDate.toISOString().slice(0, 10)
+              const previousDateStr = getPreviousDate(date)
               
               console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
               
@@ -553,12 +550,8 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         }
       }
       
-      // Log saved closing stocks that will be used as next day's opening
-      const [year, month, day] = dsrDate.split('-').map(Number)
-      const currentDate = new Date(Date.UTC(year, month - 1, day))
-      const nextDate = new Date(currentDate)
-      nextDate.setUTCDate(nextDate.getUTCDate() + 1)
-      const nextDateStr = nextDate.toISOString().slice(0, 10)
+      // Log saved closing stocks that will be used as next day's opening (Dubai timezone)
+      const nextDateStr = getNextDate(dsrDate)
       
       console.log(`✅ [DIAGNOSTIC] Saved closing stocks for ${dsrDate} - These will be tomorrow (${nextDateStr}) opening stock`)
       
@@ -910,9 +903,9 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         // Also check if status is 'received' even if receivedDate doesn't match (might be same day)
         const isReceived = status === 'received' || status === 'active'
         const dateMatches = receivedDate && inSelectedDay(receivedDate)
-        const isToday = !receivedDate && dsrDate === new Date().toISOString().slice(0, 10) // If no receivedDate but status is received and it's today
+        const isTodayCheck = !receivedDate && isToday(dsrDate) // If no receivedDate but status is received and it's today
         
-        if (isReceived && (dateMatches || isToday)) {
+        if (isReceived && (dateMatches || isTodayCheck)) {
           // Determine which cylinder row this should be added to
           // For gas assignments, check if there's a related cylinder
           let targetCylinderName = productName

@@ -21,6 +21,7 @@ import { CustomerDropdown } from "@/components/ui/customer-dropdown"
 import { ProductDropdown } from "@/components/ui/product-dropdown"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import jsPDF from "jspdf"
+import { getStartOfDate, getEndOfDate } from "@/lib/date-utils"
 
 interface Sale {
   _id: string
@@ -261,8 +262,8 @@ export function GasSales() {
     try {
       const term = (exportSearch || "").trim().toLowerCase()
       const sourceArray = Array.isArray(sales) ? sales : []
-      const start = exportStartDate ? new Date(`${exportStartDate}T00:00:00.000`) : null
-      const end = exportEndDate ? new Date(`${exportEndDate}T23:59:59.999`) : null
+      const start = exportStartDate ? getStartOfDate(exportStartDate) : null
+      const end = exportEndDate ? getEndOfDate(exportEndDate) : null
       const filteredByTerm = term
         ? sourceArray.filter((s) => (s.customer?.name || "").toLowerCase().includes(term))
         : sourceArray
@@ -374,8 +375,8 @@ export function GasSales() {
     try {
       const term = (exportSearch || "").trim().toLowerCase()
       const sourceArray = Array.isArray(sales) ? sales : []
-      const start = exportStartDate ? new Date(`${exportStartDate}T00:00:00.000`) : null
-      const end = exportEndDate ? new Date(`${exportEndDate}T23:59:59.999`) : null
+      const start = exportStartDate ? getStartOfDate(exportStartDate) : null
+      const end = exportEndDate ? getEndOfDate(exportEndDate) : null
       const filteredByTerm = term
         ? sourceArray.filter((s: Sale) => (s.customer?.name || "").toLowerCase().includes(term))
         : sourceArray

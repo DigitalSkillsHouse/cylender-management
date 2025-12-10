@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Loader2, FileText } from "lucide-react"
+import { getLocalDateString } from "@/lib/date-utils"
 
 type CashPaperRecord = {
   _id: string
@@ -26,8 +27,8 @@ export default function CashPaperSection({
   title?: string
   employeeId?: string
 }) {
-  const [fromDate, setFromDate] = useState<string>(new Date().toISOString().slice(0, 10))
-  const [toDate, setToDate] = useState<string>(new Date().toISOString().slice(0, 10))
+  const [fromDate, setFromDate] = useState<string>(getLocalDateString())
+  const [toDate, setToDate] = useState<string>(getLocalDateString())
   const [loading, setLoading] = useState<boolean>(false)
   const [data, setData] = useState<{
     counts: { credit: number; debit: number; other: number; depositCylinder: number; returnCylinder: number; rental: number; total: number }

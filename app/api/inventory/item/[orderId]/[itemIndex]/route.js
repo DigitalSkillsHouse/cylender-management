@@ -742,7 +742,7 @@ export async function PATCH(request, { params }) {
     if (status === "received" && !isEmployeePurchase) {
       try {
         const DailyRefill = (await import('@/models/DailyRefill')).default
-        const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+        const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
         
         console.log("🔄 Processing daily refill entries for item:", updatedItem.product?._id)
         

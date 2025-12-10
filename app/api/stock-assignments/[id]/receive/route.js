@@ -64,7 +64,8 @@ export async function PUT(request, { params }) {
         const emptyCylinderInventory = await EmployeeInventoryItem.findById(emptyCylinderId).populate('product')
         
         if (emptyCylinderInventory && emptyCylinderInventory.product) {
-          const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+          const { getLocalDateString } = await import('@/lib/date-utils')
+          const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
           const cylinderProductId = emptyCylinderInventory.product._id
           const cylinderName = emptyCylinderInventory.product.name
           const quantity = Number(assignment.quantity) || 0

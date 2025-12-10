@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
 import {
   Dialog,
   DialogContent,
@@ -248,7 +249,7 @@ export default function ProfitLoss() {
       pdf.setFontSize(10)
       pdf.setFont('helvetica', 'normal')
       pdf.setTextColor(100, 100, 100)
-      pdf.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, margin + 28, { align: "center" })
+      pdf.text(`Generated on: ${getDubaiDateDisplayString()}`, pageWidth / 2, margin + 28, { align: "center" })
       
       let currentY = margin + 40
       
@@ -409,7 +410,7 @@ export default function ProfitLoss() {
       pdf.text("SYED TAYYAB INDUSTRIAL - Business Expenses Report", pageWidth / 2, footerY, { align: "center" })
 
       // Save PDF
-      const fileName = `Business_Expenses_${new Date().toISOString().split('T')[0]}.pdf`
+      const fileName = `Business_Expenses_${getLocalDateString()}.pdf`
       pdf.save(fileName)
       
       toast.success("Expenses PDF downloaded successfully")

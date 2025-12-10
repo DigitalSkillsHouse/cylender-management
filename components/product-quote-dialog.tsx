@@ -11,6 +11,7 @@ import { Download, Trash2, X, Eye, Check, ChevronsUpDown, Package, Users } from 
 import { cn } from "@/lib/utils"
 import { customersAPI } from "@/lib/api"
 import { toast } from "sonner"
+import { getDubaiDateDisplayString } from "@/lib/date-utils"
 
 export interface ProductQuoteItem {
   _id: string
@@ -1193,7 +1194,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                 />
                 <div className="text-center">
                   <h2 className="text-sm font-bold text-[#2B3068]">Product Quote</h2>
-                  <p className="text-[10px] text-gray-600">{new Date().toLocaleDateString()}</p>
+                  <p className="text-[10px] text-gray-600">{getDubaiDateDisplayString()}</p>
                   {customerName && (
                     <div className="mt-2 text-left">
                       <p className="text-[12px] font-semibold text-[#2B3068]">Customer: {customerName}</p>

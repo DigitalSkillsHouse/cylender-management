@@ -5,7 +5,7 @@ import Supplier from "@/models/Supplier";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
-import { getLocalDateStringFromDate } from "@/lib/date-utils";
+import { getLocalDateStringFromDate, getStartOfDate } from "@/lib/date-utils";
 
 // Helper: get next sequential invoice number using unified system
 async function getNextCylinderInvoice() {
@@ -265,10 +265,10 @@ export async function POST(request) {
       data.status = 'cleared'
     }
 
-    // Handle custom transaction date for deposits
+    // Handle custom transaction date for deposits (using Dubai timezone)
     if (data.transactionDate && data.type === 'deposit') {
-      // Convert date string to Date object and set as createdAt
-      const customDate = new Date(data.transactionDate + 'T00:00:00.000Z')
+      // Convert date string to Date object in Dubai timezone and set as createdAt
+      const customDate = getStartOfDate(data.transactionDate)
       data.createdAt = customDate
       data.updatedAt = customDate
       console.log('[cylinders][POST] Using custom transaction date:', customDate.toISOString())

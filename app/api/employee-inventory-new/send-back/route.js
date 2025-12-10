@@ -152,7 +152,8 @@ export async function POST(request) {
 // Helper function to update DSR tracking for transfers
 async function updateDSRForTransfer(employeeId, productId, productName, stockType, quantity) {
   try {
-    const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+    const { getLocalDateString } = await import('@/lib/date-utils')
+    const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
     
     console.log(`📊 [DSR TRANSFER] Recording transfer: ${stockType} ${productName} x${quantity} for employee ${employeeId} on ${today}`)
     

@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ListChecks, PlusCircle, FileText, Loader2, Eye } from "lucide-react"
-import { getLocalDateString } from "@/lib/date-utils"
+import { getLocalDateString, getStartOfDate, getEndOfDate, getDateFromString, getPreviousDate, getNextDate, getLocalDateStringFromDate, isToday } from "@/lib/date-utils"
 
 interface DailyStockEntry {
   id: string
@@ -70,8 +70,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const [showDSRView, setShowDSRView] = useState(false)
   const [showEmployeeDSR, setShowEmployeeDSR] = useState(false)
   const [dsrEntries, setDsrEntries] = useState<DailyStockEntry[]>([])
-  const [dsrViewDate, setDsrViewDate] = useState<string>(new Date().toISOString().slice(0, 10))
-  const [employeeDsrDate, setEmployeeDsrDate] = useState<string>(new Date().toISOString().slice(0, 10))
+  const [dsrViewDate, setDsrViewDate] = useState<string>(getLocalDateString())
+  const [employeeDsrDate, setEmployeeDsrDate] = useState<string>(getLocalDateString())
   const [employees, setEmployees] = useState<EmployeeLite[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("")
   const [loading, setLoading] = useState(false)
@@ -227,12 +227,11 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       const stockAssignmentsData: any[] = stockAssignmentsJson?.data || []
       const purchaseData: any[] = purchaseJson?.data || []
       
-      // Helper to check if date is in selected day
+      // Helper to check if date is in selected day (using Dubai timezone)
       const inSelectedDay = (dateStr: string) => {
         if (!dateStr) return false
-        const d = new Date(dateStr)
-        const selected = new Date(`${date}T00:00:00.000`)
-        return d.toISOString().slice(0, 10) === selected.toISOString().slice(0, 10)
+        const d = getLocalDateStringFromDate(dateStr)
+        return d === date
       }
       
       // Build a map of actual transaction data by product name
@@ -504,7 +503,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const fetchStoredDsrReports = async (date: string) => {
     try {
       console.log(`🔍 [DIAGNOSTIC] fetchStoredDsrReports called for date: ${date}`)
-      const today = new Date().toISOString().slice(0, 10)
+      const today = getLocalDateString()
       const isToday = date === today
       console.log(`🔍 [DIAGNOSTIC] Is today's date? ${isToday}`)
       
@@ -553,12 +552,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             
             // If there are missing products and we have products loaded, check yesterday's closing stock
             if (missingProducts.length > 0 && dsrProducts.length > 0) {
-              // Calculate previous date
-              const [year, month, day] = date.split('-').map(Number)
-              const currentDate = new Date(Date.UTC(year, month - 1, day))
-              const previousDate = new Date(currentDate)
-              previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-              const previousDateStr = previousDate.toISOString().slice(0, 10)
+              // Calculate previous date in Dubai timezone
+              const previousDateStr = getPreviousDate(date)
               
               console.log(`🔍 [DIAGNOSTIC] ${missingProducts.length} products missing for ${date}, checking yesterday (${previousDateStr}) closing stock...`)
               
@@ -614,13 +609,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           // Stored data exists but has zero opening stock - fetch previous day's closing stock instead
           setIsInventoryFetched(false)
           
-          // Get previous day's date to fetch closing stock (timezone-safe)
-          // Parse date as YYYY-MM-DD and subtract 1 day
-          const [year, month, day] = date.split('-').map(Number)
-          const currentDate = new Date(Date.UTC(year, month - 1, day))
-          const previousDate = new Date(currentDate)
-          previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-          const previousDateStr = previousDate.toISOString().slice(0, 10)
+          // Get previous day's date to fetch closing stock (Dubai timezone)
+          const previousDateStr = getPreviousDate(date)
           
           console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
           
@@ -961,11 +951,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       setLoading(true)
       await fetchInventoryData()
       
-      // Get previous day's date to fetch closing stock
-      const currentDate = new Date(dsrViewDate + 'T00:00:00')
-      const previousDate = new Date(currentDate)
-      previousDate.setDate(previousDate.getDate() - 1)
-      const previousDateStr = previousDate.toISOString().slice(0, 10)
+      // Get previous day's date to fetch closing stock (Dubai timezone)
+      const previousDateStr = getPreviousDate(dsrViewDate)
       
       // Fetch previous day's DSR to get closing stock
       const prevResponse = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)
@@ -1114,13 +1101,8 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         }
       }
       
-      // Log saved closing stocks that will be used as next day's opening
-      // Parse date as YYYY-MM-DD and add 1 day (timezone-safe)
-      const [year, month, day] = date.split('-').map(Number)
-      const currentDate = new Date(Date.UTC(year, month - 1, day))
-      const nextDate = new Date(currentDate)
-      nextDate.setUTCDate(nextDate.getUTCDate() + 1)
-      const nextDateStr = nextDate.toISOString().slice(0, 10)
+      // Log saved closing stocks that will be used as next day's opening (Dubai timezone)
+      const nextDateStr = getNextDate(date)
       
       console.log(`✅ [DIAGNOSTIC] Saved closing stocks for ${date} - These will be tomorrow (${nextDateStr}) opening stock:`, savedClosingStocks)
     } catch (error) {
@@ -1130,7 +1112,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   
   // Manual save handler - only works for today's date
   const handleManualSave = async () => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = getLocalDateString()
     if (dsrViewDate !== today) {
       alert('You can only save data for today\'s date. Please select today\'s date to save.')
       return
@@ -2108,7 +2090,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   </span>
                 )}
                 {(() => {
-                  const today = new Date().toISOString().slice(0, 10)
+                  const today = getLocalDateString()
                   const isToday = dsrViewDate === today
                   // Show save button when: it's today, inventory is fetched, and products are loaded
                   const shouldShowSaveButton = isToday && isInventoryFetched && dsrProducts.length > 0 && !loading
@@ -2134,7 +2116,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   )
                 })()}
                 {(() => {
-                  const today = new Date().toISOString().slice(0, 10)
+                  const today = getLocalDateString()
                   const isToday = dsrViewDate === today
                   return !isToday && isInventoryFetched && (
                     <span className="text-xs text-blue-600 ml-2">

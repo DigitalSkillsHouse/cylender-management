@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import dbConnect from "@/lib/mongodb";
 import DailyStockReport from "@/models/DailyStockReport";
 import Product from "@/models/Product";
+import { getLocalDateString } from "@/lib/date-utils";
 
 export async function GET(request) {
   try {

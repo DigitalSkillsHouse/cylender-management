@@ -3,6 +3,7 @@ import dbConnect from "@/lib/mongodb"
 import EmpGasSales from "@/models/EmpGasSales"
 import { verifyToken } from "@/lib/auth"
 import { getEmpDSRData, updateEmpOpeningStock, updateEmpClosingStock } from "@/lib/emp-gas-sales-tracker"
+import { getLocalDateString } from "@/lib/date-utils"
 
 // GET - Fetch employee DSR data
 export async function GET(request) {
@@ -16,7 +17,7 @@ export async function GET(request) {
     await dbConnect()
     
     const { searchParams } = new URL(request.url)
-    const date = searchParams.get('date') || new Date().toISOString().split('T')[0]
+    const date = searchParams.get('date') || getLocalDateString()
     const employeeId = searchParams.get('employeeId') || user.id
     
     console.log(`📊 [EMP DSR API] Fetching DSR data for employee ${employeeId} on ${date}`)

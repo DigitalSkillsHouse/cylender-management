@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { X, Printer, Download } from "lucide-react"
 import { toast } from "sonner"
+import { getDubaiDateDisplayString, getDubaiDateTimeString } from "@/lib/date-utils"
 
 export interface CollectionPaymentItem {
   model: string // "Sale" | "EmployeeSale"
@@ -171,8 +172,8 @@ export function CollectionReceiptDialog({ open, onClose, payments, collectorName
               <h3 className="font-semibold text-[#2B3068] mb-2">Collection Details</h3>
               <div className="space-y-1 text-sm">
                 <div><strong>Collector:</strong> {collectorName} ({collectorRole})</div>
-                <div><strong>Date:</strong> {new Date().toLocaleDateString()}</div>
-                <div><strong>Time:</strong> {new Date().toLocaleTimeString()}</div>
+                <div><strong>Date:</strong> {getDubaiDateDisplayString()}</div>
+                <div><strong>Time:</strong> {getDubaiDateTimeString().split(', ')[1] || ''}</div>
               </div>
             </div>
           </div>

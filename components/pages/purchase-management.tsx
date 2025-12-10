@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown, RefreshCw, Download, Calendar } from "lucide-react"
 import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 import jsPDF from "jspdf"
+import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
 
 interface PurchaseOrder {
   _id: string
@@ -112,7 +113,7 @@ export function PurchaseManagement() {
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
   const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string }>(() => ({
     supplierId: "",
-    purchaseDate: new Date().toISOString().split("T")[0],
+    purchaseDate: getLocalDateString(),
     invoiceNumber: "",
     items: [],
     notes: "",
@@ -360,7 +361,7 @@ export function PurchaseManagement() {
   const resetForm = () => {
     setFormData({
       supplierId: "",
-      purchaseDate: new Date().toISOString().split("T")[0],
+      purchaseDate: getLocalDateString(),
       invoiceNumber: "",
       items: [],
       notes: "",
@@ -660,7 +661,7 @@ export function PurchaseManagement() {
       pdf.setFontSize(10)
       pdf.setTextColor(100, 100, 100)
       pdf.setFont('helvetica', 'normal')
-      pdf.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, currentY, { align: "center" })
+      pdf.text(`Generated on: ${getDubaiDateDisplayString()}`, pageWidth / 2, currentY, { align: "center" })
       currentY += 6
 
       // Add date range if filtering is applied
@@ -1025,7 +1026,7 @@ export function PurchaseManagement() {
       }
 
       // Generate filename with date range
-      const dateRange = pdfFromDate && pdfToDate ? `_${pdfFromDate}_to_${pdfToDate}` : `_${new Date().toISOString().split('T')[0]}`
+      const dateRange = pdfFromDate && pdfToDate ? `_${pdfFromDate}_to_${pdfToDate}` : `_${getLocalDateString()}`
       const filename = `Purchase_Orders_Report${dateRange}.pdf`
       
       pdf.save(filename)

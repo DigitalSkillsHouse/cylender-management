@@ -379,7 +379,8 @@ export async function PATCH(request, { params }) {
           // CREATE DAILY REFILL RECORD - This is when the actual refill happens (employee acceptance)
           try {
             const DailyRefill = (await import('@/models/DailyRefill')).default;
-            const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+            const { getLocalDateString } = await import('@/lib/date-utils')
+            const today = getLocalDateString(); // YYYY-MM-DD format (Dubai timezone)
             const quantity = Number(assignment.quantity) || 0;
             
             if (quantity > 0 && emptyCylinderInventory.product) {

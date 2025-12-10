@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, Edit, Trash2, Search, Filter, UserCheck, CheckCircle, Bell } from "lucide-react"
 import { employeesAPI, productsAPI } from "@/lib/api"
+import { getLocalDateString } from "@/lib/date-utils"
 
 interface Employee {
   _id: string
@@ -234,7 +235,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   // Helper function to update daily sales tracking for stock transfers
   const updateDailySalesTransferTracking = async (productId: string, productName: string, category: string, quantity: number, unitPrice: number) => {
     try {
-      const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+      const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
       
       const response = await fetch('/api/daily-sales', {
         method: 'POST',

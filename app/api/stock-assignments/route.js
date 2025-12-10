@@ -3,6 +3,7 @@ import StockAssignment from "@/models/StockAssignment";
 import Notification from "@/models/Notification";
 import Product from "@/models/Product";
 import { NextResponse } from "next/server";
+import { getDateRange } from "@/lib/date-utils";
 
 export async function GET(request) {
   try {
@@ -25,12 +26,9 @@ export async function GET(request) {
     if (employeeId) query.employee = employeeId;
     if (status) query.status = status;
     
-    // Filter by assignedDate if date is provided
+    // Filter by assignedDate if date is provided (using Dubai timezone)
     if (date) {
-      const startDate = new Date(date);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(date);
-      endDate.setHours(23, 59, 59, 999);
+      const { start: startDate, end: endDate } = getDateRange(date);
       query.assignedDate = {
         $gte: startDate,
         $lte: endDate
