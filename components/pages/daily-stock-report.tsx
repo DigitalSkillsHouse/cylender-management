@@ -75,6 +75,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   const [employees, setEmployees] = useState<EmployeeLite[]>([])
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("")
   const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [employeeDsrData, setEmployeeDsrData] = useState<EmployeeDailyStockEntry[]>([])
   const [employeeLoading, setEmployeeLoading] = useState(false)
 
@@ -124,7 +125,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     try {
       localStorage.setItem('dsr-entries', JSON.stringify(entries))
     } catch (e) {
-      console.warn('Failed to save DSR entries to localStorage:', e)
+      // Silently fail localStorage save
     }
   }
 
@@ -133,7 +134,6 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       const stored = localStorage.getItem('dsr-entries')
       return stored ? JSON.parse(stored) : []
     } catch (e) {
-      console.warn('Failed to load DSR entries from localStorage:', e)
       return []
     }
   }
@@ -141,19 +141,15 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   // Fetch employees for employee DSR
   const fetchEmployees = async () => {
     try {
-      console.log('Fetching employees...')
       const response = await fetch('/api/employees')
       const data = await response.json()
-      console.log('Employees API response:', data)
       
       if (Array.isArray(data)) {
-        console.log('Found employees:', data)
         setEmployees(data)
         if (data.length > 0 && !selectedEmployeeId) {
           setSelectedEmployeeId(data[0]._id)
         }
       } else {
-        console.log('No employees found or invalid response structure')
         setEmployees([])
       }
     } catch (error) {
@@ -191,7 +187,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           inventoryData = inventoryJson?.data || []
         }
       } catch (error) {
-        console.warn('Failed to fetch employee inventory:', error)
+        // Silently handle error
       }
       
       // If inventory API fails, try old API
@@ -203,7 +199,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             inventoryData = oldInventoryJson?.data || []
           }
         } catch (error) {
-          console.warn('Failed to fetch employee inventory from old API:', error)
+          // Silently handle error
         }
       }
       
@@ -347,7 +343,6 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       // 1. StockAssignment records (processed below)
       // 2. daily-employee-cylinder-aggregation API (cylinderData.totalTransferGas/totalTransferEmpty)
       // Processing EmpStockEmp would cause double counting
-      console.log(`[Employee DSR] Skipping ${empStockEmpData.length} EmpStockEmp assignments - transfers already tracked in StockAssignment and cylinder aggregation`)
       
       // EmpStockEmp transfers are now tracked via StockAssignment and cylinder aggregation API
       // Only process if needed for other purposes (not transfers)
@@ -356,7 +351,6 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       // NOTE: Skipping StockAssignment processing for employee DSR to avoid double counting
       // Transfers are already tracked in daily-employee-cylinder-aggregation API (cylinderData)
       // This ensures consistency with the employee's own DSR view
-      console.log(`[Employee DSR] Skipping ${stockAssignmentsData.length} StockAssignment records - transfers already tracked in cylinder aggregation API`)
       
       // StockAssignment transfers are now tracked via cylinder aggregation API
       // This matches how the employee DSR component processes data
@@ -509,8 +503,19 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   // Fetch stored DSR reports for opening values
   const fetchStoredDsrReports = async (date: string) => {
     try {
+      console.log(`🔍 [DIAGNOSTIC] fetchStoredDsrReports called for date: ${date}`)
+      const today = new Date().toISOString().slice(0, 10)
+      const isToday = date === today
+      console.log(`🔍 [DIAGNOSTIC] Is today's date? ${isToday}`)
+      
       const response = await fetch(`/api/daily-stock-reports?date=${date}`)
       const data = await response.json()
+      
+      console.log(`🔍 [DIAGNOSTIC] API response for ${date}:`, { 
+        success: data.success, 
+        dataCount: Array.isArray(data.data) ? data.data.length : 0,
+        itemNames: Array.isArray(data.data) ? data.data.map((r: any) => r.itemName) : []
+      })
       
       const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
       let hasStoredData = false
@@ -521,22 +526,92 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           (report.openingFull && report.openingFull > 0) || (report.openingEmpty && report.openingEmpty > 0)
         )
         
+        console.log(`🔍 [DIAGNOSTIC] Has valid opening stock? ${hasValidOpeningStock}, checking ${data.data.length} reports`)
+        
         if (hasValidOpeningStock) {
           // Use stored data with valid opening stock
+          console.log(`🔍 [DIAGNOSTIC] Processing ${data.data.length} stored reports for ${date}`)
           data.data.forEach((report: any) => {
             const key = normalizeName(report.itemName)
             reports[key] = {
               openingFull: report.openingFull || 0,
               openingEmpty: report.openingEmpty || 0
             }
+            console.log(`🔍 [DIAGNOSTIC] Added to reports: ${report.itemName} (key: ${key}) → openingFull=${report.openingFull || 0}, openingEmpty=${report.openingEmpty || 0}`)
           })
+          
+          // CRITICAL: Ensure ALL products in dsrProducts have entries in reports
+          // Products not in stored data should check yesterday's closing stock first
+          if (dsrProducts.length > 0) {
+            const missingProducts: string[] = []
+            for (const product of dsrProducts) {
+              const key = normalizeName(product.name)
+              if (!reports[key]) {
+                missingProducts.push(key)
+              }
+            }
+            
+            // If there are missing products and we have products loaded, check yesterday's closing stock
+            if (missingProducts.length > 0 && dsrProducts.length > 0) {
+              // Calculate previous date
+              const [year, month, day] = date.split('-').map(Number)
+              const currentDate = new Date(Date.UTC(year, month - 1, day))
+              const previousDate = new Date(currentDate)
+              previousDate.setUTCDate(previousDate.getUTCDate() - 1)
+              const previousDateStr = previousDate.toISOString().slice(0, 10)
+              
+              console.log(`🔍 [DIAGNOSTIC] ${missingProducts.length} products missing for ${date}, checking yesterday (${previousDateStr}) closing stock...`)
+              
+              // Fetch yesterday's DSR to get closing stock
+              const prevRes = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)
+              const prevData = await prevRes.json()
+              
+              if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
+                const prevReports: Record<string, { closingFull: number; closingEmpty: number }> = {}
+                prevData.data.forEach((report: any) => {
+                  const key = normalizeName(report.itemName)
+                  prevReports[key] = {
+                    closingFull: report.closingFull || 0,
+                    closingEmpty: report.closingEmpty || 0
+                  }
+                })
+                
+                // Use yesterday's closing as today's opening for missing products
+                for (const product of dsrProducts) {
+                  const key = normalizeName(product.name)
+                  if (missingProducts.includes(key)) {
+                    const prevClosing = prevReports[key]
+                    if (prevClosing) {
+                      reports[key] = {
+                        openingFull: prevClosing.closingFull || 0,
+                        openingEmpty: prevClosing.closingEmpty || 0
+                      }
+                      console.log(`🔍 [DIAGNOSTIC] ${product.name} (key: ${key}): Using yesterday's closing (${prevClosing.closingFull}/${prevClosing.closingEmpty}) as today's opening`)
+                    } else {
+                      reports[key] = { openingFull: 0, openingEmpty: 0 }
+                      console.log(`🔍 [DIAGNOSTIC] ${product.name} (key: ${key}) not in yesterday's data either, defaulting to 0/0 opening stock`)
+                    }
+                  }
+                }
+              } else {
+                // No yesterday data, default to 0/0
+                for (const product of dsrProducts) {
+                  const key = normalizeName(product.name)
+                  if (missingProducts.includes(key)) {
+                    reports[key] = { openingFull: 0, openingEmpty: 0 }
+                    console.log(`🔍 [DIAGNOSTIC] ${product.name} (key: ${key}) not in stored data, defaulting to 0/0 opening stock (no yesterday data)`)
+                  }
+                }
+              }
+            }
+          }
+          
           hasStoredData = true
           setIsInventoryFetched(true)
           setStoredDsrReports(reports)
-          console.log(`✅ [DSR] Using stored data for ${date} with valid opening stock`)
+          console.log(`🔍 [DIAGNOSTIC] Using stored data for ${date}, storedDsrReports set with ${Object.keys(reports).length} items:`, Object.keys(reports))
         } else {
           // Stored data exists but has zero opening stock - fetch previous day's closing stock instead
-          console.log(`⚠️ [DSR] Stored data for ${date} has zero opening stock, fetching previous day's closing stock...`)
           setIsInventoryFetched(false)
           
           // Get previous day's date to fetch closing stock (timezone-safe)
@@ -547,7 +622,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           previousDate.setUTCDate(previousDate.getUTCDate() - 1)
           const previousDateStr = previousDate.toISOString().slice(0, 10)
           
-          console.log(`🔍 [DSR] Fetching previous day (${previousDateStr}) closing stock for ${date}...`)
+          console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
           
           const prevResponse = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)
           const prevData = await prevResponse.json()
@@ -555,7 +630,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           const prevReports: Record<string, { openingFull: number; openingEmpty: number }> = {}
           
           if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
-            console.log(`📊 [DSR] Found ${prevData.data.length} reports from previous day (${previousDateStr})`)
+            console.log(`🔍 [DIAGNOSTIC] Found ${prevData.data.length} reports from yesterday (${previousDateStr})`)
             prevData.data.forEach((report: any) => {
               const key = normalizeName(report.itemName)
               // Use previous day's closing stock as opening stock
@@ -564,9 +639,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
               let prevClosingFull = (report.closingFull !== null && report.closingFull !== undefined) ? report.closingFull : null
               let prevClosingEmpty = (report.closingEmpty !== null && report.closingEmpty !== undefined) ? report.closingEmpty : null
               
+              console.log(`🔍 [DIAGNOSTIC] ${report.itemName}: Yesterday's closingFull=${report.closingFull}, closingEmpty=${report.closingEmpty}`)
+              
               // If closing values are missing or 0, try to calculate them from the report data
               if (prevClosingFull === null || prevClosingFull === 0 || prevClosingEmpty === null || prevClosingEmpty === 0) {
-                console.log(`⚠️ [DSR] ${report.itemName}: Closing values missing or 0, attempting to calculate from report data...`)
                 const openingFull = report.openingFull || 0
                 const openingEmpty = report.openingEmpty || 0
                 const fullPurchase = report.fullPurchase || 0
@@ -592,11 +668,16 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                 
                 if (prevClosingFull === null || prevClosingFull === 0) {
                   prevClosingFull = calculatedClosingFull
-                  console.log(`📊 [DSR] Calculated closingFull=${calculatedClosingFull} for ${report.itemName}`)
+                  console.log(`🔍 [DIAGNOSTIC] ${report.itemName}: Calculated yesterday's closingFull=${calculatedClosingFull} (opening=${openingFull}, fullPur=${fullPurchase}, refilled=${refilled}, fullCylSales=${fullCylinderSales}, gasSales=${gasSales}, transferGas=${transferGas}, receivedGas=${receivedGas})`)
                 }
                 if (prevClosingEmpty === null || prevClosingEmpty === 0) {
                   prevClosingEmpty = calculatedClosingEmpty
-                  console.log(`📊 [DSR] Calculated closingEmpty=${calculatedClosingEmpty} for ${report.itemName}`)
+                  console.log(`🔍 [DIAGNOSTIC] ${report.itemName}: Calculated yesterday's closingEmpty=${calculatedClosingEmpty} (opening=${openingFull}/${openingEmpty}, emptyPur=${emptyPurchase}, emptyCylSales=${emptyCylinderSales}, deposits=${deposits}, returns=${returns}, transferEmpty=${transferEmpty}, receivedEmpty=${receivedEmpty}, closingFull=${prevClosingFull})`)
+                }
+                
+                // Warn if calculated closing is still 0 when there were transactions
+                if (calculatedClosingFull === 0 && calculatedClosingEmpty === 0 && (fullPurchase > 0 || emptyPurchase > 0 || refilled > 0 || fullCylinderSales > 0 || emptyCylinderSales > 0 || gasSales > 0)) {
+                  console.warn(`⚠️ [DIAGNOSTIC] ${report.itemName}: Yesterday's closing calculated as 0/0 but there were transactions! This suggests yesterday's DSR was not saved. Please save yesterday (${previousDateStr}) first.`)
                 }
               }
               
@@ -604,12 +685,27 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                 openingFull: prevClosingFull,
                 openingEmpty: prevClosingEmpty
               }
-              console.log(`✅ [DSR] ${report.itemName} (key: ${key}): Previous day closing = ${prevClosingFull} Full, ${prevClosingEmpty} Empty → Using as opening stock`)
-              console.log(`🔍 [DSR] Raw report data:`, { closingFull: report.closingFull, closingEmpty: report.closingEmpty, itemName: report.itemName, openingFull: report.openingFull, openingEmpty: report.openingEmpty, fullPurchase: report.fullPurchase, emptyPurchase: report.emptyPurchase, refilled: report.refilled, fullCylinderSales: report.fullCylinderSales, emptyCylinderSales: report.emptyCylinderSales, gasSales: report.gasSales, deposits: report.deposits, returns: report.returns, transferGas: report.transferGas, transferEmpty: report.transferEmpty, receivedGas: report.receivedGas, receivedEmpty: report.receivedEmpty })
+              if (prevClosingFull === 0 && prevClosingEmpty === 0) {
+                console.warn(`⚠️ [DIAGNOSTIC] ${report.itemName}: Yesterday closing is 0/0 → Today opening will be 0/0. If yesterday had transactions, please save yesterday's DSR first!`)
+              } else {
+                console.log(`✅ [DIAGNOSTIC] ${report.itemName}: Yesterday closing (${prevClosingFull} Full, ${prevClosingEmpty} Empty) → Today opening`)
+              }
             })
+            
+            // CRITICAL: Ensure ALL products in dsrProducts have entries in prevReports
+            // Products not in yesterday's data should default to 0/0 opening stock
+            if (dsrProducts.length > 0) {
+              for (const product of dsrProducts) {
+                const key = normalizeName(product.name)
+                if (!prevReports[key]) {
+                  prevReports[key] = { openingFull: 0, openingEmpty: 0 }
+                  console.log(`🔍 [DIAGNOSTIC] ${product.name} (key: ${key}) not in yesterday's data, defaulting to 0/0 opening stock`)
+                }
+              }
+            }
+            
             setStoredDsrReports(prevReports)
-            console.log(`✅ [DSR] Set storedDsrReports with ${Object.keys(prevReports).length} items for ${date}`)
-            console.log(`📋 [DSR] storedDsrReports contents:`, prevReports)
+            console.log(`✅ [DIAGNOSTIC] storedDsrReports SET for ${date} with ${Object.keys(prevReports).length} items:`, Object.keys(prevReports))
             
             // Update the stored DSR records in database with correct opening stock
             if (dsrProducts.length > 0) {
@@ -617,7 +713,6 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                 const key = normalizeName(product.name)
                 const prevClosing = prevReports[key]
                 if (prevClosing) {
-                  console.log(`💾 [DSR] Updating database record for ${product.name}: openingFull=${prevClosing.openingFull}, openingEmpty=${prevClosing.openingEmpty}`)
                   await fetch('/api/daily-stock-reports', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -628,21 +723,19 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                       openingEmpty: prevClosing.openingEmpty
                     })
                   })
-                } else {
-                  console.log(`⚠️ [DSR] No previous day closing stock found for ${product.name} (key: ${key})`)
                 }
               }
-              console.log(`✅ [DSR] Updated stored DSR records with previous day's closing stock`)
-            } else {
-              console.log(`⚠️ [DSR] Products not loaded yet, cannot update database records`)
             }
+            // CRITICAL: Set isInventoryFetched to true after setting storedDsrReports
+            setIsInventoryFetched(true)
+            console.log(`✅ [DIAGNOSTIC] isInventoryFetched set to TRUE for ${date}`)
           } else {
-            console.log(`⚠️ [DSR] No previous day data found for ${previousDateStr} (response: ${prevData.success ? 'success but empty' : 'failed'}), will use 0 as opening stock`)
+            console.log(`⚠️ [DIAGNOSTIC] No yesterday data found for ${previousDateStr}, will use 0 as opening stock`)
+            setIsInventoryFetched(true)
           }
         }
       } else {
         // No stored data for this date - fetch previous day's closing stock to use as opening stock
-        console.log(`📅 [DSR] No stored data for ${date}, fetching previous day's closing stock...`)
         setIsInventoryFetched(false)
         
         // Get previous day's date to fetch closing stock (timezone-safe)
@@ -653,7 +746,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         previousDate.setUTCDate(previousDate.getUTCDate() - 1)
         const previousDateStr = previousDate.toISOString().slice(0, 10)
         
-        console.log(`🔍 [DSR] Fetching previous day (${previousDateStr}) closing stock for ${date}...`)
+        console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
         
         const prevResponse = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)
         const prevData = await prevResponse.json()
@@ -661,7 +754,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         const prevReports: Record<string, { openingFull: number; openingEmpty: number }> = {}
         
         if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
-          console.log(`📊 [DSR] Found ${prevData.data.length} reports from previous day (${previousDateStr})`)
+          console.log(`🔍 [DIAGNOSTIC] Found ${prevData.data.length} reports from yesterday (${previousDateStr})`)
           prevData.data.forEach((report: any) => {
             const key = normalizeName(report.itemName)
             // Use previous day's closing stock as opening stock
@@ -670,9 +763,10 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             let prevClosingFull = (report.closingFull !== null && report.closingFull !== undefined) ? report.closingFull : null
             let prevClosingEmpty = (report.closingEmpty !== null && report.closingEmpty !== undefined) ? report.closingEmpty : null
             
+            console.log(`🔍 [DIAGNOSTIC] ${report.itemName}: Yesterday's closingFull=${report.closingFull}, closingEmpty=${report.closingEmpty}`)
+            
             // If closing values are missing or 0, try to calculate them from the report data
             if (prevClosingFull === null || prevClosingFull === 0 || prevClosingEmpty === null || prevClosingEmpty === 0) {
-              console.log(`⚠️ [DSR] ${report.itemName}: Closing values missing or 0, attempting to calculate from report data...`)
               const openingFull = report.openingFull || 0
               const openingEmpty = report.openingEmpty || 0
               const fullPurchase = report.fullPurchase || 0
@@ -698,11 +792,16 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
               
               if (prevClosingFull === null || prevClosingFull === 0) {
                 prevClosingFull = calculatedClosingFull
-                console.log(`📊 [DSR] Calculated closingFull=${calculatedClosingFull} for ${report.itemName}`)
+                console.log(`🔍 [DIAGNOSTIC] ${report.itemName}: Calculated yesterday's closingFull=${calculatedClosingFull} (opening=${openingFull}, fullPur=${fullPurchase}, refilled=${refilled}, fullCylSales=${fullCylinderSales}, gasSales=${gasSales}, transferGas=${transferGas}, receivedGas=${receivedGas})`)
               }
               if (prevClosingEmpty === null || prevClosingEmpty === 0) {
                 prevClosingEmpty = calculatedClosingEmpty
-                console.log(`📊 [DSR] Calculated closingEmpty=${calculatedClosingEmpty} for ${report.itemName}`)
+                console.log(`🔍 [DIAGNOSTIC] ${report.itemName}: Calculated yesterday's closingEmpty=${calculatedClosingEmpty} (opening=${openingFull}/${openingEmpty}, emptyPur=${emptyPurchase}, emptyCylSales=${emptyCylinderSales}, deposits=${deposits}, returns=${returns}, transferEmpty=${transferEmpty}, receivedEmpty=${receivedEmpty}, closingFull=${prevClosingFull})`)
+              }
+              
+              // Warn if calculated closing is still 0 when there were transactions
+              if (calculatedClosingFull === 0 && calculatedClosingEmpty === 0 && (fullPurchase > 0 || emptyPurchase > 0 || refilled > 0 || fullCylinderSales > 0 || emptyCylinderSales > 0 || gasSales > 0)) {
+                console.warn(`⚠️ [DIAGNOSTIC] ${report.itemName}: Yesterday's closing calculated as 0/0 but there were transactions! This suggests yesterday's DSR was not saved. Please save yesterday (${previousDateStr}) first.`)
               }
             }
             
@@ -710,16 +809,43 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
               openingFull: prevClosingFull,
               openingEmpty: prevClosingEmpty
             }
-            console.log(`✅ [DSR] ${report.itemName} (key: ${key}): Previous day closing = ${prevClosingFull} Full, ${prevClosingEmpty} Empty → Using as opening stock`)
-            console.log(`🔍 [DSR] Raw report data:`, { closingFull: report.closingFull, closingEmpty: report.closingEmpty, itemName: report.itemName, openingFull: report.openingFull, openingEmpty: report.openingEmpty, fullPurchase: report.fullPurchase, emptyPurchase: report.emptyPurchase, refilled: report.refilled, fullCylinderSales: report.fullCylinderSales, emptyCylinderSales: report.emptyCylinderSales, gasSales: report.gasSales, deposits: report.deposits, returns: report.returns, transferGas: report.transferGas, transferEmpty: report.transferEmpty, receivedGas: report.receivedGas, receivedEmpty: report.receivedEmpty })
+            if (prevClosingFull === 0 && prevClosingEmpty === 0) {
+              console.warn(`⚠️ [DIAGNOSTIC] ${report.itemName}: Yesterday closing is 0/0 → Today opening will be 0/0. If yesterday had transactions, please save yesterday's DSR first!`)
+            } else {
+              console.log(`✅ [DIAGNOSTIC] ${report.itemName}: Yesterday closing (${prevClosingFull} Full, ${prevClosingEmpty} Empty) → Today opening`)
+            }
           })
+          
+          // CRITICAL: Ensure ALL products in dsrProducts have entries in prevReports
+          // Products not in yesterday's data should default to 0/0 opening stock
+          if (dsrProducts.length > 0) {
+            for (const product of dsrProducts) {
+              const key = normalizeName(product.name)
+              if (!prevReports[key]) {
+                prevReports[key] = { openingFull: 0, openingEmpty: 0 }
+                console.log(`🔍 [DIAGNOSTIC] ${product.name} (key: ${key}) not in yesterday's data, defaulting to 0/0 opening stock`)
+              }
+            }
+          }
+          
           // IMPORTANT: Set storedDsrReports BEFORE calling autoFetchInventoryForNewDay
           // This ensures the table displays the correct opening stock immediately
           setStoredDsrReports(prevReports)
-          console.log(`✅ [DSR] Set storedDsrReports with ${Object.keys(prevReports).length} items for ${date}`)
-          console.log(`📋 [DSR] storedDsrReports contents:`, prevReports)
+          console.log(`✅ [DIAGNOSTIC] storedDsrReports SET for ${date} with ${Object.keys(prevReports).length} items:`, Object.keys(prevReports))
+          setIsInventoryFetched(true)
+          console.log(`✅ [DIAGNOSTIC] isInventoryFetched set to TRUE for ${date}`)
         } else {
-          console.log(`⚠️ [DSR] No previous day data found for ${previousDateStr} (response: ${prevData.success ? 'success but empty' : 'failed'}), will use 0 as opening stock`)
+          console.log(`⚠️ [DIAGNOSTIC] No yesterday data found for ${previousDateStr}, will use 0 as opening stock`)
+          // Even if no yesterday data, ensure all products have entries
+          if (dsrProducts.length > 0) {
+            for (const product of dsrProducts) {
+              const key = normalizeName(product.name)
+              prevReports[key] = { openingFull: 0, openingEmpty: 0 }
+            }
+            setStoredDsrReports(prevReports)
+            console.log(`🔍 [DIAGNOSTIC] Set all ${dsrProducts.length} products to 0/0 opening stock (no yesterday data)`)
+          }
+          setIsInventoryFetched(true)
         }
         
         // If products are loaded, also call autoFetchInventoryForNewDay to create DSR entries in database
@@ -731,14 +857,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           // CRITICAL: After autoFetchInventoryForNewDay, ALWAYS restore the previous day's closing stock
           // This prevents autoFetchInventoryForNewDay from overwriting with incorrect values
           setStoredDsrReports(prevReports)
-          console.log(`✅ [DSR] Restored previous day's closing stock after autoFetchInventoryForNewDay`)
+          console.log(`✅ [DIAGNOSTIC] Restored yesterday's closing stock after autoFetchInventoryForNewDay`)
         } else if (dsrProducts.length > 0) {
           // If no previous day data, still call autoFetchInventoryForNewDay to create entries
           await autoFetchInventoryForNewDay(date)
         }
       }
     } catch (error) {
-      console.error('Failed to fetch stored DSR reports:', error)
+      console.error(`❌ [DIAGNOSTIC] Error fetching stored DSR reports for ${date}:`, error)
       setIsInventoryFetched(false)
     }
   }
@@ -920,7 +1046,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         second: '2-digit',
         hour12: false
       })
-      console.log(`💾 [${saveType}] Saving DSR records for date: ${date} at Dubai time: ${dubaiTime}`)
+      console.log(`🔍 [DIAGNOSTIC] Saving DSR records for date: ${date}`)
+      
+      const savedClosingStocks: Record<string, { closingFull: number; closingEmpty: number }> = {}
       
       for (const product of dsrProducts) {
         const key = normalizeName(product.name)
@@ -951,8 +1079,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity - closingFull
         )
         
-        // Log the calculation for debugging
-        console.log(`💾 [${saveType}] ${product.name}: Opening=${openingFull}/${openingEmpty}, FullPur=${fullPurchase}, EmptyPur=${emptyPurchase}, Refilled=${refilled}, FullCylSales=${fullCylinderSales}, EmptyCylSales=${emptyCylinderSales}, GasSales=${gasSales}, Deposits=${deposits}, Returns=${returns}, TransferGas=${transferGasQuantity}, TransferEmpty=${transferEmptyQuantity}, ReceivedGas=${receivedGasQuantity}, ReceivedEmpty=${receivedEmptyQuantity} → Closing=${closingFull}/${closingEmpty}`)
+        savedClosingStocks[key] = { closingFull, closingEmpty }
         
         const response = await fetch('/api/daily-stock-reports', {
           method: 'POST',
@@ -981,113 +1108,40 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         
         const saveResult = await response.json()
         if (!saveResult.success) {
-          console.error(`❌ [${saveType}] Failed to save ${product.name}:`, saveResult.error)
+          console.error(`❌ [DIAGNOSTIC] Failed to save ${product.name}:`, saveResult.error)
         } else {
-          console.log(`✅ [${saveType}] Saved ${product.name} with closing=${closingFull}/${closingEmpty}`)
+          console.log(`✅ [DIAGNOSTIC] Successfully saved ${product.name} (key: ${key}) for ${date} - closingFull=${closingFull}, closingEmpty=${closingEmpty}`)
         }
       }
       
-      // Log completion with Dubai time
-      const completionTime = new Date().toLocaleString('en-US', {
-        timeZone: 'Asia/Dubai',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      })
-      console.log(`✅ [${saveType}] DSR records saved successfully for date: ${date} at Dubai time: ${completionTime}`)
+      // Log saved closing stocks that will be used as next day's opening
+      // Parse date as YYYY-MM-DD and add 1 day (timezone-safe)
+      const [year, month, day] = date.split('-').map(Number)
+      const currentDate = new Date(Date.UTC(year, month - 1, day))
+      const nextDate = new Date(currentDate)
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+      const nextDateStr = nextDate.toISOString().slice(0, 10)
       
-      // Verify next day's opening stock would use today's closing stock
-      if (isManual) {
-        const currentDate = new Date(date + 'T00:00:00')
-        const nextDate = new Date(currentDate)
-        nextDate.setDate(nextDate.getDate() + 1)
-        const nextDateStr = nextDate.toISOString().slice(0, 10)
-        
-        console.log(`🔍 [VERIFICATION] Checking if next day (${nextDateStr}) would use today's closing stock as opening stock...`)
-        
-        // Calculate today's closing stock for verification
-        const todayClosingStocks: Record<string, { closingFull: number; closingEmpty: number }> = {}
-        for (const product of dsrProducts) {
-          const key = normalizeName(product.name)
-          const openingFull = storedDsrReports[key]?.openingFull || 0
-          const openingEmpty = storedDsrReports[key]?.openingEmpty || 0
-          const refilled = dailyCylinderRefills[key] ?? 0
-          const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
-          const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
-          const gasSales = dailyGasSales[key] ?? 0
-          const deposits = dailyAggDeposits[key] ?? 0
-          const returns = dailyAggReturns[key] ?? 0
-          const transferGasQuantity = dailyTransferGas[key] ?? 0
-          const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
-          const receivedGasQuantity = dailyReceivedGas[key] ?? 0
-          const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
-          const emptyPurchase = dailyEmptyPurchases[key] ?? 0
-          const fullPurchase = dailyFullPurchases[key] ?? 0
-          
-          const closingFull = Math.max(0, 
-            openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
-          )
-          const closingEmpty = Math.max(0, 
-            openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity - closingFull
-          )
-          
-          todayClosingStocks[key] = { closingFull, closingEmpty }
-        }
-        
-        // Fetch what would be used as opening stock for next day
-        const nextDayResponse = await fetch(`/api/daily-stock-reports?date=${nextDateStr}`)
-        const nextDayData = await nextDayResponse.json()
-        
-        // Check a few products to verify
-        let verifiedCount = 0
-        let totalChecked = 0
-        
-        for (const product of dsrProducts.slice(0, 5)) { // Check first 5 products
-          const key = normalizeName(product.name)
-          const todayClosing = todayClosingStocks[key] || { closingFull: 0, closingEmpty: 0 }
-          
-          if (nextDayData.success && Array.isArray(nextDayData.data)) {
-            const nextDayReport = nextDayData.data.find((r: any) => normalizeName(r.itemName) === key)
-            if (nextDayReport) {
-              totalChecked++
-              const nextDayOpeningFull = nextDayReport.openingFull || 0
-              const nextDayOpeningEmpty = nextDayReport.openingEmpty || 0
-              
-              if (nextDayOpeningFull === todayClosing.closingFull && nextDayOpeningEmpty === todayClosing.closingEmpty) {
-                verifiedCount++
-                console.log(`✅ [VERIFICATION] ${product.name}: Next day opening matches today's closing (${todayClosing.closingFull} Full, ${todayClosing.closingEmpty} Empty)`)
-              } else {
-                console.log(`⚠️ [VERIFICATION] ${product.name}: Next day opening (${nextDayOpeningFull} Full, ${nextDayOpeningEmpty} Empty) does NOT match today's closing (${todayClosing.closingFull} Full, ${todayClosing.closingEmpty} Empty)`)
-              }
-            } else {
-              console.log(`ℹ️ [VERIFICATION] ${product.name}: Next day DSR not created yet - will use today's closing (${todayClosing.closingFull} Full, ${todayClosing.closingEmpty} Empty) when created`)
-            }
-          }
-        }
-        
-        if (totalChecked > 0) {
-          console.log(`📊 [VERIFICATION] Verified ${verifiedCount}/${totalChecked} products - Next day opening stock correctly uses today's closing stock`)
-        } else {
-          console.log(`ℹ️ [VERIFICATION] Next day DSR not created yet - will use today's closing stock when created`)
-        }
-      }
+      console.log(`✅ [DIAGNOSTIC] Saved closing stocks for ${date} - These will be tomorrow (${nextDateStr}) opening stock:`, savedClosingStocks)
     } catch (error) {
-      console.error(`❌ [${saveType}] Failed to save DSR record:`, error)
+      console.error(`❌ [DIAGNOSTIC] Failed to save DSR record for ${date}:`, error)
     }
   }
   
-  // Manual save handler
+  // Manual save handler - only works for today's date
   const handleManualSave = async () => {
-    if (!isInventoryFetched || dsrProducts.length === 0) {
-      alert('Please wait for inventory to be fetched first')
+    const today = new Date().toISOString().slice(0, 10)
+    if (dsrViewDate !== today) {
+      alert('You can only save data for today\'s date. Please select today\'s date to save.')
       return
     }
     
-    setLoading(true)
+    if (!isInventoryFetched || dsrProducts.length === 0) {
+      alert('Please wait for data to be loaded first')
+      return
+    }
+    
+    setSaving(true)
     try {
       await saveDsrRecord(dsrViewDate, true)
       alert('DSR saved successfully! Next day\'s opening stock will use today\'s closing stock.')
@@ -1095,13 +1149,16 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       console.error('Failed to save DSR:', error)
       alert('Failed to save DSR record')
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
   // Fetch DSR data for a specific date
   const fetchDsrData = async (date: string) => {
     setLoading(true)
+    // Reset state when date changes to ensure fresh data loading
+    setIsInventoryFetched(false)
+    setStoredDsrReports({})
     try {
       const [
         salesRes,
@@ -1517,63 +1574,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         await fetchStoredDsrReports(date)
       }
       
-      // CRITICAL: After fetching all data, recalculate and save closing values
-      // This ensures closing stock is properly saved for next day's opening stock
-      // We need to wait a bit for all state to be updated before calculating closing
-      setTimeout(async () => {
-        if (dsrProducts.length > 0) {
-          // Recalculate closing values based on current state and save them
-          for (const product of dsrProducts) {
-            const key = normalizeName(product.name)
-            const openingFull = storedDsrReports[key]?.openingFull || 0
-            const openingEmpty = storedDsrReports[key]?.openingEmpty || 0
-            
-            // Get all transaction data from state
-            const refilled = dailyCylinderRefills[key] ?? 0
-            const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
-            const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
-            const gasSales = dailyGasSales[key] ?? 0
-            const deposits = dailyAggDeposits[key] ?? 0
-            const returns = dailyAggReturns[key] ?? 0
-            const transferGasQuantity = dailyTransferGas[key] ?? 0
-            const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
-            const receivedGasQuantity = dailyReceivedGas[key] ?? 0
-            const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
-            const emptyPurchase = dailyEmptyPurchases[key] ?? 0
-            const fullPurchase = dailyFullPurchases[key] ?? 0
-            
-            // Calculate closing values using the correct formula
-            const closingFull = Math.max(0, 
-              openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity
-            )
-            const closingEmpty = Math.max(0, 
-              openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity - closingFull
-            )
-            
-            // Save closing values to database
-            console.log(`💾 [RECALC-SAVE] ${product.name} for ${date}: Closing=${closingFull}/${closingEmpty}`)
-            await fetch('/api/daily-stock-reports', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                date: date,
-                itemName: product.name,
-                closingFull,
-                closingEmpty
-              })
-            })
-          }
-          console.log(`✅ [RECALC-SAVE] Recalculated and saved closing values for ${date}`)
-        }
-      }, 1000) // Wait 1 second for all state to be updated
-      
-      // Auto-save DSR data after fetching (silently, no alerts)
-      // This ensures all data is saved automatically for historical viewing
       // Note: fetchStoredDsrReports will have already updated storedDsrReports state
       // and will have updated the database with correct opening stock if needed
-      if (isInventoryFetched && dsrProducts.length > 0) {
-        await saveDsrRecord(date)
-      }
+      // Data is now loaded and ready for display - saving will be done manually via the Save button
       
     } catch (error) {
       console.error('Failed to fetch DSR data:', error)
@@ -1602,83 +1605,26 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
   // Fetch DSR data when date changes
   useEffect(() => {
     if (showDSRView) {
+      // Reset state when date changes
+      setIsInventoryFetched(false)
+      setStoredDsrReports({})
       fetchDsrData(dsrViewDate)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dsrViewDate, showDSRView])
 
-  // Auto-fetch inventory when DSR opens (for today's date)
+  // Ensure stored DSR reports are fetched after products are loaded
+  // fetchStoredDsrReports is already called in fetchDsrData, but this ensures
+  // it's called when products load after the initial fetch
   useEffect(() => {
     if (showDSRView && dsrProducts.length > 0 && !isInventoryFetched) {
-      const today = new Date().toISOString().slice(0, 10)
-      if (dsrViewDate === today) {
-        // Auto-fetch and lock inventory for today's date
-        console.log('🔄 [AUTO-FETCH] Auto-fetching inventory for today\'s DSR')
-        fetchAndLockInventory()
-      } else {
-        // For previous dates, just fetch stored reports
-        fetchStoredDsrReports(dsrViewDate)
-      }
+      // For all dates (today and previous), fetch stored reports to get opening stock
+      // fetchStoredDsrReports will handle fetching previous day's closing stock as opening stock
+      fetchStoredDsrReports(dsrViewDate)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDSRView, dsrProducts.length, dsrViewDate, isInventoryFetched])
 
-  // Scheduled auto-save at 11:55 PM Dubai time
-  useEffect(() => {
-    let lastSavedMinute = -1 // Track last saved minute to prevent duplicate saves
-    
-    const checkAndSave = async () => {
-      const now = new Date()
-      // Get Dubai time
-      const dubaiTime = now.toLocaleString('en-US', {
-        timeZone: 'Asia/Dubai',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      })
-      
-      const [hours, minutes] = dubaiTime.split(':').map(Number)
-      
-      // Check if it's 11:55 PM Dubai time and we haven't saved in this minute yet
-      if (hours === 23 && minutes === 55 && lastSavedMinute !== 55) {
-        // Get current Dubai date
-        const todayStr = getLocalDateString()
-        
-        const dubaiTimeFull = now.toLocaleString('en-US', {
-          timeZone: 'Asia/Dubai',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false
-        })
-        
-        console.log(`🕚 [SCHEDULED SAVE] 11:55 PM Dubai time reached (${dubaiTimeFull}). Saving DSR for date: ${todayStr}`)
-        
-        // Only save if we have products and inventory is fetched
-        if (dsrProducts.length > 0 && isInventoryFetched) {
-          lastSavedMinute = 55
-          await saveDsrRecord(todayStr)
-          console.log(`✅ [SCHEDULED SAVE] DSR saved successfully for ${todayStr} at 11:55 PM Dubai time`)
-        } else {
-          console.log('⚠️ [SCHEDULED SAVE] Skipping - products or inventory not ready')
-        }
-      } else if (minutes !== 55) {
-        // Reset the flag when we're not at 55 minutes
-        lastSavedMinute = -1
-      }
-    }
-    
-    // Check every minute
-    const interval = setInterval(checkAndSave, 60000)
-    
-    // Also check immediately in case we're already at 11:55 PM
-    checkAndSave()
-    
-    return () => clearInterval(interval)
-  }, [dsrProducts.length, isInventoryFetched])
 
   // Fetch employee DSR data when employee or date changes
   useEffect(() => {
@@ -1970,7 +1916,6 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                   >
                     <option value="">Select an employee ({employees.length} available)</option>
                     {employees.map((emp) => {
-                      console.log('Rendering employee option:', emp)
                       return (
                         <option key={emp._id} value={emp._id}>
                           {emp.name || emp.email || emp._id}
@@ -2147,29 +2092,67 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             </div>
             
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">
-                  {isInventoryFetched ? '✓ Opening stock loaded from previous day - Data auto-saved' : '⏳ Loading previous day\'s closing stock as opening stock...'}
-                </span>
-                {isInventoryFetched && (
-                  <Button
-                    onClick={handleManualSave}
-                    size="sm"
-                    disabled={loading}
-                    className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm ml-2"
-                  >
-                    <PlusCircle className="h-4 w-4 mr-1" />
-                    Save
-                  </Button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {loading ? (
+                  <span className="text-xs text-gray-500 flex items-center">
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    Loading data and calculating results...
+                  </span>
+                ) : isInventoryFetched ? (
+                  <span className="text-xs text-gray-500">
+                    ✓ Opening stock loaded from previous day
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-500">
+                    ⏳ Loading previous day's closing stock as opening stock...
+                  </span>
                 )}
+                {(() => {
+                  const today = new Date().toISOString().slice(0, 10)
+                  const isToday = dsrViewDate === today
+                  // Show save button when: it's today, inventory is fetched, and products are loaded
+                  const shouldShowSaveButton = isToday && isInventoryFetched && dsrProducts.length > 0 && !loading
+                  return shouldShowSaveButton && (
+                    <Button
+                      onClick={handleManualSave}
+                      size="sm"
+                      disabled={loading || saving}
+                      className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm ml-2"
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <PlusCircle className="h-4 w-4 mr-1" />
+                          Save Today
+                        </>
+                      )}
+                    </Button>
+                  )
+                })()}
+                {(() => {
+                  const today = new Date().toISOString().slice(0, 10)
+                  const isToday = dsrViewDate === today
+                  return !isToday && isInventoryFetched && (
+                    <span className="text-xs text-blue-600 ml-2">
+                      Viewing historical data - Save only available for today
+                    </span>
+                  )
+                })()}
               </div>
             </div>
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin mr-2" />
-              <span>Loading DSR data...</span>
+            <div className="flex flex-col items-center justify-center py-8 space-y-2">
+              <div className="flex items-center">
+                <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                <span>Loading DSR data for {dsrViewDate}...</span>
+              </div>
+              <span className="text-xs text-gray-500">Fetching transactions and calculating results...</span>
             </div>
           ) : (
             <div className="flex-1 overflow-auto">
@@ -2212,9 +2195,13 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
                     const openingFull = storedOpening?.openingFull ?? 0
                     const openingEmpty = storedOpening?.openingEmpty ?? 0
                     
-                    // Debug log for first few products to verify values
-                    if (dsrProducts.indexOf(product) < 3) {
-                      console.log(`🔍 [TABLE RENDER] ${product.name} (key: ${key}): storedDsrReports[key] =`, storedOpening, `→ openingFull=${openingFull}, openingEmpty=${openingEmpty}`)
+                    // Diagnostic log for all products to verify opening stock values
+                    // Only log if data has been fetched (to avoid false warnings during initial render)
+                    if (isInventoryFetched) {
+                      console.log(`🔍 [DIAGNOSTIC] TABLE RENDER - ${product.name} (key: ${key}): storedDsrReports[${key}] =`, storedOpening, `→ Displaying openingFull=${openingFull}, openingEmpty=${openingEmpty}`)
+                      if (!storedOpening) {
+                        console.warn(`⚠️ [DIAGNOSTIC] ${product.name} (key: ${key}) is NOT in storedDsrReports! Available keys:`, Object.keys(storedDsrReports))
+                      }
                     }
                     const refilled = dailyCylinderRefills[key] ?? 0
                     const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
