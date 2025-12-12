@@ -728,13 +728,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         // No stored data for this date - fetch previous day's closing stock to use as opening stock
         setIsInventoryFetched(false)
         
-        // Get previous day's date to fetch closing stock (timezone-safe)
-        // Parse date as YYYY-MM-DD and subtract 1 day
-        const [year, month, day] = date.split('-').map(Number)
-        const currentDate = new Date(Date.UTC(year, month - 1, day))
-        const previousDate = new Date(currentDate)
-        previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-        const previousDateStr = previousDate.toISOString().slice(0, 10)
+        // Get previous day's date to fetch closing stock (Dubai timezone-safe)
+        // Use getPreviousDate to ensure consistent timezone handling
+        const previousDateStr = getPreviousDate(date)
         
         console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
         
@@ -864,13 +860,9 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     try {
       await fetchInventoryData()
       
-      // Get previous day's date to fetch closing stock (timezone-safe)
-      // Parse date as YYYY-MM-DD and subtract 1 day
-      const [year, month, day] = date.split('-').map(Number)
-      const currentDate = new Date(Date.UTC(year, month - 1, day))
-      const previousDate = new Date(currentDate)
-      previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-      const previousDateStr = previousDate.toISOString().slice(0, 10)
+      // Get previous day's date to fetch closing stock (Dubai timezone-safe)
+      // Use getPreviousDate to ensure consistent timezone handling
+      const previousDateStr = getPreviousDate(date)
       
       // Fetch previous day's DSR to get closing stock
       const prevResponse = await fetch(`/api/daily-stock-reports?date=${previousDateStr}`)

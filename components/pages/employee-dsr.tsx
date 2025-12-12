@@ -72,7 +72,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
     const isTodayDate = date === today
     
     console.log(`🔍 [DIAGNOSTIC] fetchStoredEmployeeDsrReports called for date: ${date}`)
-    console.log(`🔍 [DIAGNOSTIC] Is today's date? ${isToday}`)
+    console.log(`🔍 [DIAGNOSTIC] Is today's date? ${isToday(date)}`)
     
     try {
       const response = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${date}`)
@@ -123,7 +123,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
             }
             
             // If viewing today and products are missing, check yesterday's closing stock
-            if (isToday && missingProducts.length > 0) {
+            if (isToday(date) && missingProducts.length > 0) {
               console.log(`🔍 [DIAGNOSTIC] ${missingProducts.length} products missing for ${date}, checking yesterday's closing stock...`)
               
               const previousDateStr = getPreviousDate(date)
@@ -192,12 +192,9 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
           console.log(`🔍 [DIAGNOSTIC] Stored data for ${date} has zero opening stock, fetching previous day's closing stock...`)
           setIsInventoryFetched(false)
           
-          // Get previous day's date to fetch closing stock (timezone-safe)
-          const [year, month, day] = date.split('-').map(Number)
-          const currentDate = new Date(Date.UTC(year, month - 1, day))
-          const previousDate = new Date(currentDate)
-          previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-          const previousDateStr = previousDate.toISOString().slice(0, 10)
+          // Get previous day's date to fetch closing stock (Dubai timezone-safe)
+          // Use getPreviousDate to ensure consistent timezone handling
+          const previousDateStr = getPreviousDate(date)
           
           console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
           
@@ -241,12 +238,9 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         console.log(`🔍 [DIAGNOSTIC] No stored data for ${date}, fetching previous day's closing stock...`)
         setIsInventoryFetched(false)
         
-        // Get previous day's date to fetch closing stock (timezone-safe)
-        const [year, month, day] = date.split('-').map(Number)
-        const currentDate = new Date(Date.UTC(year, month - 1, day))
-        const previousDate = new Date(currentDate)
-        previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-        const previousDateStr = previousDate.toISOString().slice(0, 10)
+        // Get previous day's date to fetch closing stock (Dubai timezone-safe)
+        // Use getPreviousDate to ensure consistent timezone handling
+        const previousDateStr = getPreviousDate(date)
         
         console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
         
@@ -295,12 +289,9 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
   // Auto-fetch inventory for new days
   const autoFetchEmployeeInventoryForNewDay = async (date: string) => {
     try {
-      // Get previous day's date to fetch closing stock (timezone-safe)
-      const [year, month, day] = date.split('-').map(Number)
-      const currentDate = new Date(Date.UTC(year, month - 1, day))
-      const previousDate = new Date(currentDate)
-      previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-      const previousDateStr = previousDate.toISOString().slice(0, 10)
+      // Get previous day's date to fetch closing stock (Dubai timezone-safe)
+      // Use getPreviousDate to ensure consistent timezone handling
+      const previousDateStr = getPreviousDate(date)
       
       // Fetch previous day's DSR to get closing stock
       const prevResponse = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${previousDateStr}`)
@@ -414,12 +405,9 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
     try {
       setLoading(true)
       
-      // Get previous day's date to fetch closing stock (timezone-safe)
-      const [year, month, day] = dsrDate.split('-').map(Number)
-      const currentDate = new Date(Date.UTC(year, month - 1, day))
-      const previousDate = new Date(currentDate)
-      previousDate.setUTCDate(previousDate.getUTCDate() - 1)
-      const previousDateStr = previousDate.toISOString().slice(0, 10)
+      // Get previous day's date to fetch closing stock (Dubai timezone-safe)
+      // Use getPreviousDate to ensure consistent timezone handling
+      const previousDateStr = getPreviousDate(dsrDate)
       
       // Fetch previous day's DSR to get closing stock
       const prevResponse = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${previousDateStr}`)
@@ -1506,7 +1494,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
                         <TableCell className="text-center font-semibold bg-blue-50 min-w-[60px]">{item.closingFull}</TableCell>
                         <TableCell className="text-center font-semibold bg-blue-50 min-w-[60px]">{item.closingEmpty}</TableCell>
                       </TableRow>
-                    ))}
+                    )})}
                     {/* Totals Row */}
                     <TableRow className="bg-gray-100 font-bold">
                       <TableCell className="font-bold border-r sticky left-0 bg-gray-100 z-10 min-w-[120px]">TOTAL</TableCell>
