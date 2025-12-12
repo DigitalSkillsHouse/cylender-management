@@ -101,92 +101,112 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         console.log(`🔍 [DIAGNOSTIC] Has valid opening stock? ${hasValidOpeningStock}, checking ${data.data.length} reports`)
         
         if (hasValidOpeningStock) {
-          // Use stored data with valid opening stock
-          data.data.forEach((report: any) => {
-            const key = normalizeName(report.itemName)
-            reports[key] = {
-              openingFull: report.openingFull || 0,
-              openingEmpty: report.openingEmpty || 0
-            }
-          })
+          // CRITICAL FIX: Even if stored data exists, we MUST verify it matches previous day's closing stock
+          // This ensures opening stock is always correct and not from an old/incorrect save
+          const previousDateStr = getPreviousDate(date)
+          console.log(`🔍 [DIAGNOSTIC] Stored data exists for ${date}, but verifying against yesterday (${previousDateStr}) closing stock...`)
           
-          // CRITICAL: Ensure ALL products in inventoryData have entries in reports
-          // Products not in stored data should default to 0/0 opening stock OR check yesterday's closing
-          if (inventoryData.length > 0) {
-            const missingProducts: string[] = []
-            for (const item of inventoryData) {
-              if (item.category !== 'cylinder') continue
-              const key = normalizeName(item.productName)
-              if (!reports[key]) {
-                missingProducts.push(item.productName)
-              }
-            }
+          // Fetch yesterday's closing stock to verify/update stored opening stock
+          try {
+            const prevResponse = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${previousDateStr}`)
+            const prevData = await prevResponse.json()
             
-            // If viewing today and products are missing, check yesterday's closing stock
-            if (isToday(date) && missingProducts.length > 0) {
-              console.log(`🔍 [DIAGNOSTIC] ${missingProducts.length} products missing for ${date}, checking yesterday's closing stock...`)
-              
-              const previousDateStr = getPreviousDate(date)
-              
-              console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
-              
-              try {
-                const prevResponse = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${previousDateStr}`)
-                const prevData = await prevResponse.json()
+            const prevReportsMap: Record<string, { closingFull: number; closingEmpty: number }> = {}
+            if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
+              prevData.data.forEach((report: any) => {
+                const key = normalizeName(report.itemName)
+                // Get closing stock, calculate if missing
+                let closingFull = (report.closingFull !== null && report.closingFull !== undefined) ? report.closingFull : null
+                let closingEmpty = (report.closingEmpty !== null && report.closingEmpty !== undefined) ? report.closingEmpty : null
                 
-                if (prevData.success && Array.isArray(prevData.data) && prevData.data.length > 0) {
-                  const prevReportsMap: Record<string, { closingFull: number; closingEmpty: number }> = {}
-                  prevData.data.forEach((report: any) => {
-                    const key = normalizeName(report.itemName)
-                    prevReportsMap[key] = {
-                      closingFull: report.closingFull ?? 0,
-                      closingEmpty: report.closingEmpty ?? 0
-                    }
-                  })
+                if (closingFull === null || closingEmpty === null) {
+                  // Calculate closing if missing
+                  const openingFull = report.openingFull || 0
+                  const openingEmpty = report.openingEmpty || 0
+                  const fullPurchase = report.fullPurchase || 0
+                  const emptyPurchase = report.emptyPurchase || 0
+                  const refilled = report.refilled || 0
+                  const fullCylinderSales = report.fullCylinderSales || 0
+                  const emptyCylinderSales = report.emptyCylinderSales || 0
+                  const gasSales = report.gasSales || 0
+                  const deposits = report.deposits || 0
+                  const returns = report.returns || 0
+                  const transferGas = report.transferGas || 0
+                  const transferEmpty = report.transferEmpty || 0
+                  const receivedGas = report.receivedGas || 0
+                  const receivedEmpty = report.receivedEmpty || 0
                   
-                  // Use yesterday's closing for missing products
-                  for (const productName of missingProducts) {
-                    const key = normalizeName(productName)
-                    const prevClosing = prevReportsMap[key]
-                    if (prevClosing) {
-                      reports[key] = {
-                        openingFull: prevClosing.closingFull,
-                        openingEmpty: prevClosing.closingEmpty
-                      }
-                      console.log(`🔍 [DIAGNOSTIC] ${productName} (key: ${key}): Using yesterday's closing (${prevClosing.closingFull}/${prevClosing.closingEmpty}) as today's opening`)
-                    } else {
-                      reports[key] = { openingFull: 0, openingEmpty: 0 }
-                      console.log(`🔍 [DIAGNOSTIC] ${productName} (key: ${key}) not in yesterday's data, defaulting to 0/0 opening stock`)
-                    }
+                  if (closingFull === null) {
+                    closingFull = Math.max(0, openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + receivedGas)
                   }
-                } else {
-                  // No yesterday data, default to 0/0
-                  for (const productName of missingProducts) {
-                    const key = normalizeName(productName)
-                    reports[key] = { openingFull: 0, openingEmpty: 0 }
-                    console.log(`🔍 [DIAGNOSTIC] ${productName} (key: ${key}) not in yesterday's data, defaulting to 0/0 opening stock`)
+                  if (closingEmpty === null) {
+                    closingEmpty = Math.max(0, openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmpty + receivedEmpty - closingFull)
                   }
                 }
-              } catch (err) {
-                console.error('Failed to fetch yesterday data for missing products:', err)
-                // Default to 0/0 on error
-                for (const productName of missingProducts) {
-                  const key = normalizeName(productName)
-                  reports[key] = { openingFull: 0, openingEmpty: 0 }
+                
+                prevReportsMap[key] = {
+                  closingFull: closingFull || 0,
+                  closingEmpty: closingEmpty || 0
+                }
+              })
+            }
+            
+            // Use previous day's closing stock as opening stock (ALWAYS, even if stored data exists)
+            // This ensures correctness - opening stock MUST equal previous day's closing stock
+            if (inventoryData.length > 0) {
+              for (const item of inventoryData) {
+                if (item.category !== 'cylinder') continue
+                const key = normalizeName(item.productName)
+                const prevClosing = prevReportsMap[key]
+                const storedOpening = data.data.find((r: any) => normalizeName(r.itemName) === key)
+                
+                if (prevClosing) {
+                  // ALWAYS use previous day's closing stock as opening stock
+                  reports[key] = {
+                    openingFull: prevClosing.closingFull,
+                    openingEmpty: prevClosing.closingEmpty
+                  }
+                  
+                  // Log if stored data differs from previous day's closing
+                  if (storedOpening && (storedOpening.openingFull !== prevClosing.closingFull || storedOpening.openingEmpty !== prevClosing.closingEmpty)) {
+                    console.warn(`⚠️ [DIAGNOSTIC] ${item.productName}: Stored opening (${storedOpening.openingFull}/${storedOpening.openingEmpty}) differs from yesterday's closing (${prevClosing.closingFull}/${prevClosing.closingEmpty}). Using yesterday's closing.`)
+                  } else {
+                    console.log(`✅ [DIAGNOSTIC] ${item.productName}: Using yesterday's closing (${prevClosing.closingFull}/${prevClosing.closingEmpty}) as today's opening`)
+                  }
+                } else {
+                  // No previous day data, use stored data or default to 0
+                  reports[key] = {
+                    openingFull: storedOpening?.openingFull || 0,
+                    openingEmpty: storedOpening?.openingEmpty || 0
+                  }
+                  console.log(`🔍 [DIAGNOSTIC] ${item.productName}: No yesterday data, using stored opening (${reports[key].openingFull}/${reports[key].openingEmpty})`)
                 }
               }
             } else {
-              // Not today or no missing products, default to 0/0
-              for (const productName of missingProducts) {
-                const key = normalizeName(productName)
-                reports[key] = { openingFull: 0, openingEmpty: 0 }
-              }
+              // If inventory not loaded yet, use stored data temporarily
+              data.data.forEach((report: any) => {
+                const key = normalizeName(report.itemName)
+                reports[key] = {
+                  openingFull: report.openingFull || 0,
+                  openingEmpty: report.openingEmpty || 0
+                }
+              })
             }
+          } catch (err) {
+            console.error('Failed to fetch yesterday data for verification:', err)
+            // Fallback to stored data on error
+            data.data.forEach((report: any) => {
+              const key = normalizeName(report.itemName)
+              reports[key] = {
+                openingFull: report.openingFull || 0,
+                openingEmpty: report.openingEmpty || 0
+              }
+            })
           }
           
           setIsInventoryFetched(true)
           setStoredDsrReports(reports)
-          console.log(`✅ [DIAGNOSTIC] storedDsrReports SET for ${date} with ${Object.keys(reports).length} items:`, Object.keys(reports))
+          console.log(`✅ [DIAGNOSTIC] Opening stock verified/updated for ${date} from yesterday (${previousDateStr}) closing stock, storedDsrReports set with ${Object.keys(reports).length} items`)
         } else {
           // Stored data exists but has zero opening stock - fetch previous day's closing stock instead
           console.log(`🔍 [DIAGNOSTIC] Stored data for ${date} has zero opening stock, fetching previous day's closing stock...`)
@@ -243,6 +263,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         const previousDateStr = getPreviousDate(date)
         
         console.log(`🔍 [DIAGNOSTIC] TODAY: ${date}, YESTERDAY: ${previousDateStr} - Fetching yesterday's closing stock...`)
+        console.log(`✅ [VERIFY] Date calculation: getPreviousDate("${date}") = "${previousDateStr}" (should be exactly 1 day before)`)
         
         const prevResponse = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${previousDateStr}`)
         const prevData = await prevResponse.json()
