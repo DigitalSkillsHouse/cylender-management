@@ -552,7 +552,28 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
       
     } else if (product.category === 'cylinder' || item.category === 'cylinder') {
       // Cylinder Sales - distinguish between Full and Empty
-      if (item.cylinderStatus === 'full') {
+      // Check if cylinderStatus is explicitly set, or infer from other indicators
+      let isFullCylinder = item.cylinderStatus === 'full'
+      
+      // If cylinderStatus is not explicitly set to 'full', try to infer it:
+      // 1. If gasProductId is present, it's definitely a full cylinder (full cylinders contain gas)
+      // 2. Otherwise, default to empty
+      if (!isFullCylinder) {
+        if (item.gasProductId) {
+          // gasProductId presence indicates a full cylinder sale (full cylinders have gas inside)
+          isFullCylinder = true
+          console.log(`⚠️ [EMPLOYEE DAILY SALES] cylinderStatus not set to 'full', but gasProductId present - inferring full cylinder sale`)
+        } else if (!item.cylinderStatus || item.cylinderStatus === '') {
+          // No cylinderStatus and no gasProductId - default to empty
+          isFullCylinder = false
+          console.log(`⚠️ [EMPLOYEE DAILY SALES] cylinderStatus not set and no gasProductId - defaulting to empty cylinder sale`)
+        } else {
+          // cylinderStatus is explicitly set to something other than 'full' (likely 'empty')
+          isFullCylinder = false
+        }
+      }
+      
+      if (isFullCylinder) {
         // Full Cylinder Sales
         await DailyEmployeeSales.findOneAndUpdate(
           {
@@ -575,7 +596,7 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
           },
           { upsert: true, new: true }
         )
-        console.log(`✅ [EMPLOYEE DAILY SALES] Full cylinder sale tracked: ${product.name} - ${quantity} units`)
+        console.log(`✅ [EMPLOYEE DAILY SALES] Full cylinder sale tracked: ${product.name} - ${quantity} units (cylinderStatus: ${item.cylinderStatus || 'inferred'})`)
         
         // NOTE: Do NOT record gas sales for direct full cylinder sales
         // Full cylinder sales should only show in "Full Cyl Sales" column, not "Gas Sales"

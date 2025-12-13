@@ -76,18 +76,18 @@ export async function updateDailyEmployeeSalesTracking(sale, employeeId) {
             cylinderSalesQuantity: quantity,
             cylinderSalesAmount: amount
           }
+          updateData.$set.cylinderStatus = 'full'
           console.log(`📊 Employee Daily Sales: Full cylinder sale tracked - ${productName}: ${quantity} units, ${amount} AED`)
         } else {
+          // Empty cylinder sales or when cylinderStatus is not specified (default to empty)
           updateData.$inc = { 
-            cylinderSalesQuantity: quantity, 
-            cylinderSalesAmount: amount 
+            emptyCylinderSalesQuantity: quantity, 
+            emptyCylinderSalesAmount: amount,
+            cylinderSalesQuantity: quantity,
+            cylinderSalesAmount: amount
           }
+          updateData.$set.cylinderStatus = cylinderStatus || 'empty'
           console.log(`📊 Employee Daily Sales: Empty cylinder sale tracked - ${productName}: ${quantity} units, ${amount} AED`)
-        }
-        
-        // Set cylinder status if provided
-        if (cylinderStatus) {
-          updateData.$set.cylinderStatus = cylinderStatus
         }
       }
 

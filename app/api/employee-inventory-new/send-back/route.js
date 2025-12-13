@@ -118,8 +118,54 @@ export async function POST(request) {
       quantityReduced: quantity
     })
 
-    // Update DSR tracking for transfers
-    await updateDSRForTransfer(employeeId, inventoryItem.product._id, inventoryItem.product.name, stockType, quantity)
+    // For gas transfers, find the related cylinder product to track under the correct cylinder row
+    let targetProductId = inventoryItem.product._id
+    let targetProductName = inventoryItem.product.name
+    
+    if (stockType === 'gas') {
+      // Try to find a related cylinder product for this gas
+      // Look for cylinder inventory items that might be related to this gas
+      const gasProduct = inventoryItem.product
+      const gasName = gasProduct.name || ''
+      
+      // Find all cylinder products that might match this gas
+      const allCylinderProducts = await Product.find({ category: 'cylinder' })
+      
+      // Try to find matching cylinder by name similarity
+      let matchingCylinder = allCylinderProducts.find(cyl => {
+        const cylName = (cyl.name || '').toLowerCase()
+        const gasNameLower = gasName.toLowerCase()
+        // Check if gas name contains cylinder name or vice versa
+        return gasNameLower.includes(cylName.replace('cylinder', '').replace('cylinders', '').trim()) ||
+               cylName.includes(gasNameLower.split(' ')[0])
+      })
+      
+      // If no match found, try to find cylinder inventory items for this employee
+      // and use the first one that has availableFull > 0 (since gas is in full cylinders)
+      if (!matchingCylinder) {
+        const employeeCylinderInventories = await EmployeeInventoryItem.find({
+          employee: employeeId,
+          category: 'cylinder',
+          availableFull: { $gt: 0 }
+        }).populate('product', 'name')
+        
+        if (employeeCylinderInventories.length > 0) {
+          // Use the first cylinder inventory that has full cylinders
+          matchingCylinder = employeeCylinderInventories[0].product
+        }
+      }
+      
+      if (matchingCylinder) {
+        targetProductId = matchingCylinder._id
+        targetProductName = matchingCylinder.name
+        console.log(`🔄 [DSR TRANSFER] Gas transfer linked to cylinder: ${gasProduct.name} → ${targetProductName}`)
+      } else {
+        console.warn(`⚠️ [DSR TRANSFER] Could not find related cylinder for gas: ${gasProduct.name}, using gas product for tracking`)
+      }
+    }
+
+    // Update DSR tracking for transfers (use cylinder product for gas transfers)
+    await updateDSRForTransfer(employeeId, targetProductId, targetProductName, stockType, quantity)
 
     // TODO: You might want to:
     // 1. Add the returned items back to admin inventory
