@@ -1451,7 +1451,21 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
           continue
         }
         
-        const dsrKey = normalizeName(productName)
+        // For gas assignments, use the related cylinder name as the DSR key
+        // This ensures gas transfers show up under the correct cylinder row
+        let dsrKey = normalizeName(productName)
+        let targetProductName = productName
+        
+        if (category === 'gas') {
+          // Check for related cylinder product
+          const relatedCylinderName = assignment.cylinderProductId?.name || ''
+          if (relatedCylinderName) {
+            dsrKey = normalizeName(relatedCylinderName)
+            targetProductName = relatedCylinderName
+            console.log(`[DSR] Gas transfer linked to cylinder: ${productName} → ${relatedCylinderName}`)
+          }
+        }
+        
         console.log(`[DSR] Processing assignment for DSR key: ${dsrKey}`)
         
         // Track transfers (when stock is assigned to employee on this date)
@@ -1460,7 +1474,7 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
         if (isTransferDate && (status === 'assigned' || status === 'received')) {
           if (category === 'gas') {
             inc(transferGas, dsrKey, quantity)
-            console.log(`[DSR] ✅ StockAssignment Transfer Gas: ${productName} = ${quantity} (status: ${status}, key: ${dsrKey})`)
+            console.log(`[DSR] ✅ StockAssignment Transfer Gas: ${productName} = ${quantity} (status: ${status}, key: ${dsrKey}, cylinder: ${targetProductName})`)
           } else if (category === 'cylinder') {
             if (cylinderStatus === 'empty') {
               inc(transferEmpty, dsrKey, quantity)

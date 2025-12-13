@@ -53,55 +53,11 @@ export async function PUT(request, { params }) {
       .populate("employee", "name")
       .populate("assignedBy", "name")
 
-    // Create daily refill record if this is a gas assignment with cylinder selection
-    try {
-      // If this is a gas assignment and employee selected a cylinder for refill
-      if (assignment.category === 'gas' && emptyCylinderId) {
-        const DailyRefill = (await import('@/models/DailyRefill')).default
-        const EmployeeInventoryItem = (await import('@/models/EmployeeInventoryItem')).default
-        
-        // Get the cylinder product from the selected empty cylinder
-        const emptyCylinderInventory = await EmployeeInventoryItem.findById(emptyCylinderId).populate('product')
-        
-        if (emptyCylinderInventory && emptyCylinderInventory.product) {
-          const { getLocalDateString } = await import('@/lib/date-utils')
-          const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
-          const cylinderProductId = emptyCylinderInventory.product._id
-          const cylinderName = emptyCylinderInventory.product.name
-          const quantity = Number(assignment.quantity) || 0
-          
-          console.log(`⛽ [ASSIGNMENT REFILL] Creating daily refill record:`, {
-            date: today,
-            cylinderProductId: cylinderProductId,
-            cylinderName: cylinderName,
-            employeeId: assignment.employee._id,
-            quantity: quantity,
-            source: 'admin_assignment'
-          })
-          
-          // Create or update daily refill record for the CYLINDER product
-          await DailyRefill.findOneAndUpdate(
-            {
-              date: today,
-              cylinderProductId: cylinderProductId,
-              employeeId: assignment.employee._id
-            },
-            {
-              $inc: { todayRefill: quantity },
-              $set: { cylinderName: cylinderName }
-            },
-            {
-              upsert: true,
-              new: true
-            }
-          )
-          
-          console.log(`✅ [ASSIGNMENT REFILL] Created refill record for cylinder: ${cylinderName} (${quantity} units)`)
-        }
-      }
-    } catch (refillError) {
-      console.error('❌ Failed to create daily refill record for assignment:', refillError.message)
-      // Don't fail the entire operation if refill tracking fails
+    // NOTE: We do NOT create DailyRefill records when employee accepts gas assignments
+    // Gas assignments should only show in "Received Gas" column, not in "Refilled" column
+    // Refilled column is only for actual refill operations (supplier refilling cylinders)
+    if (assignment.category === 'gas' && emptyCylinderId) {
+      console.log('ℹ️ [ASSIGNMENT] Gas assignment accepted - tracking as Received Gas only, not Refilled')
     }
     
     // Create notification for admin

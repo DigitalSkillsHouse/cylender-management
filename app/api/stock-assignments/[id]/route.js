@@ -376,61 +376,10 @@ export async function PATCH(request, { params }) {
             console.log('✅ Full acceptance - marking assignment as received');
           }
           
-          // CREATE DAILY REFILL RECORD - This is when the actual refill happens (employee acceptance)
-          try {
-            const DailyRefill = (await import('@/models/DailyRefill')).default;
-            const { getLocalDateString } = await import('@/lib/date-utils')
-            const today = getLocalDateString(); // YYYY-MM-DD format (Dubai timezone)
-            const quantity = Number(assignment.quantity) || 0;
-            
-            if (quantity > 0 && emptyCylinderInventory.product) {
-              const cylinderProductId = emptyCylinderInventory.product._id;
-              const cylinderName = emptyCylinderInventory.product.name || 'Unknown Cylinder';
-              
-              console.log(`⛽ [ASSIGNMENT REFILL] Creating daily refill record:`, {
-                date: today,
-                cylinderProductId: cylinderProductId,
-                cylinderName: cylinderName,
-                employeeId: assignment.employee,
-                quantity: quantityToFill, // Use actual filled quantity
-                source: 'admin_assignment'
-              });
-              
-              // Create or update daily refill record for the CYLINDER product
-              const refillResult = await DailyRefill.findOneAndUpdate(
-                {
-                  date: today,
-                  cylinderProductId: cylinderProductId,
-                  employeeId: assignment.employee
-                },
-                {
-                  $inc: { todayRefill: quantityToFill }, // Use actual filled quantity
-                  $set: { cylinderName: cylinderName }
-                },
-                {
-                  upsert: true,
-                  new: true
-                }
-              );
-              
-              console.log(`✅ [ASSIGNMENT REFILL] Created/Updated daily refill:`, {
-                cylinderName,
-                cylinderProductId: cylinderProductId.toString(),
-                quantity: quantityToFill, // Use actual filled quantity
-                employeeId: assignment.employee,
-                date: today,
-                refillId: refillResult._id
-              });
-            } else {
-              console.warn('⚠️ Skipping daily refill creation:', {
-                quantity,
-                hasEmptyCylinderProduct: !!emptyCylinderInventory.product
-              });
-            }
-          } catch (refillError) {
-            console.error('❌ Failed to create daily refill record for assignment:', refillError.message);
-            // Don't fail the entire operation if refill tracking fails
-          }
+          // NOTE: We do NOT create DailyRefill records when employee accepts gas assignments
+          // Gas assignments should only show in "Received Gas" column, not in "Refilled" column
+          // Refilled column is only for actual refill operations (supplier refilling cylinders)
+          console.log('ℹ️ [ASSIGNMENT] Gas assignment accepted - tracking as Received Gas only, not Refilled');
         }
       }
       
