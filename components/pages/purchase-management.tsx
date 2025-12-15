@@ -373,6 +373,8 @@ export function PurchaseManagement() {
     setShowProductSuggestions(false)
     setCylinderSearchTerm("")
     setShowCylinderSuggestions(false)
+    setGasSearchTerm("")
+    setShowGasSuggestions(false)
     setEditingItemIndex(null)
   }
 
@@ -476,6 +478,8 @@ export function PurchaseManagement() {
     setShowProductSuggestions(false)
     setCylinderSearchTerm("")
     setShowCylinderSuggestions(false)
+    setGasSearchTerm("")              // clear gas search so next cylinder stays empty
+    setShowGasSuggestions(false)
     setEditingItemIndex(null)
   }
 
@@ -1181,6 +1185,8 @@ export function PurchaseManagement() {
                           setShowProductSuggestions(false)
                           setCylinderSearchTerm("")
                           setShowCylinderSuggestions(false)
+                          setGasSearchTerm("")           // keep Gas Type empty when switching types
+                          setShowGasSuggestions(false)
                         }}
                       >
                         <SelectTrigger className="h-10">
@@ -1197,9 +1203,11 @@ export function PurchaseManagement() {
                         <Label>Cylinder Status *</Label>
                         <Select
                           value={currentItem.cylinderStatus || "empty"}
-                          onValueChange={(value: "empty" | "full") =>
-                            setCurrentItem((ci) => ({ ...ci, cylinderStatus: value }))
-                          }
+                          onValueChange={(value: "empty" | "full") => {
+                            setCurrentItem((ci) => ({ ...ci, cylinderStatus: value, gasType: value === 'full' ? "" : "" }))
+                            setGasSearchTerm("")         // do not prefill gas type when toggling status
+                            setShowGasSuggestions(false)
+                          }}
                         >
                           <SelectTrigger className="h-10">
                             <SelectValue placeholder="Select status" />
