@@ -67,6 +67,8 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
   const [cylinderSearch, setCylinderSearch] = useState("")
   const [selectedCylinderId, setSelectedCylinderId] = useState("")
   const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
+  // Track which full cylinder the employee selects when sending gas back
+  const [selectedFullCylinder, setSelectedFullCylinder] = useState<Record<string, string>>({})
 
   useEffect(() => {
     fetchEmployeeInventoryData()
@@ -329,12 +331,33 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
         setError(`Cannot send more than available quantity (${availableQuantity})`)
         return
       }
+
+      // For gas returns, a full cylinder must be chosen so we can convert it to empty
+      let selectedCylinderProductId = ""
+      if (stockType === 'gas') {
+        selectedCylinderProductId = selectedFullCylinder[itemId] || ""
+        if (!selectedCylinderProductId) {
+          setError("Please select the full cylinder used for this gas")
+          return
+        }
+
+        const cylinderStock = receivedStock.find(rs => rs.category === 'cylinder' && rs.productId === selectedCylinderProductId)
+        if (!cylinderStock) {
+          setError("Selected cylinder not found in your inventory")
+          return
+        }
+        if (quantity > (cylinderStock.availableFull || 0)) {
+          setError(`Not enough full cylinders available. Available: ${cylinderStock.availableFull || 0}`)
+          return
+        }
+      }
       
       console.log('🔄 [SEND BACK] Sending back to admin:', {
         itemId,
         stockType,
         quantity,
-        employeeId: user.id
+        employeeId: user.id,
+        cylinderProductId: selectedCylinderProductId || undefined
       })
       
       const response = await fetch('/api/employee-inventory-new/send-back', {
@@ -344,7 +367,8 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
           itemId,
           stockType,
           quantity,
-          employeeId: user.id
+          employeeId: user.id,
+          cylinderProductId: selectedCylinderProductId || undefined
         })
       })
       
@@ -722,71 +746,96 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
     </div>
   )
 
-  const renderSendBackTable = (items: EmployeeInventoryStock[], stockType: string) => (
-    <div className="w-full overflow-x-auto">
-      <Table className="w-full">
-        <TableHeader>
-          <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-            <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
-            <TableHead className="font-bold text-gray-700 p-4">Code</TableHead>
-            <TableHead className="font-bold text-gray-700 p-4">Available Stock</TableHead>
-            <TableHead className="font-bold text-gray-700 p-4">Quantity to Send</TableHead>
-            <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((item) => {
-            let availableQuantity = 0
-            if (stockType === 'gas') availableQuantity = item.currentStock
-            else if (stockType === 'empty') availableQuantity = item.availableEmpty
-            
-            return (
-              <TableRow key={item._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                <TableCell className="p-4">
-                  <div className="font-medium">{item.productName}</div>
-                </TableCell>
-                <TableCell className="p-4 font-mono text-sm">
-                  {item.productCode || 'N/A'}
-                </TableCell>
-                <TableCell className="p-4 font-bold text-lg">
-                  {availableQuantity}
-                </TableCell>
-                <TableCell className="p-4">
-                  <Input
-                    type="number"
-                    min="1"
-                    max={availableQuantity}
-                    placeholder="0"
-                    className="w-20"
-                    id={`quantity-${item._id}`}
-                  />
-                </TableCell>
-                <TableCell className="p-4">
-                  <Button
-                    size="sm"
-                    onClick={() => handleSendBack(item._id, stockType)}
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                    disabled={availableQuantity === 0}
-                  >
-                    Send Back
-                  </Button>
+  const renderSendBackTable = (items: EmployeeInventoryStock[], stockType: string) => {
+    const fullCylinderOptions = getFullCylinderStock().filter(item => item.availableFull > 0)
+
+    return (
+      <div className="w-full overflow-x-auto">
+        <Table className="w-full">
+          <TableHeader>
+            <TableRow className="bg-gray-50 border-b-2 border-gray-200">
+              <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4">Code</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4">Available Stock</TableHead>
+              {stockType === 'gas' && (
+                <TableHead className="font-bold text-gray-700 p-4">Full Cylinder Used</TableHead>
+              )}
+              <TableHead className="font-bold text-gray-700 p-4">Quantity to Send</TableHead>
+              <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((item) => {
+              let availableQuantity = 0
+              if (stockType === 'gas') availableQuantity = item.currentStock
+              else if (stockType === 'empty') availableQuantity = item.availableEmpty
+              
+              return (
+                <TableRow key={item._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
+                  <TableCell className="p-4">
+                    <div className="font-medium">{item.productName}</div>
+                  </TableCell>
+                  <TableCell className="p-4 font-mono text-sm">
+                    {item.productCode || 'N/A'}
+                  </TableCell>
+                  <TableCell className="p-4 font-bold text-lg">
+                    {availableQuantity}
+                  </TableCell>
+
+                  {stockType === 'gas' && (
+                    <TableCell className="p-4">
+                      <select
+                        className="w-full border border-gray-200 rounded-md px-2 py-2 text-sm"
+                        value={selectedFullCylinder[item._id] || ""}
+                        onChange={(e) => setSelectedFullCylinder(prev => ({ ...prev, [item._id]: e.target.value }))}
+                      >
+                        <option value="">Select full cylinder</option>
+                        {fullCylinderOptions.map(cyl => (
+                          <option key={cyl.productId} value={cyl.productId}>
+                            {cyl.productName} ({cyl.availableFull} full)
+                          </option>
+                        ))}
+                      </select>
+                    </TableCell>
+                  )}
+
+                  <TableCell className="p-4">
+                    <Input
+                      type="number"
+                      min="1"
+                      max={availableQuantity}
+                      placeholder="0"
+                      className="w-20"
+                      id={`quantity-${item._id}`}
+                    />
+                  </TableCell>
+                  <TableCell className="p-4">
+                    <Button
+                      size="sm"
+                      onClick={() => handleSendBack(item._id, stockType)}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      disabled={availableQuantity === 0}
+                    >
+                      Send Back
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+            {items.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={stockType === 'gas' ? 6 : 5} className="text-center text-gray-500 py-12">
+                  <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg font-medium">No {stockType} stock available</p>
+                  <p className="text-sm">You have no {stockType} stock to send back</p>
                 </TableCell>
               </TableRow>
-            )
-          })}
-          {items.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={5} className="text-center text-gray-500 py-12">
-                <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium">No {stockType} stock available</p>
-                <p className="text-sm">You have no {stockType} stock to send back</p>
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </div>
-  )
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

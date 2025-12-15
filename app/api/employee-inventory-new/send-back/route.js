@@ -12,7 +12,7 @@ export async function POST(request) {
     console.log('🔍 Employee send back API called')
     await dbConnect()
     
-    const { itemId, stockType, quantity, employeeId } = await request.json()
+    const { itemId, stockType, quantity, employeeId, cylinderProductId } = await request.json()
     
     if (!itemId || !stockType || !quantity || !employeeId) {
       return NextResponse.json({ 
@@ -84,30 +84,54 @@ export async function POST(request) {
 
     console.log('📝 Return transaction created:', returnTransaction)
 
+    // For gas transfers, require explicit cylinder selection and validate before applying updates
+    let targetProductId = inventoryItem.product._id
+    let targetProductName = inventoryItem.product.name
+    let cylinderInventory = null
+
+    if (stockType === 'gas') {
+      if (!cylinderProductId) {
+        return NextResponse.json({ error: "Please select the full cylinder used for this gas return" }, { status: 400 })
+      }
+
+      cylinderInventory = await EmployeeInventoryItem.findOne({
+        employee: employeeId,
+        product: cylinderProductId,
+        category: 'cylinder'
+      }).populate('product', 'name')
+
+      if (!cylinderInventory) {
+        return NextResponse.json({ error: "Selected cylinder not found in employee inventory" }, { status: 404 })
+      }
+
+      if ((cylinderInventory.availableFull || 0) < quantity) {
+        return NextResponse.json({ error: `Not enough full cylinders available. Available: ${cylinderInventory.availableFull || 0}` }, { status: 400 })
+      }
+
+      targetProductId = cylinderInventory.product._id
+      targetProductName = cylinderInventory.product.name
+    }
+
     // Update employee inventory - reduce the quantity
     if (stockType === 'gas') {
-      // Reduce gas stock
       inventoryItem.currentStock = Math.max(0, inventoryItem.currentStock - quantity)
-      
-      // Also convert full cylinders to empty cylinders (gas being returned means cylinders become empty)
-      if (inventoryItem.availableFull >= quantity) {
-        inventoryItem.availableFull = Math.max(0, inventoryItem.availableFull - quantity)
-        inventoryItem.availableEmpty = (inventoryItem.availableEmpty || 0) + quantity
-        console.log('🔄 Converting full cylinders to empty:', {
-          fullCylindersReduced: quantity,
-          emptyCylindersIncreased: quantity,
-          newAvailableFull: inventoryItem.availableFull,
-          newAvailableEmpty: inventoryItem.availableEmpty
-        })
-      } else {
-        console.warn('⚠️ Not enough full cylinders to convert. Available full:', inventoryItem.availableFull, 'Required:', quantity)
-      }
     } else if (stockType === 'empty') {
       inventoryItem.availableEmpty = Math.max(0, inventoryItem.availableEmpty - quantity)
     }
 
     inventoryItem.lastUpdatedAt = new Date()
-    await inventoryItem.save()
+
+    // If gas, also convert full cylinder -> empty on the selected cylinder inventory
+    if (stockType === 'gas' && cylinderInventory) {
+      cylinderInventory.availableFull = Math.max(0, (cylinderInventory.availableFull || 0) - quantity)
+      cylinderInventory.availableEmpty = (cylinderInventory.availableEmpty || 0) + quantity
+      cylinderInventory.lastUpdatedAt = new Date()
+    }
+
+    await Promise.all([
+      inventoryItem.save(),
+      stockType === 'gas' && cylinderInventory ? cylinderInventory.save() : Promise.resolve()
+    ])
 
     console.log('✅ Employee inventory updated:', {
       itemId: inventoryItem._id,
@@ -118,50 +142,13 @@ export async function POST(request) {
       quantityReduced: quantity
     })
 
-    // For gas transfers, find the related cylinder product to track under the correct cylinder row
-    let targetProductId = inventoryItem.product._id
-    let targetProductName = inventoryItem.product.name
-    
-    if (stockType === 'gas') {
-      // Try to find a related cylinder product for this gas
-      // Look for cylinder inventory items that might be related to this gas
-      const gasProduct = inventoryItem.product
-      const gasName = gasProduct.name || ''
-      
-      // Find all cylinder products that might match this gas
-      const allCylinderProducts = await Product.find({ category: 'cylinder' })
-      
-      // Try to find matching cylinder by name similarity
-      let matchingCylinder = allCylinderProducts.find(cyl => {
-        const cylName = (cyl.name || '').toLowerCase()
-        const gasNameLower = gasName.toLowerCase()
-        // Check if gas name contains cylinder name or vice versa
-        return gasNameLower.includes(cylName.replace('cylinder', '').replace('cylinders', '').trim()) ||
-               cylName.includes(gasNameLower.split(' ')[0])
+    if (stockType === 'gas' && cylinderInventory) {
+      console.log('🔄 Converted full cylinders to empty for return:', {
+        cylinder: targetProductName,
+        reducedFull: quantity,
+        newFull: cylinderInventory.availableFull,
+        newEmpty: cylinderInventory.availableEmpty
       })
-      
-      // If no match found, try to find cylinder inventory items for this employee
-      // and use the first one that has availableFull > 0 (since gas is in full cylinders)
-      if (!matchingCylinder) {
-        const employeeCylinderInventories = await EmployeeInventoryItem.find({
-          employee: employeeId,
-          category: 'cylinder',
-          availableFull: { $gt: 0 }
-        }).populate('product', 'name')
-        
-        if (employeeCylinderInventories.length > 0) {
-          // Use the first cylinder inventory that has full cylinders
-          matchingCylinder = employeeCylinderInventories[0].product
-        }
-      }
-      
-      if (matchingCylinder) {
-        targetProductId = matchingCylinder._id
-        targetProductName = matchingCylinder.name
-        console.log(`🔄 [DSR TRANSFER] Gas transfer linked to cylinder: ${gasProduct.name} → ${targetProductName}`)
-      } else {
-        console.warn(`⚠️ [DSR TRANSFER] Could not find related cylinder for gas: ${gasProduct.name}, using gas product for tracking`)
-      }
     }
 
     // Update DSR tracking for transfers (use cylinder product for gas transfers)
