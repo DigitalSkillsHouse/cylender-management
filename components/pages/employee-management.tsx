@@ -157,23 +157,10 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   const handleProductSelect = (product: Product) => {
     let nextFormData = { ...stockFormData, productId: product._id }
     
-    // If gas selected, auto-pick a suitable full cylinder
+    // If gas selected, clear cylinder selection to let user choose manually
     if (product.category === 'gas') {
-      const gasSize = product.cylinderSize
-      let candidates = products.filter((p: Product) => {
-        if (p.category !== 'cylinder') return false
-        const avail = inventoryAvailability[p._id]?.availableFull || 0
-        return avail > 0
-      })
-      
-      const sizeMatched = gasSize ? candidates.filter((c: Product) => c.cylinderSize === gasSize) : []
-      const pick = (sizeMatched.length > 0 ? sizeMatched : candidates)
-        .sort((a, b) => ((inventoryAvailability[b._id]?.availableFull || b.currentStock) || 0) - ((inventoryAvailability[a._id]?.availableFull || a.currentStock) || 0))[0]
-      
-      if (pick) {
-        nextFormData.cylinderProductId = pick._id
-        setCylinderProductSearch(pick.name)
-      }
+      nextFormData.cylinderProductId = ""
+      setCylinderProductSearch("")
     }
     
     // If full cylinder selected, auto-pick a suitable gas product
@@ -957,43 +944,9 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                   value={stockFormData.cylinderStatus}
                   onValueChange={(value: "empty" | "full") => {
                     const newFormData = { ...stockFormData, cylinderStatus: value, productId: "", gasProductId: "" }
-                    
-                    // If changing to full and we have a selected cylinder, auto-fill gas
-                    if (value === "full" && stockFormData.productId) {
-                      console.log('🔍 Status changed to full, auto-filling gas')
-                      const selectedCylinder = products.find(p => p._id === stockFormData.productId)
-                      console.log('🔍 Selected cylinder:', selectedCylinder)
-                      
-                      if (selectedCylinder) {
-                        const cylinderSize = selectedCylinder.cylinderSize
-                        let gasProducts = products.filter((p: Product) => {
-                          if (p.category !== 'gas') return false
-                          // Check inventory availability first, fallback to currentStock
-                          const gasStock = inventoryAvailability[p._id]?.currentStock || p.currentStock || 0
-                          return gasStock > 0
-                        })
-                        
-                        console.log('🔍 Available gas products for status change:', gasProducts)
-                        
-                        const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => g.cylinderSize === cylinderSize) : []
-                        const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
-                          .sort((a, b) => ((b.currentStock || 0) - (a.currentStock || 0)))[0]
-                        
-                        console.log('🔍 Picked gas for status change:', pick)
-                        
-                        if (pick) {
-                          newFormData.gasProductId = pick._id
-                          setGasProductSearch(pick.name)
-                          console.log('🔍 Gas field set via status change to:', pick.name)
-                        }
-                      }
-                    }
-                    
                     setStockFormData(newFormData)
                     setProductSearchTerm("")
-                    if (value === "empty") {
-                      setGasProductSearch("")
-                    }
+                    setGasProductSearch("")
                   }}
                   required
                 >
@@ -1002,7 +955,6 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="empty">Empty</SelectItem>
-                    <SelectItem value="full">Full</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
