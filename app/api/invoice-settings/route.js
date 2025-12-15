@@ -39,11 +39,44 @@ export async function POST(request) {
       return NextResponse.json({ error: "Invalid starting number" }, { status: 400 })
     }
     
+    const currentYear = new Date().getFullYear()
+    
+    // Save the starting number setting
     await Counter.findOneAndUpdate(
       { key: 'invoice_start' },
-      { seq: startingNumber, year: new Date().getFullYear() },
+      { seq: startingNumber, year: currentYear },
       { upsert: true }
     )
+    
+    // Also update/reset the unified_invoice_counter to use this starting number
+    // This ensures the counter actually starts from the configured number
+    const existingCounter = await Counter.findOne({
+      key: 'unified_invoice_counter',
+      year: currentYear
+    })
+    
+    // Check if any invoices exist in the system
+    const [salesCount, empSalesCount, cylinderCount] = await Promise.all([
+      Sale.countDocuments(),
+      EmployeeSale.countDocuments(),
+      CylinderTransaction.countDocuments()
+    ])
+    const hasInvoices = salesCount > 0 || empSalesCount > 0 || cylinderCount > 0
+    
+    // Reset counter if:
+    // 1. Counter doesn't exist, OR
+    // 2. No invoices exist yet (first time setup), OR
+    // 3. Counter is lower than the starting number
+    if (!existingCounter || !hasInvoices || existingCounter.seq < startingNumber) {
+      await Counter.findOneAndUpdate(
+        { key: 'unified_invoice_counter', year: currentYear },
+        { seq: startingNumber, year: currentYear },
+        { upsert: true }
+      )
+      console.log(`[INVOICE SETTINGS] Reset unified_invoice_counter to starting number: ${startingNumber}`)
+    } else {
+      console.log(`[INVOICE SETTINGS] Counter already at ${existingCounter.seq}, not resetting to ${startingNumber} (invoices exist)`)
+    }
     
     return NextResponse.json({ success: true })
   } catch (error) {
