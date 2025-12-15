@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useRef, useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
@@ -16,6 +16,24 @@ interface AdminSignatureDialogProps {
 export function AdminSignatureDialog({ isOpen, onClose, onSave }: AdminSignatureDialogProps) {
   const signatureRef = useRef<SignatureCanvas>(null)
   const [saving, setSaving] = useState(false)
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 600, height: 220 })
+
+  // Make the signature area comfortably large on mobile and responsive on resize
+  useEffect(() => {
+    const computeSize = () => {
+      try {
+        const vw = Math.max(320, Math.min(window.innerWidth || 600, 1000))
+        // Leave some padding for dialog content
+        const width = Math.max(300, Math.min(vw - 48, 900))
+        // Taller canvas on narrow screens for natural finger movement
+        const height = vw < 640 ? 320 : 240
+        setCanvasSize({ width, height })
+      } catch {}
+    }
+    computeSize()
+    window.addEventListener('resize', computeSize)
+    return () => window.removeEventListener('resize', computeSize)
+  }, [])
 
   const handleSave = async () => {
     const signatureData = signatureRef.current?.toDataURL()
@@ -74,7 +92,7 @@ export function AdminSignatureDialog({ isOpen, onClose, onSave }: AdminSignature
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl" aria-describedby="admin-signature-description">
+      <DialogContent className="max-w-2xl w-[95vw] sm:w-full" aria-describedby="admin-signature-description">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle>Admin Signature</DialogTitle>
@@ -91,18 +109,18 @@ export function AdminSignatureDialog({ isOpen, onClose, onSave }: AdminSignature
         <div className="space-y-4">
           <div className="text-center">
             <p className="text-lg font-medium text-[#2B3068]">Please sign below:</p>
-            <p className="text-sm text-gray-600">Use your finger or mouse to sign in the box</p>
+            <p className="text-sm text-gray-600">Use your finger to sign. The area below is optimized for touch.</p>
           </div>
 
-          <div className="border-2 border-[#2B3068] rounded-lg p-4 bg-gray-50">
+          <div className="border-2 border-[#2B3068] rounded-lg p-3 sm:p-4 bg-gray-50">
             <div className="bg-white border border-gray-300 rounded-lg">
               <SignatureCanvas
                 ref={signatureRef}
                 canvasProps={{
-                  width: 600,
-                  height: 200,
-                  className: "signature-canvas w-full",
-                  style: { border: "1px solid #ddd", borderRadius: "4px" },
+                  width: canvasSize.width,
+                  height: canvasSize.height,
+                  className: "signature-canvas w-full touch-manipulation",
+                  style: { border: "1px solid #ddd", borderRadius: "6px", width: '100%', height: `${canvasSize.height}px` },
                 }}
                 backgroundColor="white"
               />
