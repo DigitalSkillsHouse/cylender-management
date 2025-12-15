@@ -15,6 +15,7 @@ import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as Pack
 import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
+import jsPDF from "jspdf"
 
 interface PurchaseOrder {
   _id: string
@@ -59,6 +60,7 @@ export function PurchaseManagement() {
   const [showPDFDatePopup, setShowPDFDatePopup] = useState(false);
   const [pdfFromDate, setPdfFromDate] = useState("");
   const [pdfToDate, setPdfToDate] = useState("");
+  const [generatingPDF, setGeneratingPDF] = useState(false);
   // Placeholder for PDF generation
   const [adminSignature, setAdminSignature] = useState<string | null>(null);
   
@@ -114,142 +116,447 @@ export function PurchaseManagement() {
 
   const generateEmployeePurchasePDF = async () => {
     setShowPDFDatePopup(false);
-    const jsPDF = (await import('jspdf')).default;
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 15;
-    // Filter orders by date
-    let pdfOrders = purchaseOrders;
-    if (pdfFromDate || pdfToDate) {
-      pdfOrders = pdfOrders.filter((o) => {
-        const orderDate = new Date(o.purchaseDate);
-        let match = true;
-        if (pdfFromDate) match = match && orderDate >= new Date(pdfFromDate);
-        if (pdfToDate) {
-          const to = new Date(pdfToDate);
-          to.setHours(23, 59, 59, 999);
-          match = match && orderDate <= to;
-        }
-        return match;
-      });
-    }
-    // Header image
-    const headerImg = new window.Image();
-    headerImg.src = '/images/purchase_page_header.jpg';
-    await new Promise((resolve) => {
-      headerImg.onload = resolve;
-      headerImg.onerror = resolve;
-    });
-    if (headerImg.width && headerImg.height) {
-      const aspect = headerImg.width / headerImg.height;
-      const w = pageWidth - 2 * margin;
-      const h = w / aspect;
-      pdf.addImage(headerImg, 'JPEG', margin, margin, w, h);
-    }
-    let y = margin + 65;
-    pdf.setFontSize(10);
-    pdf.text(`Generated on: ${getDubaiDateDisplayString()}`, pageWidth / 2, y, { align: 'center' });
-    y += 8;
-    // Table header
-    pdf.setFontSize(9);
-    pdf.setFillColor(43, 48, 104);
-    pdf.setTextColor(255, 255, 255);
-    pdf.rect(margin, y, pageWidth - 2 * margin, 8, 'F');
-    const headers = ['Date', 'Invoice #', 'Supplier', 'Subtotal (AED)', 'VAT 5%', 'Total (AED)'];
-    let colX = margin;
-    const colWidths = [28, 34, 38, 32, 22, 32];
-    headers.forEach((h, i) => {
-      pdf.text(h, colX + 2, y + 6);
-      colX += colWidths[i];
-    });
-    y += 10;
-    pdf.setFontSize(8);
-    pdf.setTextColor(0, 0, 0);
-    pdf.setFont('helvetica', 'normal');
-    pdfOrders.forEach((order, idx) => {
-      if (y > pageHeight - margin - 20) {
-        pdf.addPage();
-        y = margin + 10;
-      }
-      const dateStr = order.purchaseDate ? new Date(order.purchaseDate).toLocaleDateString() : 'N/A';
-      const subtotal = (order.quantity || 0) * (order.unitPrice || 0);
-      const vat = subtotal * 0.05;
-      const total = subtotal + vat;
-      const row = [
-        dateStr,
-        order.poNumber || 'N/A',
-        order.supplier?.companyName || 'Unknown',
-        subtotal.toFixed(2),
-        vat.toFixed(2),
-        total.toFixed(2),
-      ];
-      colX = margin;
-      row.forEach((cell, i) => {
-        pdf.text(String(cell), colX + 2, y + 6);
-        colX += colWidths[i];
-      });
-      y += 8;
-    });
-    // Footer image and admin signature
-    const footerImg = new window.Image();
-    footerImg.src = '/images/Footer-qoute-paper.jpg';
-    await new Promise((resolve) => {
-      footerImg.onload = resolve;
-      footerImg.onerror = resolve;
-    });
-    let footerH = 0;
-    let footerY = pageHeight - margin;
-    if (footerImg.width && footerImg.height) {
-      const aspect = footerImg.width / footerImg.height;
-      const w = pageWidth - 2 * margin;
-      const h = w / aspect;
-      footerH = h;
-      footerY = pageHeight - margin - h;
-      pdf.addImage(footerImg, 'JPEG', margin, footerY, w, h);
-    }
-    // Admin signature overlay - use state variable (already loaded from database)
-    // The adminSignature state is already loaded from database in useEffect
-    if (adminSignature) {
-      const sigImg = new window.Image();
-      sigImg.src = adminSignature;
-      await new Promise((resolve) => {
-        sigImg.onload = resolve;
-        sigImg.onerror = resolve;
-      });
-      if (sigImg.width && sigImg.height) {
-        // Remove white background (make transparent)
-        const aspect = sigImg.width / sigImg.height;
-        const sigW = 30;
-        const sigH = 30 / aspect;
-        const sigX = pageWidth - margin - sigW - 8;
-        const sigY = footerY + footerH - sigH - 8;
-        const canvas = document.createElement('canvas');
-        canvas.width = sigImg.width;
-        canvas.height = sigImg.height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(sigImg, 0, 0);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imageData.data;
-          for (let i = 0; i < data.length; i += 4) {
-            const r = data[i], g = data[i+1], b = data[i+2];
-            if ((r+g+b)/3 > 200) data[i+3] = 0; // Make white transparent
+    setGeneratingPDF(true);
+    try {
+      // Filter orders based on PDF date range
+      const pdfFilteredOrders = purchaseOrders.filter((o) => {
+        let matchesDateRange = true;
+        if (pdfFromDate || pdfToDate) {
+          const orderDate = new Date(o.purchaseDate);
+          if (pdfFromDate) {
+            const from = new Date(pdfFromDate);
+            matchesDateRange = matchesDateRange && orderDate >= from;
           }
-          ctx.putImageData(imageData, 0, 0);
-          const sigImgData = canvas.toDataURL('image/png');
-          pdf.addImage(sigImgData, 'PNG', sigX, sigY, sigW, sigH);
-        } else {
-          pdf.addImage(sigImg, 'PNG', sigX, sigY, sigW, sigH);
+          if (pdfToDate) {
+            const to = new Date(pdfToDate);
+            to.setHours(23, 59, 59, 999);
+            matchesDateRange = matchesDateRange && orderDate <= to;
+          }
         }
+        return matchesDateRange;
+      });
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 15;
+
+      // Load and add header image
+      const headerImg = new Image();
+      headerImg.crossOrigin = "anonymous";
+      
+      await new Promise<void>((resolve, reject) => {
+        headerImg.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Set canvas size to match header image aspect ratio
+            const aspectRatio = headerImg.width / headerImg.height;
+            const headerWidth = pageWidth - (margin * 2);
+            const headerHeight = headerWidth / aspectRatio;
+            
+            canvas.width = headerImg.width;
+            canvas.height = headerImg.height;
+            
+            if (ctx) {
+              ctx.drawImage(headerImg, 0, 0);
+              const headerImgData = canvas.toDataURL("image/png");
+              pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight);
+            }
+            resolve();
+          } catch (err) {
+            console.warn("Failed to add header image:", err);
+            resolve();
+          }
+        };
+        headerImg.onerror = () => {
+          console.warn("Failed to load header image");
+          resolve();
+        };
+        headerImg.src = "/images/purchase_page_header.jpg";
+      });
+
+      let currentY = margin + 65; // Start further below header to avoid overlap
+
+      // Add generated date below header image
+      pdf.setFontSize(10);
+      pdf.setTextColor(100, 100, 100);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Generated on: ${getDubaiDateDisplayString()}`, pageWidth / 2, currentY, { align: "center" });
+      currentY += 6;
+
+      // Add date range if filtering is applied
+      if (pdfFromDate && pdfToDate) {
+        pdf.setFontSize(10);
+        pdf.setTextColor(100, 100, 100);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(`Date Range: ${new Date(pdfFromDate).toLocaleDateString()} to ${new Date(pdfToDate).toLocaleDateString()}`, pageWidth / 2, currentY, { align: "center" });
+        currentY += 8;
+      } else {
+        currentY += 6; // Gap before table
       }
-    } else {
-      pdf.setFontSize(8);
-      pdf.setTextColor(43, 48, 104);
+
+      // Table header - Only specified columns: Date, Invoice #, Supplier, Subtotal, VAT 5%, Total
+      const tableStartY = currentY;
+      const rowHeight = 8;
+      const colWidths = [30, 40, 35, 30, 25, 30]; // Date, Invoice, Supplier, Subtotal, VAT, Total
+      const tableWidth = colWidths.reduce((sum, width) => sum + width, 0);
+      const tableX = (pageWidth - tableWidth) / 2;
+
+      // Header background
+      pdf.setFillColor(43, 48, 104); // #2B3068
+      pdf.rect(tableX, tableStartY, tableWidth, rowHeight, "F");
+
+      // Header text
+      pdf.setFontSize(9);
+      pdf.setTextColor(255, 255, 255);
       pdf.setFont('helvetica', 'bold');
-      pdf.text('Admin Signature', pageWidth - margin - 30, footerY + footerH - 8, { align: 'center' });
+      
+      let colX = tableX;
+      pdf.text("Date", colX + 2, tableStartY + 5.5);
+      colX += colWidths[0];
+      
+      pdf.text("Invoice #", colX + 2, tableStartY + 5.5);
+      colX += colWidths[1];
+      
+      pdf.text("Supplier", colX + 2, tableStartY + 5.5);
+      colX += colWidths[2];
+      
+      pdf.text("Subtotal (AED)", colX + colWidths[3] - 2, tableStartY + 5.5, { align: "right" });
+      colX += colWidths[3];
+      
+      pdf.text("VAT 5%", colX + colWidths[4] - 2, tableStartY + 5.5, { align: "right" });
+      colX += colWidths[4];
+      
+      pdf.text("Total (AED)", colX + colWidths[5] - 2, tableStartY + 5.5, { align: "right" });
+
+      // Table rows
+      pdf.setFontSize(8);
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFont('helvetica', 'normal');
+      
+      let currentRowY = tableStartY + rowHeight;
+      let currentPage = 1; // Track current page number
+      const itemsPerPage = Math.floor((pageHeight - currentRowY - 60) / rowHeight); // Reserve space for footer
+      
+      // Calculate totals for summary
+      let totalAmount = 0;
+      let totalVAT = 0;
+      
+      pdfFilteredOrders.forEach((order, index) => {
+        // Add new page if needed
+        if (index > 0 && index % itemsPerPage === 0) {
+          pdf.addPage();
+          currentPage = pdf.getNumberOfPages();
+          currentRowY = margin + 20;
+          
+          // Repeat header on new page
+          pdf.setFillColor(43, 48, 104);
+          pdf.rect(tableX, currentRowY - rowHeight, tableWidth, rowHeight, "F");
+          
+          pdf.setFontSize(9);
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont('helvetica', 'bold');
+          
+          let headerColX = tableX;
+          pdf.text("Date", headerColX + 2, currentRowY - rowHeight + 5.5);
+          headerColX += colWidths[0];
+          pdf.text("Invoice #", headerColX + 2, currentRowY - rowHeight + 5.5);
+          headerColX += colWidths[1];
+          pdf.text("Supplier", headerColX + 2, currentRowY - rowHeight + 5.5);
+          headerColX += colWidths[2];
+          pdf.text("Subtotal (AED)", headerColX + colWidths[3] - 2, currentRowY - rowHeight + 5.5, { align: "right" });
+          headerColX += colWidths[3];
+          pdf.text("VAT 5%", headerColX + colWidths[4] - 2, currentRowY - rowHeight + 5.5, { align: "right" });
+          headerColX += colWidths[4];
+          pdf.text("Total (AED)", headerColX + colWidths[5] - 2, currentRowY - rowHeight + 5.5, { align: "right" });
+          
+          pdf.setFontSize(8);
+          pdf.setTextColor(0, 0, 0);
+          pdf.setFont('helvetica', 'normal');
+        }
+
+        // Calculate financial breakdown for each order (employee orders have single product)
+        const orderSubtotal = (order.quantity || 0) * (order.unitPrice || 0);
+        const orderVat = orderSubtotal * 0.05;
+        const orderTotal = orderSubtotal + orderVat;
+        
+        // Accumulate totals for summary
+        totalAmount += orderSubtotal;
+        totalVAT += orderVat;
+
+        // Alternate row background
+        if (index % 2 === 0) {
+          pdf.setFillColor(249, 250, 251);
+          pdf.rect(tableX, currentRowY, tableWidth, rowHeight, "F");
+        }
+
+        // Row border
+        pdf.setDrawColor(229, 231, 235);
+        pdf.rect(tableX, currentRowY, tableWidth, rowHeight);
+
+        // Row data
+        let cellX = tableX;
+        
+        // Date
+        const orderDate = order.purchaseDate ? new Date(order.purchaseDate).toLocaleDateString() : 'N/A';
+        pdf.text(orderDate, cellX + 2, currentRowY + 5.5);
+        cellX += colWidths[0];
+        
+        // Invoice Number
+        const invoiceNum = (order.poNumber || 'N/A').substring(0, 18);
+        pdf.text(invoiceNum, cellX + 2, currentRowY + 5.5);
+        cellX += colWidths[1];
+        
+        // Supplier
+        const supplierName = (order.supplier?.companyName || 'Unknown').substring(0, 15);
+        pdf.text(supplierName, cellX + 2, currentRowY + 5.5);
+        cellX += colWidths[2];
+        
+        // Subtotal
+        pdf.text(`${orderSubtotal.toFixed(2)}`, cellX + colWidths[3] - 2, currentRowY + 5.5, { align: "right" });
+        cellX += colWidths[3];
+        
+        // VAT 5%
+        pdf.setTextColor(0, 128, 0); // Green for VAT
+        pdf.text(`${orderVat.toFixed(2)}`, cellX + colWidths[4] - 2, currentRowY + 5.5, { align: "right" });
+        cellX += colWidths[4];
+        
+        // Total
+        pdf.setTextColor(0, 0, 255); // Blue for total
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(`${orderTotal.toFixed(2)}`, cellX + colWidths[5] - 2, currentRowY + 5.5, { align: "right" });
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(0, 0, 0); // Reset to black
+
+        currentRowY += rowHeight;
+      });
+
+      // Calculate final totals
+      const totalPlusVAT = totalAmount + totalVAT;
+      const grandTotal = totalPlusVAT;
+
+      // Add summary section at the end of the table
+      // Ensure we're on the last page where the table ended
+      pdf.setPage(currentPage);
+      let summaryY = currentRowY + 10; // Space after last row
+      
+      // Check if we need a new page for summary (reserve space for footer ~60mm)
+      if (summaryY > pageHeight - 80) {
+        pdf.addPage();
+        summaryY = margin + 20;
+      }
+
+      // Summary section - align with table columns
+      const summaryRowHeight = 8;
+      const labelStartX = tableX;
+      const labelWidth = colWidths[0] + colWidths[1] + colWidths[2]; // First 3 columns for label
+      const subtotalColX = tableX + colWidths[0] + colWidths[1] + colWidths[2]; // Start of Subtotal column
+      const vatColX = subtotalColX + colWidths[3]; // Start of VAT column
+      const totalColX = vatColX + colWidths[4]; // Start of Total column
+      
+      // Add a separator line
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setLineWidth(0.5);
+      pdf.line(tableX, summaryY, tableX + tableWidth, summaryY);
+      summaryY += 5;
+
+      // Total Amount row
+      pdf.setFillColor(245, 245, 245);
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight, "F");
+      pdf.setDrawColor(229, 231, 235);
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight);
+      pdf.setFontSize(9);
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text("Total Amount", labelStartX + 2, summaryY + 5.5);
+      pdf.text(`${totalAmount.toFixed(2)}`, subtotalColX + colWidths[3] - 2, summaryY + 5.5, { align: "right" });
+      summaryY += summaryRowHeight;
+
+      // Total VAT row
+      pdf.setFillColor(250, 250, 250);
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight, "F");
+      pdf.setDrawColor(229, 231, 235);
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight);
+      pdf.setTextColor(0, 128, 0); // Green for VAT
+      pdf.text("Total VAT", labelStartX + 2, summaryY + 5.5);
+      pdf.text(`${totalVAT.toFixed(2)}`, vatColX + colWidths[4] - 2, summaryY + 5.5, { align: "right" });
+      pdf.setTextColor(0, 0, 0); // Reset color
+      summaryY += summaryRowHeight;
+
+      // Total + VAT row
+      pdf.setFillColor(245, 245, 245);
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight, "F");
+      pdf.setDrawColor(229, 231, 235);
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight);
+      pdf.text("Total + VAT", labelStartX + 2, summaryY + 5.5);
+      pdf.text(`${totalPlusVAT.toFixed(2)}`, totalColX + colWidths[5] - 2, summaryY + 5.5, { align: "right" });
+      summaryY += summaryRowHeight;
+
+      // Grand Total row (highlighted)
+      pdf.setFillColor(43, 48, 104); // #2B3068
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight, "F");
+      pdf.setDrawColor(43, 48, 104);
+      pdf.rect(tableX, summaryY, tableWidth, summaryRowHeight);
+      pdf.setFontSize(10);
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text("Grand Total", labelStartX + 2, summaryY + 5.5);
+      pdf.text(`${grandTotal.toFixed(2)}`, totalColX + colWidths[5] - 2, summaryY + 5.5, { align: "right" });
+
+      // Add footer image and admin signature on the last page
+      // Get the actual last page number (might have changed if we added a page for summary)
+      const finalPageNumber = pdf.getNumberOfPages();
+      pdf.setPage(finalPageNumber);
+      
+      try {
+        // Load and add footer image
+        const footerImg = new Image();
+        footerImg.crossOrigin = "anonymous";
+        
+        await new Promise<void>((footerResolve, footerReject) => {
+          footerImg.onload = async () => {
+            try {
+              const footerCanvas = document.createElement('canvas');
+              const footerCtx = footerCanvas.getContext('2d');
+              
+              // Set canvas size to match footer image aspect ratio
+              const footerAspectRatio = footerImg.width / footerImg.height;
+              const footerWidth = pageWidth - (margin * 2);
+              const footerHeight = footerWidth / footerAspectRatio;
+              
+              footerCanvas.width = footerImg.width;
+              footerCanvas.height = footerImg.height;
+              
+              if (footerCtx) {
+                footerCtx.drawImage(footerImg, 0, 0);
+                const footerImgData = footerCanvas.toDataURL("image/png");
+                
+                const footerY = pageHeight - margin - footerHeight;
+                pdf.addImage(footerImgData, "PNG", margin, footerY, footerWidth, footerHeight);
+                
+                // Add admin signature on bottom right of footer image
+                if (adminSignature) {
+                  try {
+                    await new Promise<void>((sigResolve, sigReject) => {
+                      const signatureImg = new Image();
+                      signatureImg.crossOrigin = "anonymous";
+                      signatureImg.onload = () => {
+                        try {
+                          const sigCanvas = document.createElement('canvas');
+                          const sigCtx = sigCanvas.getContext('2d');
+                          
+                          // Set canvas size based on signature aspect ratio
+                          const aspectRatio = signatureImg.width / signatureImg.height;
+                          sigCanvas.width = 120;
+                          sigCanvas.height = 120 / aspectRatio;
+                          
+                          if (sigCtx) {
+                            // Clear canvas with transparent background
+                            sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+                            
+                            // Draw signature first
+                            sigCtx.drawImage(signatureImg, 0, 0, sigCanvas.width, sigCanvas.height);
+                            
+                            // Get image data to process pixels
+                            const imageData = sigCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height);
+                            const data = imageData.data;
+                            
+                            // Remove white/light background, keep only dark signature lines
+                            for (let i = 0; i < data.length; i += 4) {
+                              const r = data[i];
+                              const g = data[i + 1];
+                              const b = data[i + 2];
+                              const brightness = (r + g + b) / 3;
+                              
+                              // If pixel is too bright (white/light), make it transparent
+                              if (brightness > 200) {
+                                data[i + 3] = 0; // Set alpha to 0 (transparent)
+                              }
+                            }
+                            
+                            // Put the modified image data back
+                            sigCtx.putImageData(imageData, 0, 0);
+                            
+                            const sigImgData = sigCanvas.toDataURL("image/png");
+                            
+                            // Position signature on bottom right of footer
+                            const sigWidth = 30;
+                            const sigHeight = 30 / aspectRatio;
+                            const sigX = pageWidth - margin - sigWidth - 8;
+                            const sigY = footerY + footerHeight - sigHeight - 8;
+                            
+                            pdf.addImage(sigImgData, "PNG", sigX, sigY, sigWidth, sigHeight);
+                            console.log("Admin signature added to PDF");
+                          }
+                          sigResolve();
+                        } catch (err) {
+                          console.warn("Failed to add signature image:", err);
+                          sigReject(err);
+                        }
+                      };
+                      signatureImg.onerror = () => {
+                        console.warn("Failed to load admin signature image");
+                        sigReject(new Error("Failed to load signature"));
+                      };
+                      signatureImg.src = adminSignature;
+                    });
+                  } catch (sigError) {
+                    console.warn("Signature loading failed:", sigError);
+                    // Add text fallback
+                    pdf.setFontSize(8);
+                    pdf.setTextColor(43, 48, 104);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.text("Admin Signature", pageWidth - margin - 30, footerY + footerHeight - 8, { align: "center" });
+                  }
+                } else {
+                  // Add text-based admin signature
+                  pdf.setFontSize(8);
+                  pdf.setTextColor(43, 48, 104); // #2B3068
+                  pdf.setFont('helvetica', 'bold');
+                  pdf.text("Admin Signature", pageWidth - margin - 30, footerY + footerHeight - 8, { align: "center" });
+                  console.log("No admin signature found in localStorage");
+                }
+              }
+              footerResolve();
+            } catch (err) {
+              console.warn("Failed to add footer image:", err);
+              footerReject(err);
+            }
+          };
+          footerImg.onerror = () => {
+            console.warn("Failed to load footer image");
+            // Add text-based admin signature fallback
+            pdf.setFontSize(10);
+            pdf.setTextColor(43, 48, 104); // #2B3068
+            pdf.setFont('helvetica', 'bold');
+            pdf.text("Admin Signature", pageWidth - margin - 30, pageHeight - 20, { align: "center" });
+            footerReject(new Error("Failed to load footer"));
+          };
+          footerImg.src = "/images/footer_without_received.jpg";
+        });
+      } catch (footerError) {
+        console.warn("Footer processing failed:", footerError);
+        // Add text-based admin signature fallback
+        pdf.setFontSize(10);
+        pdf.setTextColor(43, 48, 104); // #2B3068
+        pdf.setFont('helvetica', 'bold');
+        pdf.text("Admin Signature", pageWidth - margin - 30, pageHeight - 20, { align: "center" });
+      }
+
+      // Generate filename with date range
+      const dateRange = pdfFromDate && pdfToDate ? `_${pdfFromDate}_to_${pdfToDate}` : `_${getLocalDateString()}`;
+      const filename = `Employee_Purchase_Orders_Report${dateRange}.pdf`;
+      
+      pdf.save(filename);
+      setShowPDFDatePopup(false); // Close popup after generating PDF
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Failed to generate PDF report');
+    } finally {
+      setGeneratingPDF(false);
     }
-    pdf.save('employee-purchase-orders.pdf');
   };
   // Expanded state for grouped invoice rows
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})

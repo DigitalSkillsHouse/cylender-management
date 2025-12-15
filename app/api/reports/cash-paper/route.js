@@ -30,7 +30,7 @@ export async function GET(request) {
 
     // Decide sources based on scope
     // - If employeeId present: use employee collections only (EmployeeSale, EmployeeCylinderTransaction)
-    // - Else (admin scope): use admin collections only (Sale, CylinderTransaction)
+    // - Else (admin scope): use BOTH admin and employee collections to show all invoices
     const baseQuery = { createdAt: { $gte: start, $lte: end } };
     let gasSales = [];
     let cylTxns = [];
@@ -44,12 +44,33 @@ export async function GET(request) {
         .populate('customer', 'name')
         .lean();
     } else {
-      gasSales = await Sale.find(baseQuery)
-        .populate('customer', 'name')
-        .lean();
-      cylTxns = await CylinderTransaction.find(baseQuery)
-        .populate('customer', 'name')
-        .lean();
+      // Admin scope: fetch from both admin and employee collections to show all invoices
+      const [adminGasSales, employeeGasSales, adminCylTxns, employeeCylTxns] = await Promise.all([
+        Sale.find(baseQuery)
+          .populate('customer', 'name')
+          .lean(),
+        EmployeeSale.find(baseQuery)
+          .populate('employee', 'name email')
+          .populate('customer', 'name')
+          .lean(),
+        CylinderTransaction.find(baseQuery)
+          .populate('customer', 'name')
+          .lean(),
+        EmployeeCylinderTransaction.find(baseQuery)
+          .populate('employee', 'name email')
+          .populate('customer', 'name')
+          .lean()
+      ]);
+      
+      // Combine admin and employee sales, marking their source
+      gasSales = [
+        ...adminGasSales.map(s => ({ ...s, _isEmployeeSale: false })),
+        ...employeeGasSales.map(s => ({ ...s, _isEmployeeSale: true }))
+      ];
+      cylTxns = [
+        ...adminCylTxns.map(c => ({ ...c, _isEmployeeTransaction: false })),
+        ...employeeCylTxns.map(c => ({ ...c, _isEmployeeTransaction: true }))
+      ];
     }
 
     const creditSales = [];
@@ -69,11 +90,13 @@ export async function GET(request) {
 
     // Aggregate gas sales first
     for (const s of gasSales) {
+      // Determine if this is an employee sale or admin sale
+      const isEmployeeSale = s._isEmployeeSale || !!s.employee;
       const rec = {
         _id: s._id,
-        source: employeeId ? 'employee-gas' : 'admin-gas',
+        source: employeeId ? 'employee-gas' : (isEmployeeSale ? 'employee-gas' : 'admin-gas'),
         invoiceNumber: s.invoiceNumber,
-        employeeName: s?.employee?.name || (employeeId ? '-' : 'Admin'),
+        employeeName: s?.employee?.name || (employeeId ? '-' : (isEmployeeSale ? 'Employee' : 'Admin')),
         customerName: s?.customer?.name || '-',
         totalAmount: Number(s.totalAmount || 0),
         receivedAmount: Number(s.receivedAmount || 0),
@@ -96,12 +119,14 @@ export async function GET(request) {
 
     // Aggregate cylinder transactions - separate deposits and returns
     for (const c of cylTxns) {
+      // Determine if this is an employee transaction or admin transaction
+      const isEmployeeTransaction = c._isEmployeeTransaction || !!c.employee;
       const amount = Number(c.amount || c.depositAmount || c.refillAmount || c.returnAmount || 0);
       const rec = {
         _id: c._id,
-        source: employeeId ? 'employee-cylinder' : 'admin-cylinder',
+        source: employeeId ? 'employee-cylinder' : (isEmployeeTransaction ? 'employee-cylinder' : 'admin-cylinder'),
         invoiceNumber: c.invoiceNumber || '-', // Include invoice number for cylinder transactions
-        employeeName: c?.employee?.name || (employeeId ? '-' : 'Admin'),
+        employeeName: c?.employee?.name || (employeeId ? '-' : (isEmployeeTransaction ? 'Employee' : 'Admin')),
         customerName: c?.customer?.name || '-',
         totalAmount: amount,
         receivedAmount: Number(c.cashAmount || 0),
