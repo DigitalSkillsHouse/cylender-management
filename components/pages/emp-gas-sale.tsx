@@ -1302,86 +1302,19 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       price: (Number(product.leastPrice) || 0).toString(),
       cylinderStatus: currentItem.cylinderStatus || "empty" as "empty" | "full",
       gasProductId: "",
-      cylinderProductId: currentItem.cylinderProductId || "",
+      cylinderProductId: "",
     }
 
-    // If gas selected, auto-pick a suitable full cylinder in stock
+    // If gas selected, clear cylinder selection to let user choose manually
     if (product.category === 'gas') {
-      const gasSize = product.cylinderSize as ("large" | "small" | undefined)
-      let candidates = allProducts.filter((p: Product) => {
-        if (p.category !== 'cylinder') return false
-        const totalStock = inventoryAvailability[p._id]?.availableFull || 0
-        const reservedStock = calculateReservedStock(p._id, 'cylinder', 'full')
-        const availableStock = totalStock - reservedStock
-        return availableStock > 0
-      })
-      // Fallback: if none via availability map, use currentStock as a backup
-      if (candidates.length === 0) {
-        candidates = allProducts.filter((p: Product) => {
-          if (p.category !== 'cylinder') return false
-          const reservedStock = calculateReservedStock(p._id, 'cylinder', 'full')
-          const availableStock = (p.currentStock || 0) - reservedStock
-          return availableStock > 0
-        })
-      }
-      const sizeMatched = gasSize ? candidates.filter((c: Product) => (c.cylinderSize as any) === gasSize) : []
-      const pick = (sizeMatched.length > 0 ? sizeMatched : candidates)
-        .sort((a, b) => {
-          const aTotal = (inventoryAvailability[a._id]?.availableFull ?? a.currentStock) || 0
-          const aReserved = calculateReservedStock(a._id, 'cylinder', 'full')
-          const aAvailable = aTotal - aReserved
-          
-          const bTotal = (inventoryAvailability[b._id]?.availableFull ?? b.currentStock) || 0
-          const bReserved = calculateReservedStock(b._id, 'cylinder', 'full')
-          const bAvailable = bTotal - bReserved
-          
-          return bAvailable - aAvailable
-        })[0]
-      if (pick) {
-        nextItem = { ...nextItem, cylinderProductId: pick._id }
-        setEntryCylinderSearch(pick.name)
-        setShowEntryCylinderSuggestions(false)
-      } else {
-        // No suitable cylinder available
-        nextItem = { ...nextItem, cylinderProductId: "" }
-        setEntryCylinderSearch("")
-      }
+      nextItem.cylinderProductId = ""
+      setEntryCylinderSearch("")
     }
     
-    // If full cylinder selected, auto-pick a suitable gas product
+    // If full cylinder selected, clear gas selection to let user choose manually
     if (product.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
-      const cylinderSize = product.cylinderSize as ("large" | "small" | undefined)
-      let gasProducts = allProducts.filter((p: Product) => {
-        if (p.category !== 'gas') return false
-        // Use inventory availability for gas stock (Gas tab) and account for reserved stock
-        const totalStock = inventoryAvailability[p._id]?.currentStock || 0
-        const reservedStock = calculateReservedStock(p._id, 'gas')
-        const availableStock = totalStock - reservedStock
-        return availableStock > 0
-      })
-      // Try to match cylinder size with gas size if available
-      const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => (g.cylinderSize as any) === cylinderSize) : []
-      const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
-        .sort((a, b) => {
-          const aTotal = inventoryAvailability[a._id]?.currentStock || 0
-          const aReserved = calculateReservedStock(a._id, 'gas')
-          const aAvailable = aTotal - aReserved
-          
-          const bTotal = inventoryAvailability[b._id]?.currentStock || 0
-          const bReserved = calculateReservedStock(b._id, 'gas')
-          const bAvailable = bTotal - bReserved
-          
-          return bAvailable - aAvailable
-        })[0]
-      if (pick) {
-        nextItem = { ...nextItem, gasProductId: pick._id }
-        setEntryGasSearch(pick.name)
-        setShowEntryGasSuggestions(false)
-      } else {
-        // No suitable gas available
-        nextItem = { ...nextItem, gasProductId: "" }
-        setEntryGasSearch("")
-      }
+      nextItem.gasProductId = ""
+      setEntryGasSearch("")
     }
 
     setCurrentItem(nextItem)
