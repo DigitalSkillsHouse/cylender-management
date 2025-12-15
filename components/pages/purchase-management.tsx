@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown, RefreshCw, Download, Calendar } from "lucide-react"
 import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
+import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 import jsPDF from "jspdf"
 import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
 
@@ -72,6 +73,7 @@ interface PurchaseItem {
 
 export function PurchaseManagement() {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
+  const [employeePurchaseOrders, setEmployeePurchaseOrders] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -215,15 +217,21 @@ export function PurchaseManagement() {
       
       // Try to fetch purchase orders separately (requires auth)
       try {
-        const purchaseOrdersRes = await purchaseOrdersAPI.getAll()
+        const [purchaseOrdersRes, employeeOrdersRes] = await Promise.all([
+          purchaseOrdersAPI.getAll(),
+          employeePurchaseOrdersAPI.getAll({ meOnly: false }).catch(() => ({ data: { data: [] } })) // Fetch all employee orders for admin
+        ])
         
         // The API response structure is: response.data.data (nested)
         const ordersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
+        const employeeOrdersData = employeeOrdersRes.data?.data || employeeOrdersRes.data || []
         
         // Ensure it's always an array
         const finalData = Array.isArray(ordersData) ? ordersData : []
+        const finalEmployeeData = Array.isArray(employeeOrdersData) ? employeeOrdersData : []
         
         setPurchaseOrders(finalData)
+        setEmployeePurchaseOrders(finalEmployeeData)
       } catch (purchaseError: any) {
         
         if (purchaseError.response?.status === 401) {
@@ -232,6 +240,7 @@ export function PurchaseManagement() {
           setError(`Failed to load purchase orders: ${purchaseError.message}`)
         }
         setPurchaseOrders([])
+        setEmployeePurchaseOrders([])
       }
     } catch (error: any) {
       setError("Failed to load suppliers and products. Please refresh the page.")
@@ -600,8 +609,8 @@ export function PurchaseManagement() {
   const generatePurchaseReportPDF = async () => {
     setGeneratingPDF(true)
     try {
-      // Filter orders based on PDF date range
-      const pdfFilteredOrders = purchaseOrders.filter((o) => {
+      // Filter admin orders based on PDF date range
+      const pdfFilteredAdminOrders = purchaseOrders.filter((o) => {
         let matchesDateRange = true
         if (pdfFromDate || pdfToDate) {
           const orderDate = new Date(o.purchaseDate)
@@ -617,6 +626,50 @@ export function PurchaseManagement() {
         }
         return matchesDateRange
       })
+
+      // Filter employee orders based on PDF date range and normalize structure
+      const pdfFilteredEmployeeOrders = employeePurchaseOrders
+        .filter((o) => {
+          let matchesDateRange = true
+          if (pdfFromDate || pdfToDate) {
+            const orderDate = new Date(o.purchaseDate)
+            if (pdfFromDate) {
+              const from = new Date(pdfFromDate)
+              matchesDateRange = matchesDateRange && orderDate >= from
+            }
+            if (pdfToDate) {
+              const to = new Date(pdfToDate)
+              to.setHours(23, 59, 59, 999)
+              matchesDateRange = matchesDateRange && orderDate <= to
+            }
+          }
+          return matchesDateRange
+        })
+        .map((empOrder) => {
+          // Normalize employee order to match admin order structure for PDF
+          const orderSubtotal = (empOrder.quantity || 0) * (empOrder.unitPrice || 0)
+          return {
+            _id: empOrder._id,
+            purchaseDate: empOrder.purchaseDate,
+            poNumber: empOrder.poNumber || 'N/A',
+            supplier: {
+              _id: empOrder.supplier?._id || '',
+              companyName: `${empOrder.supplier?.companyName || 'Unknown'} (Emp: ${empOrder.employee?.name || 'N/A'})`
+            },
+            items: [{
+              product: empOrder.product || { _id: '', name: 'N/A' },
+              quantity: empOrder.quantity || 0,
+              unitPrice: empOrder.unitPrice || 0,
+              itemTotal: orderSubtotal
+            }],
+            totalAmount: orderSubtotal,
+            _isEmployeeOrder: true // Flag to identify employee orders
+          }
+        })
+
+      // Combine and sort all orders by date
+      const pdfFilteredOrders = [...pdfFilteredAdminOrders, ...pdfFilteredEmployeeOrders]
+        .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
 
       const pdf = new jsPDF("p", "mm", "a4")
       const pageWidth = pdf.internal.pageSize.getWidth()
