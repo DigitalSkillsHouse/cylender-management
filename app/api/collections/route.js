@@ -2,6 +2,7 @@ import dbConnect from "@/lib/mongodb"
 import { NextResponse } from "next/server"
 import Sale from "@/models/Sale"
 import EmployeeSale from "@/models/EmployeeSale"
+import { getNextRcNo } from "@/lib/invoice-generator"
 // Cylinder transaction imports removed - collections only handle gas sales
 
 // GET: list all pending gas sales invoices (admin and employee sales only, excludes cylinder transactions)
@@ -64,6 +65,7 @@ export async function GET(request) {
       model: "Sale",
       source: "admin",
       invoiceNumber: s.invoiceNumber,
+      rcNo: s.rcNo || '',
       customer: s.customer ? { 
         _id: s.customer._id, 
         name: s.customer.name, 
@@ -96,6 +98,7 @@ export async function GET(request) {
       model: "EmployeeSale",
       source: "employee",
       invoiceNumber: s.invoiceNumber,
+      rcNo: s.rcNo || '',
       customer: s.customer ? { 
         _id: s.customer._id, 
         name: s.customer.name, 
@@ -153,6 +156,9 @@ export async function POST(request) {
     const updates = []
     const results = []
 
+    // Generate RC-NO for this collection receipt (one RC-NO per collection batch)
+    const rcNo = await getNextRcNo()
+
     for (const p of payments) {
       const model = String(p.model || "")
       const id = String(p.id || "")
@@ -171,9 +177,16 @@ export async function POST(request) {
           results.push({ id, model, applied: 0, status: sale.paymentStatus })
           continue
         }
-        sale.receivedAmount = currentReceived + apply
-        sale.paymentStatus = sale.receivedAmount >= total ? "cleared" : "pending"
+        sale.receivedAmount = Number((currentReceived + apply).toFixed(2))
+        // Update payment status: cleared if received amount equals or exceeds total (with small tolerance for floating point)
+        const remainingBalance = Number((total - sale.receivedAmount).toFixed(2))
+        sale.paymentStatus = remainingBalance <= 0.01 ? "cleared" : "pending"
+        // Store RC-NO on the sale record if this is the first payment received
+        if (!sale.rcNo && apply > 0) {
+          sale.rcNo = rcNo
+        }
         await sale.save()
+        console.log(`[COLLECTION] Sale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${remainingBalance}, status=${sale.paymentStatus}`)
         results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
       } else if (model === "EmployeeSale") {
         const sale = await EmployeeSale.findById(id)
@@ -186,15 +199,22 @@ export async function POST(request) {
           results.push({ id, model, applied: 0, status: sale.paymentStatus })
           continue
         }
-        sale.receivedAmount = currentReceived + apply
-        sale.paymentStatus = sale.receivedAmount >= total ? "cleared" : "pending"
+        sale.receivedAmount = Number((currentReceived + apply).toFixed(2))
+        // Update payment status: cleared if received amount equals or exceeds total (with small tolerance for floating point)
+        const remainingBalance = Number((total - sale.receivedAmount).toFixed(2))
+        sale.paymentStatus = remainingBalance <= 0.01 ? "cleared" : "pending"
+        // Store RC-NO on the employee sale record if this is the first payment received
+        if (!sale.rcNo && apply > 0) {
+          sale.rcNo = rcNo
+        }
         await sale.save()
+        console.log(`[COLLECTION] EmployeeSale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${remainingBalance}, status=${sale.paymentStatus}`)
         results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
       }
       // Cylinder transactions are no longer handled in collections
     }
 
-    return NextResponse.json({ success: true, data: { results } })
+    return NextResponse.json({ success: true, data: { results, rcNo } })
   } catch (error) {
     console.error("Collections POST error:", error)
     return NextResponse.json({ success: false, error: error?.message || "Failed to apply collections" }, { status: 500 })

@@ -35,6 +35,7 @@ interface PendingInvoice {
   model: "Sale" | "EmployeeSale"
   source: "admin" | "employee"
   invoiceNumber: string
+  rcNo?: string
   customer: { _id: string; name: string; phone?: string; address?: string; trNumber?: string } | null
   employee?: { _id: string; name: string; email?: string } | null
   items: PendingInvoiceItem[]
@@ -512,6 +513,10 @@ export function CollectionPage({ user }: CollectionPageProps) {
       setAmounts({})
       await fetchData(selectedCustomer?._id, true) // Force refresh after collection
       await fetchCollectedInvoices(selectedCustomer?._id, true) // Also refresh collected invoices
+      
+      // Get RC-NO from API response (generated sequentially starting from 0001)
+      const rcNo = data?.data?.rcNo || '0001'
+      
       // Format receipt data to show invoice numbers instead of individual items
       const receiptItems = payments.map(p => {
         const invoice = invoices.find(inv => inv._id === p.id)
@@ -537,18 +542,13 @@ export function CollectionPage({ user }: CollectionPageProps) {
           remainingAmount: invoice.totalAmount - (invoice.receivedAmount + p.amount) // Remaining after this payment
         }
       }).filter((item): item is NonNullable<typeof item> => item !== null)
-
-      // Use the actual invoice number from the first invoice being collected
-      // If multiple invoices, use the first one's invoice number
-      const firstInvoice = invoices.find(inv => inv._id === payments[0]?.id)
-      const invoiceNumber = firstInvoice?.invoiceNumber || payments[0]?.id || ''
       
       // Fetch full customer details including TR number and address
       const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
       
       setReceiptData({
         _id: `collection-${Date.now()}`,
-        invoiceNumber: invoiceNumber,
+        invoiceNumber: rcNo, // Use RC-NO instead of invoice number
         customer: {
           name: selectedCustomer?.name || 'Customer',
           phone: selectedCustomer?.phone || '',
@@ -584,6 +584,9 @@ export function CollectionPage({ user }: CollectionPageProps) {
     // Fetch full customer details including TR number and address
     const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
     
+    // Use stored RC-NO from the invoice, or fallback if not available
+    const rcNo = invoice.rcNo || '0001'
+    
     // Format items for receipt - add invoice number to each item for collection receipts
     const receiptItems = invoice.items?.map(item => ({
       product: {
@@ -601,7 +604,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
     
     setCollectedReceiptData({
       _id: invoice._id,
-      invoiceNumber: invoice.invoiceNumber, // Keep original invoice number for RC-NO format
+      invoiceNumber: rcNo, // Use RC-NO instead of invoice number
       customer: {
         name: selectedCustomer?.name || invoice.customer?.name || 'Customer',
         phone: selectedCustomer?.phone || invoice.customer?.phone || '',

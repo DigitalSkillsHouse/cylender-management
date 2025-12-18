@@ -95,6 +95,10 @@ const EmployeeSaleSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    rcNo: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,
