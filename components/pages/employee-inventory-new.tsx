@@ -922,10 +922,10 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
               <div className="px-4 sm:px-6 pt-4">
                 <TabsList className="grid w-full grid-cols-2 h-auto">
                   <TabsTrigger value="purchase-orders" className="text-xs sm:text-sm font-medium py-2">
-                    Pending Purchase ({filteredPendingOrders.length})
+                    Pending Purchase
                   </TabsTrigger>
                   <TabsTrigger value="assignments" className="text-xs sm:text-sm font-medium py-2">
-                    Pending Assignments ({pendingAssignments.length})
+                    Pending Assignments
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -991,13 +991,13 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
               <div className="px-4 sm:px-6 pt-4">
                 <TabsList className="grid w-full grid-cols-3 h-auto">
                   <TabsTrigger value="gas" className="text-xs sm:text-sm font-medium py-2">
-                    Gas Stock ({getGasStock().length})
+                    Gas Stock
                   </TabsTrigger>
                   <TabsTrigger value="full-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Full Cylinders ({getFullCylinderStock().length})
+                    Full Cylinders
                   </TabsTrigger>
                   <TabsTrigger value="empty-cylinder" className="text-xs sm:text-sm font-medium py-2">
-                    Empty Cylinders ({getEmptyCylinderStock().length})
+                    Empty Cylinders
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -1038,10 +1038,10 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
               <Tabs defaultValue="send-gas" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 h-auto mb-6">
                   <TabsTrigger value="send-gas" className="text-xs sm:text-sm font-medium py-2">
-                    Send Gas ({getGasStock().length})
+                    Send Gas
                   </TabsTrigger>
                   <TabsTrigger value="send-empty" className="text-xs sm:text-sm font-medium py-2">
-                    Send Empty Cylinders ({getEmptyCylinderStock().length})
+                    Send Empty Cylinders
                   </TabsTrigger>
                 </TabsList>
 

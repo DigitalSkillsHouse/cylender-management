@@ -28,6 +28,13 @@ interface ReceiptDialogProps {
       price: number
       total: number
       category?: "gas" | "cylinder"
+      // Additional fields for collection receipts
+      invoiceNumber?: string
+      invoiceDate?: string
+      paymentStatus?: string
+      totalAmount?: number
+      receivedAmount?: number
+      remainingAmount?: number
     }>
     totalAmount: number
     paymentMethod: string
@@ -404,23 +411,35 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                     
                     const unitVat = priceNum * 0.05
                     
+                    // Extract invoice number for collection receipts
+                    let invoiceNumber = item.invoiceNumber
+                    // If item doesn't have invoiceNumber, try to extract from product name
+                    if (!invoiceNumber && name.includes('Invoice #')) {
+                      const parts = name.split('Invoice #')
+                      if (parts.length > 1) {
+                        invoiceNumber = parts[1].split(' ')[0].trim()
+                      }
+                    }
+                    // If still no invoice number, use the sale's invoice number (for collected invoices)
+                    if (!invoiceNumber && sale?.invoiceNumber) {
+                      invoiceNumber = sale.invoiceNumber
+                    }
+                    invoiceNumber = invoiceNumber || '-'
+                    
                     return (
                     <tr key={index} className="border-b h-5">
                       {sale?.type === 'collection' ? (
                         <>
-                          <td className="p-2 border">{
-                            // Use the invoice number from the item data, or extract from product name
-                            (item as any)?.invoiceNumber || (name.includes('Invoice #') ? name.split('Invoice #')[1] : name)
-                          }</td>
+                          <td className="p-2 border">{invoiceNumber}</td>
                           <td className="text-center p-2 border">{
                             // Use the invoice date from the item data, or fall back to sale date
-                            (item as any)?.invoiceDate ? new Date((item as any).invoiceDate).toLocaleDateString() : 
+                            item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString() : 
                             (sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-')
                           }</td>
-                          <td className="text-right p-2 border">{(item as any)?.paymentStatus || 'pending'}</td>
-                          <td className="text-right p-2 border">AED {((item as any)?.totalAmount || itemTotal).toFixed(2)}</td>
-                          <td className="text-right p-2 border">AED {((item as any)?.receivedAmount || itemTotal).toFixed(2)}</td>
-                          <td className="text-right p-2 border">AED {((item as any)?.remainingAmount !== undefined ? (item as any).remainingAmount : (((item as any)?.totalAmount || itemTotal) - ((item as any)?.receivedAmount || itemTotal))).toFixed(2)}</td>
+                          <td className="text-right p-2 border">{item.paymentStatus || 'pending'}</td>
+                          <td className="text-right p-2 border">AED {(item.totalAmount || itemTotal).toFixed(2)}</td>
+                          <td className="text-right p-2 border">AED {(item.receivedAmount || itemTotal).toFixed(2)}</td>
+                          <td className="text-right p-2 border">AED {(item.remainingAmount !== undefined ? item.remainingAmount : ((item.totalAmount || itemTotal) - (item.receivedAmount || itemTotal))).toFixed(2)}</td>
                         </>
                       ) : (
                         <>

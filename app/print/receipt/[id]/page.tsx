@@ -233,14 +233,26 @@ const ReceiptPrintPage = () => {
                 
                 const unitVat = priceNum * 0.05
                 
+                // Extract invoice number for collection receipts
+                let invoiceNumber = item.invoiceNumber
+                // If item doesn't have invoiceNumber, try to extract from product name
+                if (!invoiceNumber && item.product.name.includes('Invoice #')) {
+                  const parts = item.product.name.split('Invoice #')
+                  if (parts.length > 1) {
+                    invoiceNumber = parts[1].split(' ')[0].trim()
+                  }
+                }
+                // If still no invoice number, use the sale's invoice number (for collected invoices)
+                if (!invoiceNumber && sale?.invoiceNumber) {
+                  invoiceNumber = sale.invoiceNumber
+                }
+                invoiceNumber = invoiceNumber || '-'
+                
                 return (
                   <tr key={index} className="border-b h-5">
                     {sale?.type === 'collection' ? (
                       <>
-                        <td className="p-2 border">{
-                          // Use the invoice number from the item data, or extract from product name
-                          item.invoiceNumber || (item.product.name.includes('Invoice #') ? item.product.name.split('Invoice #')[1] : item.product.name)
-                        }</td>
+                        <td className="p-2 border">{invoiceNumber}</td>
                         <td className="text-center p-2 border">{
                           // Use the invoice date from the item data, or fall back to sale date
                           item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString() : 

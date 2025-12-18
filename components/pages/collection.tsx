@@ -86,7 +86,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
     _id: string
     invoiceNumber: string
     customer: { name: string; phone: string; address: string; trNumber?: string }
-    items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number }>
+    items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number; invoiceNumber?: string; invoiceDate?: string; paymentStatus?: string }>
     totalAmount: number
     paymentMethod: string
     bankName?: string
@@ -584,7 +584,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
     // Fetch full customer details including TR number and address
     const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
     
-    // Format items for receipt
+    // Format items for receipt - add invoice number to each item for collection receipts
     const receiptItems = invoice.items?.map(item => ({
       product: {
         name: item.product.name,
@@ -592,7 +592,11 @@ export function CollectionPage({ user }: CollectionPageProps) {
       },
       quantity: item.quantity,
       price: item.price,
-      total: item.total
+      total: item.total,
+      // Add invoice number for collection receipt display
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceDate: invoice.createdAt,
+      paymentStatus: invoice.paymentStatus
     })) || []
     
     setCollectedReceiptData({
