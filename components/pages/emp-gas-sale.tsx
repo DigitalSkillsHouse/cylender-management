@@ -1305,16 +1305,38 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       cylinderProductId: "",
     }
 
-    // If gas selected, clear cylinder selection to let user choose manually
+    // If gas selected, auto-populate cylinder search with transformed name
     if (product.category === 'gas') {
       nextItem.cylinderProductId = ""
-      setEntryCylinderSearch("")
+      // Remove "Gas" prefix (case-insensitive) and add "Cylinder" prefix
+      let gasName = product.name.trim()
+      // Remove "Gas" prefix if it exists (case-insensitive)
+      if (gasName.toLowerCase().startsWith('gas ')) {
+        gasName = gasName.substring(4).trim() // Remove "Gas " prefix
+      } else if (gasName.toLowerCase().startsWith('gas')) {
+        gasName = gasName.substring(3).trim() // Remove "Gas" prefix (no space)
+      }
+      // Add "Cylinder" prefix
+      const cylinderSearchTerm = `Cylinder ${gasName}`
+      setEntryCylinderSearch(cylinderSearchTerm)
+      setShowEntryCylinderSuggestions(true)
     }
     
-    // If full cylinder selected, clear gas selection to let user choose manually
+    // If full cylinder selected, auto-populate gas search with transformed name
     if (product.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
       nextItem.gasProductId = ""
-      setEntryGasSearch("")
+      // Remove "Cylinder" prefix (case-insensitive) and add "Gas" prefix
+      let cylinderName = product.name.trim()
+      // Remove "Cylinder" prefix if it exists (case-insensitive)
+      if (cylinderName.toLowerCase().startsWith('cylinder ')) {
+        cylinderName = cylinderName.substring(9).trim() // Remove "Cylinder " prefix
+      } else if (cylinderName.toLowerCase().startsWith('cylinder')) {
+        cylinderName = cylinderName.substring(8).trim() // Remove "Cylinder" prefix (no space)
+      }
+      // Add "Gas" prefix
+      const gasSearchTerm = `Gas ${cylinderName}`
+      setEntryGasSearch(gasSearchTerm)
+      setShowEntryGasSuggestions(true)
     }
 
     setCurrentItem(nextItem)
@@ -1920,7 +1942,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                       placeholder={`Search ${currentItem.category} product`}
                       value={entryProductSearch}
                       onChange={(e) => handleEntryProductSearchChange(e.target.value)}
-                      onFocus={() => setShowEntrySuggestions(entryProductSearch.trim().length > 0)}
+                      onFocus={() => setShowEntrySuggestions(true)}
                       onBlur={() => setTimeout(() => setShowEntrySuggestions(false), 200)}
                       className="pr-10"
                     />
@@ -2107,7 +2129,7 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                         placeholder="Search gas product"
                         value={entryGasSearch}
                         onChange={(e) => handleEntryGasSearchChange(e.target.value)}
-                        onFocus={() => setShowEntryGasSuggestions(entryGasSearch.trim().length > 0)}
+                        onFocus={() => setShowEntryGasSuggestions(true)}
                         onBlur={() => setTimeout(() => setShowEntryGasSuggestions(false), 200)}
                         className="pr-10"
                       />

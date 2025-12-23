@@ -157,41 +157,38 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
   const handleProductSelect = (product: Product) => {
     let nextFormData = { ...stockFormData, productId: product._id }
     
-    // If gas selected, clear cylinder selection to let user choose manually
+    // If gas selected, auto-populate cylinder search with transformed name
     if (product.category === 'gas') {
       nextFormData.cylinderProductId = ""
-      setCylinderProductSearch("")
+      // Remove "Gas" prefix (case-insensitive) and add "Cylinder" prefix
+      let gasName = product.name.trim()
+      // Remove "Gas" prefix if it exists (case-insensitive)
+      if (gasName.toLowerCase().startsWith('gas ')) {
+        gasName = gasName.substring(4).trim() // Remove "Gas " prefix
+      } else if (gasName.toLowerCase().startsWith('gas')) {
+        gasName = gasName.substring(3).trim() // Remove "Gas" prefix (no space)
+      }
+      // Add "Cylinder" prefix
+      const cylinderSearchTerm = `Cylinder ${gasName}`
+      setCylinderProductSearch(cylinderSearchTerm)
+      setShowCylinderProductSuggestions(true)
     }
     
-    // If full cylinder selected, auto-pick a suitable gas product
+    // If full cylinder selected, auto-populate gas search with transformed name
     if (product.category === 'cylinder' && stockFormData.cylinderStatus === 'full') {
-      console.log('🔍 Auto-filling gas for full cylinder:', product.name)
-      console.log('🔍 All products:', products.length)
-      console.log('🔍 Gas products:', products.filter(p => p.category === 'gas'))
-      
-      const cylinderSize = product.cylinderSize
-      let gasProducts = products.filter((p: Product) => {
-        if (p.category !== 'gas') return false
-        // Check inventory availability first, fallback to currentStock
-        const gasStock = inventoryAvailability[p._id]?.currentStock || p.currentStock || 0
-        return gasStock > 0
-      })
-      
-      console.log('🔍 Available gas products:', gasProducts)
-      
-      const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => g.cylinderSize === cylinderSize) : []
-      const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
-        .sort((a, b) => ((b.currentStock || 0) - (a.currentStock || 0)))[0]
-      
-      console.log('🔍 Selected gas product:', pick)
-      
-      if (pick) {
-        nextFormData.gasProductId = pick._id
-        setGasProductSearch(pick.name)
-        console.log('🔍 Gas field set to:', pick.name)
-      } else {
-        console.log('🔍 No suitable gas product found')
+      nextFormData.gasProductId = ""
+      // Remove "Cylinder" prefix (case-insensitive) and add "Gas" prefix
+      let cylinderName = product.name.trim()
+      // Remove "Cylinder" prefix if it exists (case-insensitive)
+      if (cylinderName.toLowerCase().startsWith('cylinder ')) {
+        cylinderName = cylinderName.substring(9).trim() // Remove "Cylinder " prefix
+      } else if (cylinderName.toLowerCase().startsWith('cylinder')) {
+        cylinderName = cylinderName.substring(8).trim() // Remove "Cylinder" prefix (no space)
       }
+      // Add "Gas" prefix
+      const gasSearchTerm = `Gas ${cylinderName}`
+      setGasProductSearch(gasSearchTerm)
+      setShowGasProductSuggestions(true)
     }
     
     setStockFormData(nextFormData)
@@ -1024,7 +1021,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                     setCylinderProductSearch(e.target.value)
                     setShowCylinderProductSuggestions(e.target.value.trim().length > 0)
                   }}
-                  onFocus={() => setShowCylinderProductSuggestions(cylinderProductSearch.trim().length > 0)}
+                  onFocus={() => setShowCylinderProductSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowCylinderProductSuggestions(false), 200)}
                   required
                 />
@@ -1066,7 +1063,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                     setGasProductSearch(e.target.value)
                     setShowGasProductSuggestions(e.target.value.trim().length > 0)
                   }}
-                  onFocus={() => setShowGasProductSuggestions(gasProductSearch.trim().length > 0)}
+                  onFocus={() => setShowGasProductSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowGasProductSuggestions(false), 200)}
                   required
                 />

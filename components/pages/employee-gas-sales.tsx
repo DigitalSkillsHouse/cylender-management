@@ -676,53 +676,38 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
       cylinderProductId: currentItem.cylinderProductId || "",
     }
 
-    // If gas selected, auto-pick a suitable full cylinder in stock
+    // If gas selected, auto-populate cylinder search with transformed name
     if (product.category === 'gas') {
-      const gasSize = product.cylinderSize as ("large" | "small" | undefined)
-      let candidates = allProducts.filter((p: Product) => {
-        if (p.category !== 'cylinder') return false
-        const avail = inventoryAvailability[p._id]?.availableFull || 0
-        return avail > 0
-      })
-      // Fallback: if none via availability map, use currentStock as a backup
-      if (candidates.length === 0) {
-        candidates = allProducts.filter((p: Product) => p.category === 'cylinder' && (p.currentStock || 0) > 0)
+      nextItem.cylinderProductId = ""
+      // Remove "Gas" prefix (case-insensitive) and add "Cylinder" prefix
+      let gasName = product.name.trim()
+      // Remove "Gas" prefix if it exists (case-insensitive)
+      if (gasName.toLowerCase().startsWith('gas ')) {
+        gasName = gasName.substring(4).trim() // Remove "Gas " prefix
+      } else if (gasName.toLowerCase().startsWith('gas')) {
+        gasName = gasName.substring(3).trim() // Remove "Gas" prefix (no space)
       }
-      const sizeMatched = gasSize ? candidates.filter((c: Product) => (c.cylinderSize as any) === gasSize) : []
-      const pick = (sizeMatched.length > 0 ? sizeMatched : candidates)
-        .sort((a, b) => (((inventoryAvailability[b._id]?.availableFull ?? b.currentStock) || 0) - ((inventoryAvailability[a._id]?.availableFull ?? a.currentStock) || 0)))[0]
-      if (pick) {
-        nextItem = { ...nextItem, cylinderProductId: pick._id }
-        setEntryCylinderSearch(pick.name)
-        setShowEntryCylinderSuggestions(false)
-      } else {
-        // No suitable cylinder available
-        nextItem = { ...nextItem, cylinderProductId: "" }
-        setEntryCylinderSearch("")
-      }
+      // Add "Cylinder" prefix
+      const cylinderSearchTerm = `Cylinder ${gasName}`
+      setEntryCylinderSearch(cylinderSearchTerm)
+      setShowEntryCylinderSuggestions(true)
     }
     
-    // If full cylinder selected, auto-pick a suitable gas product
+    // If full cylinder selected, auto-populate gas search with transformed name
     if (product.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
-      const cylinderSize = product.cylinderSize as ("large" | "small" | undefined)
-      let gasProducts = allProducts.filter((p: Product) => {
-        if (p.category !== 'gas') return false
-        const gasStock = p.currentStock || 0
-        return gasStock > 0
-      })
-      // Try to match cylinder size with gas size if available
-      const sizeMatched = cylinderSize ? gasProducts.filter((g: Product) => (g.cylinderSize as any) === cylinderSize) : []
-      const pick = (sizeMatched.length > 0 ? sizeMatched : gasProducts)
-        .sort((a, b) => ((b.currentStock || 0) - (a.currentStock || 0)))[0]
-      if (pick) {
-        nextItem = { ...nextItem, gasProductId: pick._id }
-        setEntryGasSearch(pick.name)
-        setShowEntryGasSuggestions(false)
-      } else {
-        // No suitable gas available
-        nextItem = { ...nextItem, gasProductId: "" }
-        setEntryGasSearch("")
+      nextItem.gasProductId = ""
+      // Remove "Cylinder" prefix (case-insensitive) and add "Gas" prefix
+      let cylinderName = product.name.trim()
+      // Remove "Cylinder" prefix if it exists (case-insensitive)
+      if (cylinderName.toLowerCase().startsWith('cylinder ')) {
+        cylinderName = cylinderName.substring(9).trim() // Remove "Cylinder " prefix
+      } else if (cylinderName.toLowerCase().startsWith('cylinder')) {
+        cylinderName = cylinderName.substring(8).trim() // Remove "Cylinder" prefix (no space)
       }
+      // Add "Gas" prefix
+      const gasSearchTerm = `Gas ${cylinderName}`
+      setEntryGasSearch(gasSearchTerm)
+      setShowEntryGasSuggestions(true)
     }
 
     setCurrentItem(nextItem)
@@ -2036,7 +2021,7 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                     placeholder={`Search ${currentItem.category} product`}
                     value={entryProductSearch}
                     onChange={(e) => handleEntryProductSearchChange(e.target.value)}
-                    onFocus={() => setShowEntrySuggestions(entryProductSearch.trim().length > 0)}
+                    onFocus={() => setShowEntrySuggestions(true)}
                     onBlur={() => setTimeout(() => setShowEntrySuggestions(false), 200)}
                     className="pr-10"
                   />
@@ -2174,7 +2159,7 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                       placeholder="Search gas product"
                       value={entryGasSearch}
                       onChange={(e) => handleEntryGasSearchChange(e.target.value)}
-                      onFocus={() => setShowEntryGasSuggestions(entryGasSearch.trim().length > 0)}
+                      onFocus={() => setShowEntryGasSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowEntryGasSuggestions(false), 200)}
                       className="pr-10"
                     />
