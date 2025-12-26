@@ -80,6 +80,25 @@ export function Inventory() {
     fetchPendingReturns()
   }, [])
 
+  // Auto-populate cylinder search when return dialog opens with gas product
+  useEffect(() => {
+    if (showReturnCylinderDialog && selectedReturn?.productName) {
+      const productName = selectedReturn.productName.trim()
+      // Remove "Gas" prefix (case-insensitive) and add "Cylinder" prefix
+      let gasName = productName
+      // Remove "Gas" prefix if it exists (case-insensitive)
+      if (gasName.toLowerCase().startsWith('gas ')) {
+        gasName = gasName.substring(4).trim() // Remove "Gas " prefix
+      } else if (gasName.toLowerCase().startsWith('gas')) {
+        gasName = gasName.substring(3).trim() // Remove "Gas" prefix (no space)
+      }
+      // Add "Cylinder" prefix
+      const cylinderSearchTerm = `Cylinder ${gasName}`
+      setReturnCylinderSearch(cylinderSearchTerm)
+      setShowReturnCylinderSuggestions(true)
+    }
+  }, [showReturnCylinderDialog, selectedReturn])
+
   const fetchInventoryData = async () => {
     try {
       setError("")

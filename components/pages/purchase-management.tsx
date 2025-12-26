@@ -1257,9 +1257,35 @@ export function PurchaseManagement() {
                         <Select
                           value={currentItem.cylinderStatus || "empty"}
                           onValueChange={(value: "empty" | "full") => {
-                            setCurrentItem((ci) => ({ ...ci, cylinderStatus: value, gasType: value === 'full' ? "" : "" }))
-                            setGasSearchTerm("")         // do not prefill gas type when toggling status
-                            setShowGasSuggestions(false)
+                            setCurrentItem((ci) => {
+                              const updated = { ...ci, cylinderStatus: value, gasType: value === 'full' ? "" : "" }
+                              
+                              // If changing to full and a cylinder product is selected, auto-populate gas search
+                              if (value === 'full' && ci.productId) {
+                                const selectedProduct = products.find(p => p._id === ci.productId)
+                                if (selectedProduct && selectedProduct.category === 'cylinder') {
+                                  let cylinderName = selectedProduct.name.trim()
+                                  // Remove "Cylinder" prefix if it exists (case-insensitive)
+                                  if (cylinderName.toLowerCase().startsWith('cylinder ')) {
+                                    cylinderName = cylinderName.substring(9).trim() // Remove "Cylinder " prefix
+                                  } else if (cylinderName.toLowerCase().startsWith('cylinder')) {
+                                    cylinderName = cylinderName.substring(8).trim() // Remove "Cylinder" prefix (no space)
+                                  }
+                                  // Add "Gas" prefix
+                                  const gasSearchTerm = `Gas ${cylinderName}`
+                                  setGasSearchTerm(gasSearchTerm)
+                                  setShowGasSuggestions(true)
+                                } else {
+                                  setGasSearchTerm("")
+                                  setShowGasSuggestions(false)
+                                }
+                              } else {
+                                setGasSearchTerm("")
+                                setShowGasSuggestions(false)
+                              }
+                              
+                              return updated
+                            })
                           }}
                         >
                           <SelectTrigger className="h-10">
@@ -1282,7 +1308,7 @@ export function PurchaseManagement() {
                           setProductSearchTerm(v)
                           setShowProductSuggestions(v.trim().length > 0)
                         }}
-                        onFocus={() => setShowProductSuggestions((productSearchTerm || '').trim().length > 0)}
+                        onFocus={() => setShowProductSuggestions(true)}
                         onBlur={() => setTimeout(() => setShowProductSuggestions(false), 150)}
                         placeholder={currentItem.purchaseType === 'cylinder' ? 'Type to search cylinders...' : 'Type to search product'}
                         className="h-10 product-search-input"
@@ -1305,6 +1331,36 @@ export function PurchaseManagement() {
                                 }))
                                 setProductSearchTerm(p.name)
                                 setShowProductSuggestions(false)
+                                
+                                // If gas selected, auto-populate cylinder search with transformed name
+                                if (p.category === 'gas') {
+                                  let gasName = p.name.trim()
+                                  // Remove "Gas" prefix if it exists (case-insensitive)
+                                  if (gasName.toLowerCase().startsWith('gas ')) {
+                                    gasName = gasName.substring(4).trim() // Remove "Gas " prefix
+                                  } else if (gasName.toLowerCase().startsWith('gas')) {
+                                    gasName = gasName.substring(3).trim() // Remove "Gas" prefix (no space)
+                                  }
+                                  // Add "Cylinder" prefix
+                                  const cylinderSearchTerm = `Cylinder ${gasName}`
+                                  setCylinderSearchTerm(cylinderSearchTerm)
+                                  setShowCylinderSuggestions(true)
+                                }
+                                
+                                // If full cylinder selected, auto-populate gas search with transformed name
+                                if (p.category === 'cylinder' && currentItem.cylinderStatus === 'full') {
+                                  let cylinderName = p.name.trim()
+                                  // Remove "Cylinder" prefix if it exists (case-insensitive)
+                                  if (cylinderName.toLowerCase().startsWith('cylinder ')) {
+                                    cylinderName = cylinderName.substring(9).trim() // Remove "Cylinder " prefix
+                                  } else if (cylinderName.toLowerCase().startsWith('cylinder')) {
+                                    cylinderName = cylinderName.substring(8).trim() // Remove "Cylinder" prefix (no space)
+                                  }
+                                  // Add "Gas" prefix
+                                  const gasSearchTerm = `Gas ${cylinderName}`
+                                  setGasSearchTerm(gasSearchTerm)
+                                  setShowGasSuggestions(true)
+                                }
                               }}
                               className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
                             >

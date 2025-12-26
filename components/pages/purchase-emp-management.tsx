@@ -1242,7 +1242,7 @@ export function PurchaseManagement() {
                           setProductSearchTerm(v)
                           setShowProductSuggestions(v.trim().length > 0)
                         }}
-                        onFocus={() => setShowProductSuggestions((productSearchTerm || '').trim().length > 0)}
+                        onFocus={() => setShowProductSuggestions(true)}
                         onBlur={() => setTimeout(() => setShowProductSuggestions(false), 150)}
                         placeholder="Type to search product"
                         className="h-10"
@@ -1263,6 +1263,21 @@ export function PurchaseManagement() {
                                 }))
                                 setProductSearchTerm(p.name)
                                 setShowProductSuggestions(false)
+                                
+                                // If gas selected, auto-populate cylinder search with transformed name
+                                if (p.category === 'gas') {
+                                  let gasName = p.name.trim()
+                                  // Remove "Gas" prefix if it exists (case-insensitive)
+                                  if (gasName.toLowerCase().startsWith('gas ')) {
+                                    gasName = gasName.substring(4).trim() // Remove "Gas " prefix
+                                  } else if (gasName.toLowerCase().startsWith('gas')) {
+                                    gasName = gasName.substring(3).trim() // Remove "Gas" prefix (no space)
+                                  }
+                                  // Add "Cylinder" prefix
+                                  const cylinderSearchTerm = `Cylinder ${gasName}`
+                                  setCylinderSearchTerm(cylinderSearchTerm)
+                                  setShowCylinderSuggestions(true)
+                                }
                               }}
                               className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
                             >
@@ -1287,7 +1302,7 @@ export function PurchaseManagement() {
                           setCylinderSearchTerm(v)
                           setShowCylinderSuggestions(v.trim().length > 0)
                         }}
-                        onFocus={() => setShowCylinderSuggestions((cylinderSearchTerm || '').trim().length > 0)}
+                        onFocus={() => setShowCylinderSuggestions(true)}
                         onBlur={() => setTimeout(() => setShowCylinderSuggestions(false), 150)}
                         placeholder="Type to search empty cylinders"
                         className="h-10"
