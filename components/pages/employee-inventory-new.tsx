@@ -69,10 +69,39 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
   const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
   // Track which full cylinder the employee selects when sending gas back
   const [selectedFullCylinder, setSelectedFullCylinder] = useState<Record<string, string>>({})
+  // Track cylinder search terms for each gas item when sending back
+  const [cylinderSearchTerms, setCylinderSearchTerms] = useState<Record<string, string>>({})
+  // Track whether to show suggestions for each gas item when sending back
+  const [showSendBackCylinderSuggestions, setShowSendBackCylinderSuggestions] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     fetchEmployeeInventoryData()
   }, [])
+
+  // Auto-populate cylinder search for gas items when sending back
+  useEffect(() => {
+    const gasItems = receivedStock.filter(item => item.category === 'gas' && item.currentStock > 0)
+    const updates: Record<string, string> = {}
+    gasItems.forEach((item) => {
+      if (item.productName && !cylinderSearchTerms[item._id]) {
+        // Remove "Gas" prefix (case-insensitive) and add "Cylinder" prefix
+        let gasName = item.productName.trim()
+        // Remove "Gas" prefix if it exists (case-insensitive)
+        if (gasName.toLowerCase().startsWith('gas ')) {
+          gasName = gasName.substring(4).trim() // Remove "Gas " prefix
+        } else if (gasName.toLowerCase().startsWith('gas')) {
+          gasName = gasName.substring(3).trim() // Remove "Gas" prefix (no space)
+        }
+        // Add "Cylinder" prefix
+        const cylinderSearchTerm = `Cylinder ${gasName}`
+        updates[item._id] = cylinderSearchTerm
+      }
+    })
+    if (Object.keys(updates).length > 0) {
+      setCylinderSearchTerms(prev => ({ ...prev, ...updates }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receivedStock])
 
   // Listen for stock assignment events
   useEffect(() => {
@@ -784,18 +813,56 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
 
                   {stockType === 'gas' && (
                     <TableCell className="p-4">
-                      <select
-                        className="w-full border border-gray-200 rounded-md px-2 py-2 text-sm"
-                        value={selectedFullCylinder[item._id] || ""}
-                        onChange={(e) => setSelectedFullCylinder(prev => ({ ...prev, [item._id]: e.target.value }))}
-                      >
-                        <option value="">Select full cylinder</option>
-                        {fullCylinderOptions.map(cyl => (
-                          <option key={cyl.productId} value={cyl.productId}>
-                            {cyl.productName} ({cyl.availableFull} full)
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <Input
+                          type="text"
+                          placeholder="Search full cylinder..."
+                          value={cylinderSearchTerms[item._id] || ""}
+                          onChange={(e) => {
+                            const searchTerm = e.target.value
+                            setCylinderSearchTerms(prev => ({ ...prev, [item._id]: searchTerm }))
+                            setShowSendBackCylinderSuggestions(prev => ({ ...prev, [item._id]: true }))
+                            setSelectedFullCylinder(prev => ({ ...prev, [item._id]: "" }))
+                          }}
+                          onFocus={() => setShowSendBackCylinderSuggestions(prev => ({ ...prev, [item._id]: true }))}
+                          onBlur={() => setTimeout(() => setShowSendBackCylinderSuggestions(prev => ({ ...prev, [item._id]: false })), 200)}
+                          className="w-full border border-gray-200 rounded-md px-2 py-2 text-sm"
+                        />
+                        {showSendBackCylinderSuggestions[item._id] && (
+                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                            {fullCylinderOptions
+                              .filter(cyl => {
+                                const searchTerm = (cylinderSearchTerms[item._id] || "").toLowerCase()
+                                return searchTerm.trim().length === 0 || 
+                                  cyl.productName.toLowerCase().includes(searchTerm)
+                              })
+                              .map(cyl => (
+                                <div
+                                  key={cyl.productId}
+                                  className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setSelectedFullCylinder(prev => ({ ...prev, [item._id]: cyl.productId }))
+                                    setCylinderSearchTerms(prev => ({ ...prev, [item._id]: cyl.productName }))
+                                    setShowSendBackCylinderSuggestions(prev => ({ ...prev, [item._id]: false }))
+                                  }}
+                                >
+                                  <div className="font-medium text-gray-900">{cyl.productName}</div>
+                                  <div className="text-xs text-gray-500">Available: {cyl.availableFull} full</div>
+                                </div>
+                              ))}
+                            {fullCylinderOptions.filter(cyl => {
+                              const searchTerm = (cylinderSearchTerms[item._id] || "").toLowerCase()
+                              return searchTerm.trim().length === 0 || 
+                                cyl.productName.toLowerCase().includes(searchTerm)
+                            }).length === 0 && (
+                              <div className="px-4 py-3 text-gray-500 text-center text-sm">
+                                No matching cylinders found
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </TableCell>
                   )}
 
