@@ -2470,7 +2470,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Product</TableHead>
-                          <TableHead>Size</TableHead>
                           <TableHead>Qty</TableHead>
                           <TableHead>Amount (AED)</TableHead>
                           <TableHead className="w-32">Actions</TableHead>
@@ -2480,7 +2479,6 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                         {formData.items.map((it, idx) => (
                           <TableRow key={idx}>
                             <TableCell>{it.productName || products.find(p => p._id === it.productId)?.name || '-'}</TableCell>
-                            <TableCell className="capitalize">{it.cylinderSize || '-'}</TableCell>
                             <TableCell>{it.quantity}</TableCell>
                             <TableCell>AED {(Number(it.amount)||0).toFixed(2)}</TableCell>
                             <TableCell>
@@ -2500,7 +2498,7 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                           </TableRow>
                         ))}
                         <TableRow>
-                          <TableCell colSpan={3} className="text-right font-semibold">Total</TableCell>
+                          <TableCell colSpan={2} className="text-right font-semibold">Total</TableCell>
                           <TableCell className="font-semibold">AED {formData.items.reduce((s, it) => s + ((Number(it.quantity)||0) * (Number(it.amount)||0)), 0).toFixed(2)}</TableCell>
                           <TableCell />
                         </TableRow>
