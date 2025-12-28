@@ -1720,8 +1720,9 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
             const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
             const product = products.find(p => p._id === it.productId)
             const qty = Number(it.quantity) || 0
-            const rowTotal = Number(it.amount) || 0
-            const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
+            // it.amount is the unit price, not the row total
+            const unitPrice = Number(it.amount) || 0
+            const rowTotal = unitPrice * qty
             return {
               product: { name: baseName },
               quantity: qty,
@@ -1793,8 +1794,9 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
       ? itemsSrc.map((it: any) => {
           const baseName = it.productName || products.find(p => p._id === it.productId)?.name || 'Product'
           const qty = Number(it.quantity) || 0
-          const rowTotal = Number(it.amount) || 0
-          const unitPrice = qty > 0 ? rowTotal / qty : rowTotal
+          // it.amount is the unit price, not the row total
+          const unitPrice = Number(it.amount) || 0
+          const rowTotal = unitPrice * qty
           return {
             product: { name: baseName },
             quantity: qty,
