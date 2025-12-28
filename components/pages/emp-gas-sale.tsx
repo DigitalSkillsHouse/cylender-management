@@ -87,6 +87,8 @@ type NormalizedItem = {
   quantity: number
   price: number
   total: number
+  category?: "gas" | "cylinder"
+  cylinderStatus?: "empty" | "full"
 }
 
 interface EmployeeGasSalesProps {
@@ -1016,11 +1018,19 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
               const qty = Number(it.quantity) || 0
               const price = Number(it.price) || (qty > 0 ? (Number(it.total)||0) / qty : Number(it.total)||0)
               const total = Number(it.total) || (price * qty)
-              return { product: { name: pName }, quantity: qty, price, total }
+              // Preserve category from saved item or find from product
+              const category = (it as any).category || (it?.product as any)?.category || (allProducts.find(p=>p._id === (it.product?._id || it.product))?.category) || 'gas'
+              // Preserve cylinderStatus from saved item
+              const cylinderStatus = (it as any).cylinderStatus || (it?.product as any)?.cylinderStatus
+              return { product: { name: pName }, quantity: qty, price, total, category: category as "gas" | "cylinder", cylinderStatus: cylinderStatus as "empty" | "full" | undefined }
             })
           : saleItems.map((it) => {
               const pName = (allProducts || []).find(p => p._id === it.product)?.name || 'Product'
-              return { product: { name: pName }, quantity: Number(it.quantity)||0, price: Number(it.price)||0, total: Number(it.total)||((Number(it.price)||0)*(Number(it.quantity)||0)) }
+              // Preserve category from saleItems
+              const category = it.category || (allProducts.find(p => p._id === it.product)?.category) || 'gas'
+              // Preserve cylinderStatus from saleItems
+              const cylinderStatus = it.cylinderStatus
+              return { product: { name: pName }, quantity: Number(it.quantity)||0, price: Number(it.price)||0, total: Number(it.total)||((Number(it.price)||0)*(Number(it.quantity)||0)), category: category as "gas" | "cylinder", cylinderStatus: cylinderStatus as "empty" | "full" | undefined }
             })
 
         const totalAmt = itemsNormalized.reduce((s: number, it: NormalizedItem) => s + (Number(it.total)||0), 0)
@@ -2200,30 +2210,34 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                 </div>
 
                 {/* Items table */}
-                <div className="w-full overflow-x-auto">
-                  <div className="inline-block min-w-[700px] align-top">
-                    <div className="max-h-[40vh] overflow-y-auto pr-2">
-                      <div className="grid grid-cols-[1fr_2fr_1fr_1.5fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 text-xs font-medium text-gray-600 bg-gray-50 rounded-md mb-2 whitespace-nowrap">
-                        <div>Category</div>
-                        <div>Product</div>
-                        <div>Status</div>
-                        <div>Cylinder</div>
-                        <div>Qty</div>
-                        <div>Price (AED)</div>
-                        <div>Actions</div>
+                <div className="w-full border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <div className="inline-block min-w-full align-top">
+                      {/* Sticky Header */}
+                      <div className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
+                        <div className="grid grid-cols-[120px_200px_100px_180px_80px_120px_160px] gap-3 px-4 py-3 text-sm font-semibold text-gray-700">
+                          <div>Category</div>
+                          <div>Product</div>
+                          <div>Status</div>
+                          <div>Cylinder</div>
+                          <div>Qty</div>
+                          <div>Price (AED)</div>
+                          <div>Actions</div>
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        {formData.items
-                          // Hide auxiliary zero-priced items from the list to avoid confusing users
-                          .filter((it: any) => !(Number((it as any).price || 0) === 0))
-                          .map((it, idx) => {
-                          const p = allProducts.find((ap) => ap._id === it.productId)
-                          return (
-                            <div key={idx} className="grid grid-cols-[1fr_2fr_1fr_1.5fr_1fr_1.2fr_1fr] gap-3 px-2 py-2 border-b last:border-b-0 items-center">
-                              <div className="truncate">{(it as any).category || 'gas'}</div>
-                              <div className="truncate">{p?.name || '-'}</div>
-                              <div className="truncate">
-                                {(() => {
+                      {/* Scrollable Body */}
+                      <div className="max-h-[50vh] overflow-y-auto">
+                        <div className="space-y-0">
+                          {formData.items
+                            // Hide auxiliary zero-priced items from the list to avoid confusing users
+                            .filter((it: any) => !(Number((it as any).price || 0) === 0))
+                            .map((it, idx) => {
+                            const p = allProducts.find((ap) => ap._id === it.productId)
+                            return (
+                              <div key={idx} className="grid grid-cols-[120px_200px_100px_180px_80px_120px_160px] gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 items-center hover:bg-gray-50 transition-colors">
+                                <div className="text-sm truncate" title={(it as any).category || 'gas'}>{(it as any).category || 'gas'}</div>
+                                <div className="text-sm truncate" title={p?.name || '-'}>{p?.name || '-'}</div>
+                                <div className="text-sm truncate" title={(() => {
                                   // Show product status based on category and inventory data
                                   if ((it as any).category === 'gas') {
                                     return 'Gas'
@@ -2237,20 +2251,41 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                                     }
                                   }
                                   return '-'
-                                })()}
+                                })()}>
+                                  {(() => {
+                                    // Show product status based on category and inventory data
+                                    if ((it as any).category === 'gas') {
+                                      return 'Gas'
+                                    } else if ((it as any).category === 'cylinder') {
+                                      if ((it as any).cylinderStatus === 'full') {
+                                        return 'Full'
+                                      } else if ((it as any).cylinderStatus === 'empty') {
+                                        return 'Empty'
+                                      } else {
+                                        return 'Full → Empty'
+                                      }
+                                    }
+                                    return '-'
+                                  })()}
+                                </div>
+                                <div className="text-sm truncate" title={(it as any).cylinderName || '-'}>
+                                  {(it as any).cylinderName || '-'}
+                                </div>
+                                <div className="text-sm font-medium">{Number((it as any).quantity || 0)}</div>
+                                <div className="text-sm font-medium">{Number((it as any).price || 0).toFixed(2)}</div>
+                                <div className="flex gap-2 flex-shrink-0">
+                                  <Button type="button" size="sm" variant="outline" onClick={() => handleEditRow(idx)} className="text-xs">Edit</Button>
+                                  <Button type="button" size="sm" variant="outline" className="text-red-600 text-xs" onClick={() => removeItem(idx)}>Remove</Button>
+                                </div>
                               </div>
-                              <div className="truncate">
-                                {(it as any).cylinderName || '-'}
-                              </div>
-                              <div>{Number((it as any).quantity || 0)}</div>
-                              <div>{Number((it as any).price || 0).toFixed(2)}</div>
-                              <div className="flex gap-2">
-                                <Button type="button" size="sm" variant="outline" onClick={() => handleEditRow(idx)}>Edit</Button>
-                                <Button type="button" size="sm" variant="outline" className="text-red-600" onClick={() => removeItem(idx)}>Remove</Button>
-                              </div>
+                            )
+                          })}
+                          {formData.items.filter((it: any) => !(Number((it as any).price || 0) === 0)).length === 0 && (
+                            <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                              No items added yet. Add items using the form above.
                             </div>
-                          )
-                        })}
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

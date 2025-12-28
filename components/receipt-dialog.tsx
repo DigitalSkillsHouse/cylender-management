@@ -28,6 +28,7 @@ interface ReceiptDialogProps {
       price: number
       total: number
       category?: "gas" | "cylinder"
+      cylinderStatus?: "empty" | "full"
       // Additional fields for collection receipts
       invoiceNumber?: string
       invoiceDate?: string
@@ -444,7 +445,23 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                       ) : (
                         <>
                           <td className="p-2 border">{name}</td>
-                          <td className="text-center p-2 border capitalize">{(item as any)?.category || (item?.product as any)?.category || '-'}</td>
+                          <td className="text-center p-2 border">
+                            {(() => {
+                              const category = (item as any)?.category || (item?.product as any)?.category || '-'
+                              const status = (item as any)?.cylinderStatus
+                              // For cylinders, show status with "Cylinder" (e.g., "Full Cylinder", "Empty Cylinder")
+                              if (category === 'cylinder') {
+                                if (status) {
+                                  // Capitalize first letter and add "Cylinder" (e.g., "empty" -> "Empty Cylinder", "full" -> "Full Cylinder")
+                                  return status.charAt(0).toUpperCase() + status.slice(1) + ' Cylinder'
+                                }
+                                // If no status, just show "Cylinder"
+                                return 'Cylinder'
+                              }
+                              // For gas, show as-is
+                              return category.charAt(0).toUpperCase() + category.slice(1)
+                            })()}
+                          </td>
                           <td className="text-center p-2 border">{qtyNum}</td>
                           {sale?.type === 'rental' && (
                             <td className="text-center p-2 border">{(item as any)?.days || '-'}</td>
