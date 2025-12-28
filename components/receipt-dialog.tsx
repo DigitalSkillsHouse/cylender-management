@@ -447,6 +447,14 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                           <td className="p-2 border">{name}</td>
                           <td className="text-center p-2 border">
                             {(() => {
+                              // For cylinder transactions (deposit/return/refill), show the transaction type with "Empty"
+                              if (sale?.type === 'deposit' || sale?.type === 'return' || sale?.type === 'refill') {
+                                // Capitalize the transaction type and add "Empty" (e.g., "deposit" -> "Deposit Empty", "return" -> "Return Empty")
+                                const typeCapitalized = sale.type.charAt(0).toUpperCase() + sale.type.slice(1)
+                                return `${typeCapitalized} Empty`
+                              }
+                              
+                              // For other transactions, show product category
                               const category = (item as any)?.category || (item?.product as any)?.category || '-'
                               const status = (item as any)?.cylinderStatus
                               // For cylinders, show status with "Cylinder" (e.g., "Full Cylinder", "Empty Cylinder")

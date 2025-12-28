@@ -707,7 +707,7 @@ export function CylinderManagement() {
           y = 52
           doc.setFont('helvetica', 'bold')
           doc.setFontSize(11)
-          doc.text('Cylinder Transactions (cont.)', marginX, y)
+          doc.text(' ', marginX, y)
           y += 10
           doc.setFillColor(43, 48, 104)
           const newHeaderY = y
@@ -759,37 +759,57 @@ export function CylinderManagement() {
         rowIndex++
       }
 
-      // Rows
+      // Rows - show each item separately
       list.forEach((t) => {
         const items = (t as any).items as any[] | undefined
         const hasItems = items && items.length > 0
-        const productOrItems = hasItems
-          ? items!.map((it) => `${it.productName || ''} x${Number(it.quantity)||0} (AED ${(Number(it.amount)||0).toFixed(2)})`).join(' | ')
-          : (t.product?.name || '')
-        const cylSize = hasItems
-          ? items!.map((it) => `${it.cylinderSize || '-'}`).join(' | ')
-          : (t.cylinderSize || '-')
-        const qty = hasItems
-          ? items!.reduce((s, it) => s + (Number(it.quantity)||0), 0)
-          : (t.quantity || 0)
-        const amt = hasItems
-          ? items!.reduce((s, it) => s + (Number(it.amount)||0), 0)
-          : (t.amount || 0)
-        const party = t.customer?.name || t.supplier?.companyName || ''
-        const inv = (t as any).invoiceNumber || ''
-        const row = [
-          t.type,
-          `${productOrItems} / ${cylSize}`,
-          String(qty),
-          Number(amt).toFixed(2),
-          t.depositAmount ? Number(t.depositAmount).toFixed(2) : '',
-          t.returnAmount ? Number(t.returnAmount).toFixed(2) : '',
-          t.paymentMethod || '',
-          t.cashAmount ? Number(t.cashAmount).toFixed(2) : '',
-          t.bankName || '',
-          t.checkNumber || ''
-        ]
-        drawRow(row)
+        
+        if (hasItems && items!.length > 0) {
+          // For multi-item transactions, create a row for each item
+          items!.forEach((it, itemIndex) => {
+            const productName = it.productName || 'Product'
+            const itemQty = Number(it.quantity) || 0
+            const itemAmt = Number(it.amount) || 0
+            const cylSize = it.cylinderSize || '-'
+            
+            // Show transaction type and invoice number only on first item
+            const showTypeAndDetails = itemIndex === 0
+            
+            const row = [
+              showTypeAndDetails ? t.type : '', // Type only on first row
+              `${productName} / ${cylSize}`, // Product name and cylinder size
+              String(itemQty), // Quantity for this item
+              itemAmt.toFixed(2), // Amount for this item
+              showTypeAndDetails ? (t.depositAmount ? Number(t.depositAmount).toFixed(2) : '') : '', // Deposit amount only on first row
+              showTypeAndDetails ? (t.returnAmount ? Number(t.returnAmount).toFixed(2) : '') : '', // Return amount only on first row
+              showTypeAndDetails ? (t.paymentMethod || '') : '', // Payment method only on first row
+              showTypeAndDetails ? (t.cashAmount ? Number(t.cashAmount).toFixed(2) : '') : '', // Security cash only on first row
+              showTypeAndDetails ? (t.bankName || '') : '', // Bank name only on first row
+              showTypeAndDetails ? (t.checkNumber || '') : '' // Check number only on first row
+            ]
+            drawRow(row)
+          })
+        } else {
+          // Single item transaction (backward compatibility)
+          const productName = t.product?.name || ''
+          const cylSize = t.cylinderSize || '-'
+          const qty = t.quantity || 0
+          const amt = t.amount || 0
+          
+          const row = [
+            t.type,
+            `${productName} / ${cylSize}`,
+            String(qty),
+            Number(amt).toFixed(2),
+            t.depositAmount ? Number(t.depositAmount).toFixed(2) : '',
+            t.returnAmount ? Number(t.returnAmount).toFixed(2) : '',
+            t.paymentMethod || '',
+            t.cashAmount ? Number(t.cashAmount).toFixed(2) : '',
+            t.bankName || '',
+            t.checkNumber || ''
+          ]
+          drawRow(row)
+        }
       })
 
       // Add summary table at bottom right
