@@ -76,8 +76,23 @@ export function Inventory() {
   const [showReturnCylinderSuggestions, setShowReturnCylinderSuggestions] = useState(false)
 
   useEffect(() => {
+    // Clear any stale pending returns state on mount
+    setPendingReturns([])
+    
+    // Fetch fresh data from database
     fetchInventoryData()
     fetchPendingReturns()
+  }, [])
+
+  // Refresh pending returns when page regains focus (e.g., after database clear)
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('🔄 [PENDING RETURNS] Page focused, refreshing pending returns...')
+      fetchPendingReturns()
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
   }, [])
 
   // Auto-populate cylinder search when return dialog opens with gas product
@@ -271,18 +286,47 @@ export function Inventory() {
     try {
       console.log('🔍 [PENDING RETURNS] Fetching pending returns from employees')
       
-      const response = await fetch('/api/admin/pending-returns', { cache: 'no-store' })
+      // IMPORTANT: Always fetch fresh from database, never use localStorage or cache
+      // Add cache-busting timestamp and headers to ensure fresh data from database
+      const cacheBust = Date.now()
+      const response = await fetch(`/api/admin/pending-returns?t=${cacheBust}&_=${cacheBust}`, { 
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'X-Requested-With': 'XMLHttpRequest' // Prevent browser caching
+        }
+      })
       
       if (response.ok) {
         const data = await response.json()
-        setPendingReturns(data.pendingReturns || [])
-        console.log('✅ [PENDING RETURNS] Fetched pending returns:', data.pendingReturns?.length || 0)
+        const returns = Array.isArray(data.pendingReturns) ? data.pendingReturns : []
+        
+        // Always set the fresh data from database, never use cached state
+        setPendingReturns(returns)
+        console.log('✅ [PENDING RETURNS] Fetched fresh pending returns from database:', returns.length)
+        
+        // If database was cleared, ensure we don't show stale data
+        if (returns.length === 0) {
+          console.log('✅ [PENDING RETURNS] No pending returns found (database may be cleared)')
+        } else {
+          console.log('📋 [PENDING RETURNS] Return details:', returns.map(r => ({
+            id: r.id,
+            employee: r.employeeName,
+            product: r.productName,
+            date: r.returnDate
+          })))
+        }
       } else {
         console.error('❌ [PENDING RETURNS] Failed to fetch pending returns, status:', response.status)
+        // On error, clear state to avoid showing stale data
         setPendingReturns([])
       }
     } catch (error) {
       console.error('❌ [PENDING RETURNS] Error fetching pending returns:', error)
+      // On error, clear state to avoid showing stale data
       setPendingReturns([])
     }
   }
@@ -370,6 +414,13 @@ export function Inventory() {
       if (response.ok) {
         const responseData = await response.json()
         console.log('✅ [ACCEPT RETURN] Success response:', responseData)
+        
+        // Trigger stock update event to refresh other components (this will cause DSR pages to refetch)
+        // Note: We don't clear localStorage here to preserve offline/fallback functionality
+        // The cache-busting on API calls ensures fresh data is fetched
+        localStorage.setItem('stockUpdated', Date.now().toString())
+        window.dispatchEvent(new Event('stockUpdated'))
+        window.dispatchEvent(new Event('employeeInventoryUpdated'))
         
         // Refresh data
         await fetchInventoryData()

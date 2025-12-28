@@ -986,9 +986,22 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const fetchInventoryData = async () => {
     try {
       // Fetch employee inventory from the correct API that has the data
+      // Add cache-busting to ensure fresh data
+      const cacheBust = Date.now()
+      const cacheHeaders = {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
       const [employeeInventoryRes, stockAssignmentsRes] = await Promise.all([
-        fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`, { cache: 'no-store' }),
-        fetch(`/api/stock-assignments?employeeId=${user.id}`, { cache: 'no-store' })
+        fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${cacheBust}`, { 
+          cache: 'no-store',
+          headers: cacheHeaders
+        }),
+        fetch(`/api/stock-assignments?employeeId=${user.id}&t=${cacheBust}`, { 
+          cache: 'no-store',
+          headers: cacheHeaders
+        })
       ])
       
       const employeeInventoryJson = await employeeInventoryRes.json()
@@ -1376,7 +1389,15 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     try {
       const url = new URL(API_BASE, window.location.origin)
       url.searchParams.set('employeeId', user.id)
-      const res = await fetch(url.toString(), { cache: "no-store" })
+      url.searchParams.set('t', Date.now().toString()) // Cache-busting
+      const res = await fetch(url.toString(), { 
+        cache: "no-store",
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      })
       if (!res.ok) throw new Error("api failed")
       const data = await res.json()
       const items = (data?.data || data?.results || []) as any[]
@@ -1400,9 +1421,28 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       // keep a local mirror for offline viewing
       saveDsrLocal(mapped)
     } catch (e) {
-      // Fallback to local
+      // Fallback to local - but validate it's not stale
       const local = loadDsrLocal()
-      setDsrEntries(local)
+      // Only use local cache if it's recent (within last 24 hours)
+      const now = Date.now()
+      const isStale = local.some((entry: any) => {
+        if (!entry.createdAt) return true
+        const entryTime = new Date(entry.createdAt).getTime()
+        return (now - entryTime) > 24 * 60 * 60 * 1000 // 24 hours
+      })
+      
+      if (isStale) {
+        // Clear stale cache
+        try {
+          localStorage.removeItem(DSR_KEY)
+          console.log('✅ Cleared stale DSR cache from localStorage')
+        } catch (err) {
+          console.warn('Failed to clear stale cache:', err)
+        }
+        setDsrEntries([])
+      } else {
+        setDsrEntries(local)
+      }
     }
   }
 

@@ -129,10 +129,18 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
       console.log('🔍 [EMPLOYEE INVENTORY] Starting fetch for employee:', user.id)
       
       // Fetch employee's pending purchase orders
+      // Add cache-busting timestamp and headers to ensure fresh data
       const pendingUrl = `/api/employee-inventory-new/pending?employeeId=${user.id}&t=${Date.now()}`
       console.log('📡 [PENDING] Fetching from:', pendingUrl)
       
-      const pendingRes = await fetch(pendingUrl, { cache: 'no-store' })
+      const pendingRes = await fetch(pendingUrl, { 
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      })
       console.log('📡 [PENDING] Response status:', pendingRes.status, pendingRes.ok)
       
       if (!pendingRes.ok) {
@@ -146,20 +154,36 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
       console.log('📊 [PENDING] Individual orders:', pendingData.data)
       
       // Fetch employee's pending assignments from admin
+      // Add cache-busting timestamp and headers to ensure fresh data
       const assignmentsUrl = `/api/employee-inventory-new/assignments?employeeId=${user.id}&t=${Date.now()}`
       console.log('📡 [ASSIGNMENTS] Fetching from:', assignmentsUrl)
       
-      const assignmentsRes = await fetch(assignmentsUrl, { cache: 'no-store' })
+      const assignmentsRes = await fetch(assignmentsUrl, { 
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      })
       console.log('📡 [ASSIGNMENTS] Response status:', assignmentsRes.status, assignmentsRes.ok)
       
       const assignmentsData = assignmentsRes.ok ? await assignmentsRes.json() : { data: [] }
       console.log('📊 [ASSIGNMENTS] Data received:', assignmentsData)
       
       // Fetch employee's received inventory stock
+      // Add cache-busting timestamp and headers to ensure fresh data
       const receivedUrl = `/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`
       console.log('📡 [RECEIVED] Fetching from:', receivedUrl)
       
-      const receivedRes = await fetch(receivedUrl, { cache: 'no-store' })
+      const receivedRes = await fetch(receivedUrl, { 
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      })
       console.log('📡 [RECEIVED] Response status:', receivedRes.status, receivedRes.ok)
       
       const receivedData = receivedRes.ok ? await receivedRes.json() : { data: [] }
@@ -407,6 +431,13 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
         
         // Clear the input field
         if (quantityInput) quantityInput.value = ''
+        
+        // Trigger stock update event to refresh other components (this will cause DSR pages to refetch)
+        // Note: We don't clear localStorage here to preserve offline/fallback functionality
+        // The cache-busting on API calls ensures fresh data is fetched
+        localStorage.setItem('stockUpdated', Date.now().toString())
+        window.dispatchEvent(new Event('stockUpdated'))
+        window.dispatchEvent(new Event('employeeInventoryUpdated'))
         
         // Refresh inventory data
         await fetchEmployeeInventoryData()

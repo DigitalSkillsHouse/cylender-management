@@ -138,6 +138,16 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     }
   }
 
+  // Clear localStorage cache for DSR entries
+  const clearDsrCache = () => {
+    try {
+      localStorage.removeItem('dsr-entries')
+      console.log('✅ DSR cache cleared from localStorage')
+    } catch (e) {
+      console.warn('Failed to clear DSR cache:', e)
+    }
+  }
+
   // Fetch employees for employee DSR
   const fetchEmployees = async () => {
     try {
@@ -165,10 +175,19 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
     setEmployeeLoading(true)
     try {
       // Fetch stored DSR records (for opening/closing values)
+      // Add cache-busting to ensure fresh data from database
       const storedDsrUrl = new URL('/api/employee-daily-stock-reports', window.location.origin)
       storedDsrUrl.searchParams.set('employeeId', employeeId)
       storedDsrUrl.searchParams.set('date', date)
-      const storedDsrRes = await fetch(storedDsrUrl.toString(), { cache: 'no-store' })
+      storedDsrUrl.searchParams.set('t', Date.now().toString())
+      const storedDsrRes = await fetch(storedDsrUrl.toString(), { 
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      })
       const storedDsrJson = await storedDsrRes.json()
       const storedList: any[] = Array.isArray(storedDsrJson)
         ? storedDsrJson
@@ -179,9 +198,17 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
             : []
       
       // Fetch employee inventory to show all cylinder products (even without sales)
+      // Add cache-busting timestamp to ensure fresh data
       let inventoryData: any[] = []
       try {
-        const inventoryRes = await fetch(`/api/employee-inventory-new/received?employeeId=${employeeId}`, { cache: 'no-store' })
+        const inventoryRes = await fetch(`/api/employee-inventory-new/received?employeeId=${employeeId}&t=${Date.now()}`, { 
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        })
         if (inventoryRes.ok) {
           const inventoryJson = await inventoryRes.json()
           inventoryData = inventoryJson?.data || []
@@ -193,7 +220,14 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       // If inventory API fails, try old API
       if (inventoryData.length === 0) {
         try {
-          const oldInventoryRes = await fetch(`/api/employee-inventory-items?employeeId=${employeeId}`, { cache: 'no-store' })
+          const oldInventoryRes = await fetch(`/api/employee-inventory-items?employeeId=${employeeId}&t=${Date.now()}`, { 
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          })
           if (oldInventoryRes.ok) {
             const oldInventoryJson = await oldInventoryRes.json()
             inventoryData = oldInventoryJson?.data || []
@@ -204,13 +238,38 @@ export function DailyStockReport({ user }: DailyStockReportProps) {
       }
       
       // Fetch actual employee transaction data for the date
+      // Add cache-busting to all API calls to ensure fresh data
+      const cacheBust = Date.now()
+      const cacheHeaders = {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
       const [salesRes, cylinderRes, refillRes, empStockEmpRes, stockAssignmentsRes, purchaseRes] = await Promise.all([
-        fetch(`/api/daily-employee-sales?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
-        fetch(`/api/daily-employee-cylinder-aggregation?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
-        fetch(`/api/daily-refills?employeeId=${employeeId}&date=${date}`, { cache: 'no-store' }),
-        fetch(`/api/emp-stock-emp?employeeId=${employeeId}`, { cache: 'no-store' }),
-        fetch(`/api/stock-assignments?employeeId=${employeeId}`, { cache: 'no-store' }),
-        fetch(`/api/daily-cylinder-transactions?date=${date}&employeeId=${employeeId}`, { cache: 'no-store' })
+        fetch(`/api/daily-employee-sales?employeeId=${employeeId}&date=${date}&t=${cacheBust}`, { 
+          cache: 'no-store',
+          headers: cacheHeaders
+        }),
+        fetch(`/api/daily-employee-cylinder-aggregation?employeeId=${employeeId}&date=${date}&t=${cacheBust}`, { 
+          cache: 'no-store',
+          headers: cacheHeaders
+        }),
+        fetch(`/api/daily-refills?employeeId=${employeeId}&date=${date}&t=${cacheBust}`, { 
+          cache: 'no-store',
+          headers: cacheHeaders
+        }),
+        fetch(`/api/emp-stock-emp?employeeId=${employeeId}&t=${cacheBust}`, { 
+          cache: 'no-store',
+          headers: cacheHeaders
+        }),
+        fetch(`/api/stock-assignments?employeeId=${employeeId}&t=${cacheBust}`, { 
+          cache: 'no-store',
+          headers: cacheHeaders
+        }),
+        fetch(`/api/daily-cylinder-transactions?date=${date}&employeeId=${employeeId}&t=${cacheBust}`, { 
+          cache: 'no-store',
+          headers: cacheHeaders
+        })
       ])
       
       const salesJson = await salesRes.json()
