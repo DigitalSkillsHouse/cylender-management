@@ -219,7 +219,7 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         case "rental-collection":
           return <RentalCollection user={user} />
         case "employee-purchases":
-          return <EmployeePurchaseManagement />
+          return <EmployeePurchaseManagement user={user} />
         case "dashboard":
         default:
           return <EmployeeDashboard user={user} setUnreadCount={setUnreadCount} />

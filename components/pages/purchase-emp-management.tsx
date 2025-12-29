@@ -52,7 +52,11 @@ interface PurchaseItem {
   emptyCylinderName?: string
 }
 
-export function PurchaseManagement() {
+interface PurchaseManagementProps {
+  user: { id: string; email: string; role: "admin" | "employee"; name: string }
+}
+
+export function PurchaseManagement({ user }: PurchaseManagementProps) {
   // --- Employee Purchase Orders Filters & PDF State ---
   const [showDateFilters, setShowDateFilters] = useState(false);
   const [fromDate, setFromDate] = useState("");
@@ -607,16 +611,10 @@ export function PurchaseManagement() {
       
       // Fetch employee's empty cylinders from inventory
       try {
-        // Check both localStorage and sessionStorage for user data
-        let userInfo = typeof window !== 'undefined' ? localStorage.getItem('user') : null
-        if (!userInfo && typeof window !== 'undefined') {
-          userInfo = sessionStorage.getItem('user')
-        }
-        if (userInfo) {
-          const currentUser = JSON.parse(userInfo)
-          if (currentUser?.id) {
-            // Fetch from employee received inventory to get current inventory
-            const employeeInventoryRes = await fetch(`/api/employee-inventory-new/received?employeeId=${currentUser.id}&t=${Date.now()}`)
+        // Use user prop instead of reading from storage to prevent data leakage
+        if (user?.id) {
+          // Fetch from employee received inventory to get current inventory
+          const employeeInventoryRes = await fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`)
             if (employeeInventoryRes.ok) {
               const inventoryData = await employeeInventoryRes.json()
               const inventoryItems = inventoryData.data || []
@@ -666,20 +664,16 @@ export function PurchaseManagement() {
         // Client-side safety filter: If we somehow got other employees' orders, filter them out
         // This is a belt-and-suspenders approach in case the API filter fails
         try {
-          // Get current user info from localStorage or other source if available
-          const userInfo = typeof window !== 'undefined' ? localStorage.getItem('user') : null
-          if (userInfo) {
-            const currentUser = JSON.parse(userInfo)
-            if (currentUser?.id) {
-              const beforeCount = finalData.length
-              finalData = finalData.filter((order: any) => {
-                const orderEmployeeId = order.employee?._id || order.employee
-                return orderEmployeeId === currentUser.id
-              })
-              const afterCount = finalData.length
-              if (beforeCount !== afterCount) {
-                console.warn(`Filtered out ${beforeCount - afterCount} orders that don't belong to current employee`)
-              }
+          // Use user prop instead of reading from storage to prevent data leakage
+          if (user?.id) {
+            const beforeCount = finalData.length
+            finalData = finalData.filter((order: any) => {
+              const orderEmployeeId = order.employee?._id || order.employee
+              return orderEmployeeId === user.id
+            })
+            const afterCount = finalData.length
+            if (beforeCount !== afterCount) {
+              console.warn(`Filtered out ${beforeCount - afterCount} orders that don't belong to current employee`)
             }
           }
         } catch (filterError) {

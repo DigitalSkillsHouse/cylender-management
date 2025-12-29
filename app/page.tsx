@@ -26,30 +26,27 @@ export default function Home() {
 
   const checkAuthStatus = async () => {
     try {
-      // Check if user data exists in sessionStorage first
-      const savedUser = sessionStorage.getItem("user")
-      if (savedUser) {
-        setUser(JSON.parse(savedUser))
-        setLoading(false)
-        return
-      }
-
-      // If no sessionStorage, try to validate with server using cookie
+      // Always validate with server first using HTTP-only cookie
+      // This ensures we get the correct user data and prevents data leakage between admin/employee sessions
       const response = await fetch('/api/auth/validate', {
         method: 'GET',
         credentials: 'include', // Include cookies
+        cache: 'no-store', // Prevent browser caching
       })
       
       if (response.ok) {
         const data = await response.json()
         if (data.user) {
           setUser(data.user)
-          // Save to sessionStorage for faster subsequent loads
-          sessionStorage.setItem("user", JSON.stringify(data.user))
+          // User data is now managed by server cookie only, not client-side storage
         }
+      } else {
+        // No valid session, clear any stale state
+        setUser(null)
       }
     } catch (error) {
       console.log("No valid user session")
+      setUser(null)
     } finally {
       setLoading(false)
     }
@@ -60,9 +57,8 @@ export default function Home() {
       const response = await authAPI.login(email, password, userType)
       const userData = response.data.user
       setUser(userData)
-
-      // Save user data to sessionStorage to persist across page refreshes
-      sessionStorage.setItem("user", JSON.stringify(userData))
+      // User data is managed by HTTP-only cookie set by server, not client-side storage
+      // This prevents data leakage between admin and employee sessions
     } catch (error: any) {
       const errorMessage = error.response?.data?.error || "Login failed. Please check your credentials."
       alert(errorMessage)
@@ -73,11 +69,12 @@ export default function Home() {
   const handleLogout = async () => {
     try {
       await authAPI.logout()
+      // Server clears the HTTP-only cookie, so no need to clear client-side storage
     } catch (error) {
       console.error("Logout error:", error)
     } finally {
       setUser(null)
-      sessionStorage.removeItem("user")
+      // No sessionStorage to clear - authentication is cookie-based only
     }
   }
 
