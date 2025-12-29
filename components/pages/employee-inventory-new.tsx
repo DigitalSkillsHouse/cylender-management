@@ -438,6 +438,8 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
         localStorage.setItem('stockUpdated', Date.now().toString())
         window.dispatchEvent(new Event('stockUpdated'))
         window.dispatchEvent(new Event('employeeInventoryUpdated'))
+        // Trigger notification refresh (event-driven, no polling needed)
+        window.dispatchEvent(new Event('notification-refresh'))
         
         // Refresh inventory data
         await fetchEmployeeInventoryData()

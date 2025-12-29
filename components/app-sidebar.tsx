@@ -186,7 +186,18 @@ export function AppSidebar({ currentPage, onPageChange, user, onLogout, unreadCo
 
   useEffect(() => {
     if (user?.id) {
+      // Only fetch once on mount - no continuous polling
       fetchNotifications()
+
+      // Listen for custom events to refresh notifications (event-driven)
+      const handleNotificationEvent = () => {
+        fetchNotifications()
+      }
+      window.addEventListener('notification-refresh', handleNotificationEvent)
+
+      return () => {
+        window.removeEventListener('notification-refresh', handleNotificationEvent)
+      }
     }
   }, [user?.id])
 

@@ -33,7 +33,8 @@ export async function GET(request) {
       query.isRead = false;
     }
 
-    console.log('📋 [NOTIFICATIONS API] Fetching notifications with query:', JSON.stringify(query, null, 2))
+    // Removed verbose logging to reduce console spam - only log in development if needed
+    // console.log('📋 [NOTIFICATIONS API] Fetching notifications with query:', JSON.stringify(query, null, 2))
     
     const notifications = await Notification.find(query)
       .populate("sender", "name")
@@ -60,7 +61,8 @@ export async function GET(request) {
       })
     )
 
-    console.log(`✅ [NOTIFICATIONS API] Found ${notifications.length} notifications for user ${userId}`)
+    // Removed verbose logging - only log errors
+    // console.log(`✅ [NOTIFICATIONS API] Found ${notifications.length} notifications for user ${userId}`)
     
     return NextResponse.json(notificationsWithStatus);
   } catch (error) {

@@ -34,15 +34,19 @@ export function NotificationPopup({ user }: NotificationPopupProps) {
     // Only show popups for employees
     if (user.role !== "employee") return
 
-    // Check for new notifications every 5 seconds
-    const interval = setInterval(() => {
-      checkForNewNotifications()
-    }, 5000)
-
-    // Initial check
+    // Initial check on mount only - no continuous polling
+    // Notifications will be checked when user navigates or after actions
     checkForNewNotifications()
 
-    return () => clearInterval(interval)
+    // Listen for custom events to refresh notifications (event-driven)
+    const handleNotificationEvent = () => {
+      checkForNewNotifications()
+    }
+    window.addEventListener('notification-refresh', handleNotificationEvent)
+
+    return () => {
+      window.removeEventListener('notification-refresh', handleNotificationEvent)
+    }
   }, [user.id, user.role])
 
   const checkForNewNotifications = async () => {
