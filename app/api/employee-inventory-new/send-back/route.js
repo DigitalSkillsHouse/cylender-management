@@ -5,6 +5,8 @@ import Product from "@/models/Product"
 import ReturnTransaction from "@/models/ReturnTransaction"
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction"
 import DailyEmployeeCylinderAggregation from "@/models/DailyEmployeeCylinderAggregation"
+import Notification from "@/models/Notification"
+import User from "@/models/User"
 import { getNextInvoiceNumberWithRetry } from "@/lib/invoice-generator"
 
 export async function POST(request) {
@@ -154,10 +156,41 @@ export async function POST(request) {
     // Update DSR tracking for transfers (use cylinder product for gas transfers)
     await updateDSRForTransfer(employeeId, targetProductId, targetProductName, stockType, quantity)
 
-    // TODO: You might want to:
-    // 1. Add the returned items back to admin inventory
-    // 2. Send notifications to admin about returned items
-    // 3. Create audit logs for inventory movements
+    // Send notification to admin about the stock return
+    try {
+      // Find admin user to send notification
+      const adminUser = await User.findOne({ role: 'admin' })
+      if (adminUser) {
+        // Get employee name for notification
+        const employeeUser = await User.findById(employeeId)
+        const employeeName = employeeUser?.name || 'Employee'
+        
+        await Notification.create({
+          recipient: adminUser._id,
+          sender: employeeId,
+          type: "stock_returned",
+          title: "Stock Return Request",
+          message: `${employeeName} has sent back ${quantity} ${stockType} of ${inventoryItem.product?.name || 'product'}. Please review and accept in Pending Returns.`,
+          relatedId: returnTransaction._id,
+          isRead: false
+        })
+        
+        console.log('✅ Notification created for admin about stock return:', {
+          adminId: adminUser._id.toString(),
+          employeeId: employeeId,
+          productName: inventoryItem.product?.name,
+          quantity: quantity,
+          stockType: stockType
+        })
+      } else {
+        console.warn('⚠️ No admin user found to send notification to')
+      }
+    } catch (notificationError) {
+      console.error('❌ Failed to create notification for admin:', notificationError)
+      console.error('❌ Notification error details:', notificationError.message)
+      console.error('❌ Notification error stack:', notificationError.stack)
+      // Don't fail the whole request if notification fails
+    }
 
     return NextResponse.json({ 
       success: true, 

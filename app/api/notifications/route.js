@@ -1,5 +1,6 @@
 import dbConnect from "@/lib/mongodb";
 import Notification from "@/models/Notification";
+import ReturnTransaction from "@/models/ReturnTransaction";
 import { NextResponse } from "next/server";
 
 export async function GET(request) {
@@ -23,7 +24,7 @@ export async function GET(request) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
     }
 
-    // Build query object
+    // Build query object - Mongoose will auto-convert string userId to ObjectId
     const query = { recipient: userId };
     if (type) {
       query.type = type;
@@ -32,12 +33,36 @@ export async function GET(request) {
       query.isRead = false;
     }
 
+    console.log('📋 [NOTIFICATIONS API] Fetching notifications with query:', JSON.stringify(query, null, 2))
+    
     const notifications = await Notification.find(query)
       .populate("sender", "name")
       .sort({ createdAt: -1 })
       .limit(50);
 
-    return NextResponse.json(notifications);
+    // For stock_returned notifications, also fetch the related return transaction status
+    const notificationsWithStatus = await Promise.all(
+      notifications.map(async (notification) => {
+        if (notification.type === 'stock_returned' && notification.relatedId) {
+          try {
+            const returnTx = await ReturnTransaction.findById(notification.relatedId)
+            const notificationObj = notification.toObject()
+            notificationObj.returnStatus = returnTx?.status || 'unknown' // 'pending' or 'received'
+            return notificationObj
+          } catch (error) {
+            console.error('Failed to fetch return transaction status:', error)
+            const notificationObj = notification.toObject()
+            notificationObj.returnStatus = 'unknown'
+            return notificationObj
+          }
+        }
+        return notification.toObject()
+      })
+    )
+
+    console.log(`✅ [NOTIFICATIONS API] Found ${notifications.length} notifications for user ${userId}`)
+    
+    return NextResponse.json(notificationsWithStatus);
   } catch (error) {
     console.error("Notifications GET error:", error);
     return NextResponse.json(

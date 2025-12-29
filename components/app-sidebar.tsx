@@ -119,6 +119,11 @@ const adminMenuItems = [
     url: "profit-loss",
     icon: TrendingUp,
   },
+  {
+    title: "Notifications",
+    url: "notifications",
+    icon: Bell,
+  },
 ]
 
 const employeeMenuItems = [

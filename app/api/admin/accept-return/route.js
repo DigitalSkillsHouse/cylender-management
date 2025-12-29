@@ -5,6 +5,7 @@ import InventoryItem from "@/models/InventoryItem"
 import EmpStockEmp from "@/models/EmpStockEmp"
 import Product from "@/models/Product"
 import User from "@/models/User"
+import Notification from "@/models/Notification"
 import mongoose from "mongoose"
 import { getLocalDateString } from "@/lib/date-utils"
 
@@ -279,6 +280,25 @@ export async function POST(request) {
     await returnTransaction.save()
 
     console.log('✅ Return transaction updated to received status')
+
+    // Update related notification to mark it as read (to keep history but show it was received)
+    try {
+      await Notification.updateMany(
+        { 
+          relatedId: returnTransaction._id,
+          type: 'stock_returned',
+          recipient: actualAdminId
+        },
+        { 
+          isRead: true,
+          message: `${returnTransaction.employee?.name || 'Employee'} sent back ${returnTransaction.quantity} ${returnTransaction.stockType} of ${returnTransaction.product?.name || 'product'} - RECEIVED`
+        }
+      )
+      console.log('✅ Notification marked as received for return transaction:', returnTransaction._id)
+    } catch (notificationError) {
+      console.error('⚠️ Failed to update notification:', notificationError)
+      // Don't fail the request if notification update fails
+    }
 
     return NextResponse.json({ 
       success: true, 

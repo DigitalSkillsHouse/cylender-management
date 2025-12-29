@@ -255,6 +255,8 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         return <CollectionPage user={user} />
       case "rental-collection":
         return <RentalCollection user={user} />
+      case "notifications":
+        return <Notifications user={user} setUnreadCount={setUnreadCount} />
       default:
         return <Dashboard />
     }
@@ -284,7 +286,7 @@ export function MainLayout({ user, onLogout }: MainLayoutProps) {
         <main className="flex-1 overflow-auto">
           <div className="pt-16 lg:pt-0 p-3 sm:p-4 lg:p-6 xl:p-8">{renderPage()}</div>
         </main>
-        {/* Global notification popup for employees */}
+        {/* Global notification popup for both admin and employees */}
         <NotificationPopup user={user} />
         
         {/* Logout confirmation popup */}

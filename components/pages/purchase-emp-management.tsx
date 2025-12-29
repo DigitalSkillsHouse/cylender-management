@@ -644,7 +644,6 @@ export function PurchaseManagement({ user }: PurchaseManagementProps) {
               setEmptyCylinders(emptyCylinderItems)
             }
           }
-        }
       } catch (cylinderError) {
         console.warn('Failed to load empty cylinders:', cylinderError)
         setEmptyCylinders([])

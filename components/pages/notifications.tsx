@@ -106,9 +106,22 @@ export function Notifications({ user, setUnreadCount }: NotificationsProps) {
                 }`}
               >
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
                     <h3 className="font-semibold text-gray-900">{notification.title}</h3>
                     {!notification.isRead && <Badge className="bg-[#2B3068] text-white text-xs">New</Badge>}
+                    {notification.type === 'stock_returned' && notification.returnStatus && (
+                      <Badge 
+                        className={`text-xs ${
+                          notification.returnStatus === 'pending' 
+                            ? 'bg-yellow-500 text-white' 
+                            : notification.returnStatus === 'received' 
+                            ? 'bg-green-500 text-white' 
+                            : 'bg-gray-500 text-white'
+                        }`}
+                      >
+                        {notification.returnStatus === 'pending' ? 'Pending' : notification.returnStatus === 'received' ? 'Received' : 'Unknown'}
+                      </Badge>
+                    )}
                     <Badge variant="outline" className="text-xs capitalize">
                       {notification.type.replace("_", " ")}
                     </Badge>
@@ -129,6 +142,7 @@ export function Notifications({ user, setUnreadCount }: NotificationsProps) {
                       onClick={() => markAsRead(notification._id)}
                       className="border-[#2B3068] text-[#2B3068] hover:bg-[#2B3068] hover:text-white"
                       disabled={markingId === notification._id || deletingId === notification._id}
+                      title="Mark as read"
                     >
                       {markingId === notification._id ? (
                         <span className="animate-spin"><Check className="w-4 h-4" /></span>
@@ -143,6 +157,7 @@ export function Notifications({ user, setUnreadCount }: NotificationsProps) {
                     onClick={() => deleteNotification(notification._id)}
                     className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
                     disabled={deletingId === notification._id || markingId === notification._id}
+                    title="Delete notification"
                   >
                     {deletingId === notification._id ? (
                       <span className="animate-spin"><Trash2 className="w-4 h-4" /></span>
