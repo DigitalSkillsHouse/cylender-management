@@ -664,11 +664,11 @@ export function CylinderManagement() {
 
       // Define columns (only specified columns)
       const headers = [
-        'Type','Product Items / Cylinder Size','Quantity','Amount',
+        'Type','Product Items / Cylinder Size','Quantity',
         'Deposit Amount','Return Amount','Payment Method','Security Cash','Bank Name','Check Number'
       ]
       let colWidths = [
-        35, 150, 40, 50,
+        35, 150, 40,
         65, 65, 70, 65, 80, 85
       ]
       
@@ -779,7 +779,6 @@ export function CylinderManagement() {
               showTypeAndDetails ? t.type : '', // Type only on first row
               `${productName} / ${cylSize}`, // Product name and cylinder size
               String(itemQty), // Quantity for this item
-              itemAmt.toFixed(2), // Amount for this item
               showTypeAndDetails ? (t.depositAmount ? Number(t.depositAmount).toFixed(2) : '') : '', // Deposit amount only on first row
               showTypeAndDetails ? (t.returnAmount ? Number(t.returnAmount).toFixed(2) : '') : '', // Return amount only on first row
               showTypeAndDetails ? (t.paymentMethod || '') : '', // Payment method only on first row
@@ -800,7 +799,6 @@ export function CylinderManagement() {
             t.type,
             `${productName} / ${cylSize}`,
             String(qty),
-            Number(amt).toFixed(2),
             t.depositAmount ? Number(t.depositAmount).toFixed(2) : '',
             t.returnAmount ? Number(t.returnAmount).toFixed(2) : '',
             t.paymentMethod || '',
