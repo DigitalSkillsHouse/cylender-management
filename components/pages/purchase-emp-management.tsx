@@ -613,7 +613,7 @@ export function PurchaseManagement({ user }: PurchaseManagementProps) {
       try {
         // Use user prop instead of reading from storage to prevent data leakage
         if (user?.id) {
-          // Fetch from employee received inventory to get current inventory
+            // Fetch from employee received inventory to get current inventory
           const employeeInventoryRes = await fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`)
             if (employeeInventoryRes.ok) {
               const inventoryData = await employeeInventoryRes.json()
@@ -642,8 +642,8 @@ export function PurchaseManagement({ user }: PurchaseManagementProps) {
               })
               
               setEmptyCylinders(emptyCylinderItems)
-            }
           }
+        }
       } catch (cylinderError) {
         console.warn('Failed to load empty cylinders:', cylinderError)
         setEmptyCylinders([])
@@ -665,14 +665,14 @@ export function PurchaseManagement({ user }: PurchaseManagementProps) {
         try {
           // Use user prop instead of reading from storage to prevent data leakage
           if (user?.id) {
-            const beforeCount = finalData.length
-            finalData = finalData.filter((order: any) => {
-              const orderEmployeeId = order.employee?._id || order.employee
+              const beforeCount = finalData.length
+              finalData = finalData.filter((order: any) => {
+                const orderEmployeeId = order.employee?._id || order.employee
               return orderEmployeeId === user.id
-            })
-            const afterCount = finalData.length
-            if (beforeCount !== afterCount) {
-              console.warn(`Filtered out ${beforeCount - afterCount} orders that don't belong to current employee`)
+              })
+              const afterCount = finalData.length
+              if (beforeCount !== afterCount) {
+                console.warn(`Filtered out ${beforeCount - afterCount} orders that don't belong to current employee`)
             }
           }
         } catch (filterError) {

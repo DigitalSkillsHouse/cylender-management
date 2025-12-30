@@ -522,13 +522,29 @@ export function GasSales() {
         }).join(' | ')
         const addedBy = s.employee?.name ? `Employee: ${s.employee.name}` : 'Admin'
         const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleString() : ''
-        const totalStr = ((s as any).totalAmount ?? 0).toFixed ? (s as any).totalAmount.toFixed(2) : String((s as any).totalAmount || 0)
-        const receivedStr = ((s as any).receivedAmount ?? 0).toFixed ? (s as any).receivedAmount.toFixed(2) : String((s as any).receivedAmount || 0)
+        const totalAmount = Number((s as any).totalAmount || 0)
+        const receivedAmount = Number((s as any).receivedAmount || 0)
+        const paymentMethod = (s.paymentMethod || '').toLowerCase()
+        
+        // For credit sales, amount goes in Credit column, Debit should be 0
+        // For debit/cash sales, amount goes in Debit column, received goes in Credit
+        let debitStr = '0.00'
+        let creditStr = '0.00'
+        
+        if (paymentMethod === 'credit') {
+          // Credit sales: total amount in Credit column
+          creditStr = totalAmount.toFixed(2)
+        } else {
+          // Debit/cash sales: total in Debit, received in Credit
+          debitStr = totalAmount.toFixed(2)
+          creditStr = receivedAmount.toFixed(2)
+        }
+        
         const row = [
           s.invoiceNumber || '',
           itemsDesc,
-          totalStr,   // Debit
-          receivedStr, // Credit
+          debitStr,   // Debit
+          creditStr, // Credit
           s.paymentMethod || '',
           s.paymentStatus || '',
           s.notes || '',
