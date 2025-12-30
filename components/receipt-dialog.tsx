@@ -425,13 +425,36 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                     if (!invoiceNumber && sale?.invoiceNumber) {
                       invoiceNumber = sale.invoiceNumber
                     }
-                    invoiceNumber = invoiceNumber || '-'
+                    const actualInvoiceNumber = invoiceNumber || '-'
+                    
+                    // For collection receipts, show invoice number only on first item with that number
+                    let displayInvoiceNumber = actualInvoiceNumber
+                    if (sale?.type === 'collection') {
+                      // Check if this invoice number was already shown in a previous item
+                      const previousItem = index > 0 ? itemsSafe[index - 1] : null
+                      if (previousItem) {
+                        let prevInvoiceNumber = previousItem.invoiceNumber
+                        if (!prevInvoiceNumber && previousItem.product?.name && previousItem.product.name.includes('Invoice #')) {
+                          const parts = previousItem.product.name.split('Invoice #')
+                          if (parts.length > 1) {
+                            prevInvoiceNumber = parts[1].split(' ')[0].trim()
+                          }
+                        }
+                        if (!prevInvoiceNumber && sale?.invoiceNumber) {
+                          prevInvoiceNumber = sale.invoiceNumber
+                        }
+                        // If previous item has the same invoice number, show "-" instead
+                        if (prevInvoiceNumber === actualInvoiceNumber && actualInvoiceNumber !== '-') {
+                          displayInvoiceNumber = '-'
+                        }
+                      }
+                    }
                     
                     return (
                     <tr key={index} className="border-b h-5">
                       {sale?.type === 'collection' ? (
                         <>
-                          <td className="p-2 border">{invoiceNumber}</td>
+                          <td className="p-2 border">{displayInvoiceNumber}</td>
                           <td className="text-center p-2 border">{
                             // Use the invoice date from the item data, or fall back to sale date
                             item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString() : 
