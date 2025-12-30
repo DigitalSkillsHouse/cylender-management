@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "@/hooks/use-toast"
 import { format } from "date-fns"
-import { Printer, RefreshCcw, FileText, Download } from "lucide-react"
+import { Printer, RefreshCcw, FileText, Download, ChevronDown, ChevronRight } from "lucide-react"
 import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 
@@ -104,6 +104,7 @@ export function CollectionPage({ user }: CollectionPageProps) {
   const [filteredCustomers, setFilteredCustomers] = useState<any[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<{ _id: string; name: string; phone?: string } | null>(null)
   const [collectedInvoiceSearch, setCollectedInvoiceSearch] = useState("")
+  const [expandedRcNos, setExpandedRcNos] = useState<Set<string>>(new Set())
   
   // Payment collection dialog state
   const [paymentDialog, setPaymentDialog] = useState({
@@ -287,9 +288,64 @@ export function CollectionPage({ user }: CollectionPageProps) {
     }
     const searchTerm = collectedInvoiceSearch.toLowerCase().trim()
     return collectedInvoices.filter((inv) => 
-      inv.invoiceNumber.toLowerCase().includes(searchTerm)
+      inv.invoiceNumber.toLowerCase().includes(searchTerm) ||
+      (inv.rcNo && inv.rcNo.toLowerCase().includes(searchTerm))
     )
   }, [collectedInvoices, collectedInvoiceSearch])
+
+  // Group collected invoices by rcNo
+  const groupedByRcNo = useMemo(() => {
+    const groups: Record<string, PendingInvoice[]> = {}
+    const noRcNoGroup: PendingInvoice[] = []
+    
+    filteredCollectedInvoices.forEach((inv) => {
+      const rcNo = inv.rcNo || ''
+      if (rcNo) {
+        if (!groups[rcNo]) {
+          groups[rcNo] = []
+        }
+        groups[rcNo].push(inv)
+      } else {
+        noRcNoGroup.push(inv)
+      }
+    })
+    
+    // Convert to array and sort by rcNo (newest first, then invoices without rcNo)
+    const groupedArray = Object.entries(groups)
+      .map(([rcNo, invoices]) => ({
+        rcNo,
+        invoices: invoices.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      }))
+      .sort((a, b) => {
+        // Extract number from RC-NO-0001 format for sorting
+        const numA = parseInt(a.rcNo.replace(/\D/g, '')) || 0
+        const numB = parseInt(b.rcNo.replace(/\D/g, '')) || 0
+        return numB - numA // Descending order (newest first)
+      })
+    
+    // Add invoices without rcNo at the end
+    if (noRcNoGroup.length > 0) {
+      groupedArray.push({
+        rcNo: '',
+        invoices: noRcNoGroup.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      })
+    }
+    
+    return groupedArray
+  }, [filteredCollectedInvoices])
+
+  // Toggle expand/collapse for rcNo groups
+  const toggleRcNoGroup = (rcNo: string) => {
+    setExpandedRcNos((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(rcNo)) {
+        newSet.delete(rcNo)
+      } else {
+        newSet.add(rcNo)
+      }
+      return newSet
+    })
+  }
 
   // Group by customer for list-wise display
   const groupedByCustomer = useMemo(() => {
@@ -962,7 +1018,8 @@ export function CollectionPage({ user }: CollectionPageProps) {
                 <table className="w-full min-w-[800px] text-sm">
                   <thead>
                     <tr className="bg-gray-100">
-                      <th className="text-left p-2">Invoice Number</th>
+                      <th className="text-left p-2 w-8"></th>
+                      <th className="text-left p-2">Receipt/Invoice Number</th>
                       <th className="text-left p-2">Source</th>
                       <th className="text-left p-2">Items Summary</th>
                       <th className="text-right p-2">Total Amount (AED)</th>
@@ -974,47 +1031,147 @@ export function CollectionPage({ user }: CollectionPageProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCollectedInvoices.map((inv) => {
-                      const itemsSummary = inv.items && inv.items.length > 0 
-                        ? inv.items.map(item => `${item.product.name} (${item.quantity})`).join(', ')
-                        : 'No items'
+                    {groupedByRcNo.map((group) => {
+                      const isExpanded = expandedRcNos.has(group.rcNo)
+                      const hasMultipleInvoices = group.invoices.length > 1
+                      const groupTotal = group.invoices.reduce((sum, inv) => sum + inv.totalAmount, 0)
+                      const groupReceived = group.invoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
+                      const groupBalance = group.invoices.reduce((sum, inv) => sum + inv.balance, 0)
                       
+                      // If only one invoice in group, show it directly (no grouping needed)
+                      if (!hasMultipleInvoices && !group.rcNo) {
+                        const inv = group.invoices[0]
+                        const itemsSummary = inv.items && inv.items.length > 0 
+                          ? inv.items.map(item => `${item.product.name} (${item.quantity})`).join(', ')
+                          : 'No items'
+                        
+                        return (
+                          <tr key={inv._id} className="border-b hover:bg-gray-50">
+                            <td className="p-2 align-middle"></td>
+                            <td className="p-2 align-middle font-medium">{inv.invoiceNumber}</td>
+                            <td className="p-2 align-middle">
+                              <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
+                                {inv.source}
+                              </Badge>
+                            </td>
+                            <td className="p-2 align-middle">
+                              <div className="text-sm max-w-xs truncate" title={itemsSummary}>
+                                {itemsSummary}
+                              </div>
+                            </td>
+                            <td className="p-2 align-middle text-right font-semibold">{inv.totalAmount.toFixed(2)}</td>
+                            <td className="p-2 align-middle text-right text-green-600">{inv.receivedAmount.toFixed(2)}</td>
+                            <td className="p-2 align-middle text-right font-semibold text-red-600">{inv.balance.toFixed(2)}</td>
+                            <td className="p-2 align-middle">
+                              <Badge className={inv.paymentStatus === 'cleared' ? 'bg-green-600' : 'bg-yellow-500'}>
+                                {inv.paymentStatus}
+                              </Badge>
+                            </td>
+                            <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
+                            <td className="p-2 align-middle">
+                              <div className="flex gap-2 justify-center">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => generateReceiptForCollectedInvoice(inv)}
+                                  className="text-xs"
+                                >
+                                  <FileText className="w-3 h-3 mr-1" />
+                                  Receipt
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      }
+                      
+                      // Show grouped invoices with expandable header
                       return (
-                        <tr key={inv._id} className="border-b hover:bg-gray-50">
-                          <td className="p-2 align-middle font-medium">{inv.invoiceNumber}</td>
-                          <td className="p-2 align-middle">
-                            <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                              {inv.source}
-                            </Badge>
-                          </td>
-                          <td className="p-2 align-middle">
-                            <div className="text-sm max-w-xs truncate" title={itemsSummary}>
-                              {itemsSummary}
-                            </div>
-                          </td>
-                          <td className="p-2 align-middle text-right font-semibold">{inv.totalAmount.toFixed(2)}</td>
-                          <td className="p-2 align-middle text-right text-green-600">{inv.receivedAmount.toFixed(2)}</td>
-                          <td className="p-2 align-middle text-right font-semibold text-red-600">{inv.balance.toFixed(2)}</td>
-                          <td className="p-2 align-middle">
-                            <Badge className={inv.paymentStatus === 'cleared' ? 'bg-green-600' : 'bg-yellow-500'}>
-                              {inv.paymentStatus}
-                            </Badge>
-                          </td>
-                          <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
-                          <td className="p-2 align-middle">
-                            <div className="flex gap-2 justify-center">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => generateReceiptForCollectedInvoice(inv)}
-                                className="text-xs"
-                              >
-                                <FileText className="w-3 h-3 mr-1" />
-                                Receipt
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
+                        <React.Fragment key={group.rcNo || 'no-rcno'}>
+                          {/* Header row with RC-NO */}
+                          <tr className="border-b bg-gray-50 hover:bg-gray-100 cursor-pointer" onClick={() => toggleRcNoGroup(group.rcNo)}>
+                            <td className="p-2 align-middle">
+                              {hasMultipleInvoices && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleRcNoGroup(group.rcNo)
+                                  }}
+                                  className="p-1 rounded hover:bg-gray-200"
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4" />
+                                  )}
+                                </button>
+                              )}
+                            </td>
+                            <td className="p-2 align-middle font-semibold text-[#2B3068]">
+                              {group.rcNo ? `RC-NO-${group.rcNo.padStart(4, '0')}` : 'No Receipt Number'}
+                              {hasMultipleInvoices && (
+                                <span className="ml-2 text-sm font-normal text-gray-500">
+                                  ({group.invoices.length} invoice{group.invoices.length > 1 ? 's' : ''})
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2 align-middle">-</td>
+                            <td className="p-2 align-middle">-</td>
+                            <td className="p-2 align-middle text-right font-semibold">{groupTotal.toFixed(2)}</td>
+                            <td className="p-2 align-middle text-right text-green-600 font-semibold">{groupReceived.toFixed(2)}</td>
+                            <td className="p-2 align-middle text-right font-semibold text-red-600">{groupBalance.toFixed(2)}</td>
+                            <td className="p-2 align-middle">-</td>
+                            <td className="p-2 align-middle">-</td>
+                            <td className="p-2 align-middle">-</td>
+                          </tr>
+                          
+                          {/* Expanded invoice rows */}
+                          {isExpanded && group.invoices.map((inv) => {
+                            const itemsSummary = inv.items && inv.items.length > 0 
+                              ? inv.items.map(item => `${item.product.name} (${item.quantity})`).join(', ')
+                              : 'No items'
+                            
+                            return (
+                              <tr key={inv._id} className="border-b hover:bg-gray-50 bg-white">
+                                <td className="p-2 align-middle"></td>
+                                <td className="p-2 align-middle pl-6 text-gray-700">{inv.invoiceNumber}</td>
+                                <td className="p-2 align-middle">
+                                  <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
+                                    {inv.source}
+                                  </Badge>
+                                </td>
+                                <td className="p-2 align-middle">
+                                  <div className="text-sm max-w-xs truncate" title={itemsSummary}>
+                                    {itemsSummary}
+                                  </div>
+                                </td>
+                                <td className="p-2 align-middle text-right font-semibold">{inv.totalAmount.toFixed(2)}</td>
+                                <td className="p-2 align-middle text-right text-green-600">{inv.receivedAmount.toFixed(2)}</td>
+                                <td className="p-2 align-middle text-right font-semibold text-red-600">{inv.balance.toFixed(2)}</td>
+                                <td className="p-2 align-middle">
+                                  <Badge className={inv.paymentStatus === 'cleared' ? 'bg-green-600' : 'bg-yellow-500'}>
+                                    {inv.paymentStatus}
+                                  </Badge>
+                                </td>
+                                <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
+                                <td className="p-2 align-middle">
+                                  <div className="flex gap-2 justify-center">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => generateReceiptForCollectedInvoice(inv)}
+                                      className="text-xs"
+                                    >
+                                      <FileText className="w-3 h-3 mr-1" />
+                                      Receipt
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </React.Fragment>
                       )
                     })}
                   </tbody>
