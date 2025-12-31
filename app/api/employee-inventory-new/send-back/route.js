@@ -62,29 +62,68 @@ export async function POST(request) {
     // Generate invoice number for the return transaction
     const invoiceNumber = await getNextInvoiceNumberWithRetry()
     
-    // Create a return transaction record
-    const returnTransaction = await ReturnTransaction.create({
-      invoiceNumber: invoiceNumber,
+    console.log('📝 [SEND BACK] Creating return transaction with:', {
+      invoiceNumber,
       employee: employeeId,
-      product: inventoryItem.product._id,
+      product: inventoryItem.product._id.toString(),
+      productName: inventoryItem.product.name,
       stockType: stockType,
       quantity: quantity,
-      returnDate: new Date(),
-      status: 'pending', // Admin needs to accept this return
-      notes: `Employee returned ${quantity} ${stockType} ${inventoryItem.product.name} to admin`
+      status: 'pending'
     })
     
-    console.log('📝 Return transaction created with details:', {
-      id: returnTransaction._id,
-      employee: employeeId,
-      product: inventoryItem.product.name,
-      stockType: stockType,
-      quantity: quantity,
-      returnDate: returnTransaction.returnDate,
-      status: returnTransaction.status
-    })
-
-    console.log('📝 Return transaction created:', returnTransaction)
+    // Create a return transaction record
+    let returnTransaction
+    try {
+      returnTransaction = await ReturnTransaction.create({
+        invoiceNumber: invoiceNumber,
+        employee: employeeId,
+        product: inventoryItem.product._id,
+        stockType: stockType,
+        quantity: quantity,
+        returnDate: new Date(),
+        status: 'pending', // Admin needs to accept this return
+        notes: `Employee returned ${quantity} ${stockType} ${inventoryItem.product.name} to admin`
+      })
+      
+      console.log('✅ [SEND BACK] Return transaction created successfully:', {
+        id: returnTransaction._id.toString(),
+        invoiceNumber: returnTransaction.invoiceNumber,
+        employee: returnTransaction.employee.toString(),
+        product: returnTransaction.product.toString(),
+        stockType: returnTransaction.stockType,
+        quantity: returnTransaction.quantity,
+        returnDate: returnTransaction.returnDate,
+        status: returnTransaction.status,
+        createdAt: returnTransaction.createdAt
+      })
+      
+      // Verify it was saved correctly by querying it back
+      const verifyTransaction = await ReturnTransaction.findById(returnTransaction._id)
+        .select('_id status employee product stockType quantity returnDate')
+        .lean()
+      
+      if (verifyTransaction) {
+        console.log('✅ [SEND BACK] Verified return transaction in database:', {
+          id: verifyTransaction._id.toString(),
+          status: verifyTransaction.status,
+          employee: verifyTransaction.employee?.toString(),
+          product: verifyTransaction.product?.toString()
+        })
+      } else {
+        console.error('❌ [SEND BACK] WARNING: Return transaction not found after creation!')
+      }
+    } catch (createError) {
+      console.error('❌ [SEND BACK] Failed to create return transaction:', createError)
+      console.error('❌ [SEND BACK] Error details:', {
+        message: createError.message,
+        name: createError.name,
+        code: createError.code,
+        keyPattern: createError.keyPattern,
+        keyValue: createError.keyValue
+      })
+      throw createError
+    }
 
     // For gas transfers, require explicit cylinder selection and validate before applying updates
     let targetProductId = inventoryItem.product._id

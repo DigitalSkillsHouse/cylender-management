@@ -302,6 +302,11 @@ export function Inventory() {
       
       if (response.ok) {
         const data = await response.json()
+        console.log('📦 [PENDING RETURNS] Raw API response:', data)
+        console.log('📦 [PENDING RETURNS] Response keys:', Object.keys(data))
+        console.log('📦 [PENDING RETURNS] pendingReturns type:', typeof data.pendingReturns)
+        console.log('📦 [PENDING RETURNS] pendingReturns is array:', Array.isArray(data.pendingReturns))
+        
         const returns = Array.isArray(data.pendingReturns) ? data.pendingReturns : []
         
         // Always set the fresh data from database, never use cached state
@@ -310,17 +315,23 @@ export function Inventory() {
         
         // If database was cleared, ensure we don't show stale data
         if (returns.length === 0) {
-          console.log('✅ [PENDING RETURNS] No pending returns found (database may be cleared)')
+          console.log('⚠️ [PENDING RETURNS] No pending returns found. This could mean:')
+          console.log('   1. No employees have sent back stock yet')
+          console.log('   2. All returns have been processed')
+          console.log('   3. There may be an issue with the database query')
         } else {
           console.log('📋 [PENDING RETURNS] Return details:', returns.map(r => ({
             id: r.id,
             employee: r.employeeName,
             product: r.productName,
-            date: r.returnDate
+            date: r.returnDate,
+            status: r.status
           })))
         }
       } else {
+        const errorText = await response.text()
         console.error('❌ [PENDING RETURNS] Failed to fetch pending returns, status:', response.status)
+        console.error('❌ [PENDING RETURNS] Error response:', errorText)
         // On error, clear state to avoid showing stale data
         setPendingReturns([])
       }
