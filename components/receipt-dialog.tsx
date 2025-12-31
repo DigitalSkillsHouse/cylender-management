@@ -394,79 +394,118 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                   </tr>
                 </thead>
                 <tbody>
-                  {itemsSafe.map((item, index) => {
-                    const name = item?.product?.name || '-'
-                    const priceNum = Number(item?.price || 0)
-                    const qtyNum = Number(item?.quantity || 0)
-                    
-                    let itemTotal
-                    if (disableVAT || sale?.type === 'collection' || isCylinderTransaction) {
-                      // For collections and cylinder transactions, use the item total as-is without VAT
-                      itemTotal = Number(item?.total || 0)
-                    } else {
-                      // Calculate with VAT
-                      const unitVat = priceNum * 0.05
-                      const unitWithVat = priceNum + unitVat
-                      itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
-                    }
-                    
-                    const unitVat = priceNum * 0.05
-                    
-                    // Extract invoice number for collection receipts
-                    let invoiceNumber = item.invoiceNumber
-                    // If item doesn't have invoiceNumber, try to extract from product name
-                    if (!invoiceNumber && name.includes('Invoice #')) {
-                      const parts = name.split('Invoice #')
-                      if (parts.length > 1) {
-                        invoiceNumber = parts[1].split(' ')[0].trim()
-                      }
-                    }
-                    // If still no invoice number, use the sale's invoice number (for collected invoices)
-                    if (!invoiceNumber && sale?.invoiceNumber) {
-                      invoiceNumber = sale.invoiceNumber
-                    }
-                    const actualInvoiceNumber = invoiceNumber || '-'
-                    
-                    // For collection receipts, show invoice number only on first item with that number
-                    let displayInvoiceNumber = actualInvoiceNumber
+                  {(() => {
+                    // For collection receipts, group items by invoice number and show one row per invoice
                     if (sale?.type === 'collection') {
-                      // Check if this invoice number was already shown in a previous item
-                      const previousItem = index > 0 ? itemsSafe[index - 1] : null
-                      if (previousItem) {
-                        let prevInvoiceNumber = previousItem.invoiceNumber
-                        if (!prevInvoiceNumber && previousItem.product?.name && previousItem.product.name.includes('Invoice #')) {
-                          const parts = previousItem.product.name.split('Invoice #')
+                      // Group items by invoice number
+                      const invoiceGroups: Record<string, typeof itemsSafe> = {}
+                      
+                      itemsSafe.forEach((item) => {
+                        const name = item?.product?.name || '-'
+                        let invoiceNumber = item.invoiceNumber
+                        
+                        // Extract invoice number from product name if not directly available
+                        if (!invoiceNumber && name.includes('Invoice #')) {
+                          const parts = name.split('Invoice #')
                           if (parts.length > 1) {
-                            prevInvoiceNumber = parts[1].split(' ')[0].trim()
+                            invoiceNumber = parts[1].split(' ')[0].trim()
                           }
                         }
-                        if (!prevInvoiceNumber && sale?.invoiceNumber) {
-                          prevInvoiceNumber = sale.invoiceNumber
+                        
+                        // If still no invoice number, use the sale's invoice number
+                        if (!invoiceNumber && sale?.invoiceNumber) {
+                          invoiceNumber = sale.invoiceNumber
                         }
-                        // If previous item has the same invoice number, show "-" instead
-                        if (prevInvoiceNumber === actualInvoiceNumber && actualInvoiceNumber !== '-') {
-                          displayInvoiceNumber = '-'
+                        
+                        const key = invoiceNumber || 'no-invoice'
+                        if (!invoiceGroups[key]) {
+                          invoiceGroups[key] = []
                         }
-                      }
+                        invoiceGroups[key].push(item)
+                      })
+                      
+                      // Render one row per invoice group
+                      return Object.entries(invoiceGroups).map(([invoiceKey, groupItems], groupIndex) => {
+                        // Calculate totals for this invoice group
+                        let groupTotalAmount = 0
+                        let groupReceivedAmount = 0
+                        let groupRemainingAmount = 0
+                        let invoiceDate = ''
+                        let paymentStatus = 'pending'
+                        
+                        groupItems.forEach((item) => {
+                          const itemTotal = Number(item?.total || 0)
+                          const itemTotalAmount = Number(item?.totalAmount || itemTotal)
+                          const itemReceivedAmount = Number(item?.receivedAmount || itemTotal)
+                          const itemRemainingAmount = item?.remainingAmount !== undefined 
+                            ? Number(item.remainingAmount) 
+                            : (itemTotalAmount - itemReceivedAmount)
+                          
+                          groupTotalAmount += itemTotalAmount
+                          groupReceivedAmount += itemReceivedAmount
+                          groupRemainingAmount += itemRemainingAmount
+                          
+                          // Use the first item's date and payment status
+                          if (!invoiceDate && item.invoiceDate) {
+                            invoiceDate = item.invoiceDate
+                          }
+                          if (paymentStatus === 'pending' && item.paymentStatus) {
+                            paymentStatus = item.paymentStatus
+                          }
+                        })
+                        
+                        // Extract invoice number for display
+                        const firstItem = groupItems[0]
+                        const name = firstItem?.product?.name || '-'
+                        let displayInvoiceNumber = firstItem.invoiceNumber
+                        
+                        if (!displayInvoiceNumber && name.includes('Invoice #')) {
+                          const parts = name.split('Invoice #')
+                          if (parts.length > 1) {
+                            displayInvoiceNumber = parts[1].split(' ')[0].trim()
+                          }
+                        }
+                        
+                        if (!displayInvoiceNumber && sale?.invoiceNumber) {
+                          displayInvoiceNumber = sale.invoiceNumber
+                        }
+                        
+                        return (
+                          <tr key={`invoice-${groupIndex}`} className="border-b h-5">
+                            <td className="p-2 border">{displayInvoiceNumber || '-'}</td>
+                            <td className="text-center p-2 border">
+                              {invoiceDate ? new Date(invoiceDate).toLocaleDateString() : 
+                               (sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-')}
+                            </td>
+                            <td className="text-right p-2 border">{paymentStatus}</td>
+                            <td className="text-right p-2 border">AED {groupTotalAmount.toFixed(2)}</td>
+                            <td className="text-right p-2 border">AED {groupReceivedAmount.toFixed(2)}</td>
+                            <td className="text-right p-2 border">AED {groupRemainingAmount.toFixed(2)}</td>
+                          </tr>
+                        )
+                      })
                     }
                     
-                    return (
-                    <tr key={index} className="border-b h-5">
-                      {sale?.type === 'collection' ? (
-                        <>
-                          <td className="p-2 border">{displayInvoiceNumber}</td>
-                          <td className="text-center p-2 border">{
-                            // Use the invoice date from the item data, or fall back to sale date
-                            item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString() : 
-                            (sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-')
-                          }</td>
-                          <td className="text-right p-2 border">{item.paymentStatus || 'pending'}</td>
-                          <td className="text-right p-2 border">AED {(item.totalAmount || itemTotal).toFixed(2)}</td>
-                          <td className="text-right p-2 border">AED {(item.receivedAmount || itemTotal).toFixed(2)}</td>
-                          <td className="text-right p-2 border">AED {(item.remainingAmount !== undefined ? item.remainingAmount : ((item.totalAmount || itemTotal) - (item.receivedAmount || itemTotal))).toFixed(2)}</td>
-                        </>
-                      ) : (
-                        <>
+                    // For non-collection receipts, show items as before
+                    return itemsSafe.map((item, index) => {
+                      const name = item?.product?.name || '-'
+                      const priceNum = Number(item?.price || 0)
+                      const qtyNum = Number(item?.quantity || 0)
+                      
+                      let itemTotal
+                      if (disableVAT || isCylinderTransaction) {
+                        itemTotal = Number(item?.total || 0)
+                      } else {
+                        // Calculate with VAT
+                        const unitVat = priceNum * 0.05
+                        const unitWithVat = priceNum + unitVat
+                        itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+                      }
+                      
+                      const unitVat = priceNum * 0.05
+                      
+                      return (
+                        <tr key={index} className="border-b h-5">
                           <td className="p-2 border">{name}</td>
                           <td className="text-center p-2 border">
                             {(() => {
@@ -502,11 +541,10 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
                             <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
                           )}
                           <td className="text-right p-2 border">AED {itemTotal.toFixed(2)}</td>
-                        </>
-                      )}
-                    </tr>
-                    )
-                  })}
+                        </tr>
+                      )
+                    })
+                  })()}
                   {/* No padding rows - show only actual items */}
                 </tbody>
               </table>
@@ -643,3 +681,4 @@ export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, op
   </Dialog>
   )
 }
+
