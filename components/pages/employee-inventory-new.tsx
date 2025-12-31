@@ -440,6 +440,8 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
         window.dispatchEvent(new Event('employeeInventoryUpdated'))
         // Trigger notification refresh (event-driven, no polling needed)
         window.dispatchEvent(new Event('notification-refresh'))
+        // Trigger specific pending returns refresh for admin pages
+        window.dispatchEvent(new Event('pendingReturnsRefresh'))
         
         // Refresh inventory data
         await fetchEmployeeInventoryData()

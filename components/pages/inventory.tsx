@@ -95,6 +95,45 @@ export function Inventory() {
     return () => window.removeEventListener('focus', handleFocus)
   }, [])
 
+  // Listen for stock return events from employees
+  useEffect(() => {
+    const handleStockReturn = () => {
+      console.log('🔄 [PENDING RETURNS] Stock return event received, refreshing pending returns...')
+      // Small delay to ensure database is updated
+      setTimeout(() => {
+        fetchPendingReturns()
+      }, 1000)
+    }
+
+    // Listen for various events that might indicate a stock return
+    window.addEventListener('stockUpdated', handleStockReturn)
+    window.addEventListener('employeeInventoryUpdated', handleStockReturn)
+    window.addEventListener('notification-refresh', handleStockReturn)
+    
+    // Also listen for a specific pending returns refresh event
+    window.addEventListener('pendingReturnsRefresh', handleStockReturn)
+
+    return () => {
+      window.removeEventListener('stockUpdated', handleStockReturn)
+      window.removeEventListener('employeeInventoryUpdated', handleStockReturn)
+      window.removeEventListener('notification-refresh', handleStockReturn)
+      window.removeEventListener('pendingReturnsRefresh', handleStockReturn)
+    }
+  }, [])
+
+  // Optional: Poll for pending returns every 30 seconds as a fallback
+  // This ensures pending returns are refreshed even if events are missed
+  useEffect(() => {
+    const pollInterval = 30000 // 30 seconds
+    
+    const intervalId = setInterval(() => {
+      console.log('🔄 [PENDING RETURNS] Polling for pending returns (fallback)...')
+      fetchPendingReturns()
+    }, pollInterval)
+
+    return () => clearInterval(intervalId)
+  }, [])
+
   // Auto-populate cylinder search when return dialog opens with gas product
   useEffect(() => {
     if (showReturnCylinderDialog && selectedReturn?.productName) {
@@ -1225,12 +1264,29 @@ export function Inventory() {
         <TabsContent value="pending-returns">
           <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
             <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
-              <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold">
-                Pending Returns from Employees ({pendingReturns.length})
-              </CardTitle>
-              <p className="text-white/80 text-sm sm:text-base">
-                Employee returns awaiting admin approval
-              </p>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold">
+                    Pending Returns from Employees ({pendingReturns.length})
+                  </CardTitle>
+                  <p className="text-white/80 text-sm sm:text-base mt-1">
+                    Employee returns awaiting admin approval
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    console.log('🔄 [PENDING RETURNS] Manual refresh triggered')
+                    fetchPendingReturns()
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="bg-white/10 hover:bg-white/20 text-white border-white/20"
+                  title="Refresh pending returns"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Refresh
+                </Button>
+              </div>
             </CardHeader>
             
             <CardContent className="p-0">

@@ -10,6 +10,7 @@ import mongoose from "mongoose"
 import { getLocalDateString } from "@/lib/date-utils"
 
 export async function POST(request) {
+  let returnTransactionId = null // Declare outside try block for error handling
   try {
     console.log('🔍 Admin accept return API called')
     await dbConnect()
@@ -24,7 +25,8 @@ export async function POST(request) {
       }, { status: 400 })
     }
     
-    const { returnTransactionId, adminId, emptyCylinderId } = body || {}
+    const { returnTransactionId: txId, adminId, emptyCylinderId } = body || {}
+    returnTransactionId = txId // Assign to outer variable for error handling
     
     if (!returnTransactionId || !adminId) {
       return NextResponse.json({ 
@@ -34,7 +36,38 @@ export async function POST(request) {
 
     console.log('📋 Processing return acceptance:', { returnTransactionId, adminId, emptyCylinderId })
     
-    // Use atomic operation to find and lock the return transaction only if it's still pending
+    // First, validate the request and check if transaction exists (without updating)
+    // This prevents setting status to 'received' and then failing validation
+    const existingTx = await ReturnTransaction.findById(returnTransactionId)
+      .populate('employee', 'name email')
+      .populate('product', 'name productCode category cylinderSize')
+      .lean()
+    
+    if (!existingTx) {
+      return NextResponse.json({ 
+        error: "Return transaction not found" 
+      }, { status: 404 })
+    }
+    
+    if (existingTx.status !== 'pending') {
+      const statusMessage = existingTx.status === 'received' 
+        ? 'This return has already been accepted by another admin. Please refresh the page to see the updated list.'
+        : `Return transaction is no longer pending. Current status: ${existingTx.status}`
+      
+      return NextResponse.json({ 
+        error: statusMessage,
+        currentStatus: existingTx.status
+      }, { status: 400 })
+    }
+    
+    // Validate gas return requirements BEFORE atomic update
+    if (existingTx.stockType === 'gas' && !emptyCylinderId) {
+      return NextResponse.json({ 
+        error: "Empty cylinder selection is required for gas returns" 
+      }, { status: 400 })
+    }
+    
+    // Now use atomic operation to find and lock the return transaction only if it's still pending
     // This prevents race conditions where multiple admins try to accept the same return simultaneously
     // We atomically check status='pending' and immediately update it to prevent other requests
     // If another request already processed it, this will return null
@@ -57,32 +90,19 @@ export async function POST(request) {
       .populate('product', 'name productCode category cylinderSize')
     
     if (!returnTransaction) {
-      // Transaction not found or already processed by another request
-      // Check if it exists with a different status to provide better error message
-      const existingTx = await ReturnTransaction.findById(returnTransactionId)
+      // Another request processed it between our check and the atomic update
+      // Re-check to provide accurate error message
+      const recheckTx = await ReturnTransaction.findById(returnTransactionId)
         .select('status processedBy processedAt')
         .lean()
       
-      if (!existingTx) {
-        return NextResponse.json({ 
-          error: "Return transaction not found" 
-        }, { status: 404 })
-      }
-      
-      const statusMessage = existingTx.status === 'received' 
+      const statusMessage = recheckTx?.status === 'received' 
         ? 'This return has already been accepted by another admin. Please refresh the page to see the updated list.'
-        : `Return transaction is no longer pending. Current status: ${existingTx.status}`
+        : `Return transaction status changed during processing. Current status: ${recheckTx?.status || 'unknown'}`
       
       return NextResponse.json({ 
         error: statusMessage,
-        currentStatus: existingTx.status
-      }, { status: 400 })
-    }
-
-    // For gas returns, empty cylinder ID is required
-    if (returnTransaction.stockType === 'gas' && !emptyCylinderId) {
-      return NextResponse.json({ 
-        error: "Empty cylinder selection is required for gas returns" 
+        currentStatus: recheckTx?.status
       }, { status: 400 })
     }
 
@@ -349,6 +369,23 @@ export async function POST(request) {
     console.error("❌ Error stack:", error.stack)
     console.error("❌ Error name:", error.name)
     console.error("❌ Error message:", error.message)
+    
+    // If we updated the status to 'received' but processing failed,
+    // we need to revert it back to 'pending' so it can be retried
+    try {
+      if (returnTransactionId) {
+        const failedTx = await ReturnTransaction.findById(returnTransactionId)
+        if (failedTx && failedTx.status === 'received') {
+          console.log('🔄 Reverting return transaction status from "received" back to "pending" due to processing error')
+          failedTx.status = 'pending'
+          await failedTx.save()
+          console.log('✅ Return transaction status reverted to pending')
+        }
+      }
+    } catch (revertError) {
+      console.error('❌ Failed to revert return transaction status:', revertError)
+      // Don't throw - we still want to return the original error
+    }
     
     // Check if error is related to 'next'
     if (error.message && error.message.includes('next')) {
