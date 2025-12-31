@@ -35,22 +35,44 @@ export async function GET(request) {
     }
     
     // Get pending return transactions - ensure we get fresh data from database
-    const pendingReturns = await ReturnTransaction.find({ status: 'pending' })
+    // Use strict equality check and explicitly exclude 'received' and 'rejected' statuses
+    const pendingReturns = await ReturnTransaction.find({ 
+      status: { $eq: 'pending' } // Explicit equality check
+    })
       .populate('employee', 'name email')
       .populate('product', 'name productCode category cylinderSize')
       .sort({ returnDate: -1 })
       .lean() // Use lean() to get plain JavaScript objects and avoid caching issues
     
-    console.log('✅ Found pending returns:', pendingReturns.length)
+    // Double-check: Filter out any items that might have been updated between query and now
+    // This is a safety check to ensure we only return truly pending items
+    // Also verify status is exactly 'pending' (case-sensitive, strict equality)
+    const verifiedPendingReturns = pendingReturns.filter(r => {
+      const isPending = r.status === 'pending'
+      if (!isPending) {
+        console.warn(`⚠️ [PENDING RETURNS] Filtered out non-pending return: ${r._id.toString()}, status: "${r.status}" (expected: "pending")`)
+      }
+      return isPending
+    })
+    
+    // Log any discrepancies
+    if (pendingReturns.length !== verifiedPendingReturns.length) {
+      const removed = pendingReturns.length - verifiedPendingReturns.length
+      console.warn(`⚠️ [PENDING RETURNS] Filtered out ${removed} return(s) with non-pending status`)
+    }
+    
+    console.log('✅ Found pending returns:', verifiedPendingReturns.length, '(after verification)')
+    console.log('📊 [DEBUG] Query returned:', pendingReturns.length, 'items, verified as pending:', verifiedPendingReturns.length)
     
     // Log for debugging - if database was cleared, this should be 0
-    if (pendingReturns.length > 0) {
-      console.log('📋 Pending returns details:', pendingReturns.map(r => ({
-        id: r._id,
+    if (verifiedPendingReturns.length > 0) {
+      console.log('📋 Pending returns details:', verifiedPendingReturns.map(r => ({
+        id: r._id.toString(),
         employee: r.employee?.name,
         product: r.product?.name,
         returnDate: r.returnDate,
-        status: r.status
+        status: r.status,
+        invoiceNumber: r.invoiceNumber
       })))
     } else {
       console.log('⚠️ [DEBUG] No pending returns found. Checking if there are any with null/undefined status...')
@@ -65,8 +87,8 @@ export async function GET(request) {
       }
     }
     
-    // Format the data for frontend
-    const formattedReturns = pendingReturns.map(returnTx => ({
+    // Format the data for frontend - only include verified pending returns
+    const formattedReturns = verifiedPendingReturns.map(returnTx => ({
       id: returnTx._id.toString(),
       invoiceNumber: returnTx.invoiceNumber,
       employeeName: returnTx.employee?.name || 'Unknown Employee',
