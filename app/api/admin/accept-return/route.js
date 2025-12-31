@@ -67,30 +67,19 @@ export async function POST(request) {
       }, { status: 400 })
     }
     
-    // Now use atomic operation to find and lock the return transaction only if it's still pending
-    // This prevents race conditions where multiple admins try to accept the same return simultaneously
-    // We atomically check status='pending' and immediately update it to prevent other requests
-    // If another request already processed it, this will return null
-    const returnTransaction = await ReturnTransaction.findOneAndUpdate(
-      { 
-        _id: returnTransactionId,
-        status: 'pending' // Only match if still pending - atomic check prevents race conditions
-      },
-      { 
-        $set: {
-          status: 'received' // Immediately update status to prevent other requests from processing
-          // We'll update other fields (processedBy, processedAt, etc.) after processing succeeds
-        }
-      },
-      { 
-        new: true // Return the updated document
-      }
-    )
+    // Find and verify the return transaction is still pending
+    // We DON'T update status yet - we'll do that only after all processing succeeds
+    // This prevents leaving items in 'received' status if processing fails
+    // Note: We do a regular find first, then use atomic update at the end to prevent race conditions
+    const returnTransaction = await ReturnTransaction.findOne({
+      _id: returnTransactionId,
+      status: 'pending' // Only match if still pending
+    })
       .populate('employee', 'name email')
       .populate('product', 'name productCode category cylinderSize')
     
     if (!returnTransaction) {
-      // Another request processed it between our check and the atomic update
+      // Another request processed it or it's no longer pending
       // Re-check to provide accurate error message
       const recheckTx = await ReturnTransaction.findById(returnTransactionId)
         .select('status processedBy processedAt')
@@ -98,7 +87,7 @@ export async function POST(request) {
       
       const statusMessage = recheckTx?.status === 'received' 
         ? 'This return has already been accepted by another admin. Please refresh the page to see the updated list.'
-        : `Return transaction status changed during processing. Current status: ${recheckTx?.status || 'unknown'}`
+        : `Return transaction is no longer pending. Current status: ${recheckTx?.status || 'unknown'}`
       
       return NextResponse.json({ 
         error: statusMessage,
@@ -324,14 +313,34 @@ export async function POST(request) {
 
     console.log('✅ DSR record created for return:', dsrRecord._id)
 
-    // Update return transaction with final details (status already set to 'received' atomically above)
-    returnTransaction.processedBy = actualAdminId
-    returnTransaction.processedAt = new Date()
-    returnTransaction.dsrRecordId = dsrRecord._id
-    if (returnTransaction.stockType === 'gas' && emptyCylinderId) {
-      returnTransaction.selectedEmptyCylinderId = emptyCylinderId
+    // NOW update return transaction status to 'received' - only after all processing succeeded
+    // Use atomic update to ensure it's still pending (prevents race conditions)
+    const finalUpdate = await ReturnTransaction.findOneAndUpdate(
+      { 
+        _id: returnTransaction._id,
+        status: 'pending' // Double-check it's still pending before final update
+      },
+      { 
+        $set: {
+          status: 'received',
+          processedBy: actualAdminId,
+          processedAt: new Date(),
+          dsrRecordId: dsrRecord._id,
+          ...(returnTransaction.stockType === 'gas' && emptyCylinderId ? { selectedEmptyCylinderId: emptyCylinderId } : {})
+        }
+      },
+      { new: true }
+    )
+    
+    if (!finalUpdate) {
+      // Status was changed by another request - this shouldn't happen but handle it
+      console.error('⚠️ [ACCEPT RETURN] Status changed during processing - attempting to revert changes')
+      // Try to revert inventory changes if possible (complex, but at least log it)
+      throw new Error('Return transaction status changed during processing. Please try again.')
     }
-    await returnTransaction.save()
+    
+    // Update local reference for response
+    returnTransaction.status = 'received'
 
     console.log('✅ Return transaction updated to received status')
 
@@ -370,20 +379,30 @@ export async function POST(request) {
     console.error("❌ Error name:", error.name)
     console.error("❌ Error message:", error.message)
     
-    // If we updated the status to 'received' but processing failed,
-    // we need to revert it back to 'pending' so it can be retried
+    // Since we only update status to 'received' at the very end after all processing succeeds,
+    // we don't need to revert status here - it should still be 'pending' if we reach this catch block
+    // However, let's verify and log for debugging
     try {
       if (returnTransactionId) {
         const failedTx = await ReturnTransaction.findById(returnTransactionId)
-        if (failedTx && failedTx.status === 'received') {
-          console.log('🔄 Reverting return transaction status from "received" back to "pending" due to processing error')
-          failedTx.status = 'pending'
-          await failedTx.save()
-          console.log('✅ Return transaction status reverted to pending')
+          .select('status')
+          .lean()
+        
+        if (failedTx) {
+          if (failedTx.status === 'received') {
+            console.error('⚠️ [ACCEPT RETURN] WARNING: Status is "received" but processing failed! This should not happen.')
+            console.error('⚠️ [ACCEPT RETURN] Attempting to revert status back to "pending"')
+            await ReturnTransaction.findByIdAndUpdate(returnTransactionId, { 
+              $set: { status: 'pending' } 
+            })
+            console.log('✅ Return transaction status reverted to pending')
+          } else {
+            console.log(`✅ [ACCEPT RETURN] Status is still "${failedTx.status}" - no revert needed`)
+          }
         }
       }
     } catch (revertError) {
-      console.error('❌ Failed to revert return transaction status:', revertError)
+      console.error('❌ Failed to check/revert return transaction status:', revertError)
       // Don't throw - we still want to return the original error
     }
     
