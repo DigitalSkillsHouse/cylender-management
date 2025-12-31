@@ -438,6 +438,18 @@ export function Inventory() {
       } else {
         const errorData = await response.json()
         console.error('❌ [ACCEPT RETURN] Error response:', errorData)
+        
+        // If the error indicates the return was already processed, refresh the pending returns list
+        // This handles race conditions where another admin accepted the return
+        if (errorData.error && (
+          errorData.error.includes('already been accepted') || 
+          errorData.error.includes('no longer pending') ||
+          errorData.currentStatus === 'received'
+        )) {
+          console.log('🔄 [ACCEPT RETURN] Return already processed, refreshing pending returns list')
+          await fetchPendingReturns() // Refresh to show current state
+        }
+        
         setError(errorData.error || 'Failed to accept return')
       }
       

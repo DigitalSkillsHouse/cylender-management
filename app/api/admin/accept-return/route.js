@@ -34,17 +34,49 @@ export async function POST(request) {
 
     console.log('📋 Processing return acceptance:', { returnTransactionId, adminId, emptyCylinderId })
     
-    // Find the return transaction
-    const returnTransaction = await ReturnTransaction.findById(returnTransactionId)
+    // Use atomic operation to find and lock the return transaction only if it's still pending
+    // This prevents race conditions where multiple admins try to accept the same return simultaneously
+    // We atomically check status='pending' and immediately update it to prevent other requests
+    // If another request already processed it, this will return null
+    const returnTransaction = await ReturnTransaction.findOneAndUpdate(
+      { 
+        _id: returnTransactionId,
+        status: 'pending' // Only match if still pending - atomic check prevents race conditions
+      },
+      { 
+        $set: {
+          status: 'received' // Immediately update status to prevent other requests from processing
+          // We'll update other fields (processedBy, processedAt, etc.) after processing succeeds
+        }
+      },
+      { 
+        new: true // Return the updated document
+      }
+    )
       .populate('employee', 'name email')
       .populate('product', 'name productCode category cylinderSize')
     
     if (!returnTransaction) {
-      return NextResponse.json({ error: "Return transaction not found" }, { status: 404 })
-    }
-
-    if (returnTransaction.status !== 'pending') {
-      return NextResponse.json({ error: "Return transaction is not pending" }, { status: 400 })
+      // Transaction not found or already processed by another request
+      // Check if it exists with a different status to provide better error message
+      const existingTx = await ReturnTransaction.findById(returnTransactionId)
+        .select('status processedBy processedAt')
+        .lean()
+      
+      if (!existingTx) {
+        return NextResponse.json({ 
+          error: "Return transaction not found" 
+        }, { status: 404 })
+      }
+      
+      const statusMessage = existingTx.status === 'received' 
+        ? 'This return has already been accepted by another admin. Please refresh the page to see the updated list.'
+        : `Return transaction is no longer pending. Current status: ${existingTx.status}`
+      
+      return NextResponse.json({ 
+        error: statusMessage,
+        currentStatus: existingTx.status
+      }, { status: 400 })
     }
 
     // For gas returns, empty cylinder ID is required
@@ -272,11 +304,13 @@ export async function POST(request) {
 
     console.log('✅ DSR record created for return:', dsrRecord._id)
 
-    // Update return transaction status
-    returnTransaction.status = 'received'
-    returnTransaction.processedBy = actualAdminId  // Use resolved admin ID instead of original adminId
+    // Update return transaction with final details (status already set to 'received' atomically above)
+    returnTransaction.processedBy = actualAdminId
     returnTransaction.processedAt = new Date()
     returnTransaction.dsrRecordId = dsrRecord._id
+    if (returnTransaction.stockType === 'gas' && emptyCylinderId) {
+      returnTransaction.selectedEmptyCylinderId = emptyCylinderId
+    }
     await returnTransaction.save()
 
     console.log('✅ Return transaction updated to received status')
