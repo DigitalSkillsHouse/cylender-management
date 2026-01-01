@@ -1035,15 +1035,26 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
         const totalAmt = itemsNormalized.reduce((s: number, it: NormalizedItem) => s + (Number(it.total)||0), 0)
 
+        // Enrich customer data with trNumber if missing
+        const customerData = saved?.customer || {
+          _id: formData.customerId,
+          name: selectedCustomer?.name || 'Customer',
+          phone: selectedCustomer?.phone || '',
+          address: selectedCustomer?.address || '',
+          trNumber: selectedCustomer?.trNumber || '',
+        }
+        // If using saved customer but missing trNumber, enrich from selectedCustomer
+        if (saved?.customer && !customerData.trNumber && selectedCustomer?.trNumber) {
+          customerData.trNumber = selectedCustomer.trNumber
+        }
+        if (saved?.customer && !customerData.address && selectedCustomer?.address) {
+          customerData.address = selectedCustomer.address
+        }
+
         const normalizedSale: any = {
           _id: saved?._id || `temp-${Date.now()}`,
           invoiceNumber: saved?.invoiceNumber || `INV-${(saved?._id||'TEMP').slice(-6).toUpperCase()}`,
-          customer: saved?.customer || {
-            _id: formData.customerId,
-            name: selectedCustomer?.name || 'Customer',
-            phone: selectedCustomer?.phone || '',
-            address: selectedCustomer?.address || '',
-          },
+          customer: customerData,
           items: itemsNormalized,
           totalAmount: saved?.totalAmount || totalAmt,
           paymentMethod: saved?.paymentMethod || derivedPaymentMethod,
@@ -1542,14 +1553,27 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
 
   // Handle receipt button click - show signature dialog only if no signature exists
   const handleReceiptClick = (sale: Sale) => {
+    // Enrich customer data with trNumber and address if missing
+    const enrichedSale = { ...sale }
+    if (enrichedSale.customer) {
+      const customerFromList = customers.find(c => c._id === enrichedSale.customer._id)
+      if (customerFromList) {
+        enrichedSale.customer = {
+          ...enrichedSale.customer,
+          trNumber: enrichedSale.customer.trNumber || (customerFromList as any).trNumber || '',
+          address: enrichedSale.customer.address || customerFromList.address || '',
+        }
+      }
+    }
+    
     if (!customerSignature && !sale.customerSignature) {
       // No signature yet - show signature dialog first
-      setPendingSale(sale)
+      setPendingSale(enrichedSale)
       setPendingDialogType('receipt')
       setShowSignatureDialog(true)
     } else {
       // Signature already exists - show receipt directly with existing signature
-      setReceiptSale(sale)
+      setReceiptSale(enrichedSale)
     }
   }
 

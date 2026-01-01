@@ -1028,6 +1028,7 @@ export function GasSales() {
             name: selectedCustomer?.name || '',
             phone: selectedCustomer?.phone || '',
             address: selectedCustomer?.address || '',
+            trNumber: selectedCustomer?.trNumber || '',
           },
           items: itemsNormalized,
           subtotalAmount: subtotalAmt, // Add subtotal for receipt
@@ -1517,14 +1518,27 @@ export function GasSales() {
 
   // Handle receipt button click - show signature dialog only if no signature exists
   const handleReceiptClick = (sale: Sale) => {
+    // Enrich customer data with trNumber and address if missing
+    const enrichedSale = { ...sale }
+    if (enrichedSale.customer) {
+      const customerFromList = customers.find(c => c._id === enrichedSale.customer._id)
+      if (customerFromList) {
+        enrichedSale.customer = {
+          ...enrichedSale.customer,
+          trNumber: enrichedSale.customer.trNumber || customerFromList.trNumber || '',
+          address: enrichedSale.customer.address || customerFromList.address || '',
+        }
+      }
+    }
+    
     if (!customerSignature && !sale.customerSignature) {
       // No signature yet - show signature dialog first
-      setPendingSale(sale)
+      setPendingSale(enrichedSale)
       setPendingDialogType('receipt')
       setShowSignatureDialog(true)
     } else {
       // Signature already exists - show receipt directly with existing signature
-      setReceiptSale(sale)
+      setReceiptSale(enrichedSale)
     }
   }
 
