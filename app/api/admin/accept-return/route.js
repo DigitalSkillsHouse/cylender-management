@@ -101,7 +101,6 @@ export async function POST(request) {
     }
 
     console.log('✅ Return transaction found and validated:', {
-      invoiceNumber: returnTransaction.invoiceNumber,
       employeeName: returnTransaction.employee?.name,
       productName: returnTransaction.product?.name,
       stockType: returnTransaction.stockType,

@@ -111,8 +111,7 @@ export async function GET(request) {
         employee: r.employee?.name,
         product: r.product?.name,
         returnDate: r.returnDate,
-        status: r.status,
-        invoiceNumber: r.invoiceNumber
+        status: r.status
       })))
     } else {
       console.log('⚠️ [DEBUG] No pending returns found. Checking if there are any with null/undefined status...')
@@ -147,7 +146,6 @@ export async function GET(request) {
       
       return {
         id: returnTx._id.toString(),
-        invoiceNumber: returnTx.invoiceNumber || 'N/A',
         employeeName: employee?.name || (employeeId ? 'Employee ID: ' + employeeId : 'Unknown Employee'),
         employeeEmail: employee?.email || '',
         employeeId: employeeId,

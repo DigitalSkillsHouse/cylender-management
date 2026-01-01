@@ -3,8 +3,8 @@ import mongoose from 'mongoose'
 const returnTransactionSchema = new mongoose.Schema({
   invoiceNumber: {
     type: String,
-    required: true,
-    unique: true
+    required: false,
+    default: null
   },
   employee: {
     type: mongoose.Schema.Types.ObjectId,

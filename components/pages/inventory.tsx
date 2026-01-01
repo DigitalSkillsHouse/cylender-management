@@ -1044,7 +1044,6 @@ export function Inventory() {
             <TableHead className="font-bold text-gray-700 p-4">Stock Type</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Quantity</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Return Date</TableHead>
-            <TableHead className="font-bold text-gray-700 p-4">Invoice #</TableHead>
             <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -1072,9 +1071,6 @@ export function Inventory() {
               <TableCell className="p-4 text-sm text-gray-600">
                 {new Date(returnItem.returnDate).toLocaleDateString()}
               </TableCell>
-              <TableCell className="p-4 font-mono text-sm">
-                {returnItem.invoiceNumber}
-              </TableCell>
               <TableCell className="p-4">
                 {!processingItems.has(returnItem.id) ? (
                   <Button
@@ -1099,7 +1095,7 @@ export function Inventory() {
           ))}
           {pendingReturns.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-gray-500 py-12">
+              <TableCell colSpan={6} className="text-center text-gray-500 py-12">
                 <Package className="w-16 h-16 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium">No pending returns</p>
                 <p className="text-sm">No employee returns awaiting approval</p>
