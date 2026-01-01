@@ -275,13 +275,7 @@ export function AppSidebar({ currentPage, onPageChange, user, onLogout, unreadCo
         <div className="space-y-3">
           <div className="bg-white/10 rounded-lg p-3">
             <div className="text-sm text-white/90 font-medium truncate">{user?.name || "User"}</div>
-            <div className="text-xs text-white/70 mb-2 truncate">{user?.email || ""}</div>
-            {user?.role === "employee" && (
-              <div className="flex justify-between text-xs">
-                <span className="text-green-300">Credit: AED {creditAmount.toFixed(2)}</span>
-                <span className="text-red-300">Debit: AED {debitAmount.toFixed(2)}</span>
-              </div>
-            )}
+            <div className="text-xs text-white/70 truncate">{user?.email || ""}</div>
           </div>
           <Button
             onClick={onLogout}
