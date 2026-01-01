@@ -1014,14 +1014,20 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
         // Normalize items for receipt
         const itemsNormalized: NormalizedItem[] = (saved?.items && Array.isArray(saved.items) && saved.items.length > 0)
           ? saved.items.map((it: any) => {
-              const pName = it?.product?.name || (allProducts.find(p=>p._id === (it.product?._id || it.product))?.name) || 'Product'
+              const productId = it?.product?._id || it?.product || it?.productId
+              const product = allProducts.find(p => p._id === productId)
+              const pName = it?.product?.name || product?.name || 'Product'
               const qty = Number(it.quantity) || 0
               const price = Number(it.price) || (qty > 0 ? (Number(it.total)||0) / qty : Number(it.total)||0)
               const total = Number(it.total) || (price * qty)
               // Preserve category from saved item or find from product
-              const category = (it as any).category || (it?.product as any)?.category || (allProducts.find(p=>p._id === (it.product?._id || it.product))?.category) || 'gas'
-              // Preserve cylinderStatus from saved item
-              const cylinderStatus = (it as any).cylinderStatus || (it?.product as any)?.cylinderStatus
+              const category = (it as any).category || (it?.product as any)?.category || product?.category || 'gas'
+              // Preserve cylinderStatus from saved item, or get from product if category is cylinder
+              let cylinderStatus = (it as any).cylinderStatus || (it?.product as any)?.cylinderStatus
+              // If still no status and it's a cylinder, try to get from product
+              if (!cylinderStatus && category === 'cylinder' && product) {
+                cylinderStatus = product.cylinderStatus
+              }
               return { product: { name: pName }, quantity: qty, price, total, category: category as "gas" | "cylinder", cylinderStatus: cylinderStatus as "empty" | "full" | undefined }
             })
           : saleItems.map((it) => {
@@ -1564,6 +1570,25 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
           address: enrichedSale.customer.address || customerFromList.address || '',
         }
       }
+    }
+    
+    // Enrich items with cylinderStatus if missing
+    if (enrichedSale.items && Array.isArray(enrichedSale.items)) {
+      enrichedSale.items = enrichedSale.items.map((item: any) => {
+        const productId = item?.product?._id || item?.product || item?.productId
+        const product = allProducts.find(p => p._id === productId)
+        const category = item.category || (item?.product as any)?.category || product?.category || 'gas'
+        
+        // If cylinderStatus is missing and it's a cylinder, get it from product
+        if (!item.cylinderStatus && category === 'cylinder' && product) {
+          return {
+            ...item,
+            category: category,
+            cylinderStatus: product.cylinderStatus || 'empty'
+          }
+        }
+        return item
+      })
     }
     
     if (!customerSignature && !sale.customerSignature) {

@@ -23,6 +23,7 @@ interface Sale {
     price: number;
     total: number;
     category?: "gas" | "cylinder";
+    cylinderStatus?: "empty" | "full";
     // Additional fields for collection receipts
     invoiceNumber?: string;
     invoiceDate?: string;
@@ -275,6 +276,17 @@ const ReceiptPrintPage = () => {
                             
                             // For other transactions, show product category
                             const category = item.category || (item.product as any)?.category || '-'
+                            const status = item.cylinderStatus
+                            // For cylinders, show status with "Cylinder" (e.g., "Full Cylinder", "Empty Cylinder")
+                            if (category === 'cylinder') {
+                              if (status) {
+                                // Capitalize first letter and add "Cylinder" (e.g., "empty" -> "Empty Cylinder", "full" -> "Full Cylinder")
+                                return status.charAt(0).toUpperCase() + status.slice(1) + ' Cylinder'
+                              }
+                              // If no status, just show "Cylinder"
+                              return 'Cylinder'
+                            }
+                            // For gas, show as-is
                             return category.charAt(0).toUpperCase() + category.slice(1)
                           })()}
                         </td>
