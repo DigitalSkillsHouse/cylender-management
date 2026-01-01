@@ -3,6 +3,11 @@ import { NextResponse } from "next/server"
 import Product from "@/models/Product"
 import InventoryItem from "@/models/InventoryItem"
 
+// Disable caching for this route - force dynamic rendering
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 // GET /api/inventory-items
 // Returns inventory items joined with product info
 export async function GET() {

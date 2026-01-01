@@ -5,6 +5,11 @@ import EmployeeSale from "@/models/EmployeeSale"
 import { getNextRcNo } from "@/lib/invoice-generator"
 // Cylinder transaction imports removed - collections only handle gas sales
 
+// Disable caching for this route - force dynamic rendering
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 // GET: list all pending gas sales invoices (admin and employee sales only, excludes cylinder transactions)
 // Query params: customerId, employeeId, type (pending|collected|all)
 export async function GET(request) {

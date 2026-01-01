@@ -4,6 +4,11 @@ import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
 import Product from "@/models/Product"
 import Supplier from "@/models/Supplier"
 
+// Disable caching for this route - force dynamic rendering
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 export async function GET(request) {
   try {
     console.log('🔍 Employee pending inventory API called')

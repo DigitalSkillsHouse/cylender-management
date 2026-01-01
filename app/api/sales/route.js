@@ -6,6 +6,11 @@ import Product from "@/models/Product"
 import Counter from "@/models/Counter"
 import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
+// Disable caching for this route - force dynamic rendering
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 export async function GET() {
   try {
     await dbConnect()

@@ -8,6 +8,11 @@ import Counter from "@/models/Counter";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils";
 
+// Disable caching for this route - force dynamic rendering
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 // Helper function to update daily tracking for returns
 async function updateDailyTracking(cylinderProductId, quantity, amount, transactionDate) {
   try {

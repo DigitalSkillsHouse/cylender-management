@@ -1,15 +1,29 @@
 import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import ReturnTransaction from "@/models/ReturnTransaction"
+import mongoose from "mongoose"
+
+// Disable caching for this route - force dynamic rendering
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
 export async function GET(request) {
   try {
     console.log('🔍 Admin pending returns API called')
+    console.log('🌍 [DEBUG] Environment:', process.env.NODE_ENV)
+    console.log('🌍 [DEBUG] Database URI exists:', !!process.env.MONGODB_URI)
+    
     await dbConnect()
+    
+    // Verify database connection
+    const connectionState = mongoose.connection.readyState
+    const connectionStates = ['disconnected', 'connected', 'connecting', 'disconnecting']
+    console.log('📡 [DEBUG] MongoDB connection state:', connectionStates[connectionState] || connectionState)
     
     // First, let's check ALL return transactions to see what's in the database
     const allReturns = await ReturnTransaction.find({})
-      .select('_id status returnDate employee product')
+      .select('_id status returnDate employee product invoiceNumber')
       .lean()
     
     console.log('📊 [DEBUG] Total return transactions in database:', allReturns.length)
@@ -36,13 +50,39 @@ export async function GET(request) {
     
     // Get pending return transactions - ensure we get fresh data from database
     // Use strict equality check and explicitly exclude 'received' and 'rejected' statuses
-    const pendingReturns = await ReturnTransaction.find({ 
-      status: { $eq: 'pending' } // Explicit equality check
-    })
-      .populate('employee', 'name email')
-      .populate('product', 'name productCode category cylinderSize')
-      .sort({ returnDate: -1 })
-      .lean() // Use lean() to get plain JavaScript objects and avoid caching issues
+    let pendingReturns
+    try {
+      pendingReturns = await ReturnTransaction.find({ 
+        status: { $eq: 'pending' } // Explicit equality check
+      })
+        .populate({
+          path: 'employee',
+          select: 'name email',
+          strictPopulate: false // Don't throw error if employee doesn't exist
+        })
+        .populate({
+          path: 'product',
+          select: 'name productCode category cylinderSize',
+          strictPopulate: false // Don't throw error if product doesn't exist
+        })
+        .sort({ returnDate: -1 })
+        .lean() // Use lean() to get plain JavaScript objects and avoid caching issues
+      
+      console.log('📊 [DEBUG] Query executed successfully, found:', pendingReturns.length, 'pending returns')
+    } catch (queryError) {
+      console.error('❌ [DEBUG] Error executing pending returns query:', queryError)
+      // Try without populate to see if that's the issue
+      try {
+        const pendingWithoutPopulate = await ReturnTransaction.find({ 
+          status: { $eq: 'pending' }
+        }).lean()
+        console.log('📊 [DEBUG] Found', pendingWithoutPopulate.length, 'pending returns without populate')
+        pendingReturns = pendingWithoutPopulate
+      } catch (fallbackError) {
+        console.error('❌ [DEBUG] Fallback query also failed:', fallbackError)
+        throw queryError
+      }
+    }
     
     // Double-check: Filter out any items that might have been updated between query and now
     // This is a safety check to ensure we only return truly pending items
@@ -88,23 +128,43 @@ export async function GET(request) {
     }
     
     // Format the data for frontend - only include verified pending returns
-    const formattedReturns = verifiedPendingReturns.map(returnTx => ({
-      id: returnTx._id.toString(),
-      invoiceNumber: returnTx.invoiceNumber,
-      employeeName: returnTx.employee?.name || 'Unknown Employee',
-      employeeEmail: returnTx.employee?.email || '',
-      employeeId: returnTx.employee?._id.toString(),
-      productName: returnTx.product?.name || 'Unknown Product',
-      productCode: returnTx.product?.productCode || '',
-      productId: returnTx.product?._id.toString(),
-      category: returnTx.product?.category || '',
-      cylinderSize: returnTx.product?.cylinderSize || '',
-      stockType: returnTx.stockType,
-      quantity: returnTx.quantity,
-      returnDate: returnTx.returnDate,
-      status: returnTx.status,
-      notes: returnTx.notes || ''
-    }))
+    const formattedReturns = verifiedPendingReturns.map(returnTx => {
+      // Handle both populated and non-populated cases
+      const employee = returnTx.employee
+      const product = returnTx.product
+      
+      // Check if employee/product are ObjectIds (not populated) or objects (populated)
+      const employeeId = employee?._id ? employee._id.toString() : (employee?.toString() || '')
+      const productId = product?._id ? product._id.toString() : (product?.toString() || '')
+      
+      // If not populated, we'll need to fetch separately (but for now, just log it)
+      if (!employee || typeof employee === 'string' || employee.toString().length === 24) {
+        console.warn(`⚠️ [PENDING RETURNS] Employee not populated for return ${returnTx._id.toString()}`)
+      }
+      if (!product || typeof product === 'string' || product.toString().length === 24) {
+        console.warn(`⚠️ [PENDING RETURNS] Product not populated for return ${returnTx._id.toString()}`)
+      }
+      
+      return {
+        id: returnTx._id.toString(),
+        invoiceNumber: returnTx.invoiceNumber || 'N/A',
+        employeeName: employee?.name || (employeeId ? 'Employee ID: ' + employeeId : 'Unknown Employee'),
+        employeeEmail: employee?.email || '',
+        employeeId: employeeId,
+        productName: product?.name || (productId ? 'Product ID: ' + productId : 'Unknown Product'),
+        productCode: product?.productCode || '',
+        productId: productId,
+        category: product?.category || '',
+        cylinderSize: product?.cylinderSize || '',
+        stockType: returnTx.stockType || 'unknown',
+        quantity: returnTx.quantity || 0,
+        returnDate: returnTx.returnDate || returnTx.createdAt,
+        status: returnTx.status,
+        notes: returnTx.notes || ''
+      }
+    })
+    
+    console.log('📦 [DEBUG] Formatted returns count:', formattedReturns.length)
 
     // Return response with no-cache headers to prevent browser caching
     return NextResponse.json({ 
@@ -120,8 +180,22 @@ export async function GET(request) {
     
   } catch (error) {
     console.error("❌ Error fetching pending returns:", error)
+    console.error("❌ Error stack:", error.stack)
+    console.error("❌ Error details:", {
+      name: error.name,
+      message: error.message,
+      code: error.code
+    })
+    
+    // Return detailed error in development, generic in production
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? `Failed to fetch pending returns: ${error.message}` 
+      : 'Failed to fetch pending returns. Please check server logs.'
+    
     return NextResponse.json({ 
-      error: `Failed to fetch pending returns: ${error.message}` 
+      success: false,
+      error: errorMessage,
+      pendingReturns: [] // Always return empty array on error
     }, { status: 500 })
   }
 }

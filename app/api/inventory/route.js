@@ -5,6 +5,11 @@ import StockManager from "@/lib/stock-manager";
 import { verifyToken } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
+// Disable caching for this route - force dynamic rendering
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 export async function GET() {
   try {
     await dbConnect();

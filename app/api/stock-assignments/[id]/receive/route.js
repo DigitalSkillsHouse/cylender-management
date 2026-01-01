@@ -4,6 +4,11 @@ import Notification from "@/models/Notification"
 import Product from "@/models/Product"
 import { NextResponse } from "next/server"
 
+// Disable caching for this route - force dynamic rendering
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 export async function PUT(request, { params }) {
   try {
     await dbConnect()
