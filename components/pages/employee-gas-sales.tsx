@@ -2364,7 +2364,9 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                     onChange={(e) => {
                       const receivedAmount = e.target.value
                       const receivedValue = parseFloat(receivedAmount) || 0
-                      const totalWithVAT = calculateTotalAmount() * 1.05
+                      const subtotal = calculateTotalAmount()
+                      const vatAmount = subtotal * 0.05
+                      const totalWithVAT = subtotal + vatAmount
                       let newPaymentStatus = formData.paymentStatus
                       // Use Math.abs for floating point comparison to handle precision issues
                       if (Math.abs(receivedValue - totalWithVAT) < 0.01 && totalWithVAT > 0) newPaymentStatus = 'cleared'
@@ -2376,7 +2378,20 @@ const [saleForSignature, setSaleForSignature] = useState<any | null>(null);
                   />
                   {formData.receivedAmount && (
                     <div className="text-sm text-gray-600">
-                      {(() => { const rv = parseFloat(formData.receivedAmount)||0; const totalWithVAT = calculateTotalAmount() * 1.05; const rem = totalWithVAT - rv; if(rem>0){return `Remaining: AED ${rem.toFixed(2)}`} else if(rem<0){return `Excess: AED ${Math.abs(rem).toFixed(2)}`} else {return '✓ Fully paid'} })()}
+                      {(() => { 
+                        const rv = parseFloat(formData.receivedAmount) || 0
+                        const subtotal = calculateTotalAmount()
+                        const vatAmount = subtotal * 0.05
+                        const totalWithVAT = subtotal + vatAmount
+                        const rem = totalWithVAT - rv
+                        if (Math.abs(rem) < 0.01) {
+                          return '✓ Fully paid'
+                        } else if (rem > 0) {
+                          return `Remaining: AED ${rem.toFixed(2)}`
+                        } else {
+                          return `Excess: AED ${Math.abs(rem).toFixed(2)}`
+                        }
+                      })()}
                     </div>
                   )}
                 </div>
