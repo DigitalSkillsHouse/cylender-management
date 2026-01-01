@@ -72,6 +72,7 @@ export async function POST(request) {
     })
     
     // Create a return transaction record (no invoice number needed for returns)
+    // invoiceNumber is NOT included - returns don't need invoice numbers
     const returnTransaction = await ReturnTransaction.create({
       employee: employeeId,
       product: inventoryItem.product._id,
@@ -215,6 +216,18 @@ export async function POST(request) {
     
   } catch (error) {
     console.error("❌ Error processing send back:", error)
+    
+    // Check if it's a duplicate key error for invoiceNumber
+    if (error?.code === 11000 && error?.keyPattern?.invoiceNumber) {
+      console.error('❌ [SEND BACK] Duplicate invoiceNumber error detected. This is likely due to an old unique index in the database.')
+      console.error('❌ [SEND BACK] Please drop the unique index on invoiceNumber in the returntransactions collection.')
+      console.error('❌ [SEND BACK] Run this in MongoDB: db.returntransactions.dropIndex("invoiceNumber_1")')
+      
+      return NextResponse.json({ 
+        error: 'Database index conflict. Please contact administrator to update the database index. Error: Duplicate invoiceNumber index.' 
+      }, { status: 500 })
+    }
+    
     return NextResponse.json({ 
       error: `Failed to send back to admin: ${error.message}` 
     }, { status: 500 })

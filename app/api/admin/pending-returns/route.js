@@ -23,7 +23,7 @@ export async function GET(request) {
     
     // First, let's check ALL return transactions to see what's in the database
     const allReturns = await ReturnTransaction.find({})
-      .select('_id status returnDate employee product invoiceNumber')
+      .select('_id status returnDate employee product')
       .lean()
     
     console.log('📊 [DEBUG] Total return transactions in database:', allReturns.length)

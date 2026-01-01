@@ -73,6 +73,8 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
   const [cylinderSearchTerms, setCylinderSearchTerms] = useState<Record<string, string>>({})
   // Track whether to show suggestions for each gas item when sending back
   const [showSendBackCylinderSuggestions, setShowSendBackCylinderSuggestions] = useState<Record<string, boolean>>({})
+  // Track which pending sub-tab is active (purchase-orders or assignments)
+  const [pendingSubTab, setPendingSubTab] = useState<string>("purchase-orders")
 
   useEffect(() => {
     fetchEmployeeInventoryData()
@@ -1020,7 +1022,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
             </CardHeader>
             
             {/* Pending Sub-tabs */}
-            <Tabs defaultValue="purchase-orders" className="w-full">
+            <Tabs value={pendingSubTab} onValueChange={setPendingSubTab} className="w-full">
               <div className="px-4 sm:px-6 pt-4">
                 <TabsList className="grid w-full grid-cols-2 h-auto">
                   <TabsTrigger value="purchase-orders" className="text-xs sm:text-sm font-medium py-2">

@@ -1,11 +1,7 @@
 import mongoose from 'mongoose'
 
 const returnTransactionSchema = new mongoose.Schema({
-  invoiceNumber: {
-    type: String,
-    required: false,
-    default: null
-  },
+  // invoiceNumber removed - return transactions don't need invoice numbers
   employee: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -65,9 +61,9 @@ const returnTransactionSchema = new mongoose.Schema({
 })
 
 // Index for efficient queries
-// Note: invoiceNumber already has an index from unique: true, so we don't need to add it again
 returnTransactionSchema.index({ employee: 1, status: 1 })
 returnTransactionSchema.index({ status: 1, returnDate: -1 })
+// No invoiceNumber index - returns don't use invoice numbers
 
 const ReturnTransaction = mongoose.models.ReturnTransaction || mongoose.model('ReturnTransaction', returnTransactionSchema)
 
