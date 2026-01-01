@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { DollarSign, Users, Package, TrendingUp, AlertCircle, Fuel, Cylinder, PenTool } from "lucide-react"
+import { DollarSign, Users, Package, TrendingUp, AlertCircle, Fuel, PenTool } from "lucide-react"
 import { dashboardAPI } from "@/lib/api"
 import { InactiveCustomersNotification } from "@/components/inactive-customers-notification"
 import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
@@ -79,7 +79,7 @@ export function Dashboard({ user }: DashboardProps) {
   const cards = [
     {
       title: "Total Revenue",
-      value: `AED ${(stats.totalRevenue + stats.gasSales + stats.cylinderRevenue).toLocaleString()}`,
+      value: `AED ${(stats.totalRevenue + stats.gasSales).toLocaleString()}`,
       icon: DollarSign,
       color: "#2B3068",
       bgColor: "bg-gradient-to-br from-blue-50 to-indigo-100",
@@ -92,14 +92,6 @@ export function Dashboard({ user }: DashboardProps) {
       color: "#059669",
       bgColor: "bg-gradient-to-br from-green-50 to-emerald-100",
       description: "Revenue from gas sales"
-    },
-    {
-      title: "Cylinder Revenue",
-      value: `AED ${stats.cylinderRevenue.toLocaleString()}`,
-      icon: Cylinder,
-      color: "#7C3AED",
-      bgColor: "bg-gradient-to-br from-purple-50 to-violet-100",
-      description: "Deposits, refills & returns"
     },
     {
       title: "Total Due",
@@ -135,7 +127,7 @@ export function Dashboard({ user }: DashboardProps) {
           <div className="h-4 bg-gray-200 rounded w-1/3"></div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
+          {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="animate-pulse">
               <div className="h-32 bg-gray-200 rounded-lg"></div>
             </div>
