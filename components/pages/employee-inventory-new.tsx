@@ -816,20 +816,21 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
     const fullCylinderOptions = getFullCylinderStock().filter(item => item.availableFull > 0)
 
     return (
-      <div className="w-full overflow-x-auto">
-        <Table className="w-full">
-          <TableHeader>
-            <TableRow className="bg-gray-50 border-b-2 border-gray-200">
-              <TableHead className="font-bold text-gray-700 p-4">Product</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Code</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Available Stock</TableHead>
-              {stockType === 'gas' && (
-                <TableHead className="font-bold text-gray-700 p-4">Full Cylinder Used</TableHead>
-              )}
-              <TableHead className="font-bold text-gray-700 p-4">Quantity to Send</TableHead>
-              <TableHead className="font-bold text-gray-700 p-4">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
+      <div className="w-full overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+        <div className="min-w-[800px] sm:min-w-0">
+          <Table className="w-full">
+            <TableHeader>
+              <TableRow className="bg-gray-50 border-b-2 border-gray-200">
+                <TableHead className="font-bold text-gray-700 p-3 sm:p-4 whitespace-nowrap min-w-[150px]">Product</TableHead>
+                <TableHead className="font-bold text-gray-700 p-3 sm:p-4 whitespace-nowrap min-w-[100px]">Code</TableHead>
+                <TableHead className="font-bold text-gray-700 p-3 sm:p-4 whitespace-nowrap min-w-[120px]">Available Stock</TableHead>
+                {stockType === 'gas' && (
+                  <TableHead className="font-bold text-gray-700 p-3 sm:p-4 whitespace-nowrap min-w-[250px] sm:min-w-[200px]">Full Cylinder Used</TableHead>
+                )}
+                <TableHead className="font-bold text-gray-700 p-3 sm:p-4 whitespace-nowrap min-w-[130px]">Quantity to Send</TableHead>
+                <TableHead className="font-bold text-gray-700 p-3 sm:p-4 whitespace-nowrap min-w-[120px]">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
           <TableBody>
             {items.map((item) => {
               let availableQuantity = 0
@@ -838,19 +839,19 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
               
               return (
                 <TableRow key={item._id} className="hover:bg-gray-50 transition-colors border-b border-gray-100">
-                  <TableCell className="p-4">
+                  <TableCell className="p-3 sm:p-4 whitespace-nowrap">
                     <div className="font-medium">{item.productName}</div>
                   </TableCell>
-                  <TableCell className="p-4 font-mono text-sm">
+                  <TableCell className="p-3 sm:p-4 font-mono text-sm whitespace-nowrap">
                     {item.productCode || 'N/A'}
                   </TableCell>
-                  <TableCell className="p-4 font-bold text-lg">
+                  <TableCell className="p-3 sm:p-4 font-bold text-lg whitespace-nowrap">
                     {availableQuantity}
                   </TableCell>
 
                   {stockType === 'gas' && (
-                    <TableCell className="p-4">
-                      <div className="relative">
+                    <TableCell className="p-3 sm:p-4 whitespace-nowrap">
+                      <div className="relative min-w-[230px] sm:min-w-[180px]">
                         <Input
                           type="text"
                           placeholder="Search full cylinder..."
@@ -903,7 +904,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
                     </TableCell>
                   )}
 
-                  <TableCell className="p-4">
+                  <TableCell className="p-3 sm:p-4 whitespace-nowrap">
                     <Input
                       type="number"
                       min="1"
@@ -913,11 +914,11 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
                       id={`quantity-${item._id}`}
                     />
                   </TableCell>
-                  <TableCell className="p-4">
+                  <TableCell className="p-3 sm:p-4 whitespace-nowrap">
                     <Button
                       size="sm"
                       onClick={() => handleSendBack(item._id, stockType)}
-                      className="bg-red-600 hover:bg-red-700 text-white"
+                      className="bg-red-600 hover:bg-red-700 text-white whitespace-nowrap"
                       disabled={availableQuantity === 0}
                     >
                       Send Back
@@ -937,6 +938,7 @@ export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
     )
   }
