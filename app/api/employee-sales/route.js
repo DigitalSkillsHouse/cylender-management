@@ -29,7 +29,7 @@ export async function GET(request) {
     // If no employeeId provided, fetch all employee sales (for admin panel)
 
     const sales = await EmployeeSale.find(query)
-      .populate("customer", "name email phone")
+      .populate("customer", "name email phone address trNumber")
       .populate("items.product", "name category cylinderSize costPrice leastPrice")
       .populate("employee", "name email")
       .sort({ createdAt: -1 })

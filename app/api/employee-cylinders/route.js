@@ -196,7 +196,7 @@ export async function GET(request) {
     let transactions
     try {
       transactions = await EmployeeCylinderTransaction.find(query)
-        .populate('customer', 'name phone address')
+        .populate('customer', 'name phone address trNumber')
         .populate('supplier', 'companyName contactPerson phone email')
         .populate('employee', 'name')
         .populate('product', 'name')
@@ -207,7 +207,7 @@ export async function GET(request) {
     } catch (e) {
       console.error('employee-cylinders GET populate error (items.productId). Falling back without nested populate:', e?.message)
       transactions = await EmployeeCylinderTransaction.find(query)
-        .populate('customer', 'name phone address')
+        .populate('customer', 'name phone address trNumber')
         .populate('supplier', 'companyName contactPerson phone email')
         .populate('employee', 'name')
         .populate('product', 'name')

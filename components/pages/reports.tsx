@@ -1962,18 +1962,36 @@ export function Reports() {
           product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: Number(it?.price || 0) },
           quantity: Number(it?.quantity || 1),
           price: Number(it?.price || 0),
-          total: Number(it?.total || ((Number(it?.price || 0)) * Number(it?.quantity || 1)))
+          total: Number(it?.total || ((Number(it?.price || 0)) * Number(it?.quantity || 1))),
+          category: (it?.category || it?.product?.category || 'gas') as "gas" | "cylinder",
+          cylinderStatus: it?.cylinderStatus || it?.product?.cylinderStatus
         }))
       )
 
       const cylinderItems = (pendingCustomer.recentCylinderTransactions || [])
         .filter((t: any) => (filters.status === 'all') ? true : (t?.status === filters.status))
-        .map((t: any) => ({
-          product: { name: `${t?.type || 'Cylinder'} – ${t?.cylinderSize || ''}`, price: Number(t?.amount || 0) },
-          quantity: Number(t?.quantity || 1),
-          price: Number(t?.amount || 0),
-          total: Number(t?.amount || 0)
-        }))
+        .map((t: any) => {
+          // Determine cylinder status based on transaction type
+          // For deposits and returns, typically empty cylinders
+          // For refills, they're full cylinders
+          let cylinderStatus = 'empty'
+          if (t?.type === 'refill') {
+            cylinderStatus = 'full'
+          } else if (t?.cylinderStatus) {
+            cylinderStatus = t.cylinderStatus
+          }
+          // Format product name: capitalize type and include size if available
+          const typeCapitalized = (t?.type || 'Cylinder').charAt(0).toUpperCase() + (t?.type || 'Cylinder').slice(1)
+          const sizeText = t?.cylinderSize ? ` ${t.cylinderSize.charAt(0).toUpperCase() + t.cylinderSize.slice(1)}` : ''
+          return {
+            product: { name: `Cylinder ${typeCapitalized}${sizeText}`, price: Number(t?.amount || 0) },
+            quantity: Number(t?.quantity || 1),
+            price: Number(t?.amount || 0),
+            total: Number(t?.amount || 0),
+            category: 'cylinder' as "gas" | "cylinder",
+            cylinderStatus: cylinderStatus as "empty" | "full"
+          }
+        })
 
       const items = [...gasItems, ...cylinderItems]
       const totalAmount = items.reduce((sum, x) => sum + Number(x.total || 0), 0)
@@ -1984,7 +2002,8 @@ export function Reports() {
         customer: {
           name: pendingCustomer.name,
           phone: pendingCustomer.phone,
-          address: pendingCustomer.address
+          address: pendingCustomer.address || '',
+          trNumber: pendingCustomer.trNumber || ''
         },
         items,
         totalAmount,
@@ -2166,7 +2185,9 @@ export function Reports() {
           },
           quantity: Number(it?.quantity || 1),
           price: Number(it?.price || 0),
-          total: Number(it?.total ?? ((Number(it?.price || 0)) * Number(it?.quantity || 1)))
+          total: Number(it?.total ?? ((Number(it?.price || 0)) * Number(it?.quantity || 1))),
+          category: (it?.category || it?.product?.category || 'gas') as "gas" | "cylinder",
+          cylinderStatus: it?.cylinderStatus || it?.product?.cylinderStatus
         }))
       )
 
@@ -2179,14 +2200,28 @@ export function Reports() {
         const qty = Number(t?.quantity || 1)
         const total = t?.type === 'refill' ? 0 : Number(t?.amount || 0)
         const unit = qty > 0 ? (total / qty) : total
+        // Determine cylinder status based on transaction type
+        // For deposits and returns, typically empty cylinders
+        // For refills, they're full cylinders
+        let cylinderStatus = 'empty'
+        if (t?.type === 'refill') {
+          cylinderStatus = 'full'
+        } else if (t?.cylinderStatus) {
+          cylinderStatus = t.cylinderStatus
+        }
+        // Format product name: capitalize type and include size if available
+        const typeCapitalized = (t?.type || 'Cylinder').charAt(0).toUpperCase() + (t?.type || 'Cylinder').slice(1)
+        const sizeText = t?.cylinderSize ? ` ${t.cylinderSize.charAt(0).toUpperCase() + t.cylinderSize.slice(1)}` : ''
         return {
           product: {
-            name: `Cylinder ${t?.type} - ${t?.cylinderSize}`,
+            name: `Cylinder ${typeCapitalized}${sizeText}`,
             price: unit,
           },
           quantity: qty,
           price: unit,
           total: total,
+          category: 'cylinder' as "gas" | "cylinder",
+          cylinderStatus: cylinderStatus as "empty" | "full"
         }
       })
 
@@ -2211,7 +2246,8 @@ export function Reports() {
         customer: {
           name: customer.name,
           phone: customer.phone,
-          address: customer.address
+          address: customer.address || '',
+          trNumber: customer.trNumber || ''
         },
         items: items,
         totalAmount: totalAmount,
