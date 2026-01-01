@@ -14,6 +14,14 @@ export const metadata: Metadata = {
     generator: 'v0.dev',
     manifest: "/manifest.json",
     themeColor: "#2B3068",
+    robots: {
+      index: false,
+      follow: false,
+      googleBot: {
+        index: false,
+        follow: false,
+      },
+    },
 }
 
 export default function RootLayout({
