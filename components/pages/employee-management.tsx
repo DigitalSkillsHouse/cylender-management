@@ -94,7 +94,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
     productId: "",
     gasProductId: "",
     cylinderProductId: "",
-    quantity: 1,
+    quantity: "" as number | string, // Allow empty string so user can clear and type
     notes: "",
   })
 
@@ -375,9 +375,27 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         return
       }
 
-      if (stockFormData.quantity > availableStock) {
+      // Validate quantity - ensure it's a valid number >= 1
+      const quantity = typeof stockFormData.quantity === 'string' 
+        ? (stockFormData.quantity === '' ? 0 : Number(stockFormData.quantity))
+        : stockFormData.quantity
+
+      if (!quantity || quantity < 1 || isNaN(quantity)) {
         setUpdateNotification({
-          message: `Insufficient stock. Available: ${availableStock}, Requested: ${stockFormData.quantity}`,
+          message: 'Please enter a valid quantity (minimum 1)',
+          visible: true,
+          type: 'warning'
+        })
+        setTimeout(() => {
+          setUpdateNotification({ message: '', visible: false, type: 'success' })
+        }, 5000)
+        setIsSubmittingStock(false)
+        return
+      }
+
+      if (quantity > availableStock) {
+        setUpdateNotification({
+          message: `Insufficient stock. Available: ${availableStock}, Requested: ${quantity}`,
           visible: true,
           type: 'warning'
         })
@@ -389,10 +407,15 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
       }
 
       // CREATE EMPLOYEE PURCHASE ORDER - This will show in employee's pending inventory
+      // Ensure quantity is a number for API call
+      const quantityForAPI = typeof stockFormData.quantity === 'string' 
+        ? (stockFormData.quantity === '' ? 1 : Number(stockFormData.quantity))
+        : stockFormData.quantity
+
       console.log('🔄 [STOCK ASSIGNMENT] Starting assignment process')
       console.log('👤 [STOCK ASSIGNMENT] Employee:', selectedEmployee.name, 'ID:', selectedEmployee._id)
       console.log('📦 [STOCK ASSIGNMENT] Product:', selectedProduct.name, 'ID:', stockFormData.productId)
-      console.log('🔢 [STOCK ASSIGNMENT] Quantity:', stockFormData.quantity)
+      console.log('🔢 [STOCK ASSIGNMENT] Quantity:', quantityForAPI)
       console.log('🏷️ [STOCK ASSIGNMENT] Category:', stockFormData.category)
       
       const stockAssignmentData = {
@@ -403,7 +426,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         category: stockFormData.category,
         cylinderStatus: stockFormData.cylinderStatus,
         gasProductId: stockFormData.gasProductId || undefined,
-        quantity: stockFormData.quantity,
+        quantity: quantityForAPI,
         unitPrice: selectedProduct.leastPrice || 0,
         notes: stockFormData.notes || `Stock assigned by admin: ${user.name}`,
         cylinderProductId: stockFormData.cylinderProductId || undefined,
@@ -454,7 +477,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
           senderId: user.id,
           type: 'stock_assignment',
           title: 'New Stock Assignment',
-          message: `${productName} (Qty: ${stockFormData.quantity}) has been assigned to you. Please accept it in your inventory.`,
+          message: `${productName} (Qty: ${quantityForAPI}) has been assigned to you. Please accept it in your inventory.`,
           read: false,
         }),
       })
@@ -474,7 +497,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
             adminId: user.id,
             employeeId: selectedEmployee._id,
             productId: stockFormData.productId,
-            assignedQuantity: stockFormData.quantity,
+            assignedQuantity: quantityForAPI,
             unitPrice: selectedProduct.leastPrice || 0,
             category: selectedProduct.category,
             cylinderStatus: stockFormData.cylinderStatus,
@@ -519,7 +542,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
           stockFormData.productId, 
           selectedProduct.name,
           selectedProduct.category,
-          stockFormData.quantity, 
+          quantityForAPI, 
           selectedProduct.leastPrice || 0
         )
         console.log('✅ [DSR TRACKING] Transfer recorded successfully in DSR')
@@ -550,7 +573,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
 
       // Show success notification
       setUpdateNotification({
-        message: `Stock assigned successfully! ${productName} (Qty: ${stockFormData.quantity}) sent to ${selectedEmployee.name}. Employee will see it in their pending assignments.`,
+        message: `Stock assigned successfully! ${productName} (Qty: ${quantityForAPI}) sent to ${selectedEmployee.name}. Employee will see it in their pending assignments.`,
         visible: true,
         type: 'success'
       })
@@ -565,7 +588,7 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
         productId: "",
         gasProductId: "",
         cylinderProductId: "",
-        quantity: 1,
+        quantity: "" as number | string, // Reset to empty string
         notes: "",
       })
       setProductSearchTerm("")
@@ -1101,7 +1124,14 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                 type="number"
                 min="1"
                 value={stockFormData.quantity}
-                onChange={(e) => setStockFormData({ ...stockFormData, quantity: Number.parseInt(e.target.value) || 1 })}
+                onChange={(e) => {
+                  const value = e.target.value
+                  // Allow empty string or valid number
+                  if (value === "" || (!isNaN(Number(value)) && Number(value) >= 1)) {
+                    setStockFormData({ ...stockFormData, quantity: value === "" ? "" : Number(value) })
+                  }
+                }}
+                placeholder="Enter quantity"
                 required
               />
             </div>
