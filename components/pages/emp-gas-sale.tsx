@@ -2348,11 +2348,13 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                         const receivedAmount = e.target.value
                         const receivedValue = parseFloat(receivedAmount) || 0
                         
-                        // Auto-select status based on received amount vs total amount
+                        // Auto-select status based on received amount vs total amount (with VAT) - same as admin panel
+                        const totalWithVAT = totalAmount * 1.05
                         let newPaymentStatus = formData.paymentStatus
-                        if (receivedValue === totalAmount && totalAmount > 0) {
+                        // Use Math.abs for floating point comparison to handle precision issues
+                        if (Math.abs(receivedValue - totalWithVAT) < 0.01 && totalWithVAT > 0) {
                           newPaymentStatus = "cleared"
-                        } else if (receivedValue > 0 && receivedValue < totalAmount) {
+                        } else if (receivedValue > 0 && receivedValue < totalWithVAT) {
                           newPaymentStatus = "pending"
                         } else if (receivedValue === 0) {
                           newPaymentStatus = "pending"
@@ -2372,7 +2374,8 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                       <div className="text-sm text-gray-600">
                         {(() => {
                           const receivedValue = parseFloat(formData.receivedAmount) || 0
-                          const remaining = totalAmount - receivedValue
+                          const totalWithVAT = totalAmount * 1.05
+                          const remaining = totalWithVAT - receivedValue
                           if (remaining > 0) {
                             return `Remaining: AED ${remaining.toFixed(2)}`
                           } else if (remaining < 0) {
