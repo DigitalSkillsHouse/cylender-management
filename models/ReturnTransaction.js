@@ -65,9 +65,9 @@ const returnTransactionSchema = new mongoose.Schema({
 })
 
 // Index for efficient queries
+// Note: invoiceNumber already has an index from unique: true, so we don't need to add it again
 returnTransactionSchema.index({ employee: 1, status: 1 })
 returnTransactionSchema.index({ status: 1, returnDate: -1 })
-returnTransactionSchema.index({ invoiceNumber: 1 })
 
 const ReturnTransaction = mongoose.models.ReturnTransaction || mongoose.model('ReturnTransaction', returnTransactionSchema)
 

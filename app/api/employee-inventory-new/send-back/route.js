@@ -60,7 +60,7 @@ export async function POST(request) {
     })
 
     // Generate invoice number for the return transaction
-    const invoiceNumber = await getNextInvoiceNumberWithRetry()
+    let invoiceNumber = await getNextInvoiceNumberWithRetry()
     
     console.log('📝 [SEND BACK] Creating return transaction with:', {
       invoiceNumber,
@@ -72,57 +72,88 @@ export async function POST(request) {
       status: 'pending'
     })
     
-    // Create a return transaction record
+    // Create a return transaction record with retry logic for duplicate invoice numbers
     let returnTransaction
-    try {
-      returnTransaction = await ReturnTransaction.create({
-        invoiceNumber: invoiceNumber,
-        employee: employeeId,
-        product: inventoryItem.product._id,
-        stockType: stockType,
-        quantity: quantity,
-        returnDate: new Date(),
-        status: 'pending', // Admin needs to accept this return
-        notes: `Employee returned ${quantity} ${stockType} ${inventoryItem.product.name} to admin`
-      })
-      
-      console.log('✅ [SEND BACK] Return transaction created successfully:', {
-        id: returnTransaction._id.toString(),
-        invoiceNumber: returnTransaction.invoiceNumber,
-        employee: returnTransaction.employee.toString(),
-        product: returnTransaction.product.toString(),
-        stockType: returnTransaction.stockType,
-        quantity: returnTransaction.quantity,
-        returnDate: returnTransaction.returnDate,
-        status: returnTransaction.status,
-        createdAt: returnTransaction.createdAt
-      })
-      
-      // Verify it was saved correctly by querying it back
-      const verifyTransaction = await ReturnTransaction.findById(returnTransaction._id)
-        .select('_id status employee product stockType quantity returnDate')
-        .lean()
-      
-      if (verifyTransaction) {
-        console.log('✅ [SEND BACK] Verified return transaction in database:', {
-          id: verifyTransaction._id.toString(),
-          status: verifyTransaction.status,
-          employee: verifyTransaction.employee?.toString(),
-          product: verifyTransaction.product?.toString()
+    const maxRetries = 3
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        returnTransaction = await ReturnTransaction.create({
+          invoiceNumber: invoiceNumber,
+          employee: employeeId,
+          product: inventoryItem.product._id,
+          stockType: stockType,
+          quantity: quantity,
+          returnDate: new Date(),
+          status: 'pending', // Admin needs to accept this return
+          notes: `Employee returned ${quantity} ${stockType} ${inventoryItem.product.name} to admin`
         })
-      } else {
-        console.error('❌ [SEND BACK] WARNING: Return transaction not found after creation!')
+        
+        console.log('✅ [SEND BACK] Return transaction created successfully:', {
+          id: returnTransaction._id.toString(),
+          invoiceNumber: returnTransaction.invoiceNumber,
+          employee: returnTransaction.employee.toString(),
+          product: returnTransaction.product.toString(),
+          stockType: returnTransaction.stockType,
+          quantity: returnTransaction.quantity,
+          returnDate: returnTransaction.returnDate,
+          status: returnTransaction.status,
+          createdAt: returnTransaction.createdAt
+        })
+        
+        // Verify it was saved correctly by querying it back
+        const verifyTransaction = await ReturnTransaction.findById(returnTransaction._id)
+          .select('_id status employee product stockType quantity returnDate')
+          .lean()
+        
+        if (verifyTransaction) {
+          console.log('✅ [SEND BACK] Verified return transaction in database:', {
+            id: verifyTransaction._id.toString(),
+            status: verifyTransaction.status,
+            employee: verifyTransaction.employee?.toString(),
+            product: verifyTransaction.product?.toString()
+          })
+        } else {
+          console.error('❌ [SEND BACK] WARNING: Return transaction not found after creation!')
+        }
+        
+        // Success - break out of retry loop
+        break
+        
+      } catch (createError) {
+        // Check if it's a duplicate key error for invoiceNumber
+        if (createError?.code === 11000 && createError?.keyPattern?.invoiceNumber) {
+          console.warn(`⚠️ [SEND BACK] Attempt ${attempt}: Duplicate invoice number ${invoiceNumber} detected, generating new one...`)
+          
+          if (attempt < maxRetries) {
+            // Generate a new invoice number and retry
+            invoiceNumber = await getNextInvoiceNumberWithRetry()
+            console.log(`🔄 [SEND BACK] Retrying with new invoice number: ${invoiceNumber}`)
+            continue
+          } else {
+            // Last attempt failed - throw error
+            console.error('❌ [SEND BACK] Failed to create return transaction after all retries:', createError)
+            console.error('❌ [SEND BACK] Error details:', {
+              message: createError.message,
+              name: createError.name,
+              code: createError.code,
+              keyPattern: createError.keyPattern,
+              keyValue: createError.keyValue
+            })
+            throw createError
+          }
+        } else {
+          // Not a duplicate key error - throw immediately
+          console.error('❌ [SEND BACK] Failed to create return transaction:', createError)
+          console.error('❌ [SEND BACK] Error details:', {
+            message: createError.message,
+            name: createError.name,
+            code: createError.code,
+            keyPattern: createError.keyPattern,
+            keyValue: createError.keyValue
+          })
+          throw createError
+        }
       }
-    } catch (createError) {
-      console.error('❌ [SEND BACK] Failed to create return transaction:', createError)
-      console.error('❌ [SEND BACK] Error details:', {
-        message: createError.message,
-        name: createError.name,
-        code: createError.code,
-        keyPattern: createError.keyPattern,
-        keyValue: createError.keyValue
-      })
-      throw createError
     }
 
     // For gas transfers, require explicit cylinder selection and validate before applying updates
