@@ -2465,7 +2465,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                       step="0.01"
                       min={0}
                       value={draftItem.amount}
-                      onChange={(e) => setDraftItem(prev => ({ ...prev, amount: Number.parseFloat(e.target.value) || 0 }))}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        // Preserve decimals by keeping as string until conversion
+                        setDraftItem(prev => ({ ...prev, amount: val === '' ? 0 : parseFloat(val) || 0 }))
+                      }}
                     />
                   </div>
                 </div>
@@ -2563,9 +2567,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                         step="0.01"
                         min="0"
                         value={formData.cashAmount}
-                        onChange={(e) =>
-                          setFormData({ ...formData, cashAmount: Number.parseFloat(e.target.value) || 0 })
-                        }
+                        onChange={(e) => {
+                          const val = e.target.value
+                          // Preserve decimals by keeping as string until conversion
+                          setFormData({ ...formData, cashAmount: val === '' ? 0 : parseFloat(val) || 0 })
+                        }}
                         placeholder="Enter cash amount"
                       />
                     </div>
@@ -2605,9 +2611,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                       step="0.01"
                       min="0"
                       value={formData.paymentOption === 'delivery_note' ? 0 : formData.depositAmount}
-                      onChange={(e) =>
-                        setFormData({ ...formData, depositAmount: parseFloat(e.target.value) || 0 })
-                      }
+                      onChange={(e) => {
+                        const val = e.target.value
+                        // Keep as string to preserve decimals, convert to number only when needed
+                        setFormData({ ...formData, depositAmount: val === '' ? 0 : parseFloat(val) || 0 })
+                      }}
                       disabled={formData.paymentOption === 'delivery_note'}
                     />
                     {formData.paymentOption === 'delivery_note' && (
@@ -2667,9 +2675,11 @@ export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
                         step="0.01"
                         min="0"
                         value={formData.cashAmount}
-                        onChange={(e) =>
-                          setFormData({ ...formData, cashAmount: Number.parseFloat(e.target.value) || 0 })
-                        }
+                        onChange={(e) => {
+                          const val = e.target.value
+                          // Preserve decimals by keeping as string until conversion
+                          setFormData({ ...formData, cashAmount: val === '' ? 0 : parseFloat(val) || 0 })
+                        }}
                         placeholder="Enter cash amount"
                       />
                     </div>
