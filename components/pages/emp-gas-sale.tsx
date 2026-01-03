@@ -853,6 +853,15 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         return
       }
 
+      // Validate debit amount is required when debit payment option is selected
+      if (formData.paymentOption === 'debit') {
+        const receivedAmount = parseFloat(formData.receivedAmount) || 0
+        if (receivedAmount <= 0) {
+          alert("Please enter the debit amount when 'Debit' payment option is selected")
+          return
+        }
+      }
+
       const totalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
 
       // Derive final payment fields from paymentOption
