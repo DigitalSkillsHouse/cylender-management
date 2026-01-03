@@ -155,10 +155,12 @@ export async function POST(request) {
         }
       }
 
-      // Use least price from employee inventory
+      // Use price from item if provided, otherwise use least price from employee inventory
       const employeeStock = employeeStockMap.get(key)
       const leastPrice = employeeStock.leastPrice
-      const itemTotal = leastPrice * item.quantity
+      // Use the price sent from frontend if provided and valid, otherwise fall back to leastPrice
+      const itemPrice = (item.price && Number(item.price) > 0) ? Number(item.price) : leastPrice
+      const itemTotal = itemPrice * item.quantity
       calculatedTotal += itemTotal
 
       // Derive category and cylinder size from product (trust server data)
@@ -168,7 +170,7 @@ export async function POST(request) {
       const validatedItem = {
         product: item.product,
         quantity: item.quantity,
-        price: leastPrice,
+        price: itemPrice, // Use the price from frontend (or leastPrice as fallback)
         total: itemTotal,
         category: productCategory,
         cylinderSize: cylinderSize,
