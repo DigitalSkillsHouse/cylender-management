@@ -57,7 +57,6 @@ export function Dashboard({ user }: DashboardProps) {
         inactiveCustomersCount: Number(statsData.inactiveCustomersCount || 0),
       })
     } catch (error) {
-      // console.error("Error details:", error.response?.data || error.message)
       // Set default values on error - ensure they are displayed as 0
       setStats({
         totalRevenue: 0,

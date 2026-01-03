@@ -929,7 +929,7 @@ export function GasSales() {
           if (isEmployeeSale) {
             savedResponse = await employeeSalesAPI.update(editingSale._id, fullUpdatePayload)
           } else {
-            savedResponse = await salesAPI.update(editingSale._id, fullUpdatePayload)
+          savedResponse = await salesAPI.update(editingSale._id, fullUpdatePayload)
           }
         } catch (err: any) {
           console.error('GasSales - Full PUT failed, retrying minimal update. Error:', err?.response?.data || err?.message)
@@ -947,7 +947,7 @@ export function GasSales() {
           if (isEmployeeSale) {
             savedResponse = await employeeSalesAPI.update(editingSale._id, minimalUpdatePayload)
           } else {
-            savedResponse = await salesAPI.update(editingSale._id, minimalUpdatePayload)
+          savedResponse = await salesAPI.update(editingSale._id, minimalUpdatePayload)
           }
         }
       } else {
@@ -1150,7 +1150,7 @@ export function GasSales() {
         if (isEmployeeSale) {
           await employeeSalesAPI.delete(id)
         } else {
-          await salesAPI.delete(id)
+        await salesAPI.delete(id)
         }
         await fetchData()
       } catch (error) {

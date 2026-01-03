@@ -3,6 +3,11 @@ import { NextResponse } from "next/server"
 import Customer from "@/models/Customer"
 import * as XLSX from "xlsx"
 
+// Disable caching for this route
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
+
 export async function POST(request) {
   try {
     await dbConnect()

@@ -62,6 +62,15 @@ export function CustomerImportDialog({ isOpen, onClose, onImportComplete }: Cust
         body: formData,
       })
 
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        // Response is not JSON (likely HTML error page)
+        const text = await response.text()
+        console.error('Non-JSON response received:', text.substring(0, 200))
+        throw new Error(`Server error: Received ${response.status} ${response.statusText}. Please check the server logs.`)
+      }
+
       const data = await response.json()
 
       if (!response.ok || !data.success) {
@@ -77,6 +86,7 @@ export function CustomerImportDialog({ isOpen, onClose, onImportComplete }: Cust
         }, 2000)
       }
     } catch (error: any) {
+      console.error('Import error:', error)
       setResult({
         success: 0,
         failed: 0,
