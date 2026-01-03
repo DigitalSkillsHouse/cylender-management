@@ -13,12 +13,35 @@ import { NextResponse } from "next/server"
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-export async function GET() {
+export async function GET(request) {
   try {
     await dbConnect()
+    
+    // Get date range from query parameters
+    const { searchParams } = new URL(request.url)
+    const fromDate = searchParams.get('fromDate')
+    const toDate = searchParams.get('toDate')
+    
+    // Build date filter for MongoDB queries
+    const dateFilter = {}
+    if (fromDate || toDate) {
+      dateFilter.createdAt = {}
+      if (fromDate) {
+        // Start of day in Dubai timezone
+        const from = new Date(fromDate + 'T00:00:00+04:00')
+        dateFilter.createdAt.$gte = from
+      }
+      if (toDate) {
+        // End of day in Dubai timezone
+        const to = new Date(toDate + 'T23:59:59+04:00')
+        dateFilter.createdAt.$lte = to
+      }
+    }
 
-    // Calculate gas sales revenue (sum of all sales)
+    // Calculate gas sales revenue (sum of all sales) with date filter
+    const gasSalesMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
     const gasSalesResult = await Sale.aggregate([
+      ...gasSalesMatch,
       {
         $group: {
           _id: null,
@@ -32,8 +55,10 @@ export async function GET() {
 
     const gasSales = gasSalesResult[0] || { gasSalesRevenue: 0, gasSalesPaid: 0, totalDue: 0, totalSales: 0 }
 
-    // Calculate employee gas sales revenue
+    // Calculate employee gas sales revenue with date filter
+    const employeeGasSalesMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
     const employeeGasSalesResult = await EmployeeSale.aggregate([
+      ...employeeGasSalesMatch,
       {
         $group: {
           _id: null,
@@ -47,8 +72,10 @@ export async function GET() {
 
     const employeeGasSales = employeeGasSalesResult[0] || { employeeGasSalesRevenue: 0, employeeGasSalesPaid: 0, employeeTotalDue: 0, employeeTotalSales: 0 }
 
-    // Calculate employee cylinder revenue
+    // Calculate employee cylinder revenue with date filter
+    const employeeCylinderMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
     const employeeCylinderRevenueResult = await EmployeeCylinderTransaction.aggregate([
+      ...employeeCylinderMatch,
       {
         $group: {
           _id: null,
@@ -68,8 +95,10 @@ export async function GET() {
 
     const employeeCylinderRevenue = employeeCylinderRevenueResult[0] || { employeeCylinderRevenue: 0, employeeTotalTransactions: 0 }
 
-    // Calculate cylinder revenue (sum of all cylinder transactions)
+    // Calculate cylinder revenue (sum of all cylinder transactions) with date filter
+    const cylinderMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
     const cylinderRevenueResult = await CylinderTransaction.aggregate([
+      ...cylinderMatch,
       {
         $group: {
           _id: null,
@@ -98,8 +127,9 @@ export async function GET() {
     // Get product count
     const productCount = await Product.countDocuments()
 
-    // Calculate products sold (sum of quantities from admin sales items)
+    // Calculate products sold (sum of quantities from admin sales items) with date filter
     const productsSoldResult = await Sale.aggregate([
+      ...gasSalesMatch,
       { $unwind: "$items" },
       {
         $group: {
@@ -109,8 +139,9 @@ export async function GET() {
       },
     ])
 
-    // Calculate products sold from employee sales
+    // Calculate products sold from employee sales with date filter
     const employeeProductsSoldResult = await EmployeeSale.aggregate([
+      ...employeeGasSalesMatch,
       { $unwind: "$items" },
       {
         $group: {
@@ -136,6 +167,7 @@ export async function GET() {
     const totalPaid = (gasSales.gasSalesPaid || 0) + (employeeGasSales.employeeGasSalesPaid || 0)
 
     // Find inactive customers (no transactions in the last 30 days)
+    // Note: Inactive customers calculation is not affected by date filter - it's always based on last 30 days
     const oneMonthAgo = new Date()
     oneMonthAgo.setDate(oneMonthAgo.getDate() - 30)
 

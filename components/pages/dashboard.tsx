@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { DollarSign, Users, Package, TrendingUp, AlertCircle, Fuel, PenTool } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { DollarSign, Users, Package, TrendingUp, AlertCircle, Fuel, PenTool, Calendar, X } from "lucide-react"
 import { dashboardAPI } from "@/lib/api"
 import { InactiveCustomersNotification } from "@/components/inactive-customers-notification"
 import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
+import { getLocalDateString } from "@/lib/date-utils"
 
 interface DashboardProps {
   user?: {
@@ -32,14 +35,42 @@ export const Dashboard = ({ user }: DashboardProps) => {
   })
   const [loading, setLoading] = useState(true)
   const [showAdminSignatureDialog, setShowAdminSignatureDialog] = useState(false)
+  
+  // Date range filter states
+  const [filterType, setFilterType] = useState<'all' | 'month' | 'custom'>('all')
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [fromDate, setFromDate] = useState(getLocalDateString())
+  const [toDate, setToDate] = useState(getLocalDateString())
+  const [showDateFilter, setShowDateFilter] = useState(false)
 
   useEffect(() => {
     fetchStats()
-  }, [])
+  }, [filterType, selectedMonth, fromDate, toDate])
 
   const fetchStats = async () => {
     try {
-      const response = await dashboardAPI.getStats()
+      setLoading(true)
+      
+      // Build query parameters based on filter type
+      const params: any = {}
+      
+      if (filterType === 'month') {
+        // Get first and last day of selected month
+        const [year, month] = selectedMonth.split('-')
+        const startDate = `${year}-${month}-01`
+        const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate()
+        const endDate = `${year}-${month}-${String(lastDay).padStart(2, '0')}`
+        params.fromDate = startDate
+        params.toDate = endDate
+      } else if (filterType === 'custom') {
+        if (fromDate) params.fromDate = fromDate
+        if (toDate) params.toDate = toDate
+      }
+      
+      const response = await dashboardAPI.getStats(params)
       
       // Handle nested data structure if needed
       const statsData = response.data?.data || response.data || {}
@@ -73,6 +104,24 @@ export const Dashboard = ({ user }: DashboardProps) => {
     } finally {
       setLoading(false)
     }
+  }
+  
+  const handleFilterTypeChange = (type: 'all' | 'month' | 'custom') => {
+    setFilterType(type)
+    if (type === 'all') {
+      setShowDateFilter(false)
+    } else {
+      setShowDateFilter(true)
+    }
+  }
+  
+  const resetFilter = () => {
+    setFilterType('all')
+    setShowDateFilter(false)
+    const now = new Date()
+    setSelectedMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+    setFromDate(getLocalDateString())
+    setToDate(getLocalDateString())
   }
 
   // Format currency to 2 decimal places (matching reports format)
@@ -154,6 +203,31 @@ export const Dashboard = ({ user }: DashboardProps) => {
           </div>
           
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
+            {/* Date Range Filter */}
+            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+              <Button
+                onClick={() => setShowDateFilter(!showDateFilter)}
+                variant="secondary"
+                className="bg-white/10 hover:bg-white/20 text-white border border-white/20"
+                size="sm"
+              >
+                <Calendar className="w-4 h-4 mr-2" />
+                {filterType === 'all' ? 'Filter by Date' : filterType === 'month' ? 'Filtered by Month' : 'Filtered by Custom Range'}
+              </Button>
+              
+              {filterType !== 'all' && (
+                <Button
+                  onClick={resetFilter}
+                  variant="secondary"
+                  className="bg-white/10 hover:bg-white/20 text-white border border-white/20"
+                  size="sm"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Clear Filter
+                </Button>
+              )}
+            </div>
+            
             {/* Admin Signature Button - Only show for admin users */}
             {user?.role === "admin" && (
               <Button
@@ -176,6 +250,78 @@ export const Dashboard = ({ user }: DashboardProps) => {
               />
             </div>
           </div>
+          
+          {/* Date Filter Panel */}
+          {showDateFilter && (
+            <div className="bg-white/10 rounded-lg p-4 mt-2 border border-white/20">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    onClick={() => handleFilterTypeChange('all')}
+                    variant={filterType === 'all' ? 'default' : 'secondary'}
+                    size="sm"
+                    className={filterType === 'all' ? 'bg-white text-[#2B3068]' : 'bg-white/10 text-white hover:bg-white/20'}
+                  >
+                    All Time
+                  </Button>
+                  <Button
+                    onClick={() => handleFilterTypeChange('month')}
+                    variant={filterType === 'month' ? 'default' : 'secondary'}
+                    size="sm"
+                    className={filterType === 'month' ? 'bg-white text-[#2B3068]' : 'bg-white/10 text-white hover:bg-white/20'}
+                  >
+                    By Month
+                  </Button>
+                  <Button
+                    onClick={() => handleFilterTypeChange('custom')}
+                    variant={filterType === 'custom' ? 'default' : 'secondary'}
+                    size="sm"
+                    className={filterType === 'custom' ? 'bg-white text-[#2B3068]' : 'bg-white/10 text-white hover:bg-white/20'}
+                  >
+                    Custom Range
+                  </Button>
+                </div>
+                
+                {filterType === 'month' && (
+                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                    <Label htmlFor="month" className="text-white min-w-[80px]">Select Month:</Label>
+                    <Input
+                      id="month"
+                      type="month"
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(e.target.value)}
+                      className="bg-white text-gray-900 max-w-[200px]"
+                    />
+                  </div>
+                )}
+                
+                {filterType === 'custom' && (
+                  <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                      <Label htmlFor="fromDate" className="text-white min-w-[80px]">From Date:</Label>
+                      <Input
+                        id="fromDate"
+                        type="date"
+                        value={fromDate}
+                        onChange={(e) => setFromDate(e.target.value)}
+                        className="bg-white text-gray-900 max-w-[200px]"
+                      />
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                      <Label htmlFor="toDate" className="text-white min-w-[80px]">To Date:</Label>
+                      <Input
+                        id="toDate"
+                        type="date"
+                        value={toDate}
+                        onChange={(e) => setToDate(e.target.value)}
+                        className="bg-white text-gray-900 max-w-[200px]"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

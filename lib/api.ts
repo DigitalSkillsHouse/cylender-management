@@ -163,7 +163,7 @@ export const cylindersAPI = {
 
 // Dashboard API
 export const dashboardAPI = {
-  getStats: () => api.get("/dashboard/stats"), // Cache busting handled by interceptor
+  getStats: (params?: { fromDate?: string; toDate?: string }) => api.get("/dashboard/stats", { params }), // Cache busting handled by interceptor
 }
 
 // Inactive Customers API
