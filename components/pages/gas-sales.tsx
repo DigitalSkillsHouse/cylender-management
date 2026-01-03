@@ -1225,6 +1225,35 @@ export const GasSales = () => {
         cp[index] = false;
         return cp;
       })
+    } else if (field === 'price') {
+      // Validate price against least price
+      const item = newItems[index]
+      const product = allProducts.find((p: Product) => p._id === item.productId)
+      
+      // Allow empty string for clearing the field
+      if (value === '' || value === null || value === undefined) {
+        newItems[index] = {
+          ...newItems[index],
+          [field]: value,
+        }
+      } else {
+        const enteredPrice = parseFloat(value)
+        
+        // If product exists and entered price is below least price, prevent entry and show error
+        if (product && !isNaN(enteredPrice)) {
+          if (enteredPrice < product.leastPrice) {
+            setPriceAlert({ message: `Price cannot be below minimum price of AED ${product.leastPrice.toFixed(2)}`, index })
+            setTimeout(() => setPriceAlert({ message: '', index: null }), 3000)
+            // Don't update the price - keep the previous value
+            return
+          }
+        }
+        
+        newItems[index] = {
+          ...newItems[index],
+          [field]: value,
+        }
+      }
     } else {
       // For other fields, update as usual
       newItems[index] = {
@@ -1442,11 +1471,25 @@ export const GasSales = () => {
 
   const handleEntryPriceChange = (value: string) => {
     const product = allProducts.find((p: Product) => p._id === currentItem.productId)
-    const enteredPrice = parseFloat(value)
-    if (product && !isNaN(enteredPrice) && enteredPrice < product.leastPrice) {
-      setPriceAlert({ message: `Price must be at least ${product.leastPrice.toFixed(2)}`, index: -1 })
-      setTimeout(() => setPriceAlert({ message: '', index: null }), 2000)
+    
+    // Allow empty string for clearing the field
+    if (value === '' || value === null || value === undefined) {
+      setCurrentItem((prev) => ({ ...prev, price: value }))
+      return
     }
+    
+    const enteredPrice = parseFloat(value)
+    
+    // If product exists and entered price is below least price, prevent entry and show error
+    if (product && !isNaN(enteredPrice)) {
+      if (enteredPrice < product.leastPrice) {
+        setPriceAlert({ message: `Price cannot be below minimum price of AED ${product.leastPrice.toFixed(2)}`, index: -1 })
+        setTimeout(() => setPriceAlert({ message: '', index: null }), 3000)
+        // Don't update the price - keep the previous value
+        return
+      }
+    }
+    
     setCurrentItem((prev) => ({ ...prev, price: value }))
   }
 
