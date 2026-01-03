@@ -76,10 +76,18 @@ export function Dashboard({ user }: DashboardProps) {
     }
   }
 
+  // Format currency to 2 decimal places (matching reports format)
+  const formatCurrency = (amount: number) => {
+    return amount.toLocaleString('en-AE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })
+  }
+
   const cards = [
     {
       title: "Total Revenue",
-      value: `AED ${(stats.totalRevenue + stats.gasSales).toLocaleString()}`,
+      value: `AED ${formatCurrency(stats.totalRevenue + stats.gasSales)}`,
       icon: DollarSign,
       color: "#2B3068",
       bgColor: "bg-gradient-to-br from-blue-50 to-indigo-100",
@@ -87,7 +95,7 @@ export function Dashboard({ user }: DashboardProps) {
     },
     {
       title: "Gas Sales Revenue",
-      value: `AED ${stats.gasSales.toLocaleString()}`,
+      value: `AED ${formatCurrency(stats.gasSales)}`,
       icon: Fuel,
       color: "#059669",
       bgColor: "bg-gradient-to-br from-green-50 to-emerald-100",
@@ -95,7 +103,7 @@ export function Dashboard({ user }: DashboardProps) {
     },
     {
       title: "Total Due",
-      value: `AED ${stats.totalDue.toLocaleString()}`,
+      value: `AED ${formatCurrency(stats.totalDue)}`,
       icon: AlertCircle,
       color: "#DC2626",
       bgColor: "bg-gradient-to-br from-red-50 to-red-100",
