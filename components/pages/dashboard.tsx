@@ -17,7 +17,7 @@ interface DashboardProps {
   }
 }
 
-export function Dashboard({ user }: DashboardProps) {
+export const Dashboard = ({ user }: DashboardProps) => {
   const [stats, setStats] = useState({
     totalRevenue: 0,
     totalDue: 0,

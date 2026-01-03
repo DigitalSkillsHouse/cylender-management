@@ -18,7 +18,7 @@ export async function GET() {
 }
 
 // Helper function to generate product code
-async function generateProductCode(productName) {
+const generateProductCode = async (productName) => {
   // Get abbreviation for each word based on specific rules
   const words = productName.trim().split(/\s+/)
   const abbreviations = words.map((word, index) => {

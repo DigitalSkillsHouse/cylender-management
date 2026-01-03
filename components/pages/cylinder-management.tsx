@@ -107,7 +107,7 @@ interface Supplier {
   email?: string
 }
 
-export function CylinderManagement() {
+export const CylinderManagement = () => {
   const [transactions, setTransactions] = useState<CylinderTransaction[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])

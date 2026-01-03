@@ -22,7 +22,7 @@ interface Customer {
   address: string
 }
 
-export function CustomerManagement() {
+export const CustomerManagement = () => {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)

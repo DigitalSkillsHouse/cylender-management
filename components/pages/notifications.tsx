@@ -12,7 +12,7 @@ interface NotificationsProps {
   setUnreadCount?: (count: number) => void
 }
 
-export function Notifications({ user, setUnreadCount }: NotificationsProps) {
+export const Notifications = ({ user, setUnreadCount }: NotificationsProps) => {
   const [notifications, setNotifications] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [markingId, setMarkingId] = useState<string | null>(null)

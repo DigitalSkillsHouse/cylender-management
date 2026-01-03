@@ -56,7 +56,7 @@ interface PurchaseManagementProps {
   user: { id: string; email: string; role: "admin" | "employee"; name: string }
 }
 
-export function PurchaseManagement({ user }: PurchaseManagementProps) {
+export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   // --- Employee Purchase Orders Filters & PDF State ---
   const [showDateFilters, setShowDateFilters] = useState(false);
   const [fromDate, setFromDate] = useState("");

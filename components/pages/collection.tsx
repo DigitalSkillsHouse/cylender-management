@@ -53,7 +53,7 @@ interface CollectionPageProps {
   user: User
 }
 
-export function CollectionPage({ user }: CollectionPageProps) {
+export const CollectionPage = ({ user }: CollectionPageProps) => {
   const [loading, setLoading] = useState(false)
   const [invoices, setInvoices] = useState<PendingInvoice[]>([])
   const [collectedInvoices, setCollectedInvoices] = useState<PendingInvoice[]>([])

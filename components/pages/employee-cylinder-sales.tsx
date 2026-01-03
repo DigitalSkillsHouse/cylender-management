@@ -111,7 +111,7 @@ interface EmployeeCylinderSalesProps {
   user: { id: string; email: string; name: string; role: string }
 }
 
-export function EmployeeCylinderSales({ user }: EmployeeCylinderSalesProps) {
+export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
   const [transactions, setTransactions] = useState<CylinderTransaction[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])

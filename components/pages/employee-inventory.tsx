@@ -56,7 +56,7 @@ interface EmployeeInventoryProps {
   user: { id: string; email: string; role: "admin" | "employee"; name: string }
 }
 
-export function EmployeeInventory({ user }: EmployeeInventoryProps) {
+export const EmployeeInventory = ({ user }: EmployeeInventoryProps) => {
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])

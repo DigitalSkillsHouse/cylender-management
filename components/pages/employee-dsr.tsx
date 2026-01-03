@@ -38,7 +38,7 @@ interface DSRItem {
   category: string
 }
 
-export default function EmployeeDSR({ user }: EmployeeDSRProps) {
+const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
   const [dsrDate, setDsrDate] = useState(getLocalDateString())
   const [dsrData, setDsrData] = useState<DSRItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -62,10 +62,11 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
   }
 
   // Fetch stored employee DSR reports for opening values
-  const fetchStoredEmployeeDsrReports = async (date: string) => {
+  // Returns the reports data directly for immediate use (avoids state update delay)
+  const fetchStoredEmployeeDsrReports = async (date: string): Promise<Record<string, { openingFull: number; openingEmpty: number }>> => {
     // Check if this fetch is for the current date (cancel if date changed)
     if (currentFetchDateRef.current !== date) {
-      return
+      return {}
     }
     
     const today = getLocalDateString()
@@ -79,7 +80,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       
       // Check again if date changed during fetch
       if (currentFetchDateRef.current !== date) {
-        return
+        return {}
       }
       
       const data = await response.json()
@@ -202,11 +203,16 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
                 openingEmpty: report.openingEmpty || 0
               }
             })
+            setIsInventoryFetched(true)
+            setStoredDsrReports(reports)
+            console.log(`✅ [DIAGNOSTIC] Opening stock verified/updated for ${date} from yesterday (${previousDateStr}) closing stock, storedDsrReports set with ${Object.keys(reports).length} items`)
+            return reports
           }
           
           setIsInventoryFetched(true)
           setStoredDsrReports(reports)
           console.log(`✅ [DIAGNOSTIC] Opening stock verified/updated for ${date} from yesterday (${previousDateStr}) closing stock, storedDsrReports set with ${Object.keys(reports).length} items`)
+          return reports
         } else {
           // Stored data exists but has zero opening stock - fetch previous day's closing stock instead
           console.log(`🔍 [DIAGNOSTIC] Stored data for ${date} has zero opening stock, fetching previous day's closing stock...`)
@@ -252,6 +258,7 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
           setIsInventoryFetched(true)
           setStoredDsrReports(prevReports)
           console.log(`✅ [DIAGNOSTIC] storedDsrReports SET for ${date} with ${Object.keys(prevReports).length} items:`, Object.keys(prevReports))
+          return prevReports
         }
       } else {
         // No stored data for this date - fetch previous day's closing stock to use as opening stock
@@ -300,10 +307,12 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         setStoredDsrReports(prevReports)
         console.log(`✅ [DIAGNOSTIC] storedDsrReports SET for ${date} with ${Object.keys(prevReports).length} items:`, Object.keys(prevReports))
         console.log(`✅ [DIAGNOSTIC] isInventoryFetched set to TRUE for ${date}`)
+        return prevReports
       }
     } catch (error) {
       console.error('Failed to fetch stored employee DSR reports:', error)
       setIsInventoryFetched(false)
+      return {}
     }
   }
 
@@ -611,10 +620,13 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
     fetchAbortControllerRef.current = abortController
     currentFetchDateRef.current = dsrDate
     
-    // Clear previous data immediately to prevent stale data from showing
-    setDsrData([])
-    setStoredDsrReports({})
-    setIsInventoryFetched(false)
+    // Only clear data if this is a new date fetch (not a re-fetch for the same date)
+    // This prevents clearing data when just switching tabs
+    if (currentFetchDateRef.current !== dsrDate) {
+      setDsrData([])
+      setStoredDsrReports({})
+      setIsInventoryFetched(false)
+    }
     
     setLoading(true)
     try {
@@ -1160,16 +1172,59 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         return
       }
       
-      setDsrData(finalDsrData)
-      
-      // Fetch stored DSR reports for opening values (must complete before showing data)
-      await fetchStoredEmployeeDsrReports(dsrDate)
+      // Fetch stored DSR reports for opening values FIRST (before setting data)
+      // Get the reports data directly from the function instead of relying on state
+      const storedReportsData = await fetchStoredEmployeeDsrReports(dsrDate)
       
       // Check again if date changed during fetchStoredEmployeeDsrReports
       if (abortController.signal.aborted || currentFetchDateRef.current !== dsrDate) {
         console.log(`⚠️ [EMPLOYEE DSR] Fetch cancelled or date changed after fetching stored reports, not updating data`)
         return
       }
+      
+      // Recalculate closing stock after fetching stored reports to ensure it's correct
+      // Use the directly returned data instead of state (which may not be updated yet)
+      finalDsrData.forEach((item) => {
+        const key = normalizeName(item.itemName)
+        const openingFull = storedReportsData[key]?.openingFull ?? item.openingFull
+        const openingEmpty = storedReportsData[key]?.openingEmpty ?? item.openingEmpty
+        
+        // Recalculate closing stock with correct opening values
+        const fullPurchase = item.fullPurchase || 0
+        const emptyPurchase = item.emptyPurchase || 0
+        const refilled = item.refilled || 0
+        const fullCylinderSales = item.fullCylinderSales || 0
+        const emptyCylinderSales = item.emptyCylinderSales || 0
+        const gasSales = item.gasSales || 0
+        const deposits = item.deposits || 0
+        const returns = item.returns || 0
+        const transferGas = item.transferGas || 0
+        const transferEmpty = item.transferEmpty || 0
+        const receivedGas = item.receivedGas || 0
+        const receivedEmpty = item.receivedEmpty || 0
+        
+        // Check if there are any transactions
+        const hasTransactions = fullPurchase > 0 || emptyPurchase > 0 || refilled > 0 || 
+                                fullCylinderSales > 0 || emptyCylinderSales > 0 || gasSales > 0 || 
+                                deposits > 0 || returns > 0 || transferGas > 0 || transferEmpty > 0 || 
+                                receivedGas > 0 || receivedEmpty > 0
+        
+        // Update opening stock from stored reports
+        item.openingFull = openingFull
+        item.openingEmpty = openingEmpty
+        
+        // Recalculate closing stock
+        if (!hasTransactions) {
+          item.closingFull = openingFull
+          item.closingEmpty = openingEmpty
+        } else {
+          item.closingFull = Math.max(0, openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + receivedGas)
+          item.closingEmpty = Math.max(0, openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmpty + receivedEmpty - item.closingFull)
+        }
+      })
+      
+      // Set data with recalculated closing stock
+      setDsrData(finalDsrData)
       
       
       console.log('✅ Employee DSR data processed:', {
@@ -1202,10 +1257,16 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
   // Fetch DSR data when component mounts or date changes
   useEffect(() => {
     if (user.id && dsrDate) {
-      // Clear previous data immediately when date changes
-      setDsrData([])
-      setStoredDsrReports({})
-      setIsInventoryFetched(false)
+      // Only clear data if date actually changed (not just a re-render from tab switch)
+      // The fetchEmployeeDSR function will handle clearing data if needed for new dates
+      const previousDate = currentFetchDateRef.current
+      if (previousDate && previousDate !== dsrDate) {
+        // Date changed - clear data
+        setDsrData([])
+        setStoredDsrReports({})
+        setIsInventoryFetched(false)
+      }
+      // If same date, don't clear - just refetch to ensure data is fresh
       
       fetchEmployeeDSR()
     }
@@ -1685,3 +1746,5 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
     </div>
   )
 }
+
+export default EmployeeDSR

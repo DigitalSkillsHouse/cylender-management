@@ -54,7 +54,7 @@ interface RentalCollectionProps {
   }
 }
 
-export function RentalCollection({ user }: RentalCollectionProps = {}) {
+export const RentalCollection = ({ user }: RentalCollectionProps = {}) => {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])

@@ -14,7 +14,7 @@ interface EmployeeDashboardProps {
   setUnreadCount?: (count: number) => void
 }
 
-export function EmployeeDashboard({ user, setUnreadCount }: EmployeeDashboardProps) {
+export const EmployeeDashboard = ({ user, setUnreadCount }: EmployeeDashboardProps) => {
   const [loading, setLoading] = useState(true)
   const [salesData, setSalesData] = useState<any[]>([])
   const [totalDebit, setTotalDebit] = useState(0)

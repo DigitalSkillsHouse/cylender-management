@@ -35,7 +35,7 @@ interface DeliveryNoteDialogProps {
   open?: boolean
 }
 
-export function DeliveryNoteDialog({ sale, signature, onClose, open = true }: DeliveryNoteDialogProps) {
+export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: DeliveryNoteDialogProps) => {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 

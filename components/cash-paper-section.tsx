@@ -20,7 +20,7 @@ type CashPaperRecord = {
   type?: string // For cylinder transactions: 'deposit', 'return', 'refill'
 }
 
-export default function CashPaperSection({
+const CashPaperSection = ({
   title = "Cash Paper",
   employeeId,
 }: {
@@ -299,3 +299,5 @@ export default function CashPaperSection({
     </Card>
   )
 }
+
+export default CashPaperSection

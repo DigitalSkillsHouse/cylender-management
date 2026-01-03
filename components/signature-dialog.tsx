@@ -13,7 +13,7 @@ interface SignatureDialogProps {
   customerName?: string
 }
 
-export function SignatureDialog({ isOpen, onClose, onSignatureComplete, customerName }: SignatureDialogProps) {
+export const SignatureDialog = ({ isOpen, onClose, onSignatureComplete, customerName }: SignatureDialogProps) => {
   const signatureRef = useRef<SignatureCanvas>(null)
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 600, height: 220 })
   const [hasSignature, setHasSignature] = useState(false)

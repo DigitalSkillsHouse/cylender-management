@@ -20,11 +20,11 @@ interface InactiveCustomersNotificationProps {
   onMarkAsViewed?: () => void
 }
 
-export function InactiveCustomersNotification({ 
+export const InactiveCustomersNotification = ({ 
   inactiveCustomers, 
   inactiveCustomersCount,
   onMarkAsViewed 
-}: InactiveCustomersNotificationProps) {
+}: InactiveCustomersNotificationProps) => {
   const [showModal, setShowModal] = useState(false)
   const [isMarkingAsViewed, setIsMarkingAsViewed] = useState(false)
   const [showSuccessMessage, setShowSuccessMessage] = useState(false)

@@ -71,7 +71,7 @@ interface PurchaseItem {
   emptyCylinderCode?: string
 }
 
-export function PurchaseManagement() {
+export const PurchaseManagement = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([])
   const [employeePurchaseOrders, setEmployeePurchaseOrders] = useState<any[]>([])
   const [suppliers, setSuppliers] = useState<any[]>([])

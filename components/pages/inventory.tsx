@@ -53,7 +53,7 @@ interface Supplier {
   name: string
 }
 
-export function Inventory() {
+export const Inventory = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])

@@ -20,7 +20,7 @@ interface CustomerImportDialogProps {
   onImportComplete: () => void
 }
 
-export function CustomerImportDialog({ isOpen, onClose, onImportComplete }: CustomerImportDialogProps) {
+export const CustomerImportDialog = ({ isOpen, onClose, onImportComplete }: CustomerImportDialogProps) => {
   const [file, setFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)

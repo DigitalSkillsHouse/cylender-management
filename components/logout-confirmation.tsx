@@ -10,7 +10,7 @@ interface LogoutConfirmationProps {
   userName: string
 }
 
-export function LogoutConfirmation({ isOpen, onConfirm, onCancel, userName }: LogoutConfirmationProps) {
+export const LogoutConfirmation = ({ isOpen, onConfirm, onCancel, userName }: LogoutConfirmationProps) => {
   if (!isOpen) return null
 
   return (

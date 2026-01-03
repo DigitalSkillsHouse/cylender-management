@@ -14,7 +14,7 @@ interface LoginFormProps {
   onLogin: (email: string, password: string, userType: string) => Promise<void>
 }
 
-export function LoginForm({ onLogin }: LoginFormProps) {
+export const LoginForm = ({ onLogin }: LoginFormProps) => {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [userType, setUserType] = useState("admin")

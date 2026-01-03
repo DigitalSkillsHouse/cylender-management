@@ -43,7 +43,7 @@ interface CustomerLedgerData {
   error?: string
 }
 
-export function Reports() {
+export const Reports = () => {
   const [stats, setStats] = useState({
     totalRevenue: 0,
     totalEmployees: 0,

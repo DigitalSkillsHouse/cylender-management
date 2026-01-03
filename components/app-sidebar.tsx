@@ -179,7 +179,7 @@ const employeeMenuItems = [
   },
 ]
 
-export function AppSidebar({ currentPage, onPageChange, user, onLogout, unreadCount: externalUnreadCount, setUnreadCount, creditAmount = 0, debitAmount = 0 }: AppSidebarProps) {
+export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCount: externalUnreadCount, setUnreadCount, creditAmount = 0, debitAmount = 0 }: AppSidebarProps) => {
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setLocalUnreadCount] = useState(0)
   const [mobileOpen, setMobileOpen] = useState(false)

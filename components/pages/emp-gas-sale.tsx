@@ -100,7 +100,7 @@ interface EmployeeGasSalesProps {
   }
 }
 
-export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
+export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   const [sales, setSales] = useState<Sale[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -2633,7 +2633,27 @@ export function EmployeeGasSales({ user }: EmployeeGasSalesProps) {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="p-4 font-semibold">AED {Number(group.totalAmount || 0).toFixed(2)}</TableCell>
+                        <TableCell className="p-4 font-semibold">
+                          {/* Check if this is a gas sale (has gas items) - gas sales include VAT */}
+                          {(() => {
+                            const hasGasItems = group.items.some((item: any) => item.category === 'gas')
+                            const subtotal = Number(group.totalAmount || 0)
+                            const totalWithVAT = subtotal * 1.05
+                            
+                            if (hasGasItems) {
+                              // Gas sales: show total with VAT (matching invoice/receipt)
+                              return (
+                                <div>
+                                  <div className="font-semibold">AED {totalWithVAT.toFixed(2)}</div>
+                                  <div className="text-xs text-gray-500">(incl. VAT 5%)</div>
+                                </div>
+                              )
+                            } else {
+                              // Cylinder transactions: show total without VAT
+                              return <div>AED {subtotal.toFixed(2)}</div>
+                            }
+                          })()}
+                        </TableCell>
                         <TableCell className="p-4 font-semibold">AED {Number(group.receivedAmount || 0).toFixed(2)}</TableCell>
                         <TableCell className="p-4 capitalize">{group.paymentMethod}</TableCell>
                         <TableCell className="p-4">

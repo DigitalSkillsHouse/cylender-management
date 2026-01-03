@@ -14,7 +14,7 @@ interface EmployeeSignatureDialogProps {
   employeeId?: string
 }
 
-export function EmployeeSignatureDialog({ isOpen, onClose, onSave, employeeId }: EmployeeSignatureDialogProps) {
+export const EmployeeSignatureDialog = ({ isOpen, onClose, onSave, employeeId }: EmployeeSignatureDialogProps) => {
   const signatureRef = useRef<SignatureCanvas>(null)
   const [saving, setSaving] = useState(false)
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 600, height: 220 })

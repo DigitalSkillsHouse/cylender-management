@@ -21,13 +21,13 @@ interface CustomerDropdownProps {
   disabled?: boolean;
 }
 
-export function CustomerDropdown({ 
+export const CustomerDropdown = ({ 
   onSelect, 
   selectedCustomerId, 
   placeholder = "Select a customer",
   showDetails = true,
   disabled = false 
-}: CustomerDropdownProps) {
+}: CustomerDropdownProps) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");

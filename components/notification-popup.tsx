@@ -25,7 +25,7 @@ interface Notification {
   }
 }
 
-export function NotificationPopup({ user }: NotificationPopupProps) {
+export const NotificationPopup = ({ user }: NotificationPopupProps) => {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [visibleNotification, setVisibleNotification] = useState<Notification | null>(null)
   const [lastChecked, setLastChecked] = useState<Date>(new Date())

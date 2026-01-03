@@ -11,13 +11,13 @@ import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils";
 
 // Helper: get next sequential invoice number using centralized generator
-async function getNextCylinderInvoice() {
+const getNextCylinderInvoice = async () => {
   const { getNextInvoiceNumberWithRetry } = await import('@/lib/invoice-generator')
   return await getNextInvoiceNumberWithRetry()
 }
 
 // Helper function to update daily tracking for deposits
-async function updateDailyTracking(cylinderProductId, quantity, amount, transactionDate) {
+const updateDailyTracking = async (cylinderProductId, quantity, amount, transactionDate) => {
   try {
     const product = await Product.findById(cylinderProductId);
     if (!product) return;
@@ -56,7 +56,7 @@ async function updateDailyTracking(cylinderProductId, quantity, amount, transact
 }
 
 // Helper function to update inventory for deposit transactions
-async function updateInventoryForDeposit(cylinderProductId, quantity, gasProductId) {
+const updateInventoryForDeposit = async (cylinderProductId, quantity, gasProductId) => {
   console.log(`[Deposit] Processing stock deduction - Cylinder: ${cylinderProductId}, Quantity: ${quantity}, Gas: ${gasProductId}`);
   
   // 1. Simply deduct empty cylinders from inventory

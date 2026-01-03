@@ -26,7 +26,7 @@ interface CollectionReceiptDialogProps {
   signature?: string | null
 }
 
-export function CollectionReceiptDialog({ open, onClose, payments, collectorName, collectorRole, customerName, signature }: CollectionReceiptDialogProps) {
+export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName, collectorRole, customerName, signature }: CollectionReceiptDialogProps) => {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 

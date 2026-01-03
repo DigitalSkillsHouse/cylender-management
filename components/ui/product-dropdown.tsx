@@ -24,7 +24,7 @@ interface ProductDropdownProps {
   products?: Product[]; // Add products prop
 }
 
-export function ProductDropdown({ 
+export const ProductDropdown = ({ 
   onSelect, 
   selectedProductId, 
   placeholder = "Select a product",
@@ -32,7 +32,7 @@ export function ProductDropdown({
   showDetails = true,
   disabled = false,
   products: propProducts 
-}: ProductDropdownProps) {
+}: ProductDropdownProps) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>("");

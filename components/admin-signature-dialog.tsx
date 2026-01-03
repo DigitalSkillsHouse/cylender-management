@@ -13,7 +13,7 @@ interface AdminSignatureDialogProps {
   onSave?: (signature: string) => void
 }
 
-export function AdminSignatureDialog({ isOpen, onClose, onSave }: AdminSignatureDialogProps) {
+export const AdminSignatureDialog = ({ isOpen, onClose, onSave }: AdminSignatureDialogProps) => {
   const signatureRef = useRef<SignatureCanvas>(null)
   const [saving, setSaving] = useState(false)
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 600, height: 220 })

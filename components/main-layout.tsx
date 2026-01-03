@@ -43,7 +43,7 @@ interface MainLayoutProps {
   onLogout: () => void
 }
 
-export function MainLayout({ user, onLogout }: MainLayoutProps) {
+export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
   const [currentPage, setCurrentPage] = useState("dashboard")
   const [mounted, setMounted] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)

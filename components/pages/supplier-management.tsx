@@ -23,7 +23,7 @@ interface Supplier {
   status: "active" | "inactive"
 }
 
-export function SupplierManagement() {
+export const SupplierManagement = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)

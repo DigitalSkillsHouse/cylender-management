@@ -12,7 +12,7 @@ interface InvoiceSettingsDialogProps {
   onClose: () => void
 }
 
-export function InvoiceSettingsDialog({ isOpen, onClose }: InvoiceSettingsDialogProps) {
+export const InvoiceSettingsDialog = ({ isOpen, onClose }: InvoiceSettingsDialogProps) => {
   const [startingNumber, setStartingNumber] = useState("0")
   const [loading, setLoading] = useState(false)
 

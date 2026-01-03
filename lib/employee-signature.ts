@@ -56,7 +56,7 @@ export async function fetchEmployeeSignature(employeeId: string): Promise<string
  * @param employeeId - The employee's user ID
  * @returns string | null
  */
-export function getEmployeeSignatureSync(employeeId: string): string | null {
+export const getEmployeeSignatureSync = (employeeId: string): string | null => {
   if (typeof window === "undefined" || !employeeId) return null
   try {
     return localStorage.getItem(`employeeSignature_${employeeId}`)

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react"
 import { UpdatePrompt } from "./UpdatePrompt"
 
-export default function ServiceWorkerRegister() {
+const ServiceWorkerRegister = () => {
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null)
   const [isDismissed, setIsDismissed] = useState(false)
@@ -150,3 +150,5 @@ export default function ServiceWorkerRegister() {
 
   return <UpdatePrompt onUpdate={handleUpdate} onDismiss={handleDismiss} />
 }
+
+export default ServiceWorkerRegister

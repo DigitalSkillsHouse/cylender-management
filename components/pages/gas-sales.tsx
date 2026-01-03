@@ -91,7 +91,7 @@ type NormalizedItem = {
   cylinderStatus?: "empty" | "full"
 }
 
-export function GasSales() {
+export const GasSales = () => {
   const [sales, setSales] = useState<Sale[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])

@@ -51,7 +51,7 @@ interface EmployeeInventoryProps {
   user: { id: string; email: string; role: "admin" | "employee"; name: string }
 }
 
-export function EmployeeInventoryNew({ user }: EmployeeInventoryProps) {
+export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
   const [pendingOrders, setPendingOrders] = useState<EmployeeInventoryItem[]>([])
   const [pendingAssignments, setPendingAssignments] = useState<any[]>([])
   const [receivedStock, setReceivedStock] = useState<EmployeeInventoryStock[]>([])

@@ -10,7 +10,7 @@ interface UpdatePromptProps {
   onDismiss: () => void
 }
 
-export function UpdatePrompt({ onUpdate, onDismiss }: UpdatePromptProps) {
+export const UpdatePrompt = ({ onUpdate, onDismiss }: UpdatePromptProps) => {
   return (
     <div className="fixed bottom-4 right-4 z-[9999] max-w-md animate-in slide-in-from-bottom-5">
       <Alert className="border-blue-500 bg-blue-50 shadow-lg">

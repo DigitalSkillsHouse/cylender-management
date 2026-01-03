@@ -64,7 +64,7 @@ interface ReceiptDialogProps {
   employeeId?: string
 }
 
-export function ReceiptDialog({ sale, signature, onClose, useReceivingHeader, open = true, disableVAT = false, user, employeeId }: ReceiptDialogProps) {
+export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, open = true, disableVAT = false, user, employeeId }: ReceiptDialogProps) => {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 

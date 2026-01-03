@@ -22,7 +22,7 @@ interface Product {
   leastPrice: number
 }
 
-export function ProductManagement() {
+export const ProductManagement = () => {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)

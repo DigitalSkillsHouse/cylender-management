@@ -66,7 +66,7 @@ interface DailyStockReportProps {
   }
 }
 
-export function DailyStockReport({ user }: DailyStockReportProps) {
+export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   const [showDSRView, setShowDSRView] = useState(false)
   const [showEmployeeDSR, setShowEmployeeDSR] = useState(false)
   const [dsrEntries, setDsrEntries] = useState<DailyStockEntry[]>([])

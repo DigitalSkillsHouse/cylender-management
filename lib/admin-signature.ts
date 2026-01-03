@@ -52,7 +52,7 @@ export async function fetchAdminSignature(): Promise<string | null> {
  * Use fetchAdminSignature() for database-first approach
  * @returns string | null
  */
-export function getAdminSignatureSync(): string | null {
+export const getAdminSignatureSync = (): string | null => {
   if (typeof window === "undefined") return null
   try {
     return localStorage.getItem("adminSignature")
