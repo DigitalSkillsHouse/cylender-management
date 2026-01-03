@@ -39,7 +39,16 @@ export async function GET(request) {
     }
 
     // Calculate gas sales revenue (sum of all sales) with date filter
-    const gasSalesMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
+    // Exclude credit sales with pending status from revenue - they should only show in totalDue
+    const gasSalesMatch = dateFilter.createdAt 
+      ? [{ $match: { ...dateFilter } }] 
+      : []
+    
+    // Revenue calculation: only count non-credit sales OR cleared credit sales
+    const gasSalesRevenueMatch = dateFilter.createdAt
+      ? [{ $match: { ...dateFilter, $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
+      : [{ $match: { $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
+    
     const gasSalesResult = await Sale.aggregate([
       ...gasSalesMatch,
       {
@@ -52,11 +61,35 @@ export async function GET(request) {
         },
       },
     ])
+    
+    // Calculate revenue separately (excluding pending credit sales)
+    const gasSalesRevenueResult = await Sale.aggregate([
+      ...gasSalesRevenueMatch,
+      {
+        $group: {
+          _id: null,
+          gasSalesRevenue: { $sum: "$totalAmount" },
+        },
+      },
+    ])
+    
+    const gasSalesRevenue = gasSalesRevenueResult[0]?.gasSalesRevenue || 0
 
     const gasSales = gasSalesResult[0] || { gasSalesRevenue: 0, gasSalesPaid: 0, totalDue: 0, totalSales: 0 }
+    // Override revenue with filtered calculation (excluding pending credit sales)
+    gasSales.gasSalesRevenue = gasSalesRevenue
 
     // Calculate employee gas sales revenue with date filter
-    const employeeGasSalesMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
+    // Exclude credit sales with pending status from revenue
+    const employeeGasSalesMatch = dateFilter.createdAt 
+      ? [{ $match: { ...dateFilter } }] 
+      : []
+    
+    // Revenue calculation: only count non-credit sales OR cleared credit sales
+    const employeeGasSalesRevenueMatch = dateFilter.createdAt
+      ? [{ $match: { ...dateFilter, $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
+      : [{ $match: { $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
+    
     const employeeGasSalesResult = await EmployeeSale.aggregate([
       ...employeeGasSalesMatch,
       {
@@ -69,8 +102,23 @@ export async function GET(request) {
         },
       },
     ])
+    
+    // Calculate revenue separately (excluding pending credit sales)
+    const employeeGasSalesRevenueResult = await EmployeeSale.aggregate([
+      ...employeeGasSalesRevenueMatch,
+      {
+        $group: {
+          _id: null,
+          employeeGasSalesRevenue: { $sum: "$totalAmount" },
+        },
+      },
+    ])
+    
+    const employeeGasSalesRevenue = employeeGasSalesRevenueResult[0]?.employeeGasSalesRevenue || 0
 
     const employeeGasSales = employeeGasSalesResult[0] || { employeeGasSalesRevenue: 0, employeeGasSalesPaid: 0, employeeTotalDue: 0, employeeTotalSales: 0 }
+    // Override revenue with filtered calculation (excluding pending credit sales)
+    employeeGasSales.employeeGasSalesRevenue = employeeGasSalesRevenue
 
     // Calculate employee cylinder revenue with date filter
     const employeeCylinderMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
