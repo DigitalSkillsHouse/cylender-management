@@ -892,6 +892,10 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
       })
       
       // Process stock assignments to track received stock (when employee accepts stock)
+      // CRITICAL: Only process assignments with status === 'received' (employee has accepted)
+      // Do NOT include 'assigned' status (pending, not yet accepted by employee)
+      // This matches the inventory logic which only shows accepted assignments
+      
       // Helper function to check if a date matches the DSR date
       const inSelectedDay = (dateStr: string | Date): boolean => {
         if (!dateStr) return false
@@ -917,6 +921,13 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         const quantity = Number(assignment.quantity || assignment.remainingQuantity || 0)
         const status = assignment.status || ''
         
+        // CRITICAL FIX: Only process assignments that have been ACCEPTED by employee
+        // Status must be 'received' - do NOT include 'assigned' (pending) or 'active' status
+        if (status !== 'received') {
+          // Skip assignments that haven't been accepted yet
+          return
+        }
+        
         // Get received date - check multiple possible fields
         let receivedDate = assignment.receivedDate || assignment.updatedAt || assignment.createdAt || ''
         if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
@@ -933,12 +944,10 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         }
         
         // Only process assignments that were received on the selected date
-        // Also check if status is 'received' even if receivedDate doesn't match (might be same day)
-        const isReceived = status === 'received' || status === 'active'
         const dateMatches = receivedDate && inSelectedDay(receivedDate)
         const isTodayCheck = !receivedDate && isToday(dsrDate) // If no receivedDate but status is received and it's today
         
-        if (isReceived && (dateMatches || isTodayCheck)) {
+        if (dateMatches || isTodayCheck) {
           // Determine which cylinder row this should be added to
           // For gas assignments, check if there's a related cylinder
           let targetCylinderName = productName
