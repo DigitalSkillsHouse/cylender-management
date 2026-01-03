@@ -1226,33 +1226,10 @@ export const GasSales = () => {
         return cp;
       })
     } else if (field === 'price') {
-      // Validate price against least price
-      const item = newItems[index]
-      const product = allProducts.find((p: Product) => p._id === item.productId)
-      
-      // Allow empty string for clearing the field
-      if (value === '' || value === null || value === undefined) {
-        newItems[index] = {
-          ...newItems[index],
-          [field]: value,
-        }
-      } else {
-        const enteredPrice = parseFloat(value)
-        
-        // If product exists and entered price is below least price, prevent entry and show error
-        if (product && !isNaN(enteredPrice)) {
-          if (enteredPrice < product.leastPrice) {
-            setPriceAlert({ message: `Price cannot be below minimum price of AED ${product.leastPrice.toFixed(2)}`, index })
-            setTimeout(() => setPriceAlert({ message: '', index: null }), 3000)
-            // Don't update the price - keep the previous value
-            return
-          }
-        }
-        
-        newItems[index] = {
-          ...newItems[index],
-          [field]: value,
-        }
+      // Allow typing freely - validate on blur instead
+      newItems[index] = {
+        ...newItems[index],
+        [field]: value,
       }
     } else {
       // For other fields, update as usual
@@ -1263,6 +1240,19 @@ export const GasSales = () => {
     }
 
     setFormData({ ...formData, items: newItems });
+    
+    // Validate price after update if it's a price field
+    if (field === 'price') {
+      const item = newItems[index]
+      const product = allProducts.find((p: Product) => p._id === item.productId)
+      const enteredPrice = parseFloat(value)
+      
+      if (product && value && !isNaN(enteredPrice) && enteredPrice < product.leastPrice) {
+        // Show warning but allow typing - will be corrected on blur or submit
+        setPriceAlert({ message: `Price below minimum (AED ${product.leastPrice.toFixed(2)}). Will be corrected.`, index })
+        setTimeout(() => setPriceAlert({ message: '', index: null }), 2000)
+      }
+    }
   };
 
   // Product autocomplete handlers per item
@@ -1470,30 +1460,40 @@ export const GasSales = () => {
   }
 
   const handleEntryPriceChange = (value: string) => {
+    // Allow typing freely - don't validate during input
+    setCurrentItem((prev) => ({ ...prev, price: value }))
+  }
+  
+  const handleEntryPriceBlur = () => {
+    // Validate on blur (when user leaves the field)
     const product = allProducts.find((p: Product) => p._id === currentItem.productId)
+    const enteredPrice = parseFloat(currentItem.price)
     
-    // Allow empty string for clearing the field
-    if (value === '' || value === null || value === undefined) {
-      setCurrentItem((prev) => ({ ...prev, price: value }))
-      return
-    }
-    
-    const enteredPrice = parseFloat(value)
-    
-    // If product exists and entered price is below least price, prevent entry and show error
-    if (product && !isNaN(enteredPrice)) {
+    if (product && currentItem.price && !isNaN(enteredPrice)) {
       if (enteredPrice < product.leastPrice) {
-        setPriceAlert({ message: `Price cannot be below minimum price of AED ${product.leastPrice.toFixed(2)}`, index: -1 })
+        setPriceAlert({ message: `Price cannot be below minimum price of AED ${product.leastPrice.toFixed(2)}. Setting to minimum.`, index: -1 })
         setTimeout(() => setPriceAlert({ message: '', index: null }), 3000)
-        // Don't update the price - keep the previous value
-        return
+        // Auto-correct to least price
+        setCurrentItem((prev) => ({ ...prev, price: product.leastPrice.toString() }))
       }
     }
-    
-    setCurrentItem((prev) => ({ ...prev, price: value }))
   }
 
   const addOrUpdateItem = () => {
+    // Validate price before adding/updating item
+    const product = allProducts.find((p: Product) => p._id === currentItem.productId)
+    const enteredPrice = parseFloat(currentItem.price)
+    
+    if (product && currentItem.price && !isNaN(enteredPrice)) {
+      if (enteredPrice < product.leastPrice) {
+        setPriceAlert({ message: `Price cannot be below minimum price of AED ${product.leastPrice.toFixed(2)}. Setting to minimum.`, index: -1 })
+        setTimeout(() => setPriceAlert({ message: '', index: null }), 3000)
+        // Auto-correct to least price
+        setCurrentItem((prev) => ({ ...prev, price: product.leastPrice.toString() }))
+        return // Don't add item until price is corrected
+      }
+    }
+    
     const qty = Number(currentItem.quantity) || 0
     const pr = Number(currentItem.price) || 0
     if (!currentItem.productId || qty <= 0 || pr <= 0) return
@@ -2245,6 +2245,7 @@ export const GasSales = () => {
                       min="0"
                       value={currentItem.price}
                       onChange={(e) => handleEntryPriceChange(e.target.value)}
+                      onBlur={handleEntryPriceBlur}
                       placeholder={(() => {
                         const p = allProducts.find((ap) => ap._id === currentItem.productId)
                         return p?.leastPrice ? `Min: AED ${p.leastPrice.toFixed(2)}` : 'Select product first'
