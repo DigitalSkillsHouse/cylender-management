@@ -139,6 +139,35 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
     grandTotal = Number(sale?.totalAmount || 0)
     subTotal = grandTotal
     vatAmount = 0
+  } else if (sale?.type === 'rental') {
+    // For rentals: use the totalAmount directly (already calculated as quantity * days * amountPerDay + VAT)
+    // OR calculate from items if totalAmount is not available
+    if (sale?.totalAmount) {
+      // Use the stored totalAmount which already includes VAT
+      grandTotal = Number(sale.totalAmount)
+      // Calculate subtotal and VAT from items
+      subTotal = itemsSafe.reduce((sum, item) => {
+        const priceNum = Number(item?.price || 0) // amountPerDay
+        const qtyNum = Number(item?.quantity || 0)
+        const daysNum = Number((item as any)?.days || 0)
+        const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
+        return sum + itemSubtotal
+      }, 0)
+      vatAmount = subTotal * 0.05
+      // Ensure grandTotal matches subtotal + VAT
+      grandTotal = subTotal + vatAmount
+    } else {
+      // Fallback: calculate from items
+      subTotal = itemsSafe.reduce((sum, item) => {
+        const priceNum = Number(item?.price || 0) // amountPerDay
+        const qtyNum = Number(item?.quantity || 0)
+        const daysNum = Number((item as any)?.days || 0)
+        const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
+        return sum + itemSubtotal
+      }, 0)
+      vatAmount = subTotal * 0.05
+      grandTotal = subTotal + vatAmount
+    }
   } else {
     // VAT is 5% of unit price. We show per-item VAT column and a totals breakdown.
     // Subtotal: sum(price * qty). VAT: 5% of subtotal. Grand Total: subtotal + VAT.
@@ -495,6 +524,12 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                       let itemTotal
                       if (disableVAT || isCylinderTransaction) {
                         itemTotal = Number(item?.total || 0)
+                      } else if (sale?.type === 'rental') {
+                        // For rentals: calculate quantity * days * amountPerDay + VAT
+                        const daysNum = Number((item as any)?.days || 0)
+                        const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
+                        const itemVat = itemSubtotal * 0.05
+                        itemTotal = itemSubtotal + itemVat
                       } else {
                         // Calculate with VAT
                         const unitVat = priceNum * 0.05

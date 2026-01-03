@@ -98,6 +98,17 @@ const ReceiptPrintPage = () => {
     grandTotal = Number(sale?.totalAmount || 0)
     subTotal = grandTotal
     vatAmount = 0
+  } else if (sale?.type === 'rental') {
+    // For rentals: calculate subtotal as quantity * days * amountPerDay, then add VAT
+    subTotal = sale.items.reduce((sum, item) => {
+      const priceNum = Number(item?.price || 0) // amountPerDay
+      const qtyNum = Number(item?.quantity || 0)
+      const daysNum = Number((item as any)?.days || 0)
+      const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
+      return sum + itemSubtotal
+    }, 0)
+    vatAmount = subTotal * 0.05
+    grandTotal = subTotal + vatAmount
   } else {
     // Totals breakdown: Subtotal (price*qty), VAT (5% of subtotal), Grand Total (subtotal + VAT)
     subTotal = sale.items.reduce((sum, item) => {
@@ -226,6 +237,12 @@ const ReceiptPrintPage = () => {
                 let itemTotal
                 if (sale?.type === 'collection' || shouldDisableVAT) {
                   itemTotal = Number(item?.total || 0)
+                } else if (sale?.type === 'rental') {
+                  // For rentals: calculate quantity * days * amountPerDay + VAT
+                  const daysNum = Number((item as any)?.days || 0)
+                  const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
+                  const itemVat = itemSubtotal * 0.05
+                  itemTotal = itemSubtotal + itemVat
                 } else {
                   const unitVat = priceNum * 0.05
                   const unitWithVat = priceNum + unitVat

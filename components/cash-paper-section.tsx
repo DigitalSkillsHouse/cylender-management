@@ -26,7 +26,7 @@ const CashPaperSection = ({
 }: {
   title?: string
   employeeId?: string
-}) {
+}) => {
   const [fromDate, setFromDate] = useState<string>(getLocalDateString())
   const [toDate, setToDate] = useState<string>(getLocalDateString())
   const [loading, setLoading] = useState<boolean>(false)

@@ -360,16 +360,22 @@ export const RentalCollection = ({ user }: RentalCollectionProps = {}) => {
             phone: '',
             address: '',
           },
-          items: result.data.items.map((item: any) => ({
-            product: {
-              name: item.productName,
-              price: item.amountPerDay
-            },
-            quantity: item.quantity,
-            days: item.days, // Add days information for receipt
-            price: item.amountPerDay,
-            total: item.total
-          })),
+          items: result.data.items.map((item: any) => {
+            // Find the product to get its category
+            const product = products.find((p: Product) => p._id === item.product || p._id === item.productId)
+            return {
+              product: {
+                name: item.productName,
+                price: item.amountPerDay,
+                category: product?.category || 'cylinder' // Default to 'cylinder' if not found
+              },
+              quantity: item.quantity,
+              days: item.days, // Add days information for receipt
+              price: item.amountPerDay,
+              total: item.total,
+              category: product?.category || 'cylinder' // Include category at item level too
+            }
+          }),
           totalAmount: result.data.finalTotal,
           paymentMethod: 'rental',
           paymentStatus: 'active',
@@ -435,16 +441,22 @@ export const RentalCollection = ({ user }: RentalCollectionProps = {}) => {
         phone: '',
         address: '',
       },
-      items: rental.items.map((item: any) => ({
-        product: {
-          name: item.productName,
-          price: item.amountPerDay
-        },
-        quantity: item.quantity,
-        days: item.days, // Add days information for receipt
-        price: item.amountPerDay,
-        total: item.total
-      })),
+      items: rental.items.map((item: any) => {
+        // Find the product to get its category
+        const product = products.find((p: Product) => p._id === item.product || p._id === item.productId)
+        return {
+          product: {
+            name: item.productName,
+            price: item.amountPerDay,
+            category: product?.category || 'cylinder' // Default to 'cylinder' if not found
+          },
+          quantity: item.quantity,
+          days: item.days, // Add days information for receipt
+          price: item.amountPerDay,
+          total: item.total,
+          category: product?.category || 'cylinder' // Include category at item level too
+        }
+      }),
       totalAmount: rental.finalTotal,
       paymentMethod: 'rental',
       paymentStatus: rental.status,
