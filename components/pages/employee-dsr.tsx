@@ -527,15 +527,39 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
         const openingFull = storedDsrReports[key]?.openingFull || 0
         const openingEmpty = storedDsrReports[key]?.openingEmpty || 0
         
-        // Calculate closing values using DSR formula (including purchases)
-        // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
-        const closingFull = Math.max(0, 
-          openingFull + (item.fullPurchase || 0) + item.refilled - item.fullCylinderSales - item.gasSales - item.transferGas + item.receivedGas
-        )
-        // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
-        const closingEmpty = Math.max(0, 
-          openingFull + openingEmpty + (item.fullPurchase || 0) + (item.emptyPurchase || 0) - item.fullCylinderSales - item.emptyCylinderSales - item.deposits + item.returns - item.transferEmpty + item.receivedEmpty - closingFull
-        )
+        // Calculate all transaction values
+        const fullPurchase = item.fullPurchase || 0
+        const emptyPurchase = item.emptyPurchase || 0
+        const refilled = item.refilled || 0
+        const fullCylinderSales = item.fullCylinderSales || 0
+        const emptyCylinderSales = item.emptyCylinderSales || 0
+        const gasSales = item.gasSales || 0
+        const deposits = item.deposits || 0
+        const returns = item.returns || 0
+        const transferGas = item.transferGas || 0
+        const transferEmpty = item.transferEmpty || 0
+        const receivedGas = item.receivedGas || 0
+        const receivedEmpty = item.receivedEmpty || 0
+        
+        // Check if there are any transactions (same logic as admin DSR)
+        const hasTransactions = fullPurchase > 0 || emptyPurchase > 0 || refilled > 0 || 
+                                fullCylinderSales > 0 || emptyCylinderSales > 0 || gasSales > 0 || 
+                                deposits > 0 || returns > 0 || transferGas > 0 || transferEmpty > 0 || 
+                                receivedGas > 0 || receivedEmpty > 0
+        
+        // If no transactions, closing stock equals opening stock (same as admin DSR)
+        let closingFull: number
+        let closingEmpty: number
+        
+        if (!hasTransactions) {
+          closingFull = openingFull
+          closingEmpty = openingEmpty
+        } else {
+          // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
+          closingFull = Math.max(0, openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + receivedGas)
+          // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
+          closingEmpty = Math.max(0, openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmpty + receivedEmpty - closingFull)
+        }
         
         const response = await fetch('/api/employee-daily-stock-reports', {
           method: 'POST',
@@ -1055,10 +1079,35 @@ export default function EmployeeDSR({ user }: EmployeeDSRProps) {
           // Preserve receivedGas and receivedEmpty if they were already set from stock assignments
           const preservedReceivedGas = existingEntry.receivedGas || 0
           const preservedReceivedEmpty = existingEntry.receivedEmpty || 0
-          // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
-          existingEntry.closingFull = Math.max(0, openingFull + (existingEntry.fullPurchase || 0) + existingEntry.refilled - existingEntry.fullCylinderSales - existingEntry.gasSales - existingEntry.transferGas + preservedReceivedGas)
-          // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
-          existingEntry.closingEmpty = Math.max(0, openingFull + openingEmpty + (existingEntry.fullPurchase || 0) + (existingEntry.emptyPurchase || 0) - existingEntry.fullCylinderSales - existingEntry.emptyCylinderSales - existingEntry.deposits + existingEntry.returns - existingEntry.transferEmpty + preservedReceivedEmpty - existingEntry.closingFull)
+          
+          // Calculate all transaction values
+          const fullPurchase = existingEntry.fullPurchase || 0
+          const emptyPurchase = existingEntry.emptyPurchase || 0
+          const refilled = existingEntry.refilled || 0
+          const fullCylinderSales = existingEntry.fullCylinderSales || 0
+          const emptyCylinderSales = existingEntry.emptyCylinderSales || 0
+          const gasSales = existingEntry.gasSales || 0
+          const deposits = existingEntry.deposits || 0
+          const returns = existingEntry.returns || 0
+          const transferGas = existingEntry.transferGas || 0
+          const transferEmpty = existingEntry.transferEmpty || 0
+          
+          // Check if there are any transactions (same logic as admin DSR)
+          const hasTransactions = fullPurchase > 0 || emptyPurchase > 0 || refilled > 0 || 
+                                  fullCylinderSales > 0 || emptyCylinderSales > 0 || gasSales > 0 || 
+                                  deposits > 0 || returns > 0 || transferGas > 0 || transferEmpty > 0 || 
+                                  preservedReceivedGas > 0 || preservedReceivedEmpty > 0
+          
+          // If no transactions, closing stock equals opening stock (same as admin DSR)
+          if (!hasTransactions) {
+            existingEntry.closingFull = openingFull
+            existingEntry.closingEmpty = openingEmpty
+          } else {
+            // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
+            existingEntry.closingFull = Math.max(0, openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + preservedReceivedGas)
+            // Closing Empty = Opening Full + Opening Empty + Full Purchase + Empty Purchase - Full Cyl Sales - Empty Cyl Sales - Deposit Cylinder + Return Cylinder - Transfer Empty + Received Empty - Closing Full
+            existingEntry.closingEmpty = Math.max(0, openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmpty + preservedReceivedEmpty - existingEntry.closingFull)
+          }
         } else {
           // Create new entry from inventory data (no sales)
           dsrMap.set(itemName, {
