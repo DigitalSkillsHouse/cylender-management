@@ -908,6 +908,11 @@ export function GasSales() {
       let savedResponse: any = null
       if (editingSale) {
         console.log('GasSales - Updating existing sale:', editingSale._id)
+        // Check if this is an employee sale by checking for employee field
+        // Employee sales have an employee field (either as object with _id or as _id string)
+        const isEmployeeSale = !!(editingSale as any).employee
+        console.log('GasSales - Is employee sale:', isEmployeeSale, 'Employee field:', (editingSale as any).employee)
+        
         // Some backends treat PUT as full replace; include required fields like invoiceNumber
         const updatePayload = {
           ...saleData,
@@ -920,7 +925,12 @@ export function GasSales() {
         }
         try {
           console.log('GasSales - PUT full payload:', fullUpdatePayload)
-          savedResponse = await salesAPI.update(editingSale._id, fullUpdatePayload)
+          // Use employeeSalesAPI if it's an employee sale, otherwise use salesAPI
+          if (isEmployeeSale) {
+            savedResponse = await employeeSalesAPI.update(editingSale._id, fullUpdatePayload)
+          } else {
+            savedResponse = await salesAPI.update(editingSale._id, fullUpdatePayload)
+          }
         } catch (err: any) {
           console.error('GasSales - Full PUT failed, retrying minimal update. Error:', err?.response?.data || err?.message)
           const minimalUpdatePayload = {
@@ -933,7 +943,12 @@ export function GasSales() {
             notes: formData.notes,
           }
           console.log('GasSales - PUT minimal payload:', minimalUpdatePayload)
-          savedResponse = await salesAPI.update(editingSale._id, minimalUpdatePayload)
+          // Use employeeSalesAPI if it's an employee sale, otherwise use salesAPI
+          if (isEmployeeSale) {
+            savedResponse = await employeeSalesAPI.update(editingSale._id, minimalUpdatePayload)
+          } else {
+            savedResponse = await salesAPI.update(editingSale._id, minimalUpdatePayload)
+          }
         }
       } else {
         console.log('GasSales - Creating new sale')
@@ -1127,7 +1142,16 @@ export function GasSales() {
   const handleDelete = async (id: string) => {
     if (confirm("Are you sure you want to delete this sale?")) {
       try {
-        await salesAPI.delete(id)
+        // Find the sale to check if it's an employee sale
+        const saleToDelete = sales.find(s => s._id === id)
+        const isEmployeeSale = !!(saleToDelete as any)?.employee
+        
+        // Use employeeSalesAPI if it's an employee sale, otherwise use salesAPI
+        if (isEmployeeSale) {
+          await employeeSalesAPI.delete(id)
+        } else {
+          await salesAPI.delete(id)
+        }
         await fetchData()
       } catch (error) {
         console.error("Failed to delete sale:", error)
