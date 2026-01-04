@@ -294,10 +294,12 @@ export async function POST(request) {
     let totalAmount = 0
     if (hasItems) {
       totalQuantity = items.reduce((s, it) => s + (Number(it.quantity) || 0), 0)
-      totalAmount = items.reduce((s, it) => s + (Number(it.amount) || 0), 0)
+      // Calculate total amount as sum of (quantity * amount) for each item
+      totalAmount = items.reduce((s, it) => s + ((Number(it.quantity) || 0) * (Number(it.amount) || 0)), 0)
     } else {
       totalQuantity = parseInt(quantity)
-      totalAmount = parseFloat(amount)
+      // For single item, multiply quantity * amount
+      totalAmount = (parseInt(quantity) || 0) * (parseFloat(amount) || 0)
     }
 
     // Create transaction data

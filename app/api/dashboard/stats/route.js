@@ -204,8 +204,57 @@ export async function GET(request) {
     const totalProductsSold = adminProductsSold + employeeProductsSold
 
     // Calculate total combined revenue (admin + employee)
+    // Note: Gas sales revenue already includes VAT in totalAmount
     const totalGasRevenue = (gasSales.gasSalesRevenue || 0) + (employeeGasSales.employeeGasSalesRevenue || 0)
-    const totalCylinderRevenue = (cylinderRevenue.cylinderRevenue || 0) + (employeeCylinderRevenue.employeeCylinderRevenue || 0)
+    
+    // Calculate cylinder revenue - EXCLUDE deposits (deposits are not revenue, they're refundable)
+    // Only include refills and returns as revenue
+    const adminCylinderRevenueMatch = dateFilter.createdAt 
+      ? [{ $match: { ...dateFilter, type: { $in: ['refill', 'return'] } } }] 
+      : [{ $match: { type: { $in: ['refill', 'return'] } } }]
+    
+    const employeeCylinderRevenueMatch = dateFilter.createdAt 
+      ? [{ $match: { ...dateFilter, type: { $in: ['refill', 'return'] } } }] 
+      : [{ $match: { type: { $in: ['refill', 'return'] } } }]
+    
+    const adminCylinderRevenueExcludingDeposits = await CylinderTransaction.aggregate([
+      ...adminCylinderRevenueMatch,
+      {
+        $group: {
+          _id: null,
+          cylinderRevenue: { 
+            $sum: {
+              $add: [
+                { $ifNull: ["$refillAmount", 0] },
+                { $ifNull: ["$returnAmount", 0] },
+                { $ifNull: ["$amount", 0] }
+              ]
+            }
+          },
+        },
+      },
+    ])
+    
+    const employeeCylinderRevenueExcludingDeposits = await EmployeeCylinderTransaction.aggregate([
+      ...employeeCylinderRevenueMatch,
+      {
+        $group: {
+          _id: null,
+          employeeCylinderRevenue: { 
+            $sum: {
+              $add: [
+                { $ifNull: ["$refillAmount", 0] },
+                { $ifNull: ["$returnAmount", 0] },
+                { $ifNull: ["$amount", 0] }
+              ]
+            }
+          },
+        },
+      },
+    ])
+    
+    const totalCylinderRevenue = (adminCylinderRevenueExcludingDeposits[0]?.cylinderRevenue || 0) + 
+                                  (employeeCylinderRevenueExcludingDeposits[0]?.employeeCylinderRevenue || 0)
     const totalCombinedRevenue = totalGasRevenue + totalCylinderRevenue
 
     // Calculate total due (admin + employee)
@@ -272,9 +321,9 @@ export async function GET(request) {
 
     // Ensure all values are numbers and not null/undefined
     const statsResponse = {
-      totalRevenue: Number(totalCombinedRevenue) || 0, // Total business revenue (gas + cylinder)
-      gasSales: Number(totalGasRevenue) || 0, // Total gas sales revenue (admin + employee)
-      cylinderRefills: Number(totalCylinderRevenue) || 0, // Total cylinder revenue (admin + employee)
+      totalRevenue: Number(totalCombinedRevenue) || 0, // Total business revenue (gas + cylinder, excluding deposits)
+      gasSales: Number(totalGasRevenue) || 0, // Total gas sales revenue (admin + employee, includes VAT)
+      cylinderRefills: Number(totalCylinderRevenue) || 0, // Total cylinder revenue (refills + returns only, excludes deposits)
       totalDue: Number(totalDue) || 0, // Outstanding amounts (admin + employee)
       totalCustomers: Number(customerCount) || 0,
       totalEmployees: Number(employeeCount) || 0,

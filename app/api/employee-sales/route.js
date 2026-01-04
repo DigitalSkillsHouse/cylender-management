@@ -162,6 +162,7 @@ export async function POST(request) {
       const itemPrice = (item.price && Number(item.price) > 0) ? Number(item.price) : leastPrice
       const itemTotal = itemPrice * item.quantity
       calculatedTotal += itemTotal
+      // Note: VAT will be added in frontend before sending totalAmount, or we add it here
 
       // Derive category and cylinder size from product (trust server data)
       const productCategory = product.category || (item.category || 'gas')
@@ -221,12 +222,17 @@ export async function POST(request) {
     }
 
     // Create the sale
+    // Use totalAmount from frontend if provided (includes VAT), otherwise add VAT to calculatedTotal
+    const finalTotalAmount = (totalAmount && Number(totalAmount) > 0) 
+      ? Number(totalAmount) 
+      : calculatedTotal * 1.05 // Add 5% VAT if frontend didn't send totalAmount
+    
     const newSale = new EmployeeSale({
       invoiceNumber,
       employee: employeeId,
       customer,
       items: validatedItems,
-      totalAmount: calculatedTotal,
+      totalAmount: finalTotalAmount, // Store with VAT included (matching admin sales)
       paymentMethod: paymentMethod || "cash",
       paymentStatus: paymentStatus || "cleared",
       receivedAmount: parseFloat(receivedAmount) || 0,

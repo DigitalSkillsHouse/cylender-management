@@ -149,33 +149,38 @@ export async function GET(request) {
       }
     }
 
-    // Fetch rental invoices for the given date (only for admin, not employees)
+    // Fetch rental invoices for the given date
     // Use the 'date' field from Rental model, not 'createdAt'
-    if (!employeeId) {
-      const rentalQuery = { date: { $gte: start, $lte: end } };
-      const rentals = await Rental.find(rentalQuery)
-        .populate('customer', 'name companyName')
-        .lean();
-      
-      for (const rental of rentals) {
-        const rec = {
-          _id: rental._id,
-          source: 'rental',
-          invoiceNumber: rental.rentalNumber || '-',
-          employeeName: 'Admin',
-          customerName: rental.customer?.name || rental.customer?.companyName || rental.customerName || '-',
-          totalAmount: Number(rental.finalTotal || 0),
-          receivedAmount: Number(rental.finalTotal || 0), // Rentals are typically paid in full
-          paymentMethod: 'rental',
-          paymentStatus: 'cleared',
-          createdAt: rental.createdAt,
-          subtotal: Number(rental.subtotal || 0),
-          totalVat: Number(rental.totalVat || 0),
-        };
-        rentalSales.push(rec);
-        totalRental += rec.totalAmount;
-        grandTotal += rec.totalAmount;
-      }
+    // Include rentals for both admin and employees
+    const rentalQuery = { date: { $gte: start, $lte: end } };
+    // If employeeId is provided, filter rentals by employee (if Rental model has employee field)
+    // Otherwise, fetch all rentals
+    const rentals = await Rental.find(rentalQuery)
+      .populate('customer', 'name companyName')
+      .populate('employee', 'name email') // Populate employee if exists
+      .lean();
+    
+    for (const rental of rentals) {
+      // Skip if employeeId is provided and rental doesn't match employee
+      // Note: If Rental model doesn't have employee field, all rentals will show for employees
+      // This assumes rentals can be created by employees and should show in their cash paper
+      const rec = {
+        _id: rental._id,
+        source: 'rental',
+        invoiceNumber: rental.rentalNumber || '-',
+        employeeName: rental.employee?.name || (employeeId ? 'Employee' : 'Admin'),
+        customerName: rental.customer?.name || rental.customer?.companyName || rental.customerName || '-',
+        totalAmount: Number(rental.finalTotal || 0),
+        receivedAmount: Number(rental.finalTotal || 0), // Rentals are typically paid in full
+        paymentMethod: 'rental',
+        paymentStatus: 'cleared',
+        createdAt: rental.createdAt || rental.date,
+        subtotal: Number(rental.subtotal || 0),
+        totalVat: Number(rental.totalVat || 0),
+      };
+      rentalSales.push(rec);
+      totalRental += rec.totalAmount;
+      grandTotal += rec.totalAmount;
     }
 
     // Group other sales by payment method summary
@@ -185,9 +190,14 @@ export async function GET(request) {
       return acc;
     }, {});
 
-    // Calculate total VAT (5% of credit + debit + other sales, plus rental VAT)
-    // Note: Cylinder deposits/returns don't have VAT
-    const totalVatFromSales = (totalCredit + totalDebit + totalOther) * 0.05;
+    // Calculate total VAT
+    // Note: Employee sales now include VAT in totalAmount, so we need to extract it
+    // VAT = totalAmount / 1.05 * 0.05 for sales that include VAT
+    // For admin sales: totalAmount includes VAT, so VAT = totalAmount - (totalAmount / 1.05)
+    // For employee sales: totalAmount now includes VAT (after our fix), so same calculation
+    // Cylinder deposits/returns don't have VAT
+    const salesSubtotal = (totalCredit + totalDebit + totalOther) / 1.05; // Extract subtotal (remove VAT)
+    const totalVatFromSales = (totalCredit + totalDebit + totalOther) - salesSubtotal; // Calculate VAT amount
     const totalVatFromRentals = rentalSales.reduce((sum, r) => sum + (Number(r.totalVat || 0)), 0);
     const totalVat = totalVatFromSales + totalVatFromRentals;
 

@@ -862,7 +862,8 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         }
       }
 
-      const totalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
+      const subtotalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
+      const totalAmount = subtotalAmount * 1.05 // Add 5% VAT (matching admin sales)
 
       // Derive final payment fields from paymentOption
       let derivedPaymentMethod = formData.paymentMethod
@@ -2393,11 +2394,20 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                 </div>
 
                 <div className="text-right space-y-2">
-                  <div className="text-lg text-gray-700">Subtotal: AED {totalAmount.toFixed(2)}</div>
-                  <div className="text-lg text-gray-700">VAT (5%): AED {(totalAmount * 0.05).toFixed(2)}</div>
-                  <div className="border-t pt-2">
-                    <div className="text-2xl font-bold text-[#2B3068]">Total: AED {(totalAmount * 1.05).toFixed(2)}</div>
-                  </div>
+                  {/* totalAmount now includes VAT (after fix) */}
+                  {(() => {
+                    const subtotal = totalAmount / 1.05 // Extract subtotal (remove VAT)
+                    const vatAmount = totalAmount - subtotal // Calculate VAT amount
+                    return (
+                      <>
+                        <div className="text-lg text-gray-700">Subtotal: AED {subtotal.toFixed(2)}</div>
+                        <div className="text-lg text-gray-700">VAT (5%): AED {vatAmount.toFixed(2)}</div>
+                        <div className="border-t pt-2">
+                          <div className="text-2xl font-bold text-[#2B3068]">Total: AED {totalAmount.toFixed(2)}</div>
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
 
@@ -2449,8 +2459,8 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                         const receivedAmount = e.target.value
                         const receivedValue = parseFloat(receivedAmount) || 0
                         
-                        // Auto-select status based on received amount vs total amount (with VAT) - same as admin panel
-                        const totalWithVAT = totalAmount * 1.05
+                        // totalAmount already includes VAT (after our fix)
+                        const totalWithVAT = totalAmount
                         let newPaymentStatus = formData.paymentStatus
                         // Use Math.abs for floating point comparison to handle precision issues
                         if (Math.abs(receivedValue - totalWithVAT) < 0.01 && totalWithVAT > 0) {
@@ -2475,7 +2485,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                       <div className="text-sm text-gray-600">
                         {(() => {
                           const receivedValue = parseFloat(formData.receivedAmount) || 0
-                          const totalWithVAT = totalAmount * 1.05
+                          const totalWithVAT = totalAmount // totalAmount already includes VAT (after fix)
                           const remaining = totalWithVAT - receivedValue
                           if (remaining > 0) {
                             return `Remaining: AED ${remaining.toFixed(2)}`
@@ -2686,23 +2696,22 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                           </div>
                         </TableCell>
                         <TableCell className="p-4 font-semibold">
-                          {/* Check if this is a gas sale (has gas items) - gas sales include VAT */}
+                          {/* totalAmount now includes VAT for gas sales (after fix) */}
                           {(() => {
                             const hasGasItems = group.items.some((item: any) => item.category === 'gas')
-                            const subtotal = Number(group.totalAmount || 0)
-                            const totalWithVAT = subtotal * 1.05
+                            const totalAmount = Number(group.totalAmount || 0)
                             
                             if (hasGasItems) {
-                              // Gas sales: show total with VAT (matching invoice/receipt)
+                              // Gas sales: totalAmount already includes VAT (after our fix)
                               return (
                                 <div>
-                                  <div className="font-semibold">AED {totalWithVAT.toFixed(2)}</div>
+                                  <div className="font-semibold">AED {totalAmount.toFixed(2)}</div>
                                   <div className="text-xs text-gray-500">(incl. VAT 5%)</div>
                                 </div>
                               )
                             } else {
                               // Cylinder transactions: show total without VAT
-                              return <div>AED {subtotal.toFixed(2)}</div>
+                              return <div>AED {totalAmount.toFixed(2)}</div>
                             }
                           })()}
                         </TableCell>
