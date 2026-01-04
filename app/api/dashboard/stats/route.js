@@ -46,86 +46,124 @@ export async function GET(request) {
       }
     }
 
-    // Calculate gas sales revenue (sum of all sales) with date filter
+    // Calculate gas sales revenue - ONLY from sales with gas items (category='gas')
     // Exclude credit sales with pending status from revenue - they should only show in totalDue
-    const gasSalesMatch = dateFilter.createdAt 
+    const salesMatch = dateFilter.createdAt 
       ? [{ $match: { ...dateFilter } }] 
       : []
     
     // Revenue calculation: only count non-credit sales OR cleared credit sales
-    const gasSalesRevenueMatch = dateFilter.createdAt
+    const salesRevenueMatch = dateFilter.createdAt
       ? [{ $match: { ...dateFilter, $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
       : [{ $match: { $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
     
-    const gasSalesResult = await Sale.aggregate([
-      ...gasSalesMatch,
+    // Calculate gas sales revenue - sum only items with category='gas'
+    // items.total is subtotal (price * quantity), need to apply VAT (5%)
+    const gasSalesRevenueResult = await Sale.aggregate([
+      ...salesRevenueMatch,
+      { $unwind: "$items" },
+      { $match: { "items.category": "gas" } },
       {
         $group: {
           _id: null,
-          gasSalesRevenue: { $sum: "$totalAmount" },
+          gasSalesSubtotal: { $sum: "$items.total" },
+        },
+      },
+    ])
+    
+    // Calculate cylinder sales revenue - sum only items with category='cylinder'
+    // items.total is subtotal (price * quantity), need to apply VAT (5%)
+    const cylinderSalesRevenueResult = await Sale.aggregate([
+      ...salesRevenueMatch,
+      { $unwind: "$items" },
+      { $match: { "items.category": "cylinder" } },
+      {
+        $group: {
+          _id: null,
+          cylinderSalesSubtotal: { $sum: "$items.total" },
+        },
+      },
+    ])
+    
+    // Apply VAT (5%) to subtotals to get revenue
+    const adminGasSalesSubtotal = roundToTwo(gasSalesRevenueResult[0]?.gasSalesSubtotal || 0)
+    const adminCylinderSalesSubtotal = roundToTwo(cylinderSalesRevenueResult[0]?.cylinderSalesSubtotal || 0)
+    const adminGasSalesRevenue = roundToTwo(adminGasSalesSubtotal * 1.05) // Add 5% VAT
+    const adminCylinderSalesRevenue = roundToTwo(adminCylinderSalesSubtotal * 1.05) // Add 5% VAT
+    
+    // Get total sales stats (for counts and due calculations)
+    const gasSalesResult = await Sale.aggregate([
+      ...salesMatch,
+      {
+        $group: {
+          _id: null,
           gasSalesPaid: { $sum: "$receivedAmount" },
           totalDue: { $sum: { $subtract: ["$totalAmount", "$receivedAmount"] } },
           totalSales: { $sum: 1 },
         },
       },
     ])
+
+    const gasSales = gasSalesResult[0] || { gasSalesPaid: 0, totalDue: 0, totalSales: 0 }
+    gasSales.gasSalesRevenue = adminGasSalesRevenue
+
+    // Calculate employee gas sales revenue - ONLY from sales with gas items (category='gas')
+    const employeeSalesRevenueMatch = dateFilter.createdAt
+      ? [{ $match: { ...dateFilter, $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
+      : [{ $match: { $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
     
-    // Calculate revenue separately (excluding pending credit sales)
-    const gasSalesRevenueResult = await Sale.aggregate([
-      ...gasSalesRevenueMatch,
+    // Calculate employee gas sales revenue - sum only items with category='gas'
+    // items.total is subtotal (price * quantity), need to apply VAT (5%)
+    const employeeGasSalesRevenueResult = await EmployeeSale.aggregate([
+      ...employeeSalesRevenueMatch,
+      { $unwind: "$items" },
+      { $match: { "items.category": "gas" } },
       {
         $group: {
           _id: null,
-          gasSalesRevenue: { $sum: "$totalAmount" },
+          employeeGasSalesSubtotal: { $sum: "$items.total" },
         },
       },
     ])
     
-    const gasSalesRevenue = gasSalesRevenueResult[0]?.gasSalesRevenue || 0
-
-    const gasSales = gasSalesResult[0] || { gasSalesRevenue: 0, gasSalesPaid: 0, totalDue: 0, totalSales: 0 }
-    // Override revenue with filtered calculation (excluding pending credit sales)
-    gasSales.gasSalesRevenue = gasSalesRevenue
-
-    // Calculate employee gas sales revenue with date filter
-    // Exclude credit sales with pending status from revenue
-    const employeeGasSalesMatch = dateFilter.createdAt 
-      ? [{ $match: { ...dateFilter } }] 
-      : []
-    
-    // Revenue calculation: only count non-credit sales OR cleared credit sales
-    const employeeGasSalesRevenueMatch = dateFilter.createdAt
-      ? [{ $match: { ...dateFilter, $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
-      : [{ $match: { $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
-    
-    const employeeGasSalesResult = await EmployeeSale.aggregate([
-      ...employeeGasSalesMatch,
+    // Calculate employee cylinder sales revenue - sum only items with category='cylinder'
+    // items.total is subtotal (price * quantity), need to apply VAT (5%)
+    const employeeCylinderSalesRevenueResult = await EmployeeSale.aggregate([
+      ...employeeSalesRevenueMatch,
+      { $unwind: "$items" },
+      { $match: { "items.category": "cylinder" } },
       {
         $group: {
           _id: null,
-          employeeGasSalesRevenue: { $sum: "$totalAmount" },
+          employeeCylinderSalesSubtotal: { $sum: "$items.total" },
+        },
+      },
+    ])
+    
+    // Apply VAT (5%) to subtotals to get revenue
+    const employeeGasSalesSubtotal = roundToTwo(employeeGasSalesRevenueResult[0]?.employeeGasSalesSubtotal || 0)
+    const employeeCylinderSalesSubtotal = roundToTwo(employeeCylinderSalesRevenueResult[0]?.employeeCylinderSalesSubtotal || 0)
+    const employeeGasSalesRevenue = roundToTwo(employeeGasSalesSubtotal * 1.05) // Add 5% VAT
+    const employeeCylinderSalesRevenue = roundToTwo(employeeCylinderSalesSubtotal * 1.05) // Add 5% VAT
+    
+    // Get employee total sales stats (for counts and due calculations)
+    const employeeSalesMatch = dateFilter.createdAt 
+      ? [{ $match: { ...dateFilter } }] 
+      : []
+    
+    const employeeGasSalesResult = await EmployeeSale.aggregate([
+      ...employeeSalesMatch,
+      {
+        $group: {
+          _id: null,
           employeeGasSalesPaid: { $sum: "$receivedAmount" },
           employeeTotalDue: { $sum: { $subtract: ["$totalAmount", "$receivedAmount"] } },
           employeeTotalSales: { $sum: 1 },
         },
       },
     ])
-    
-    // Calculate revenue separately (excluding pending credit sales)
-    const employeeGasSalesRevenueResult = await EmployeeSale.aggregate([
-      ...employeeGasSalesRevenueMatch,
-      {
-        $group: {
-          _id: null,
-          employeeGasSalesRevenue: { $sum: "$totalAmount" },
-        },
-      },
-    ])
-    
-    const employeeGasSalesRevenue = employeeGasSalesRevenueResult[0]?.employeeGasSalesRevenue || 0
 
-    const employeeGasSales = employeeGasSalesResult[0] || { employeeGasSalesRevenue: 0, employeeGasSalesPaid: 0, employeeTotalDue: 0, employeeTotalSales: 0 }
-    // Override revenue with filtered calculation (excluding pending credit sales)
+    const employeeGasSales = employeeGasSalesResult[0] || { employeeGasSalesPaid: 0, employeeTotalDue: 0, employeeTotalSales: 0 }
     employeeGasSales.employeeGasSalesRevenue = employeeGasSalesRevenue
 
     // Calculate employee cylinder revenue with date filter
@@ -185,7 +223,7 @@ export async function GET(request) {
 
     // Calculate products sold (sum of quantities from admin sales items) with date filter
     const productsSoldResult = await Sale.aggregate([
-      ...gasSalesMatch,
+      ...salesMatch,
       { $unwind: "$items" },
       {
         $group: {
@@ -197,7 +235,7 @@ export async function GET(request) {
 
     // Calculate products sold from employee sales with date filter
     const employeeProductsSoldResult = await EmployeeSale.aggregate([
-      ...employeeGasSalesMatch,
+      ...employeeSalesMatch,
       { $unwind: "$items" },
       {
         $group: {
@@ -211,9 +249,11 @@ export async function GET(request) {
     const employeeProductsSold = employeeProductsSoldResult[0]?.totalQuantity || 0
     const totalProductsSold = adminProductsSold + employeeProductsSold
 
-    // Calculate total combined revenue (admin + employee)
-    // Note: Gas sales revenue already includes VAT in totalAmount
-    const totalGasRevenue = roundToTwo((gasSales.gasSalesRevenue || 0) + (employeeGasSales.employeeGasSalesRevenue || 0))
+    // Calculate total gas sales revenue (admin + employee) - ONLY from gas items
+    const totalGasRevenue = roundToTwo(adminGasSalesRevenue + employeeGasSalesRevenue)
+    
+    // Calculate total cylinder sales revenue (admin + employee) - ONLY from cylinder items in sales
+    const totalCylinderSalesRevenue = roundToTwo(adminCylinderSalesRevenue + employeeCylinderSalesRevenue)
     
     // Calculate cylinder revenue - EXCLUDE deposits (deposits are not revenue, they're refundable)
     // Only include refills and returns as revenue
@@ -261,9 +301,12 @@ export async function GET(request) {
       },
     ])
     
-    const totalCylinderRevenue = roundToTwo((adminCylinderRevenueExcludingDeposits[0]?.cylinderRevenue || 0) + 
+    // Calculate cylinder transaction revenue (refills + returns, excluding deposits)
+    const totalCylinderTransactionRevenue = roundToTwo((adminCylinderRevenueExcludingDeposits[0]?.cylinderRevenue || 0) + 
                                   (employeeCylinderRevenueExcludingDeposits[0]?.employeeCylinderRevenue || 0))
-    const totalCombinedRevenue = roundToTwo(totalGasRevenue + totalCylinderRevenue)
+    
+    // Total Revenue = Gas Sales Revenue + Cylinder Sales Revenue + Cylinder Transaction Revenue
+    const totalCombinedRevenue = roundToTwo(totalGasRevenue + totalCylinderSalesRevenue + totalCylinderTransactionRevenue)
 
     // Calculate total due (admin + employee)
     const totalDue = roundToTwo((gasSales.totalDue || 0) + (employeeGasSales.employeeTotalDue || 0))
@@ -329,9 +372,9 @@ export async function GET(request) {
 
     // Ensure all values are numbers and not null/undefined, rounded to 2 decimal places
     const statsResponse = {
-      totalRevenue: roundToTwo(totalGasRevenue), // Total revenue should equal gas sales revenue (admin + employee, includes VAT)
-      gasSales: roundToTwo(totalGasRevenue), // Total gas sales revenue (admin + employee, includes VAT)
-      cylinderRefills: roundToTwo(totalCylinderRevenue), // Total cylinder revenue (refills + returns only, excludes deposits)
+      totalRevenue: roundToTwo(totalCombinedRevenue), // Total revenue = Gas Sales + Cylinder Sales + Cylinder Transactions
+      gasSales: roundToTwo(totalGasRevenue), // Total gas sales revenue ONLY (admin + employee, from gas items only)
+      cylinderRefills: roundToTwo(totalCylinderTransactionRevenue), // Total cylinder transaction revenue (refills + returns only, excludes deposits)
       totalDue: roundToTwo(totalDue), // Outstanding amounts (admin + employee)
       totalCustomers: Number(customerCount) || 0,
       totalEmployees: Number(employeeCount) || 0,
