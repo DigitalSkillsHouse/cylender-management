@@ -14,7 +14,8 @@ const roundToTwo = (value) => {
   if (value === null || value === undefined || isNaN(value)) {
     return 0;
   }
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  // Use toFixed and parseFloat for more reliable rounding
+  return parseFloat(Number(value).toFixed(2));
 };
 
 // Disable caching for this route
@@ -57,39 +58,104 @@ export async function GET(request) {
       ? [{ $match: { ...dateFilter, $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
       : [{ $match: { $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
     
-    // Calculate gas sales revenue - sum only items with category='gas'
-    // items.total is subtotal (price * quantity), need to apply VAT (5%)
+    // Calculate gas sales revenue - use totalAmount proportionally to avoid rounding errors
+    // Instead of recalculating from items.total, use the stored totalAmount and allocate proportionally
     const gasSalesRevenueResult = await Sale.aggregate([
       ...salesRevenueMatch,
-      { $unwind: "$items" },
-      { $match: { "items.category": "gas" } },
+      {
+        $project: {
+          totalAmount: 1,
+          items: 1,
+          // Calculate subtotal for all items
+          totalSubtotal: { $sum: "$items.total" },
+          // Calculate subtotal for gas items only
+          gasSubtotal: {
+            $sum: {
+              $map: {
+                input: "$items",
+                as: "item",
+                in: {
+                  $cond: [
+                    { $eq: ["$$item.category", "gas"] },
+                    "$$item.total",
+                    0
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          // Allocate totalAmount proportionally: gasSubtotal / totalSubtotal * totalAmount
+          gasRevenue: {
+            $cond: [
+              { $gt: ["$totalSubtotal", 0] },
+              { $multiply: ["$totalAmount", { $divide: ["$gasSubtotal", "$totalSubtotal"] }] },
+              0
+            ]
+          }
+        }
+      },
       {
         $group: {
           _id: null,
-          gasSalesSubtotal: { $sum: "$items.total" },
+          gasSalesRevenue: { $sum: "$gasRevenue" },
         },
       },
     ])
     
-    // Calculate cylinder sales revenue - sum only items with category='cylinder'
-    // items.total is subtotal (price * quantity), need to apply VAT (5%)
+    // Calculate cylinder sales revenue - use totalAmount proportionally
     const cylinderSalesRevenueResult = await Sale.aggregate([
       ...salesRevenueMatch,
-      { $unwind: "$items" },
-      { $match: { "items.category": "cylinder" } },
+      {
+        $project: {
+          totalAmount: 1,
+          items: 1,
+          // Calculate subtotal for all items
+          totalSubtotal: { $sum: "$items.total" },
+          // Calculate subtotal for cylinder items only
+          cylinderSubtotal: {
+            $sum: {
+              $map: {
+                input: "$items",
+                as: "item",
+                in: {
+                  $cond: [
+                    { $eq: ["$$item.category", "cylinder"] },
+                    "$$item.total",
+                    0
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          // Allocate totalAmount proportionally: cylinderSubtotal / totalSubtotal * totalAmount
+          cylinderRevenue: {
+            $cond: [
+              { $gt: ["$totalSubtotal", 0] },
+              { $multiply: ["$totalAmount", { $divide: ["$cylinderSubtotal", "$totalSubtotal"] }] },
+              0
+            ]
+          }
+        }
+      },
       {
         $group: {
           _id: null,
-          cylinderSalesSubtotal: { $sum: "$items.total" },
+          cylinderSalesRevenue: { $sum: "$cylinderRevenue" },
         },
       },
     ])
     
-    // Apply VAT (5%) to subtotals to get revenue
-    const adminGasSalesSubtotal = roundToTwo(gasSalesRevenueResult[0]?.gasSalesSubtotal || 0)
-    const adminCylinderSalesSubtotal = roundToTwo(cylinderSalesRevenueResult[0]?.cylinderSalesSubtotal || 0)
-    const adminGasSalesRevenue = roundToTwo(adminGasSalesSubtotal * 1.05) // Add 5% VAT
-    const adminCylinderSalesRevenue = roundToTwo(adminCylinderSalesSubtotal * 1.05) // Add 5% VAT
+    // Use the calculated revenue directly (already includes VAT from totalAmount)
+    const adminGasSalesRevenue = roundToTwo(gasSalesRevenueResult[0]?.gasSalesRevenue || 0)
+    const adminCylinderSalesRevenue = roundToTwo(cylinderSalesRevenueResult[0]?.cylinderSalesRevenue || 0)
     
     // Get total sales stats (for counts and due calculations)
     const gasSalesResult = await Sale.aggregate([
@@ -112,39 +178,103 @@ export async function GET(request) {
       ? [{ $match: { ...dateFilter, $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
       : [{ $match: { $or: [{ paymentMethod: { $ne: 'credit' } }, { paymentStatus: 'cleared' }] } }]
     
-    // Calculate employee gas sales revenue - sum only items with category='gas'
-    // items.total is subtotal (price * quantity), need to apply VAT (5%)
+    // Calculate employee gas sales revenue - use totalAmount proportionally to avoid rounding errors
     const employeeGasSalesRevenueResult = await EmployeeSale.aggregate([
       ...employeeSalesRevenueMatch,
-      { $unwind: "$items" },
-      { $match: { "items.category": "gas" } },
+      {
+        $project: {
+          totalAmount: 1,
+          items: 1,
+          // Calculate subtotal for all items
+          totalSubtotal: { $sum: "$items.total" },
+          // Calculate subtotal for gas items only
+          gasSubtotal: {
+            $sum: {
+              $map: {
+                input: "$items",
+                as: "item",
+                in: {
+                  $cond: [
+                    { $eq: ["$$item.category", "gas"] },
+                    "$$item.total",
+                    0
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          // Allocate totalAmount proportionally: gasSubtotal / totalSubtotal * totalAmount
+          gasRevenue: {
+            $cond: [
+              { $gt: ["$totalSubtotal", 0] },
+              { $multiply: ["$totalAmount", { $divide: ["$gasSubtotal", "$totalSubtotal"] }] },
+              0
+            ]
+          }
+        }
+      },
       {
         $group: {
           _id: null,
-          employeeGasSalesSubtotal: { $sum: "$items.total" },
+          employeeGasSalesRevenue: { $sum: "$gasRevenue" },
         },
       },
     ])
     
-    // Calculate employee cylinder sales revenue - sum only items with category='cylinder'
-    // items.total is subtotal (price * quantity), need to apply VAT (5%)
+    // Calculate employee cylinder sales revenue - use totalAmount proportionally
     const employeeCylinderSalesRevenueResult = await EmployeeSale.aggregate([
       ...employeeSalesRevenueMatch,
-      { $unwind: "$items" },
-      { $match: { "items.category": "cylinder" } },
+      {
+        $project: {
+          totalAmount: 1,
+          items: 1,
+          // Calculate subtotal for all items
+          totalSubtotal: { $sum: "$items.total" },
+          // Calculate subtotal for cylinder items only
+          cylinderSubtotal: {
+            $sum: {
+              $map: {
+                input: "$items",
+                as: "item",
+                in: {
+                  $cond: [
+                    { $eq: ["$$item.category", "cylinder"] },
+                    "$$item.total",
+                    0
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          // Allocate totalAmount proportionally: cylinderSubtotal / totalSubtotal * totalAmount
+          cylinderRevenue: {
+            $cond: [
+              { $gt: ["$totalSubtotal", 0] },
+              { $multiply: ["$totalAmount", { $divide: ["$cylinderSubtotal", "$totalSubtotal"] }] },
+              0
+            ]
+          }
+        }
+      },
       {
         $group: {
           _id: null,
-          employeeCylinderSalesSubtotal: { $sum: "$items.total" },
+          employeeCylinderSalesRevenue: { $sum: "$cylinderRevenue" },
         },
       },
     ])
     
-    // Apply VAT (5%) to subtotals to get revenue
-    const employeeGasSalesSubtotal = roundToTwo(employeeGasSalesRevenueResult[0]?.employeeGasSalesSubtotal || 0)
-    const employeeCylinderSalesSubtotal = roundToTwo(employeeCylinderSalesRevenueResult[0]?.employeeCylinderSalesSubtotal || 0)
-    const employeeGasSalesRevenue = roundToTwo(employeeGasSalesSubtotal * 1.05) // Add 5% VAT
-    const employeeCylinderSalesRevenue = roundToTwo(employeeCylinderSalesSubtotal * 1.05) // Add 5% VAT
+    // Use the calculated revenue directly (already includes VAT from totalAmount)
+    const employeeGasSalesRevenue = roundToTwo(employeeGasSalesRevenueResult[0]?.employeeGasSalesRevenue || 0)
+    const employeeCylinderSalesRevenue = roundToTwo(employeeCylinderSalesRevenueResult[0]?.employeeCylinderSalesRevenue || 0)
     
     // Get employee total sales stats (for counts and due calculations)
     const employeeSalesMatch = dateFilter.createdAt 
