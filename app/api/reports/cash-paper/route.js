@@ -8,11 +8,26 @@ import Rental from "@/models/Rental";
 import { getDateRangeForPeriod } from "@/lib/date-utils";
 
 // Helper function to round to 2 decimal places to avoid floating-point precision errors
+// Use this for calculations only
 const roundToTwo = (value) => {
   if (value === null || value === undefined || isNaN(value)) {
     return 0;
   }
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+};
+
+// Helper function to preserve exact decimal values (truncate to 2 decimals without rounding)
+// Use this for preserving exact values from database
+// This ensures 15.71 stays as 15.71, not rounded to 15.75
+const preserveDecimal = (value) => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0;
+  }
+  // Truncate to 2 decimal places without rounding
+  // Multiply by 100, truncate (Math.trunc), then divide by 100
+  // This preserves exact decimals like 15.71 instead of rounding
+  const num = Number(value);
+  return Math.trunc(num * 100) / 100;
 };
 
 export async function GET(request) {
@@ -106,8 +121,8 @@ export async function GET(request) {
         invoiceNumber: s.invoiceNumber,
         employeeName: s?.employee?.name || (employeeId ? '-' : (isEmployeeSale ? 'Employee' : 'Admin')),
         customerName: s?.customer?.name || '-',
-        totalAmount: roundToTwo(s.totalAmount || 0),
-        receivedAmount: roundToTwo(s.receivedAmount || 0),
+        totalAmount: preserveDecimal(s.totalAmount || 0), // Preserve exact decimal value from database
+        receivedAmount: preserveDecimal(s.receivedAmount || 0), // Preserve exact decimal value from database
         paymentMethod: s.paymentMethod,
         paymentStatus: s.paymentStatus,
         createdAt: s.createdAt,
@@ -129,7 +144,7 @@ export async function GET(request) {
     for (const c of cylTxns) {
       // Determine if this is an employee transaction or admin transaction
       const isEmployeeTransaction = c._isEmployeeTransaction || !!c.employee;
-      const amount = roundToTwo(c.amount || c.depositAmount || c.refillAmount || c.returnAmount || 0);
+      const amount = preserveDecimal(c.amount || c.depositAmount || c.refillAmount || c.returnAmount || 0); // Preserve exact decimal value
       const rec = {
         _id: c._id,
         source: employeeId ? 'employee-cylinder' : (isEmployeeTransaction ? 'employee-cylinder' : 'admin-cylinder'),
@@ -137,7 +152,7 @@ export async function GET(request) {
         employeeName: c?.employee?.name || (employeeId ? '-' : (isEmployeeTransaction ? 'Employee' : 'Admin')),
         customerName: c?.customer?.name || '-',
         totalAmount: amount,
-        receivedAmount: roundToTwo(c.cashAmount || 0),
+        receivedAmount: preserveDecimal(c.cashAmount || 0), // Preserve exact decimal value from database
         paymentMethod: c.paymentMethod || 'cash',
         paymentStatus: c.status,
         createdAt: c.createdAt,
@@ -178,13 +193,13 @@ export async function GET(request) {
         invoiceNumber: rental.rentalNumber || '-',
         employeeName: employeeId ? 'Employee' : 'Admin', // Show appropriate label based on view
         customerName: rental.customer?.name || rental.customer?.companyName || rental.customerName || '-',
-        totalAmount: roundToTwo(rental.finalTotal || 0),
-        receivedAmount: roundToTwo(rental.finalTotal || 0), // Rentals are typically paid in full
+        totalAmount: preserveDecimal(rental.finalTotal || 0), // Preserve exact decimal value from database
+        receivedAmount: preserveDecimal(rental.finalTotal || 0), // Preserve exact decimal value from database
         paymentMethod: 'rental',
         paymentStatus: 'cleared',
         createdAt: rental.createdAt || rental.date,
-        subtotal: roundToTwo(rental.subtotal || 0),
-        totalVat: roundToTwo(rental.totalVat || 0),
+        subtotal: preserveDecimal(rental.subtotal || 0), // Preserve exact decimal value from database
+        totalVat: preserveDecimal(rental.totalVat || 0), // Preserve exact decimal value from database
       };
       rentalSales.push(rec);
       totalRental = roundToTwo(totalRental + rec.totalAmount);

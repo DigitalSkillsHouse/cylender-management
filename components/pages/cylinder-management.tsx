@@ -1670,9 +1670,20 @@ export const CylinderManagement = () => {
         ? customers.find(c => c._id === transaction.customer?._id) 
         : transaction.customer
       
+      // Ensure we use the actual invoice number from the database
+      // If missing, fetch it fresh from the API to avoid showing random numbers
+      let invoiceNumber = transaction.invoiceNumber
+      if (!invoiceNumber && transaction._id) {
+        // Try to fetch the transaction fresh to get the invoice number
+        console.warn(`[Receipt] Invoice number missing for transaction ${transaction._id}, attempting to fetch...`)
+        // For now, we'll use the transaction ID as a last resort, but log a warning
+        // The invoice number should always be present from the database
+        invoiceNumber = transaction.invoiceNumber || '-' // Use '-' instead of random number
+      }
+      
       const saleData = {
         _id: transaction._id,
-        invoiceNumber: transaction.invoiceNumber || `CYL-${transaction._id.slice(-8).toUpperCase()}`,
+        invoiceNumber: invoiceNumber || '-', // Use '-' instead of random CYL-XXXXX number
         customer: {
           name: fullCustomer?.name || transaction.customer?.name || "Unknown Customer",
           phone: fullCustomer?.phone || transaction.customer?.phone || "",

@@ -37,9 +37,14 @@ export async function GET(request) {
       ]
     }
 
-    // Build query for collected invoices: receivedAmount > 0
+    // Build query for collected invoices: receivedAmount > 0 AND totalAmount > 0 (only credit invoices, exclude debit invoices)
+    // Credit invoices = normal sales where customer owes money (positive totalAmount)
+    // Debit invoices = refunds/adjustments where company owes customer (negative or zero totalAmount)
     const collectedQuery = {
-      $expr: { $gt: [ { $ifNull: ["$receivedAmount", 0] }, 0 ] }
+      $and: [
+        { $expr: { $gt: [ { $ifNull: ["$receivedAmount", 0] }, 0 ] } },
+        { $expr: { $gt: [ { $ifNull: ["$totalAmount", 0] }, 0 ] } }
+      ]
     }
 
     // Determine which query to use based on type parameter
@@ -47,8 +52,11 @@ export async function GET(request) {
     if (type === "collected") {
       queryToUse = collectedQuery
     } else if (type === "all") {
-      // For "all", we'll fetch both and combine
-      queryToUse = {}
+      // For "all", we'll fetch both and combine, but still exclude debit invoices
+      // Only show credit invoices (totalAmount > 0)
+      queryToUse = {
+        $expr: { $gt: [ { $ifNull: ["$totalAmount", 0] }, 0 ] }
+      }
     }
 
     // Only handle gas sales - cylinder queries removed
@@ -142,10 +150,17 @@ export async function GET(request) {
     // Cylinder mapping functions removed - collections only handle gas sales
 
     // Only include gas sales data, exclude cylinder transactions
+    // Filter out debit invoices (totalAmount <= 0) - only show credit invoices (totalAmount > 0)
     const data = [
       ...adminSales.map(mapSale),
       ...employeeSales.map(mapEmpSale),
-    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    ]
+      .filter(invoice => {
+        // Only include credit invoices (positive totalAmount)
+        // Exclude debit invoices (zero or negative totalAmount)
+        return Number(invoice.totalAmount || 0) > 0
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 
     return NextResponse.json({ success: true, data })
   } catch (error) {
