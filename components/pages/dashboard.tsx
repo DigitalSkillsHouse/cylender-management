@@ -135,7 +135,7 @@ export const Dashboard = ({ user }: DashboardProps) => {
   const cards = [
     {
       title: "Total Revenue",
-      value: `AED ${formatCurrency(stats.totalRevenue + stats.gasSales)}`,
+      value: `AED ${formatCurrency(stats.totalRevenue)}`,
       icon: DollarSign,
       color: "#2B3068",
       bgColor: "bg-gradient-to-br from-blue-50 to-indigo-100",
