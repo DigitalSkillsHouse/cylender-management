@@ -151,24 +151,23 @@ export async function GET(request) {
 
     // Fetch rental invoices for the given date
     // Use the 'date' field from Rental model, not 'createdAt'
-    // Include rentals for both admin and employees
-    const rentalQuery = { date: { $gte: start, $lte: end } };
-    // If employeeId is provided, filter rentals by employee (if Rental model has employee field)
-    // Otherwise, fetch all rentals
-    const rentals = await Rental.find(rentalQuery)
-      .populate('customer', 'name companyName')
-      .populate('employee', 'name email') // Populate employee if exists
-      .lean();
+    // Note: Rental model doesn't have an employee field, so rentals are admin-only
+    // When employeeId is provided, skip rentals since they can't be associated with employees
+    let rentals = [];
+    if (!employeeId) {
+      // Only fetch rentals for admin view (no employee filter)
+      const rentalQuery = { date: { $gte: start, $lte: end } };
+      rentals = await Rental.find(rentalQuery)
+        .populate('customer', 'name companyName')
+        .lean();
+    }
     
     for (const rental of rentals) {
-      // Skip if employeeId is provided and rental doesn't match employee
-      // Note: If Rental model doesn't have employee field, all rentals will show for employees
-      // This assumes rentals can be created by employees and should show in their cash paper
       const rec = {
         _id: rental._id,
         source: 'rental',
         invoiceNumber: rental.rentalNumber || '-',
-        employeeName: rental.employee?.name || (employeeId ? 'Employee' : 'Admin'),
+        employeeName: 'Admin', // Rentals are admin-only since model doesn't have employee field
         customerName: rental.customer?.name || rental.customer?.companyName || rental.customerName || '-',
         totalAmount: Number(rental.finalTotal || 0),
         receivedAmount: Number(rental.finalTotal || 0), // Rentals are typically paid in full
