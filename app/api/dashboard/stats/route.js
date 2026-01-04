@@ -9,6 +9,14 @@ import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction"
 import InactiveCustomerView from "@/models/InactiveCustomerView"
 import { NextResponse } from "next/server"
 
+// Helper function to round to 2 decimal places to avoid floating-point precision errors
+const roundToTwo = (value) => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0;
+  }
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+};
+
 // Disable caching for this route
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -205,7 +213,7 @@ export async function GET(request) {
 
     // Calculate total combined revenue (admin + employee)
     // Note: Gas sales revenue already includes VAT in totalAmount
-    const totalGasRevenue = (gasSales.gasSalesRevenue || 0) + (employeeGasSales.employeeGasSalesRevenue || 0)
+    const totalGasRevenue = roundToTwo((gasSales.gasSalesRevenue || 0) + (employeeGasSales.employeeGasSalesRevenue || 0))
     
     // Calculate cylinder revenue - EXCLUDE deposits (deposits are not revenue, they're refundable)
     // Only include refills and returns as revenue
@@ -253,15 +261,15 @@ export async function GET(request) {
       },
     ])
     
-    const totalCylinderRevenue = (adminCylinderRevenueExcludingDeposits[0]?.cylinderRevenue || 0) + 
-                                  (employeeCylinderRevenueExcludingDeposits[0]?.employeeCylinderRevenue || 0)
-    const totalCombinedRevenue = totalGasRevenue + totalCylinderRevenue
+    const totalCylinderRevenue = roundToTwo((adminCylinderRevenueExcludingDeposits[0]?.cylinderRevenue || 0) + 
+                                  (employeeCylinderRevenueExcludingDeposits[0]?.employeeCylinderRevenue || 0))
+    const totalCombinedRevenue = roundToTwo(totalGasRevenue + totalCylinderRevenue)
 
     // Calculate total due (admin + employee)
-    const totalDue = (gasSales.totalDue || 0) + (employeeGasSales.employeeTotalDue || 0)
+    const totalDue = roundToTwo((gasSales.totalDue || 0) + (employeeGasSales.employeeTotalDue || 0))
 
     // Calculate total paid (admin + employee)
-    const totalPaid = (gasSales.gasSalesPaid || 0) + (employeeGasSales.employeeGasSalesPaid || 0)
+    const totalPaid = roundToTwo((gasSales.gasSalesPaid || 0) + (employeeGasSales.employeeGasSalesPaid || 0))
 
     // Find inactive customers (no transactions in the last 30 days)
     // Note: Inactive customers calculation is not affected by date filter - it's always based on last 30 days
@@ -319,19 +327,19 @@ export async function GET(request) {
       !viewedCustomerIds.has(customer._id.toString())
     )
 
-    // Ensure all values are numbers and not null/undefined
+    // Ensure all values are numbers and not null/undefined, rounded to 2 decimal places
     const statsResponse = {
-      totalRevenue: Number(totalGasRevenue) || 0, // Total revenue should equal gas sales revenue (admin + employee, includes VAT)
-      gasSales: Number(totalGasRevenue) || 0, // Total gas sales revenue (admin + employee, includes VAT)
-      cylinderRefills: Number(totalCylinderRevenue) || 0, // Total cylinder revenue (refills + returns only, excludes deposits)
-      totalDue: Number(totalDue) || 0, // Outstanding amounts (admin + employee)
+      totalRevenue: roundToTwo(totalGasRevenue), // Total revenue should equal gas sales revenue (admin + employee, includes VAT)
+      gasSales: roundToTwo(totalGasRevenue), // Total gas sales revenue (admin + employee, includes VAT)
+      cylinderRefills: roundToTwo(totalCylinderRevenue), // Total cylinder revenue (refills + returns only, excludes deposits)
+      totalDue: roundToTwo(totalDue), // Outstanding amounts (admin + employee)
       totalCustomers: Number(customerCount) || 0,
       totalEmployees: Number(employeeCount) || 0,
       totalProducts: Number(productCount) || 0,
       productsSold: Number(totalProductsSold) || 0, // Total products sold (admin + employee)
       totalSales: Number((gasSales.totalSales || 0) + (employeeGasSales.employeeTotalSales || 0)) || 0, // Total sales count
-      totalCombinedRevenue: Number(totalCombinedRevenue) || 0,
-      totalPaid: Number(totalPaid) || 0, // Amount actually received (admin + employee)
+      totalCombinedRevenue: roundToTwo(totalCombinedRevenue),
+      totalPaid: roundToTwo(totalPaid), // Amount actually received (admin + employee)
       inactiveCustomers: inactiveCustomers, // Customers with no transactions in last 30 days
       inactiveCustomersCount: inactiveCustomers.length, // Count of inactive customers
     }

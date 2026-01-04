@@ -7,6 +7,14 @@ import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
 import Rental from "@/models/Rental";
 import { getDateRangeForPeriod } from "@/lib/date-utils";
 
+// Helper function to round to 2 decimal places to avoid floating-point precision errors
+const roundToTwo = (value) => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0;
+  }
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+};
+
 export async function GET(request) {
   try {
     await dbConnect();
@@ -98,22 +106,22 @@ export async function GET(request) {
         invoiceNumber: s.invoiceNumber,
         employeeName: s?.employee?.name || (employeeId ? '-' : (isEmployeeSale ? 'Employee' : 'Admin')),
         customerName: s?.customer?.name || '-',
-        totalAmount: Number(s.totalAmount || 0),
-        receivedAmount: Number(s.receivedAmount || 0),
+        totalAmount: roundToTwo(s.totalAmount || 0),
+        receivedAmount: roundToTwo(s.receivedAmount || 0),
         paymentMethod: s.paymentMethod,
         paymentStatus: s.paymentStatus,
         createdAt: s.createdAt,
       };
-      grandTotal += rec.totalAmount;
+      grandTotal = roundToTwo(grandTotal + rec.totalAmount);
       if (s.paymentMethod === 'credit') {
         creditSales.push(rec);
-        totalCredit += rec.totalAmount;
+        totalCredit = roundToTwo(totalCredit + rec.totalAmount);
       } else if (s.paymentMethod === 'debit') {
         debitSales.push(rec);
-        totalDebit += rec.totalAmount;
+        totalDebit = roundToTwo(totalDebit + rec.totalAmount);
       } else {
         otherSales.push(rec);
-        totalOther += rec.totalAmount;
+        totalOther = roundToTwo(totalOther + rec.totalAmount);
       }
     }
 
@@ -121,7 +129,7 @@ export async function GET(request) {
     for (const c of cylTxns) {
       // Determine if this is an employee transaction or admin transaction
       const isEmployeeTransaction = c._isEmployeeTransaction || !!c.employee;
-      const amount = Number(c.amount || c.depositAmount || c.refillAmount || c.returnAmount || 0);
+      const amount = roundToTwo(c.amount || c.depositAmount || c.refillAmount || c.returnAmount || 0);
       const rec = {
         _id: c._id,
         source: employeeId ? 'employee-cylinder' : (isEmployeeTransaction ? 'employee-cylinder' : 'admin-cylinder'),
@@ -129,7 +137,7 @@ export async function GET(request) {
         employeeName: c?.employee?.name || (employeeId ? '-' : (isEmployeeTransaction ? 'Employee' : 'Admin')),
         customerName: c?.customer?.name || '-',
         totalAmount: amount,
-        receivedAmount: Number(c.cashAmount || 0),
+        receivedAmount: roundToTwo(c.cashAmount || 0),
         paymentMethod: c.paymentMethod || 'cash',
         paymentStatus: c.status,
         createdAt: c.createdAt,
@@ -139,18 +147,18 @@ export async function GET(request) {
       if (c.type === 'return') {
         // Return transactions - show in cash paper but don't include in grand total
         returnCylinderSales.push(rec);
-        totalReturnCylinder += rec.totalAmount;
+        totalReturnCylinder = roundToTwo(totalReturnCylinder + rec.totalAmount);
         // grandTotal += rec.totalAmount; // Excluded from grand total as per requirement
       } else if (c.type === 'deposit') {
         // Deposit transactions - show in cash paper but don't include in grand total
         depositCylinderSales.push(rec);
-        totalDepositCylinder += rec.totalAmount;
+        totalDepositCylinder = roundToTwo(totalDepositCylinder + rec.totalAmount);
         // grandTotal += rec.totalAmount; // Excluded from grand total as per requirement
       } else {
         // Refill transactions - include in grand total
         depositCylinderSales.push(rec);
-        totalDepositCylinder += rec.totalAmount;
-        grandTotal += rec.totalAmount;
+        totalDepositCylinder = roundToTwo(totalDepositCylinder + rec.totalAmount);
+        grandTotal = roundToTwo(grandTotal + rec.totalAmount);
       }
     }
 
@@ -170,23 +178,23 @@ export async function GET(request) {
         invoiceNumber: rental.rentalNumber || '-',
         employeeName: employeeId ? 'Employee' : 'Admin', // Show appropriate label based on view
         customerName: rental.customer?.name || rental.customer?.companyName || rental.customerName || '-',
-        totalAmount: Number(rental.finalTotal || 0),
-        receivedAmount: Number(rental.finalTotal || 0), // Rentals are typically paid in full
+        totalAmount: roundToTwo(rental.finalTotal || 0),
+        receivedAmount: roundToTwo(rental.finalTotal || 0), // Rentals are typically paid in full
         paymentMethod: 'rental',
         paymentStatus: 'cleared',
         createdAt: rental.createdAt || rental.date,
-        subtotal: Number(rental.subtotal || 0),
-        totalVat: Number(rental.totalVat || 0),
+        subtotal: roundToTwo(rental.subtotal || 0),
+        totalVat: roundToTwo(rental.totalVat || 0),
       };
       rentalSales.push(rec);
-      totalRental += rec.totalAmount;
-      grandTotal += rec.totalAmount;
+      totalRental = roundToTwo(totalRental + rec.totalAmount);
+      grandTotal = roundToTwo(grandTotal + rec.totalAmount);
     }
 
     // Group other sales by payment method summary
     const otherByMethod = otherSales.reduce((acc, r) => {
       const k = r.paymentMethod || 'unknown';
-      acc[k] = (acc[k] || 0) + (r.totalAmount || 0);
+      acc[k] = roundToTwo((acc[k] || 0) + (r.totalAmount || 0));
       return acc;
     }, {});
 
@@ -196,10 +204,11 @@ export async function GET(request) {
     // For admin sales: totalAmount includes VAT, so VAT = totalAmount - (totalAmount / 1.05)
     // For employee sales: totalAmount now includes VAT (after our fix), so same calculation
     // Cylinder deposits/returns don't have VAT
-    const salesSubtotal = (totalCredit + totalDebit + totalOther) / 1.05; // Extract subtotal (remove VAT)
-    const totalVatFromSales = (totalCredit + totalDebit + totalOther) - salesSubtotal; // Calculate VAT amount
-    const totalVatFromRentals = rentalSales.reduce((sum, r) => sum + (Number(r.totalVat || 0)), 0);
-    const totalVat = totalVatFromSales + totalVatFromRentals;
+    const totalSalesAmount = roundToTwo(totalCredit + totalDebit + totalOther);
+    const salesSubtotal = roundToTwo(totalSalesAmount / 1.05); // Extract subtotal (remove VAT)
+    const totalVatFromSales = roundToTwo(totalSalesAmount - salesSubtotal); // Calculate VAT amount
+    const totalVatFromRentals = roundToTwo(rentalSales.reduce((sum, r) => sum + roundToTwo(r.totalVat || 0), 0));
+    const totalVat = roundToTwo(totalVatFromSales + totalVatFromRentals);
 
     return NextResponse.json({
       success: true,
@@ -224,14 +233,14 @@ export async function GET(request) {
         rentalSales,
         otherByMethod,
         totals: {
-          totalCredit,
-          totalDebit,
-          totalOther, // Only other sales, NOT including cylinder deposits/returns
-          totalDepositCylinder,
-          totalReturnCylinder,
-          totalRental,
-          totalVat, // Total VAT amount
-          grandTotal,
+          totalCredit: roundToTwo(totalCredit),
+          totalDebit: roundToTwo(totalDebit),
+          totalOther: roundToTwo(totalOther), // Only other sales, NOT including cylinder deposits/returns
+          totalDepositCylinder: roundToTwo(totalDepositCylinder),
+          totalReturnCylinder: roundToTwo(totalReturnCylinder),
+          totalRental: roundToTwo(totalRental),
+          totalVat: roundToTwo(totalVat), // Total VAT amount
+          grandTotal: roundToTwo(grandTotal),
         },
       },
     });

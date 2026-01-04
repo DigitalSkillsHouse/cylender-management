@@ -13,6 +13,14 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
+// Helper function to round to 2 decimal places to avoid floating-point precision errors
+const roundToTwo = (value) => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0;
+  }
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+};
+
 export async function GET() {
   try {
     await dbConnect();
@@ -41,21 +49,21 @@ export async function GET() {
     const allCylinderTransactions = [...adminCylinderTransactions, ...employeeCylinderTransactions];
 
     // Calculate revenue from all sales (admin + employee)
-    const adminSalesRevenue = adminSales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
-    const employeeSalesRevenue = employeeSales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
-    const totalSalesRevenue = adminSalesRevenue + employeeSalesRevenue;
+    const adminSalesRevenue = roundToTwo(adminSales.reduce((sum, sale) => sum + roundToTwo(sale.totalAmount || 0), 0));
+    const employeeSalesRevenue = roundToTwo(employeeSales.reduce((sum, sale) => sum + roundToTwo(sale.totalAmount || 0), 0));
+    const totalSalesRevenue = roundToTwo(adminSalesRevenue + employeeSalesRevenue);
 
     // Calculate cylinder revenue (deposits from admin + employee)
-    const adminCylinderRevenue = adminCylinderTransactions
+    const adminCylinderRevenue = roundToTwo(adminCylinderTransactions
       .filter(t => t.type === 'deposit')
-      .reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
-    const employeeCylinderRevenue = employeeCylinderTransactions
+      .reduce((sum, transaction) => sum + roundToTwo(transaction.amount || 0), 0));
+    const employeeCylinderRevenue = roundToTwo(employeeCylinderTransactions
       .filter(t => t.type === 'deposit')
-      .reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
-    const totalCylinderRevenue = adminCylinderRevenue + employeeCylinderRevenue;
+      .reduce((sum, transaction) => sum + roundToTwo(transaction.amount || 0), 0));
+    const totalCylinderRevenue = roundToTwo(adminCylinderRevenue + employeeCylinderRevenue);
 
     // Total combined revenue
-    const totalRevenue = totalSalesRevenue + totalCylinderRevenue;
+    const totalRevenue = roundToTwo(totalSalesRevenue + totalCylinderRevenue);
 
     // Calculate gas sales count (number of gas sales transactions)
     const gasSales = allSales.length;
@@ -100,12 +108,12 @@ export async function GET() {
         return transactionDate >= monthStart && transactionDate <= monthEnd;
       });
 
-      const monthRevenue = monthSales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
-      const monthCylinderRevenue = monthCylinderTransactions
+      const monthRevenue = roundToTwo(monthSales.reduce((sum, sale) => sum + roundToTwo(sale.totalAmount || 0), 0));
+      const monthCylinderRevenue = roundToTwo(monthCylinderTransactions
         .filter(t => t.type === 'deposit')
         .reduce((sum, transaction) => 
-        sum + (transaction.amount || 0), 0
-      );
+        sum + roundToTwo(transaction.amount || 0), 0
+      ));
 
       monthlyData.push({
         month: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
@@ -113,7 +121,7 @@ export async function GET() {
         revenue: monthRevenue,
         cylinderTransactions: monthCylinderTransactions.length,
         cylinderRevenue: monthCylinderRevenue,
-        totalRevenue: monthRevenue + monthCylinderRevenue
+        totalRevenue: roundToTwo(monthRevenue + monthCylinderRevenue)
       });
     }
 
@@ -267,10 +275,10 @@ export async function GET() {
       totalSales: Number(allSales.length) || 0,
       
       // Financial data
-      totalRevenue: Number(totalRevenue) || 0,
-      totalSalesRevenue: Number(totalSalesRevenue) || 0,
-      cylinderRevenue: Number(totalCylinderRevenue) || 0,
-      totalCombinedRevenue: Number(totalRevenue) || 0,
+      totalRevenue: roundToTwo(totalRevenue),
+      totalSalesRevenue: roundToTwo(totalSalesRevenue),
+      cylinderRevenue: roundToTwo(totalCylinderRevenue),
+      totalCombinedRevenue: roundToTwo(totalRevenue),
       
       // Activity data
       gasSales: Number(gasSales) || 0,

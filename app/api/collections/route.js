@@ -3,6 +3,14 @@ import { NextResponse } from "next/server"
 import Sale from "@/models/Sale"
 import EmployeeSale from "@/models/EmployeeSale"
 import { getNextRcNo } from "@/lib/invoice-generator"
+
+// Helper function to round to 2 decimal places to avoid floating-point precision errors
+const roundToTwo = (value) => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0;
+  }
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+};
 // Cylinder transaction imports removed - collections only handle gas sales
 
 // Disable caching for this route - force dynamic rendering
@@ -174,17 +182,17 @@ export async function POST(request) {
       if (model === "Sale") {
         const sale = await Sale.findById(id)
         if (!sale) continue
-        const currentReceived = Number(sale.receivedAmount || 0)
-        const total = Number(sale.totalAmount || 0)
-        const balance = Math.max(0, total - currentReceived)
-        const apply = Math.min(balance, amount)
+        const currentReceived = roundToTwo(sale.receivedAmount || 0)
+        const total = roundToTwo(sale.totalAmount || 0)
+        const balance = roundToTwo(Math.max(0, total - currentReceived))
+        const apply = roundToTwo(Math.min(balance, amount))
         if (apply <= 0) {
           results.push({ id, model, applied: 0, status: sale.paymentStatus })
           continue
         }
-        sale.receivedAmount = Number((currentReceived + apply).toFixed(2))
+        sale.receivedAmount = roundToTwo(currentReceived + apply)
         // Update payment status: cleared if received amount equals or exceeds total (with small tolerance for floating point)
-        const remainingBalance = Number((total - sale.receivedAmount).toFixed(2))
+        const remainingBalance = roundToTwo(total - sale.receivedAmount)
         sale.paymentStatus = remainingBalance <= 0.01 ? "cleared" : "pending"
         // Store RC-NO on the sale record if this is the first payment received
         if (!sale.rcNo && apply > 0) {
@@ -196,17 +204,17 @@ export async function POST(request) {
       } else if (model === "EmployeeSale") {
         const sale = await EmployeeSale.findById(id)
         if (!sale) continue
-        const currentReceived = Number(sale.receivedAmount || 0)
-        const total = Number(sale.totalAmount || 0)
-        const balance = Math.max(0, total - currentReceived)
-        const apply = Math.min(balance, amount)
+        const currentReceived = roundToTwo(sale.receivedAmount || 0)
+        const total = roundToTwo(sale.totalAmount || 0)
+        const balance = roundToTwo(Math.max(0, total - currentReceived))
+        const apply = roundToTwo(Math.min(balance, amount))
         if (apply <= 0) {
           results.push({ id, model, applied: 0, status: sale.paymentStatus })
           continue
         }
-        sale.receivedAmount = Number((currentReceived + apply).toFixed(2))
+        sale.receivedAmount = roundToTwo(currentReceived + apply)
         // Update payment status: cleared if received amount equals or exceeds total (with small tolerance for floating point)
-        const remainingBalance = Number((total - sale.receivedAmount).toFixed(2))
+        const remainingBalance = roundToTwo(total - sale.receivedAmount)
         sale.paymentStatus = remainingBalance <= 0.01 ? "cleared" : "pending"
         // Store RC-NO on the employee sale record if this is the first payment received
         if (!sale.rcNo && apply > 0) {

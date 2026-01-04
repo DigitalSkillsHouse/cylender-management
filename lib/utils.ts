@@ -35,3 +35,14 @@ export const formatNumberWithSeparators = (amount: number | null | undefined): s
   // Add thousand separators
   return formatted.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
+
+/**
+ * Round number to exactly 2 decimal places to avoid floating-point precision errors
+ * Use this for all financial calculations to ensure 15+15 = 30.00, not 30.01
+ */
+export const roundToTwoDecimals = (value: number | null | undefined): number => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0
+  }
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100
+}
