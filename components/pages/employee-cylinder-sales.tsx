@@ -1768,9 +1768,12 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
         ? customers.find(c => c._id === transaction.customer?._id) 
         : transaction.customer
       
+      // Use the actual invoice number from the database (never use random fallback)
+      const invoiceNumber = transaction.invoiceNumber || '-'
+      
       const saleData = {
         _id: transaction._id,
-        invoiceNumber: transaction.invoiceNumber || `CYL-${transaction._id.slice(-8).toUpperCase()}`,
+        invoiceNumber: invoiceNumber, // Always use actual invoice number from database
         customer: {
           name: fullCustomer?.name || transaction.customer?.name || "Unknown Customer",
           phone: fullCustomer?.phone || transaction.customer?.phone || "",
@@ -1840,9 +1843,12 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
       ? customers.find(c => c._id === transaction.customer?._id) 
       : transaction.customer
     
+    // Use the actual invoice number from the database (never use random fallback)
+    const invoiceNumber = transaction.invoiceNumber || '-'
+    
     return {
       _id: transaction._id,
-      invoiceNumber: transaction.invoiceNumber || `CYL-${transaction._id.slice(-8).toUpperCase()}`,
+      invoiceNumber: invoiceNumber, // Always use actual invoice number from database
       customer: {
         name: fullCustomer?.name || transaction.customer?.name || "Unknown Customer",
         phone: fullCustomer?.phone || transaction.customer?.phone || "",
@@ -2024,8 +2030,8 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
 
   const filteredTransactions = Array.isArray(transactions) ? transactions.filter((transaction) => {
     const term = searchTerm.toLowerCase()
-    const fallbackInv = transaction._id ? `CYL-${transaction._id.slice(-6).toUpperCase()}` : ''
-    const inv = (transaction as any).invoiceNumber || fallbackInv
+    // Use actual invoice number from database, or '-' if missing (never use random fallback)
+    const inv = (transaction as any).invoiceNumber || '-'
     const matchesSearch =
       transaction.customer?.name?.toLowerCase().includes(term) ||
       transaction.cylinderSize?.toLowerCase().includes(term) ||

@@ -1626,7 +1626,7 @@ export const CylinderManagement = () => {
     }
   }
 
-  const handleReceiptClick = (transaction: CylinderTransaction) => {
+  const handleReceiptClick = async (transaction: CylinderTransaction) => {
     setPendingDialogType('receipt')
     if (!customerSignature) {
       // No signature yet - show signature dialog first
@@ -1634,7 +1634,24 @@ export const CylinderManagement = () => {
       setShowSignatureDialog(true)
     } else {
       // Signature already exists - show receipt directly with existing signature
-      const itemsSrc = (transaction as any).items as any[] | undefined
+      
+      // Fetch the transaction fresh from the API to ensure we have the correct invoice number
+      let transactionWithInvoice = transaction
+      if (!transaction.invoiceNumber && transaction._id) {
+        try {
+          const response = await fetch(`/api/cylinders/${transaction._id}`)
+          if (response.ok) {
+            const freshTransaction = await response.json()
+            transactionWithInvoice = { ...transaction, invoiceNumber: freshTransaction.invoiceNumber || transaction.invoiceNumber }
+            console.log(`[Receipt] Fetched fresh transaction, invoice number: ${transactionWithInvoice.invoiceNumber}`)
+          }
+        } catch (error) {
+          console.error(`[Receipt] Failed to fetch transaction ${transaction._id}:`, error)
+          // Continue with existing transaction data
+        }
+      }
+      
+      const itemsSrc = (transactionWithInvoice as any).items as any[] | undefined
       const hasItems = Array.isArray(itemsSrc) && itemsSrc.length > 0
 
       const items = hasItems
@@ -1655,48 +1672,40 @@ export const CylinderManagement = () => {
           })
         : [{
             product: {
-              name: transaction.product?.name || (transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)),
+              name: transactionWithInvoice.product?.name || (transactionWithInvoice.type.charAt(0).toUpperCase() + transactionWithInvoice.type.slice(1)),
             },
-            quantity: Number(transaction.quantity) || 0,
-            price: Number(transaction.amount) || 0,
-            total: (Number(transaction.amount) || 0) * (Number(transaction.quantity) || 0),
-            category: (transaction.product?.category || 'cylinder') as "gas" | "cylinder",
+            quantity: Number(transactionWithInvoice.quantity) || 0,
+            price: Number(transactionWithInvoice.amount) || 0,
+            total: (Number(transactionWithInvoice.amount) || 0) * (Number(transactionWithInvoice.quantity) || 0),
+            category: (transactionWithInvoice.product?.category || 'cylinder') as "gas" | "cylinder",
           }]
 
       const totalAmount = items.reduce((s, it) => s + (Number(it.total) || 0), 0)
 
       // Enrich customer data with full customer object to get trNumber
-      const fullCustomer = transaction.customer?._id 
-        ? customers.find(c => c._id === transaction.customer?._id) 
-        : transaction.customer
+      const fullCustomer = transactionWithInvoice.customer?._id 
+        ? customers.find(c => c._id === transactionWithInvoice.customer?._id) 
+        : transactionWithInvoice.customer
       
-      // Ensure we use the actual invoice number from the database
-      // If missing, fetch it fresh from the API to avoid showing random numbers
-      let invoiceNumber = transaction.invoiceNumber
-      if (!invoiceNumber && transaction._id) {
-        // Try to fetch the transaction fresh to get the invoice number
-        console.warn(`[Receipt] Invoice number missing for transaction ${transaction._id}, attempting to fetch...`)
-        // For now, we'll use the transaction ID as a last resort, but log a warning
-        // The invoice number should always be present from the database
-        invoiceNumber = transaction.invoiceNumber || '-' // Use '-' instead of random number
-      }
+      // Use the actual invoice number from the database (never use random fallback)
+      const invoiceNumber = transactionWithInvoice.invoiceNumber || '-'
       
       const saleData = {
-        _id: transaction._id,
-        invoiceNumber: invoiceNumber || '-', // Use '-' instead of random CYL-XXXXX number
+        _id: transactionWithInvoice._id,
+        invoiceNumber: invoiceNumber, // Always use actual invoice number from database
         customer: {
-          name: fullCustomer?.name || transaction.customer?.name || "Unknown Customer",
-          phone: fullCustomer?.phone || transaction.customer?.phone || "",
-          address: fullCustomer?.address || transaction.customer?.address || "",
-          trNumber: fullCustomer?.trNumber || transaction.customer?.trNumber || ""
+          name: fullCustomer?.name || transactionWithInvoice.customer?.name || "Unknown Customer",
+          phone: fullCustomer?.phone || transactionWithInvoice.customer?.phone || "",
+          address: fullCustomer?.address || transactionWithInvoice.customer?.address || "",
+          trNumber: fullCustomer?.trNumber || transactionWithInvoice.customer?.trNumber || ""
         },
         items,
         totalAmount,
-        paymentMethod: (transaction as any).paymentMethod || "cash",
-        paymentStatus: transaction.status || "pending",
+        paymentMethod: (transactionWithInvoice as any).paymentMethod || "cash",
+        paymentStatus: transactionWithInvoice.status || "pending",
         // include type to support header selection logic in receipt
-        type: transaction.type,
-        createdAt: transaction.createdAt,
+        type: transactionWithInvoice.type,
+        createdAt: transactionWithInvoice.createdAt,
         customerSignature: customerSignature,
       }
       setReceiptDialogData(saleData)
@@ -1750,9 +1759,13 @@ export const CylinderManagement = () => {
       ? customers.find(c => c._id === transaction.customer?._id) 
       : transaction.customer
     
+    // Ensure we use the actual invoice number from the database
+    // Use '-' instead of generating random numbers
+    const invoiceNumber = transaction.invoiceNumber || '-'
+    
     return {
       _id: transaction._id,
-      invoiceNumber: transaction.invoiceNumber || `CYL-${transaction._id.slice(-8).toUpperCase()}`,
+      invoiceNumber: invoiceNumber, // Use actual invoice number, or '-' if missing
       customer: {
         name: fullCustomer?.name || transaction.customer?.name || "Unknown Customer",
         phone: fullCustomer?.phone || transaction.customer?.phone || "",
@@ -1769,7 +1782,7 @@ export const CylinderManagement = () => {
     }
   }
 
-  const handleSignatureComplete = (signature: string) => {
+  const handleSignatureComplete = async (signature: string) => {
     console.log('CylinderManagement - Signature received:', signature)
     console.log('CylinderManagement - Signature length:', signature?.length)
     console.log('CylinderManagement - Pending transaction:', pendingTransaction?._id)
@@ -1781,7 +1794,23 @@ export const CylinderManagement = () => {
     
     // Open the appropriate dialog based on pendingDialogType
     if (pendingTransaction) {
-      const saleData = convertTransactionToSale(pendingTransaction, signature)
+      // Fetch the transaction fresh from the API to ensure we have the correct invoice number
+      let transactionWithInvoice = pendingTransaction
+      if (!pendingTransaction.invoiceNumber && pendingTransaction._id) {
+        try {
+          const response = await fetch(`/api/cylinders/${pendingTransaction._id}`)
+          if (response.ok) {
+            const freshTransaction = await response.json()
+            transactionWithInvoice = { ...pendingTransaction, invoiceNumber: freshTransaction.invoiceNumber || pendingTransaction.invoiceNumber }
+            console.log(`[Receipt] Fetched fresh transaction, invoice number: ${transactionWithInvoice.invoiceNumber}`)
+          }
+        } catch (error) {
+          console.error(`[Receipt] Failed to fetch transaction ${pendingTransaction._id}:`, error)
+          // Continue with existing transaction data
+        }
+      }
+      
+      const saleData = convertTransactionToSale(transactionWithInvoice, signature)
       
       if (pendingDialogType === 'deliveryNote') {
         console.log('CylinderManagement - Opening delivery note dialog with signature embedded')
@@ -1931,8 +1960,8 @@ export const CylinderManagement = () => {
 
   const filteredTransactions = Array.isArray(transactions) ? transactions.filter((transaction) => {
     const term = searchTerm.toLowerCase()
-    const fallbackInv = transaction._id ? `CYL-${transaction._id.slice(-6).toUpperCase()}` : ''
-    const inv = (transaction as any).invoiceNumber || fallbackInv
+    // Use actual invoice number from database, or '-' if missing (never use random fallback)
+    const inv = (transaction as any).invoiceNumber || '-'
     const matchesSearch =
       transaction.customer?.name?.toLowerCase().includes(term) ||
       transaction.cylinderSize?.toLowerCase().includes(term) ||
