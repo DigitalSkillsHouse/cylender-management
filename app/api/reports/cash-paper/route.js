@@ -137,12 +137,17 @@ export async function GET(request) {
       };
       
       if (c.type === 'return') {
-        // Return transactions
+        // Return transactions - show in cash paper but don't include in grand total
         returnCylinderSales.push(rec);
         totalReturnCylinder += rec.totalAmount;
-        grandTotal += rec.totalAmount;
+        // grandTotal += rec.totalAmount; // Excluded from grand total as per requirement
+      } else if (c.type === 'deposit') {
+        // Deposit transactions - show in cash paper but don't include in grand total
+        depositCylinderSales.push(rec);
+        totalDepositCylinder += rec.totalAmount;
+        // grandTotal += rec.totalAmount; // Excluded from grand total as per requirement
       } else {
-        // Deposit and refill transactions
+        // Refill transactions - include in grand total
         depositCylinderSales.push(rec);
         totalDepositCylinder += rec.totalAmount;
         grandTotal += rec.totalAmount;
@@ -151,23 +156,19 @@ export async function GET(request) {
 
     // Fetch rental invoices for the given date
     // Use the 'date' field from Rental model, not 'createdAt'
-    // Note: Rental model doesn't have an employee field, so rentals are admin-only
-    // When employeeId is provided, skip rentals since they can't be associated with employees
-    let rentals = [];
-    if (!employeeId) {
-      // Only fetch rentals for admin view (no employee filter)
-      const rentalQuery = { date: { $gte: start, $lte: end } };
-      rentals = await Rental.find(rentalQuery)
-        .populate('customer', 'name companyName')
-        .lean();
-    }
+    // Note: Rental model doesn't have an employee field, so show all rentals for both admin and employee views
+    // Employees can see all rentals in the system since they can create rentals via rental-collection page
+    const rentalQuery = { date: { $gte: start, $lte: end } };
+    const rentals = await Rental.find(rentalQuery)
+      .populate('customer', 'name companyName')
+      .lean();
     
     for (const rental of rentals) {
       const rec = {
         _id: rental._id,
         source: 'rental',
         invoiceNumber: rental.rentalNumber || '-',
-        employeeName: 'Admin', // Rentals are admin-only since model doesn't have employee field
+        employeeName: employeeId ? 'Employee' : 'Admin', // Show appropriate label based on view
         customerName: rental.customer?.name || rental.customer?.companyName || rental.customerName || '-',
         totalAmount: Number(rental.finalTotal || 0),
         receivedAmount: Number(rental.finalTotal || 0), // Rentals are typically paid in full
