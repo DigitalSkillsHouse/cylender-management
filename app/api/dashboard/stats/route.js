@@ -321,7 +321,7 @@ export async function GET(request) {
 
     // Ensure all values are numbers and not null/undefined
     const statsResponse = {
-      totalRevenue: Number(totalCombinedRevenue) || 0, // Total business revenue (gas + cylinder, excluding deposits)
+      totalRevenue: Number(totalGasRevenue) || 0, // Total revenue should equal gas sales revenue (admin + employee, includes VAT)
       gasSales: Number(totalGasRevenue) || 0, // Total gas sales revenue (admin + employee, includes VAT)
       cylinderRefills: Number(totalCylinderRevenue) || 0, // Total cylinder revenue (refills + returns only, excludes deposits)
       totalDue: Number(totalDue) || 0, // Outstanding amounts (admin + employee)

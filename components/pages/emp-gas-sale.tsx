@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Plus, Edit, Trash2, Receipt, Search, Filter, FileText } from "lucide-react"
+import { Plus, Edit, Trash2, Receipt, Search, Filter, FileText, Loader2 } from "lucide-react"
 import { salesAPI, customersAPI, employeeSalesAPI, productsAPI } from "@/lib/api"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import { DeliveryNoteDialog } from "@/components/delivery-note-dialog"
@@ -111,6 +111,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   const [stockErrorMessage, setStockErrorMessage] = useState("")
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null)
@@ -774,6 +775,8 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSubmitting) return // Prevent double submission
+    setIsSubmitting(true)
     try {
       console.log('EmployeeGasSales - Form submission attempt')
       console.log('EmployeeGasSales - formData.customerId:', formData.customerId)
@@ -1097,6 +1100,8 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         // For other errors, still use alert for now
         alert(errorMessage)
       }
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -2544,8 +2549,15 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" className="bg-[#2B3068] hover:bg-[#1a1f4a]">
-                  {editingSale ? "Update Sale" : "Create Sale"}
+                <Button type="submit" className="bg-[#2B3068] hover:bg-[#1a1f4a]" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      {editingSale ? "Updating..." : "Creating..."}
+                    </>
+                  ) : (
+                    editingSale ? "Update Sale" : "Create Sale"
+                  )}
                 </Button>
               </div>
             </form>
