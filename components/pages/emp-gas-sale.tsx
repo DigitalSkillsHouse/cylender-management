@@ -2394,16 +2394,17 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                 </div>
 
                 <div className="text-right space-y-2">
-                  {/* totalAmount now includes VAT (after fix) */}
+                  {/* totalAmount is subtotal (without VAT), calculate VAT and total with VAT for display */}
                   {(() => {
-                    const subtotal = totalAmount / 1.05 // Extract subtotal (remove VAT)
-                    const vatAmount = totalAmount - subtotal // Calculate VAT amount
+                    const subtotal = totalAmount // totalAmount is already subtotal (sum of price * quantity)
+                    const vatAmount = subtotal * 0.05 // Calculate 5% VAT
+                    const totalWithVAT = subtotal * 1.05 // Total with VAT included
                     return (
                       <>
                         <div className="text-lg text-gray-700">Subtotal: AED {subtotal.toFixed(2)}</div>
                         <div className="text-lg text-gray-700">VAT (5%): AED {vatAmount.toFixed(2)}</div>
                         <div className="border-t pt-2">
-                          <div className="text-2xl font-bold text-[#2B3068]">Total: AED {totalAmount.toFixed(2)}</div>
+                          <div className="text-2xl font-bold text-[#2B3068]">Total: AED {totalWithVAT.toFixed(2)}</div>
                         </div>
                       </>
                     )
@@ -2459,8 +2460,8 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                         const receivedAmount = e.target.value
                         const receivedValue = parseFloat(receivedAmount) || 0
                         
-                        // totalAmount already includes VAT (after our fix)
-                        const totalWithVAT = totalAmount
+                        // totalAmount is subtotal, calculate total with VAT
+                        const totalWithVAT = totalAmount * 1.05
                         let newPaymentStatus = formData.paymentStatus
                         // Use Math.abs for floating point comparison to handle precision issues
                         if (Math.abs(receivedValue - totalWithVAT) < 0.01 && totalWithVAT > 0) {
@@ -2485,7 +2486,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                       <div className="text-sm text-gray-600">
                         {(() => {
                           const receivedValue = parseFloat(formData.receivedAmount) || 0
-                          const totalWithVAT = totalAmount // totalAmount already includes VAT (after fix)
+                          const totalWithVAT = totalAmount * 1.05 // Calculate total with VAT (totalAmount is subtotal)
                           const remaining = totalWithVAT - receivedValue
                           if (remaining > 0) {
                             return `Remaining: AED ${remaining.toFixed(2)}`
