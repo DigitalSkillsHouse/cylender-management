@@ -196,8 +196,12 @@ export default function ProfitLoss() {
     }
   }
 
+  // Format currency to exactly 2 decimal places without rounding
   const formatCurrency = (amount: number) => {
-    return `AED ${amount.toFixed(2)}`
+    if (amount === null || amount === undefined || isNaN(amount)) {
+      return "AED 0.00"
+    }
+    return `AED ${Number(amount).toFixed(2)}`
   }
 
   const formatDate = (dateString: string) => {

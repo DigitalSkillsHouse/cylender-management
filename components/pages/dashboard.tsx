@@ -124,12 +124,14 @@ export const Dashboard = ({ user }: DashboardProps) => {
     setToDate(getLocalDateString())
   }
 
-  // Format currency to 2 decimal places (matching reports format)
+  // Format currency to exactly 2 decimal places without rounding
   const formatCurrency = (amount: number) => {
-    return amount.toLocaleString('en-AE', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    })
+    if (amount === null || amount === undefined || isNaN(amount)) {
+      return "0.00"
+    }
+    // Use toFixed to ensure exactly 2 decimal places, then add thousand separators
+    const formatted = Number(amount).toFixed(2)
+    return formatted.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
   }
 
   const cards = [

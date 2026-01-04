@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { toast } from "sonner"
 import CashPaperSection from "@/components/cash-paper-section"
 import { getStartOfDate, getEndOfDate, getDubaiDateDisplayString, getDubaiDateTimeString } from "@/lib/date-utils"
+import { formatCurrencyAED } from "@/lib/utils"
 
 interface CustomerLedgerData {
   _id: string
@@ -2231,11 +2232,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     )
   }
 
+  // Format currency to exactly 2 decimal places without rounding
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-AE', {
-      style: 'currency',
-      currency: 'AED'
-    }).format(amount)
+    if (amount === null || amount === undefined || isNaN(amount)) {
+      return "AED 0.00"
+    }
+    return formatCurrencyAED(amount)
   }
 
   const formatDate = (dateString: string | null) => {

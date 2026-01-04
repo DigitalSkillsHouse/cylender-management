@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Loader2, FileText } from "lucide-react"
 import { getLocalDateString } from "@/lib/date-utils"
+import { formatCurrencyAED, formatCurrencyExact, formatNumberWithSeparators } from "@/lib/utils"
 
 type CashPaperRecord = {
   _id: string
@@ -80,7 +81,8 @@ const CashPaperSection = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromDate, toDate, employeeId])
 
-  const currency = (n: number) => new Intl.NumberFormat("en-AE", { style: "currency", currency: "AED" }).format(n || 0)
+  // Format currency to exactly 2 decimal places without rounding
+  const currency = (n: number) => formatCurrencyAED(n || 0)
 
   const downloadPdf = () => {
     if (!data) return
