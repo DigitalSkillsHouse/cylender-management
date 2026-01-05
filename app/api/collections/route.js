@@ -30,10 +30,12 @@ export async function GET(request) {
     const type = searchParams.get("type") || "pending" // pending, collected, or all
 
     // Build queries: pending means receivedAmount < totalAmount AND paymentStatus !== "cleared"
+    // Also exclude debit invoices (totalAmount <= 0) - only show credit invoices (totalAmount > 0)
     const pendingQuery = {
       $and: [
         { $expr: { $lt: [ { $ifNull: ["$receivedAmount", 0] }, { $ifNull: ["$totalAmount", 0] } ] } },
-        { paymentStatus: { $ne: "cleared" } }
+        { paymentStatus: { $ne: "cleared" } },
+        { $expr: { $gt: [ { $ifNull: ["$totalAmount", 0] }, 0 ] } } // Only credit invoices (exclude debit invoices)
       ]
     }
 
