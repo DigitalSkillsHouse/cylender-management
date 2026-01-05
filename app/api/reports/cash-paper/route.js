@@ -127,16 +127,17 @@ export async function GET(request) {
         paymentStatus: s.paymentStatus,
         createdAt: s.createdAt,
       };
-      grandTotal = roundToTwo(grandTotal + rec.totalAmount);
+      // Accumulate without rounding to prevent cumulative errors
+      grandTotal += rec.totalAmount;
       if (s.paymentMethod === 'credit') {
         creditSales.push(rec);
-        totalCredit = roundToTwo(totalCredit + rec.totalAmount);
+        totalCredit += rec.totalAmount;
       } else if (s.paymentMethod === 'debit') {
         debitSales.push(rec);
-        totalDebit = roundToTwo(totalDebit + rec.totalAmount);
+        totalDebit += rec.totalAmount;
       } else {
         otherSales.push(rec);
-        totalOther = roundToTwo(totalOther + rec.totalAmount);
+        totalOther += rec.totalAmount;
       }
     }
 
@@ -162,18 +163,18 @@ export async function GET(request) {
       if (c.type === 'return') {
         // Return transactions - show in cash paper but don't include in grand total
         returnCylinderSales.push(rec);
-        totalReturnCylinder = roundToTwo(totalReturnCylinder + rec.totalAmount);
+        totalReturnCylinder += rec.totalAmount; // Accumulate without rounding
         // grandTotal += rec.totalAmount; // Excluded from grand total as per requirement
       } else if (c.type === 'deposit') {
         // Deposit transactions - show in cash paper but don't include in grand total
         depositCylinderSales.push(rec);
-        totalDepositCylinder = roundToTwo(totalDepositCylinder + rec.totalAmount);
+        totalDepositCylinder += rec.totalAmount; // Accumulate without rounding
         // grandTotal += rec.totalAmount; // Excluded from grand total as per requirement
       } else {
         // Refill transactions - include in grand total
         depositCylinderSales.push(rec);
-        totalDepositCylinder = roundToTwo(totalDepositCylinder + rec.totalAmount);
-        grandTotal = roundToTwo(grandTotal + rec.totalAmount);
+        totalDepositCylinder += rec.totalAmount; // Accumulate without rounding
+        grandTotal += rec.totalAmount; // Accumulate without rounding
       }
     }
 
@@ -202,16 +203,21 @@ export async function GET(request) {
         totalVat: preserveDecimal(rental.totalVat || 0), // Preserve exact decimal value from database
       };
       rentalSales.push(rec);
-      totalRental = roundToTwo(totalRental + rec.totalAmount);
-      grandTotal = roundToTwo(grandTotal + rec.totalAmount);
+      totalRental += rec.totalAmount; // Accumulate without rounding
+      grandTotal += rec.totalAmount; // Accumulate without rounding
     }
 
     // Group other sales by payment method summary
     const otherByMethod = otherSales.reduce((acc, r) => {
       const k = r.paymentMethod || 'unknown';
-      acc[k] = roundToTwo((acc[k] || 0) + (r.totalAmount || 0));
+      acc[k] = (acc[k] || 0) + (r.totalAmount || 0); // Accumulate without rounding
       return acc;
     }, {});
+    
+    // Round the grouped totals only at the end
+    for (const key in otherByMethod) {
+      otherByMethod[key] = roundToTwo(otherByMethod[key]);
+    }
 
     // Calculate total VAT
     // Note: Employee sales now include VAT in totalAmount, so we need to extract it
@@ -219,11 +225,12 @@ export async function GET(request) {
     // For admin sales: totalAmount includes VAT, so VAT = totalAmount - (totalAmount / 1.05)
     // For employee sales: totalAmount now includes VAT (after our fix), so same calculation
     // Cylinder deposits/returns don't have VAT
-    const totalSalesAmount = roundToTwo(totalCredit + totalDebit + totalOther);
-    const salesSubtotal = roundToTwo(totalSalesAmount / 1.05); // Extract subtotal (remove VAT)
-    const totalVatFromSales = roundToTwo(totalSalesAmount - salesSubtotal); // Calculate VAT amount
-    const totalVatFromRentals = roundToTwo(rentalSales.reduce((sum, r) => sum + roundToTwo(r.totalVat || 0), 0));
-    const totalVat = roundToTwo(totalVatFromSales + totalVatFromRentals);
+    // Calculate without rounding first, then round only at the end
+    const totalSalesAmount = totalCredit + totalDebit + totalOther;
+    const salesSubtotal = totalSalesAmount / 1.05; // Extract subtotal (remove VAT)
+    const totalVatFromSales = totalSalesAmount - salesSubtotal; // Calculate VAT amount
+    const totalVatFromRentals = rentalSales.reduce((sum, r) => sum + (r.totalVat || 0), 0);
+    const totalVat = totalVatFromSales + totalVatFromRentals;
 
     return NextResponse.json({
       success: true,
@@ -248,14 +255,14 @@ export async function GET(request) {
         rentalSales,
         otherByMethod,
         totals: {
-          totalCredit: roundToTwo(totalCredit),
-          totalDebit: roundToTwo(totalDebit),
-          totalOther: roundToTwo(totalOther), // Only other sales, NOT including cylinder deposits/returns
-          totalDepositCylinder: roundToTwo(totalDepositCylinder),
-          totalReturnCylinder: roundToTwo(totalReturnCylinder),
-          totalRental: roundToTwo(totalRental),
-          totalVat: roundToTwo(totalVat), // Total VAT amount
-          grandTotal: roundToTwo(grandTotal),
+          totalCredit: roundToTwo(totalCredit), // Round only at final display
+          totalDebit: roundToTwo(totalDebit), // Round only at final display
+          totalOther: roundToTwo(totalOther), // Round only at final display - Only other sales, NOT including cylinder deposits/returns
+          totalDepositCylinder: roundToTwo(totalDepositCylinder), // Round only at final display
+          totalReturnCylinder: roundToTwo(totalReturnCylinder), // Round only at final display
+          totalRental: roundToTwo(totalRental), // Round only at final display
+          totalVat: roundToTwo(totalVat), // Round only at final display - Total VAT amount
+          grandTotal: roundToTwo(grandTotal), // Round only at final display
         },
       },
     });

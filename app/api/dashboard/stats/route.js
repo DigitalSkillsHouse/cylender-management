@@ -380,10 +380,12 @@ export async function GET(request) {
     const totalProductsSold = adminProductsSold + employeeProductsSold
 
     // Calculate total gas sales revenue (admin + employee) - ONLY from gas items
-    const totalGasRevenue = roundToTwo(adminGasSalesRevenue + employeeGasSalesRevenue)
+    // Don't round intermediate calculations to prevent cumulative errors
+    const totalGasRevenue = adminGasSalesRevenue + employeeGasSalesRevenue
     
     // Calculate total cylinder sales revenue (admin + employee) - ONLY from cylinder items in sales
-    const totalCylinderSalesRevenue = roundToTwo(adminCylinderSalesRevenue + employeeCylinderSalesRevenue)
+    // Don't round intermediate calculations to prevent cumulative errors
+    const totalCylinderSalesRevenue = adminCylinderSalesRevenue + employeeCylinderSalesRevenue
     
     // Calculate cylinder revenue - EXCLUDE deposits (deposits are not revenue, they're refundable)
     // Only include refills and returns as revenue
@@ -432,17 +434,21 @@ export async function GET(request) {
     ])
     
     // Calculate cylinder transaction revenue (refills + returns, excluding deposits)
-    const totalCylinderTransactionRevenue = roundToTwo((adminCylinderRevenueExcludingDeposits[0]?.cylinderRevenue || 0) + 
-                                  (employeeCylinderRevenueExcludingDeposits[0]?.employeeCylinderRevenue || 0))
+    // Don't round intermediate calculations to prevent cumulative errors
+    const totalCylinderTransactionRevenue = (adminCylinderRevenueExcludingDeposits[0]?.cylinderRevenue || 0) + 
+                                  (employeeCylinderRevenueExcludingDeposits[0]?.employeeCylinderRevenue || 0)
     
     // Total Revenue = Gas Sales Revenue + Cylinder Sales Revenue + Cylinder Transaction Revenue
-    const totalCombinedRevenue = roundToTwo(totalGasRevenue + totalCylinderSalesRevenue + totalCylinderTransactionRevenue)
+    // Don't round intermediate calculations to prevent cumulative errors
+    const totalCombinedRevenue = totalGasRevenue + totalCylinderSalesRevenue + totalCylinderTransactionRevenue
 
     // Calculate total due (admin + employee)
-    const totalDue = roundToTwo((gasSales.totalDue || 0) + (employeeGasSales.employeeTotalDue || 0))
+    // Don't round intermediate calculations to prevent cumulative errors
+    const totalDue = (gasSales.totalDue || 0) + (employeeGasSales.employeeTotalDue || 0)
 
     // Calculate total paid (admin + employee)
-    const totalPaid = roundToTwo((gasSales.gasSalesPaid || 0) + (employeeGasSales.employeeGasSalesPaid || 0))
+    // Don't round intermediate calculations to prevent cumulative errors
+    const totalPaid = (gasSales.gasSalesPaid || 0) + (employeeGasSales.employeeGasSalesPaid || 0)
 
     // Find inactive customers (no transactions in the last 30 days)
     // Note: Inactive customers calculation is not affected by date filter - it's always based on last 30 days
