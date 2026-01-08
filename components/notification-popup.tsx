@@ -31,9 +31,7 @@ export const NotificationPopup = ({ user }: NotificationPopupProps) => {
   const [lastChecked, setLastChecked] = useState<Date>(new Date())
 
   useEffect(() => {
-    // Only show popups for employees
-    if (user.role !== "employee") return
-
+    // Show popups for both admin and employees
     // Initial check on mount only - no continuous polling
     // Notifications will be checked when user navigates or after actions
     checkForNewNotifications()
@@ -109,6 +107,8 @@ export const NotificationPopup = ({ user }: NotificationPopupProps) => {
     switch (type) {
       case 'stock_assignment':
         return <Bell className="w-5 h-5" />
+      case 'stock_returned':
+        return <CheckCircle className="w-5 h-5" />
       default:
         return <CheckCircle className="w-5 h-5" />
     }
@@ -118,13 +118,15 @@ export const NotificationPopup = ({ user }: NotificationPopupProps) => {
     switch (type) {
       case 'stock_assignment':
         return 'bg-blue-500'
+      case 'stock_returned':
+        return 'bg-orange-500'
       default:
         return 'bg-green-500'
     }
   }
 
-  // Only render for employees and when there's a visible notification
-  if (user.role !== "employee" || !visibleNotification) {
+  // Render for both admin and employees when there's a visible notification
+  if (!visibleNotification) {
     return null
   }
 
