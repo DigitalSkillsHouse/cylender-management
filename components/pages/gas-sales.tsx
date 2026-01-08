@@ -31,6 +31,7 @@ interface Sale {
     name: string
     phone: string
     address: string
+    trNumber?: string
   }
   items: Array<{
     product: {
@@ -68,6 +69,7 @@ interface Customer {
   phone: string
   address: string
   email?: string
+  trNumber?: string
 }
 
 interface Product {
@@ -999,7 +1001,7 @@ export const GasSales = () => {
       // Auto-open signature dialog with normalized sale (like cylinder management)
       try {
         const saved = (savedResponse?.data?.data) || (savedResponse?.data) || null
-        const selectedCustomer = (customers || []).find((c) => c._id === formData.customerId)
+        const selectedCustomer: Customer | undefined = (customers || []).find((c) => c._id === formData.customerId)
         // Normalize items for receipt
         const itemsNormalized: NormalizedItem[] = (saved?.items && Array.isArray(saved.items) && saved.items.length > 0)
           ? saved.items.map((it: any) => {
