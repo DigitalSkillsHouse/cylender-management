@@ -39,13 +39,16 @@ export async function GET(request) {
       ]
     }
 
-    // Build query for collected invoices: receivedAmount > 0 AND totalAmount > 0 (only credit invoices, exclude debit invoices)
+    // Build query for collected invoices: receivedAmount > 0 AND totalAmount > 0 AND has rcNo
+    // Only show invoices that were collected through the collection page (have rcNo)
+    // Exclude invoices that were directly cleared in gas sales (no rcNo)
     // Credit invoices = normal sales where customer owes money (positive totalAmount)
     // Debit invoices = refunds/adjustments where company owes customer (negative or zero totalAmount)
     const collectedQuery = {
       $and: [
         { $expr: { $gt: [ { $ifNull: ["$receivedAmount", 0] }, 0 ] } },
-        { $expr: { $gt: [ { $ifNull: ["$totalAmount", 0] }, 0 ] } }
+        { $expr: { $gt: [ { $ifNull: ["$totalAmount", 0] }, 0 ] } },
+        { rcNo: { $exists: true, $ne: null, $ne: "" } } // Only invoices collected through collection page
       ]
     }
 
