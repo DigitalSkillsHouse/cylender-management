@@ -424,29 +424,41 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     
     filtered.forEach((inv) => {
       if (selected[inv._id]) {
+        // Add invoice to selectedInvoices regardless of amount - amount will be entered in dialog
+        selectedInvoices.push(inv)
         const amount = parseFloat(amounts[inv._id] || '0')
-        if (amount > 0) {
-          selectedInvoices.push(inv)
-          // Create a single item representing the entire invoice payment
-          selectedItems.push({ 
-            invoice: inv, 
-            item: { product: { name: `Invoice ${inv.invoiceNumber}` }, quantity: 1, price: amount, total: amount }, 
-            itemId: inv._id, 
-            amount 
-          })
-        }
+        // Create a single item representing the entire invoice payment
+        // Use the balance (totalAmount - receivedAmount) as the default amount if amounts[inv._id] is not set
+        const invoiceBalance = inv.totalAmount - inv.receivedAmount
+        const itemAmount = amount > 0 ? amount : invoiceBalance
+        selectedItems.push({ 
+          invoice: inv, 
+          item: { product: { name: `Invoice ${inv.invoiceNumber}` }, quantity: 1, price: itemAmount, total: itemAmount }, 
+          itemId: inv._id, 
+          amount: itemAmount
+        })
       }
     })
     
     console.log('Collected selectedInvoices:', selectedInvoices)
+    console.log('Collected selectedInvoices count:', selectedInvoices.length)
+    console.log('Collected selectedItems count:', selectedItems.length)
     
     if (!selectedInvoices.length) {
       toast({ title: "No invoices selected", variant: "destructive" })
       return
     }
     
-    const totalAmount = selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0)
-    const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
+    // Round to 2 decimal places to avoid floating point precision issues
+    const totalAmount = Math.round(selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) * 100) / 100
+    const currentReceived = Math.round(selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0) * 100) / 100
+    
+    console.log('Opening payment dialog with:', {
+      totalAmount,
+      currentReceived,
+      selectedInvoicesCount: selectedInvoices.length,
+      selectedItemsCount: selectedItems.length
+    })
     
     // Open payment collection dialog
     setPaymentDialog({
@@ -480,6 +492,9 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     const add = Number.parseFloat(paymentDialog.inputAmount || '0')
     console.log('submitPaymentCollection called with amount:', add)
     console.log('paymentDialog.selectedItems:', paymentDialog.selectedItems)
+    console.log('paymentDialog.selectedInvoices:', paymentDialog.selectedInvoices)
+    console.log('paymentDialog.selectedInvoices.length:', paymentDialog.selectedInvoices?.length || 0)
+    console.log('Full paymentDialog state:', JSON.stringify(paymentDialog, null, 2))
     
     if (!Number.isFinite(add) || add <= 0) {
       toast({ title: 'Enter a valid amount > 0', variant: 'destructive' })
@@ -496,8 +511,24 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       }
     }
     
-    const remaining = Math.max(0, paymentDialog.totalAmount - paymentDialog.currentReceived)
-    if (add > remaining) {
+    // Round values to avoid floating point precision issues
+    const roundedTotalAmount = Math.round(paymentDialog.totalAmount * 100) / 100
+    const roundedCurrentReceived = Math.round(paymentDialog.currentReceived * 100) / 100
+    const remaining = Math.max(0, roundedTotalAmount - roundedCurrentReceived)
+    const roundedAdd = Math.round(add * 100) / 100
+    
+    console.log('Remaining balance check:', { 
+      totalAmount: paymentDialog.totalAmount, 
+      roundedTotalAmount,
+      currentReceived: paymentDialog.currentReceived,
+      roundedCurrentReceived,
+      remaining, 
+      add,
+      roundedAdd
+    })
+    
+    // Use a small tolerance (0.01) for floating point comparison
+    if (roundedAdd > remaining + 0.01) {
       toast({ title: `Amount exceeds remaining balance. Remaining: ${remaining.toFixed(2)}`, variant: 'destructive' })
       return
     }
@@ -505,37 +536,88 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     // Create payments array for API using selected invoices
     const payments: Array<{ model: string; id: string; amount: number }> = []
     
+    // Check if selectedInvoices is populated
+    if (!paymentDialog.selectedInvoices || paymentDialog.selectedInvoices.length === 0) {
+      console.error('ERROR: selectedInvoices is empty! Cannot process payment.')
+      toast({ title: 'No invoices selected. Please try again.', variant: 'destructive' })
+      return
+    }
+    
+    console.log('Processing payment for', paymentDialog.selectedInvoices.length, 'invoice(s)')
+    
     // For single invoice collection, apply the full amount directly
     if (paymentDialog.selectedInvoices.length === 1) {
       const invoice = paymentDialog.selectedInvoices[0]
+      const roundedAmount = Math.round(roundedAdd * 100) / 100
+      console.log('Single invoice payment:', { model: invoice.model, id: invoice._id, amount: roundedAmount })
       payments.push({
         model: invoice.model,
         id: invoice._id,
-        amount: add  // Apply the full amount entered in the dialog
+        amount: roundedAmount  // Apply the rounded amount entered in the dialog
       })
     } else {
       // For multiple invoices, calculate proportional payment based on remaining balance
-      paymentDialog.selectedInvoices.forEach(invoice => {
-        const invoiceRemaining = invoice.totalAmount - invoice.receivedAmount
-        const totalRemaining = paymentDialog.selectedInvoices.reduce((sum, inv) => sum + (inv.totalAmount - inv.receivedAmount), 0)
-        const proportionalAmount = (invoiceRemaining / totalRemaining) * add
-        
-        if (proportionalAmount > 0) {
-          payments.push({
-            model: invoice.model,
-            id: invoice._id,
-            amount: proportionalAmount
-          })
+      console.log('Multiple invoices payment calculation:')
+      // Round invoice amounts to avoid floating point precision issues
+      const invoiceRemainings = paymentDialog.selectedInvoices.map(inv => {
+        const invTotal = Math.round(inv.totalAmount * 100) / 100
+        const invReceived = Math.round((inv.receivedAmount || 0) * 100) / 100
+        return Math.round((invTotal - invReceived) * 100) / 100
+      })
+      const totalRemaining = Math.round(invoiceRemainings.reduce((sum, rem) => sum + rem, 0) * 100) / 100
+      
+      console.log('Invoice remainings:', invoiceRemainings)
+      console.log('Total remaining:', totalRemaining)
+      console.log('Amount to distribute:', roundedAdd)
+      
+      let distributedTotal = 0
+      paymentDialog.selectedInvoices.forEach((invoice, index) => {
+        const invoiceRemaining = invoiceRemainings[index]
+        if (invoiceRemaining > 0 && totalRemaining > 0) {
+          // Calculate proportional amount
+          let proportionalAmount = (invoiceRemaining / totalRemaining) * roundedAdd
+          proportionalAmount = Math.round(proportionalAmount * 100) / 100
+          
+          // For the last invoice, ensure we don't exceed the total amount
+          if (index === paymentDialog.selectedInvoices.length - 1) {
+            proportionalAmount = Math.round((roundedAdd - distributedTotal) * 100) / 100
+          }
+          
+          distributedTotal += proportionalAmount
+          
+          console.log(`  Invoice ${index + 1} (${invoice.invoiceNumber}): remaining=${invoiceRemaining}, proportionalAmount=${proportionalAmount}`)
+          
+          if (proportionalAmount > 0) {
+            payments.push({
+              model: invoice.model,
+              id: invoice._id,
+              amount: proportionalAmount
+            })
+          }
         }
       })
+      
+      console.log('Total distributed:', distributedTotal)
     }
     
     console.log('Generated payments array:', payments)
+    console.log('Payments count:', payments.length)
     
     if (payments.length === 0) {
+      console.error('ERROR: No payments generated!')
       toast({ title: 'No valid payments to process', variant: 'destructive' })
       return
     }
+    
+    // Verify all payments have valid amounts
+    const invalidPayments = payments.filter(p => !p.amount || p.amount <= 0 || !p.id || !p.model)
+    if (invalidPayments.length > 0) {
+      console.error('ERROR: Invalid payments found:', invalidPayments)
+      toast({ title: 'Invalid payment data. Please try again.', variant: 'destructive' })
+      return
+    }
+    
+    console.log('All validations passed. Caching payments and opening signature dialog...')
     
     // Cache the payments and payment details for signature
     setPendingPaymentsCache(payments)
@@ -547,9 +629,13 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       chequeNumber: paymentDialog.chequeNumber
     })
     
+    console.log('Closing payment dialog and opening signature dialog...')
+    
     // Close payment dialog and open signature dialog
     closePaymentDialog()
     setSignatureOpen(true)
+    
+    console.log('Signature dialog should now be open')
   }
 
   const applyCollectionsWithSignature = async (signature: string | null) => {

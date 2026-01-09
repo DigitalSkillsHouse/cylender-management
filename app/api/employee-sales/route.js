@@ -223,9 +223,11 @@ export async function POST(request) {
 
     // Create the sale
     // Use totalAmount from frontend if provided (includes VAT), otherwise add VAT to calculatedTotal
+    // Round to 2 decimal places to avoid floating point precision issues
     const finalTotalAmount = (totalAmount && Number(totalAmount) > 0) 
-      ? Number(totalAmount) 
-      : calculatedTotal * 1.05 // Add 5% VAT if frontend didn't send totalAmount
+      ? Math.round(Number(totalAmount) * 100) / 100
+      : Math.round((calculatedTotal * 1.05) * 100) / 100 // Add 5% VAT if frontend didn't send totalAmount
+    const roundedReceivedAmount = Math.round((parseFloat(receivedAmount) || 0) * 100) / 100
     
     const newSale = new EmployeeSale({
       invoiceNumber,
@@ -235,7 +237,7 @@ export async function POST(request) {
       totalAmount: finalTotalAmount, // Store with VAT included (matching admin sales)
       paymentMethod: paymentMethod || "cash",
       paymentStatus: paymentStatus || "cleared",
-      receivedAmount: parseFloat(receivedAmount) || 0,
+      receivedAmount: roundedReceivedAmount,
       notes: notes || "",
       customerSignature: customerSignature || ""
     })

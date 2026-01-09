@@ -832,7 +832,7 @@ export const GasSales = () => {
       }
 
       const subtotalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
-      const totalAmount = subtotalAmount * 1.05 // Add 5% VAT
+      const totalAmount = Math.round((subtotalAmount * 1.05) * 100) / 100 // Add 5% VAT and round to 2 decimal places to avoid floating point precision issues
 
       // Derive final payment fields from paymentOption
       let derivedPaymentMethod = formData.paymentMethod

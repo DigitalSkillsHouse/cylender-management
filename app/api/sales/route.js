@@ -234,14 +234,18 @@ export async function POST(request) {
     })
 
     // Create the sale
+    // Round totalAmount to 2 decimal places to avoid floating point precision issues
+    const roundedTotalAmount = Math.round((Number(totalAmount) || 0) * 100) / 100
+    const roundedReceivedAmount = Math.round((Number(receivedAmount) || 0) * 100) / 100
+    
     const sale = new Sale({
       invoiceNumber,
       customer,
       items: enrichedItems,
-      totalAmount,
+      totalAmount: roundedTotalAmount,
       paymentMethod: paymentMethod || "cash",
       paymentStatus: paymentStatus || "cleared",
-      receivedAmount: receivedAmount || 0,
+      receivedAmount: roundedReceivedAmount,
       notes: notes || "",
     })
 

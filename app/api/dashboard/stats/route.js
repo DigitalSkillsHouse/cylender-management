@@ -158,13 +158,26 @@ export async function GET(request) {
     const adminCylinderSalesRevenue = roundToTwo(cylinderSalesRevenueResult[0]?.cylinderSalesRevenue || 0)
     
     // Get total sales stats (for counts and due calculations)
+    // Round each sale's due amount to 2 decimal places before summing to avoid floating point precision issues
     const gasSalesResult = await Sale.aggregate([
       ...salesMatch,
+      {
+        $project: {
+          totalAmount: { $round: ["$totalAmount", 2] },
+          receivedAmount: { $round: [{ $ifNull: ["$receivedAmount", 0] }, 2] },
+        },
+      },
+      {
+        $project: {
+          due: { $subtract: ["$totalAmount", "$receivedAmount"] },
+          receivedAmount: 1,
+        },
+      },
       {
         $group: {
           _id: null,
           gasSalesPaid: { $sum: "$receivedAmount" },
-          totalDue: { $sum: { $subtract: ["$totalAmount", "$receivedAmount"] } },
+          totalDue: { $sum: { $round: ["$due", 2] } },
           totalSales: { $sum: 1 },
         },
       },
@@ -172,6 +185,88 @@ export async function GET(request) {
 
     const gasSales = gasSalesResult[0] || { gasSalesPaid: 0, totalDue: 0, totalSales: 0 }
     gasSales.gasSalesRevenue = adminGasSalesRevenue
+
+    // ========== DETAILED LOGGING FOR TOTAL DUE CALCULATION ==========
+    // Declare variables for manual calculation tracking
+    let manualAdminTotalDue = 0
+    let manualEmployeeTotalDue = 0
+    
+    console.log('\n========== ADMIN SALES TOTAL DUE CALCULATION ==========')
+    console.log('Date filter:', dateFilter)
+    console.log('Aggregation result (raw):', JSON.stringify(gasSalesResult, null, 2))
+    console.log('Admin gasSales object:', JSON.stringify(gasSales, null, 2))
+    
+    // Fetch all admin sales individually to see actual values
+    const adminSalesQuery = dateFilter.createdAt ? dateFilter : {}
+    const allAdminSales = await Sale.find(adminSalesQuery)
+      .select('invoiceNumber totalAmount receivedAmount paymentStatus paymentMethod createdAt')
+      .sort({ createdAt: -1 })
+      .limit(50) // Limit to recent 50 for performance
+    
+    console.log(`\n📊 Found ${allAdminSales.length} admin sales (showing recent 50)`)
+    
+    let pendingAdminSales = []
+    allAdminSales.forEach((sale, index) => {
+      const saleDue = (sale.totalAmount || 0) - (sale.receivedAmount || 0)
+      manualAdminTotalDue += saleDue
+      
+      if (sale.paymentStatus === 'pending' || saleDue > 0) {
+        pendingAdminSales.push({
+          invoiceNumber: sale.invoiceNumber,
+          totalAmount: sale.totalAmount,
+          receivedAmount: sale.receivedAmount || 0,
+          due: saleDue,
+          paymentStatus: sale.paymentStatus,
+          paymentMethod: sale.paymentMethod,
+          createdAt: sale.createdAt
+        })
+      }
+    })
+    
+    // Log exact stored values to identify precision issues
+    console.log(`\n🔬 EXACT STORED VALUES (raw from database):`)
+    allAdminSales.forEach((sale, idx) => {
+      const rawTotal = sale.totalAmount
+      const rawReceived = sale.receivedAmount || 0
+      const rawDue = rawTotal - rawReceived
+      console.log(`  Invoice #${sale.invoiceNumber}:`)
+      console.log(`    totalAmount (raw): ${rawTotal} (type: ${typeof rawTotal})`)
+      console.log(`    receivedAmount (raw): ${rawReceived} (type: ${typeof rawReceived})`)
+      console.log(`    due (raw): ${rawDue}`)
+      console.log(`    totalAmount (toFixed(10)): ${Number(rawTotal).toFixed(10)}`)
+      console.log(`    receivedAmount (toFixed(10)): ${Number(rawReceived).toFixed(10)}`)
+      console.log(`    due (toFixed(10)): ${Number(rawDue).toFixed(10)}`)
+    })
+    console.log(`  Sum of raw due values: ${allAdminSales.reduce((sum, s) => sum + ((s.totalAmount || 0) - (s.receivedAmount || 0)), 0)}`)
+    console.log(`  Sum of raw due values (toFixed(10)): ${allAdminSales.reduce((sum, s) => sum + ((s.totalAmount || 0) - (s.receivedAmount || 0)), 0).toFixed(10)}`)
+    
+    console.log(`\n💰 Manual calculation of admin totalDue: ${manualAdminTotalDue.toFixed(2)}`)
+    console.log(`📦 Aggregation totalDue: ${(gasSales.totalDue || 0).toFixed(2)}`)
+    console.log(`📊 Difference: ${(manualAdminTotalDue - (gasSales.totalDue || 0)).toFixed(2)}`)
+    console.log(`\n📋 Pending/Unpaid Admin Sales (${pendingAdminSales.length}):`)
+    pendingAdminSales.slice(0, 20).forEach((sale, idx) => {
+      console.log(`  ${idx + 1}. Invoice #${sale.invoiceNumber}: Total=${sale.totalAmount.toFixed(2)}, Received=${sale.receivedAmount.toFixed(2)}, Due=${sale.due.toFixed(2)}, Status=${sale.paymentStatus}, Method=${sale.paymentMethod}`)
+    })
+    if (pendingAdminSales.length > 20) {
+      console.log(`  ... and ${pendingAdminSales.length - 20} more`)
+    }
+    
+    // Check for specific invoice numbers mentioned in the issue
+    const specificInvoices = ['10456', '10455', '10454', '10453', '10452', '10451']
+    const foundSpecificInvoices = pendingAdminSales.filter(sale => 
+      specificInvoices.includes(sale.invoiceNumber.toString())
+    )
+    if (foundSpecificInvoices.length > 0) {
+      console.log(`\n🔍 SPECIFIC INVOICES FROM ISSUE (${foundSpecificInvoices.length} found):`)
+      foundSpecificInvoices.forEach((sale, idx) => {
+        console.log(`  Invoice #${sale.invoiceNumber}: Total=${sale.totalAmount.toFixed(2)}, Received=${sale.receivedAmount.toFixed(2)}, Due=${sale.due.toFixed(2)}, Status=${sale.paymentStatus}`)
+      })
+      const specificInvoicesTotal = foundSpecificInvoices.reduce((sum, sale) => sum + sale.due, 0)
+      console.log(`  Expected total for these invoices: ${(foundSpecificInvoices.length * 15.00).toFixed(2)}`)
+      console.log(`  Actual total for these invoices: ${specificInvoicesTotal.toFixed(2)}`)
+      console.log(`  Difference: ${((foundSpecificInvoices.length * 15.00) - specificInvoicesTotal).toFixed(2)}`)
+    }
+    console.log('========================================================\n')
 
     // Calculate employee gas sales revenue - ONLY from sales with gas items (category='gas')
     const employeeSalesRevenueMatch = dateFilter.createdAt
@@ -281,13 +376,26 @@ export async function GET(request) {
       ? [{ $match: { ...dateFilter } }] 
       : []
     
+    // Round each employee sale's due amount to 2 decimal places before summing to avoid floating point precision issues
     const employeeGasSalesResult = await EmployeeSale.aggregate([
       ...employeeSalesMatch,
+      {
+        $project: {
+          totalAmount: { $round: ["$totalAmount", 2] },
+          receivedAmount: { $round: [{ $ifNull: ["$receivedAmount", 0] }, 2] },
+        },
+      },
+      {
+        $project: {
+          due: { $subtract: ["$totalAmount", "$receivedAmount"] },
+          receivedAmount: 1,
+        },
+      },
       {
         $group: {
           _id: null,
           employeeGasSalesPaid: { $sum: "$receivedAmount" },
-          employeeTotalDue: { $sum: { $subtract: ["$totalAmount", "$receivedAmount"] } },
+          employeeTotalDue: { $sum: { $round: ["$due", 2] } },
           employeeTotalSales: { $sum: 1 },
         },
       },
@@ -295,6 +403,51 @@ export async function GET(request) {
 
     const employeeGasSales = employeeGasSalesResult[0] || { employeeGasSalesPaid: 0, employeeTotalDue: 0, employeeTotalSales: 0 }
     employeeGasSales.employeeGasSalesRevenue = employeeGasSalesRevenue
+
+    // ========== DETAILED LOGGING FOR EMPLOYEE SALES TOTAL DUE CALCULATION ==========
+    console.log('\n========== EMPLOYEE SALES TOTAL DUE CALCULATION ==========')
+    console.log('Date filter:', dateFilter)
+    console.log('Aggregation result (raw):', JSON.stringify(employeeGasSalesResult, null, 2))
+    console.log('Employee gasSales object:', JSON.stringify(employeeGasSales, null, 2))
+    
+    // Fetch all employee sales individually to see actual values
+    const employeeSalesQuery = dateFilter.createdAt ? dateFilter : {}
+    const allEmployeeSales = await EmployeeSale.find(employeeSalesQuery)
+      .select('invoiceNumber totalAmount receivedAmount paymentStatus paymentMethod createdAt')
+      .sort({ createdAt: -1 })
+      .limit(50) // Limit to recent 50 for performance
+    
+    console.log(`\n📊 Found ${allEmployeeSales.length} employee sales (showing recent 50)`)
+    
+    let pendingEmployeeSales = []
+    allEmployeeSales.forEach((sale, index) => {
+      const saleDue = (sale.totalAmount || 0) - (sale.receivedAmount || 0)
+      manualEmployeeTotalDue += saleDue
+      
+      if (sale.paymentStatus === 'pending' || saleDue > 0) {
+        pendingEmployeeSales.push({
+          invoiceNumber: sale.invoiceNumber,
+          totalAmount: sale.totalAmount,
+          receivedAmount: sale.receivedAmount || 0,
+          due: saleDue,
+          paymentStatus: sale.paymentStatus,
+          paymentMethod: sale.paymentMethod,
+          createdAt: sale.createdAt
+        })
+      }
+    })
+    
+    console.log(`\n💰 Manual calculation of employee totalDue: ${manualEmployeeTotalDue.toFixed(2)}`)
+    console.log(`📦 Aggregation employeeTotalDue: ${(employeeGasSales.employeeTotalDue || 0).toFixed(2)}`)
+    console.log(`📊 Difference: ${(manualEmployeeTotalDue - (employeeGasSales.employeeTotalDue || 0)).toFixed(2)}`)
+    console.log(`\n📋 Pending/Unpaid Employee Sales (${pendingEmployeeSales.length}):`)
+    pendingEmployeeSales.slice(0, 20).forEach((sale, idx) => {
+      console.log(`  ${idx + 1}. Invoice #${sale.invoiceNumber}: Total=${sale.totalAmount.toFixed(2)}, Received=${sale.receivedAmount.toFixed(2)}, Due=${sale.due.toFixed(2)}, Status=${sale.paymentStatus}, Method=${sale.paymentMethod}`)
+    })
+    if (pendingEmployeeSales.length > 20) {
+      console.log(`  ... and ${pendingEmployeeSales.length - 20} more`)
+    }
+    console.log('========================================================\n')
 
     // Calculate employee cylinder revenue with date filter
     const employeeCylinderMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
@@ -450,6 +603,18 @@ export async function GET(request) {
     // Don't round intermediate calculations to prevent cumulative errors
     const totalPaid = (gasSales.gasSalesPaid || 0) + (employeeGasSales.employeeGasSalesPaid || 0)
 
+    // ========== FINAL TOTAL DUE CALCULATION LOGGING ==========
+    console.log('\n========== FINAL TOTAL DUE CALCULATION ==========')
+    console.log(`Admin totalDue (from aggregation): ${(gasSales.totalDue || 0).toFixed(2)}`)
+    console.log(`Employee totalDue (from aggregation): ${(employeeGasSales.employeeTotalDue || 0).toFixed(2)}`)
+    console.log(`Combined totalDue (before rounding): ${totalDue.toFixed(2)}`)
+    console.log(`Combined totalDue (after roundToTwo): ${roundToTwo(totalDue).toFixed(2)}`)
+    console.log(`Manual admin totalDue: ${manualAdminTotalDue.toFixed(2)}`)
+    console.log(`Manual employee totalDue: ${manualEmployeeTotalDue.toFixed(2)}`)
+    console.log(`Manual combined totalDue: ${(manualAdminTotalDue + manualEmployeeTotalDue).toFixed(2)}`)
+    console.log(`Difference (manual vs aggregation): ${((manualAdminTotalDue + manualEmployeeTotalDue) - totalDue).toFixed(2)}`)
+    console.log('================================================\n')
+
     // Find inactive customers (no transactions in the last 30 days)
     // Note: Inactive customers calculation is not affected by date filter - it's always based on last 30 days
     const oneMonthAgo = new Date()
@@ -523,7 +688,13 @@ export async function GET(request) {
       inactiveCustomersCount: inactiveCustomers.length, // Count of inactive customers
     }
 
-    console.log('Dashboard stats response:', statsResponse)
+    // ========== FINAL RESPONSE LOGGING ==========
+    console.log('\n========== DASHBOARD STATS RESPONSE ==========')
+    console.log('Total Due (final):', statsResponse.totalDue)
+    console.log('Total Revenue:', statsResponse.totalRevenue)
+    console.log('Gas Sales:', statsResponse.gasSales)
+    console.log('Full response:', JSON.stringify(statsResponse, null, 2))
+    console.log('=============================================\n')
     
     // Prevent caching on Vercel
     const response = NextResponse.json(statsResponse)
