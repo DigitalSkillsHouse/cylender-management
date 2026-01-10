@@ -87,7 +87,18 @@ const CashPaperSection = ({
   const downloadPdf = () => {
     if (!data) return
     try {
-      const vat = (n: number) => Math.trunc((Number(n || 0) * 0.05) * 100) / 100
+      // Calculate VAT from totalAmount (which includes VAT)
+      // Extract subtotal first: subtotal = totalAmount / 1.05
+      // Then calculate VAT: vat = subtotal * 0.05
+      // Or directly: vat = totalAmount - (totalAmount / 1.05)
+      const vat = (totalAmount: number) => {
+        const total = Number(totalAmount || 0)
+        if (total === 0) return 0
+        // Extract subtotal from total (which includes VAT)
+        const subtotal = total / 1.05
+        // Calculate VAT from subtotal and truncate to 2 decimals
+        return Math.trunc((subtotal * 0.05) * 100) / 100
+      }
       
       const creditRows = (data.creditSales || [])
         .map(r => `<tr><td>${r.invoiceNumber}</td><td>${r.customerName || "-"}</td><td class='right'>${currency(vat(r.totalAmount))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 

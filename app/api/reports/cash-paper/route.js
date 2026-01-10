@@ -221,14 +221,21 @@ export async function GET(request) {
 
     // Calculate total VAT
     // Note: Employee sales now include VAT in totalAmount, so we need to extract it
-    // VAT = totalAmount / 1.05 * 0.05 for sales that include VAT
-    // For admin sales: totalAmount includes VAT, so VAT = totalAmount - (totalAmount / 1.05)
-    // For employee sales: totalAmount now includes VAT (after our fix), so same calculation
-    // Cylinder deposits/returns don't have VAT
-    // Calculate without rounding first, then round only at the end
-    const totalSalesAmount = totalCredit + totalDebit + totalOther;
-    const salesSubtotal = totalSalesAmount / 1.05; // Extract subtotal (remove VAT)
-    const totalVatFromSales = totalSalesAmount - salesSubtotal; // Calculate VAT amount
+    // Calculate VAT per invoice and sum them to match frontend display
+    // This ensures consistency: if individual invoice shows 0.71, total should be sum of individual VATs
+    // Extract subtotal from each invoice: subtotal = totalAmount / 1.05
+    // Then calculate VAT: vat = subtotal * 0.05 (truncated)
+    const calculateVatFromTotal = (totalAmount) => {
+      if (!totalAmount || totalAmount === 0) return 0;
+      const subtotal = totalAmount / 1.05;
+      return Math.trunc((subtotal * 0.05) * 100) / 100;
+    };
+    
+    // Calculate VAT for each sale and sum them
+    const totalVatFromCredit = creditSales.reduce((sum, r) => sum + calculateVatFromTotal(r.totalAmount), 0);
+    const totalVatFromDebit = debitSales.reduce((sum, r) => sum + calculateVatFromTotal(r.totalAmount), 0);
+    const totalVatFromOther = otherSales.reduce((sum, r) => sum + calculateVatFromTotal(r.totalAmount), 0);
+    const totalVatFromSales = totalVatFromCredit + totalVatFromDebit + totalVatFromOther;
     const totalVatFromRentals = rentalSales.reduce((sum, r) => sum + (r.totalVat || 0), 0);
     const totalVat = totalVatFromSales + totalVatFromRentals;
 
