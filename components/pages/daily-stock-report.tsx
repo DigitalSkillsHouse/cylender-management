@@ -157,7 +157,12 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
       if (Array.isArray(data)) {
         setEmployees(data)
         if (data.length > 0 && !selectedEmployeeId) {
-          setSelectedEmployeeId(data[0]._id)
+          const firstEmployeeId = data[0]._id
+          setSelectedEmployeeId(firstEmployeeId)
+          // Immediately fetch DSR data for the auto-selected employee
+          if (showEmployeeDSR && employeeDsrDate) {
+            fetchEmployeeDsrData(firstEmployeeId, employeeDsrDate)
+          }
         }
       } else {
         setEmployees([])
@@ -170,8 +175,17 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
 
   // Fetch employee DSR data
   const fetchEmployeeDsrData = async (employeeId: string, date: string) => {
-    if (!employeeId) return
+    if (!employeeId) {
+      console.warn('⚠️ [ADMIN DSR] Cannot fetch employee DSR: no employeeId provided')
+      return
+    }
     
+    if (!date) {
+      console.warn('⚠️ [ADMIN DSR] Cannot fetch employee DSR: no date provided')
+      return
+    }
+    
+    console.log('🔄 [ADMIN DSR] Starting fetch for employee:', employeeId, 'date:', date)
     setEmployeeLoading(true)
     try {
       // Fetch stored DSR records (for opening/closing values)
@@ -406,38 +420,69 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
       // Only process if needed for other purposes (not transfers)
       
       // Process StockAssignment records (from Employee Management page)
-      // NOTE: Skipping StockAssignment processing for employee DSR to avoid double counting
-      // Transfers are already tracked in daily-employee-cylinder-aggregation API (cylinderData)
-      // This ensures consistency with the employee's own DSR view
-      
-      // StockAssignment transfers are now tracked via cylinder aggregation API
+      // CRITICAL: Process stock assignments to get "Received Gas" and "Received Empty" values
+      // Only process assignments with status === 'received' (employee has accepted)
       // This matches how the employee DSR component processes data
-      
-      // Merge stored DSR records with actual transaction data
-      const storedMap = new Map<string, any>()
-      storedList.forEach((d: any) => {
-        storedMap.set((d.itemName || '').toLowerCase(), d)
-      })
-      
-      // Get all unique product names from stored DSR, transactions, and inventory
-      const allProductNames = new Set<string>()
-      storedList.forEach((d: any) => {
-        if (d.itemName) allProductNames.add(d.itemName)
-      })
-      transactionMap.forEach((_, itemName) => {
-        allProductNames.add(itemName)
-      })
-      // Add all cylinder products from inventory (even if no transactions)
-      inventoryData.forEach((item: any) => {
-        if (item.category === 'cylinder' && item.productName) {
-          allProductNames.add(item.productName)
+      console.log('🔄 [ADMIN DSR] Processing stock assignments for receivedGas/receivedEmpty...')
+      stockAssignmentsData.forEach((assignment: any) => {
+        const productName = assignment.product?.name || assignment.productName || ''
+        let category = assignment.category || assignment.displayCategory || assignment.product?.category || ''
+        if (category) {
+          category = category.toLowerCase()
         }
-      })
-      
-      // Build merged DSR entries
-      const mergedData: EmployeeDailyStockEntry[] = Array.from(allProductNames).map((itemName) => {
-        const stored = storedMap.get(itemName.toLowerCase())
-        const transactions = transactionMap.get(itemName) || {
+        const quantity = Number(assignment.quantity || 0)
+        const status = assignment.status || ''
+        
+        // Only process assignments that have been ACCEPTED by employee
+        if (status !== 'received') {
+          return
+        }
+        
+        // Get received date
+        let receivedDate: string | Date | undefined = assignment.receivedDate || assignment.updatedAt || assignment.createdAt || ''
+        if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
+          receivedDate = receivedDate.toISOString()
+        }
+        if (status === 'received' && !receivedDate) {
+          receivedDate = assignment.assignedDate || assignment.createdAt || ''
+          if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
+            receivedDate = receivedDate.toISOString()
+          }
+        }
+        
+        // Only process assignments received on the selected date
+        const dateMatches = receivedDate && typeof receivedDate === 'string' && inSelectedDay(receivedDate)
+        if (!dateMatches) {
+          return
+        }
+        
+        // Determine target cylinder name (for gas assignments, find related cylinder)
+        let targetItemName = productName
+        
+        if (category === 'gas') {
+          // For gas, find the related cylinder
+          const relatedCylinderName = assignment.cylinderProductId?.name || 
+                                     assignment.relatedCylinderName || ''
+          
+          if (relatedCylinderName) {
+            targetItemName = relatedCylinderName
+          } else {
+            // Try to find matching cylinder in inventory
+            for (const invItem of inventoryData) {
+              if (invItem.category === 'cylinder') {
+                const gasNameLower = productName.toLowerCase()
+                const cylNameLower = invItem.productName.toLowerCase()
+                if (gasNameLower.includes(cylNameLower) || cylNameLower.includes(gasNameLower.split(' ')[0])) {
+                  targetItemName = invItem.productName
+                  break
+                }
+              }
+            }
+          }
+        }
+        
+        // Get or create transaction entry for this item
+        const existing = transactionMap.get(targetItemName) || {
           refilled: 0,
           fullCylinderSales: 0,
           emptyCylinderSales: 0,
@@ -452,6 +497,90 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
           fullPurchase: 0
         }
         
+        // Add to receivedGas or receivedEmpty based on category
+        if (category === 'gas') {
+          existing.receivedGas += quantity
+          console.log(`✅ [ADMIN DSR] StockAssignment Received Gas: ${productName} = ${quantity} (under ${targetItemName})`)
+        } else if (category === 'cylinder' || !category) {
+          existing.receivedEmpty += quantity
+          console.log(`✅ [ADMIN DSR] StockAssignment Received Empty: ${productName} = ${quantity}`)
+        }
+        
+        transactionMap.set(targetItemName, existing)
+        console.log(`📝 [ADMIN DSR] Set transactionMap for "${targetItemName}": receivedGas=${existing.receivedGas}, receivedEmpty=${existing.receivedEmpty}`)
+      })
+      
+      // Debug: Log all transactionMap entries
+      console.log('📊 [ADMIN DSR] TransactionMap entries:', Array.from(transactionMap.entries()).map(([key, val]) => ({
+        key,
+        receivedGas: val.receivedGas,
+        receivedEmpty: val.receivedEmpty
+      })))
+      
+      // Merge stored DSR records with actual transaction data
+      const storedMap = new Map<string, any>()
+      storedList.forEach((d: any) => {
+        storedMap.set((d.itemName || '').toLowerCase(), d)
+      })
+      
+      // Get all unique product names from stored DSR, transactions, and inventory
+      const allProductNames = new Set<string>()
+      storedList.forEach((d: any) => {
+        if (d.itemName) allProductNames.add(d.itemName)
+      })
+      // Add all items from transactionMap (including those from stock assignments)
+      transactionMap.forEach((_, itemName) => {
+        allProductNames.add(itemName)
+      })
+      // Add all cylinder products from inventory (even if no transactions)
+      inventoryData.forEach((item: any) => {
+        if (item.category === 'cylinder' && item.productName) {
+          allProductNames.add(item.productName)
+        }
+      })
+      
+      console.log('📋 [ADMIN DSR] All product names to process:', Array.from(allProductNames))
+      
+      // Build merged DSR entries
+      const mergedData: EmployeeDailyStockEntry[] = Array.from(allProductNames).map((itemName) => {
+        const stored = storedMap.get(itemName.toLowerCase())
+        
+        // Try to find transactions by exact name first, then by normalized name
+        let transactions = transactionMap.get(itemName)
+        if (!transactions) {
+          // Try to find by normalized name (case-insensitive, whitespace-normalized)
+          const normalizedItemName = normalizeName(itemName)
+          for (const [key, value] of transactionMap.entries()) {
+            if (normalizeName(key) === normalizedItemName) {
+              transactions = value
+              break
+            }
+          }
+        }
+        
+        // If still not found, use empty defaults
+        if (!transactions) {
+          transactions = {
+            refilled: 0,
+            fullCylinderSales: 0,
+            emptyCylinderSales: 0,
+            gasSales: 0,
+            deposits: 0,
+            returns: 0,
+            transferGas: 0,
+            transferEmpty: 0,
+            receivedGas: 0,
+            receivedEmpty: 0,
+            emptyPurchase: 0,
+            fullPurchase: 0
+          }
+        }
+        
+        // Debug logging for receivedGas/receivedEmpty
+        if (transactions.receivedGas > 0 || transactions.receivedEmpty > 0) {
+          console.log(`🔍 [ADMIN DSR] ${itemName}: receivedGas=${transactions.receivedGas}, receivedEmpty=${transactions.receivedEmpty}`)
+        }
+        
         // Opening should ALWAYS be from previous day's closing stock, never from current inventory
         // If no stored opening data exists, use 0 (not current inventory)
         const openingFull = stored?.openingFull !== undefined 
@@ -461,11 +590,26 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
           ? Number(stored.openingEmpty) 
           : 0
         
-        // Calculate closing values if not stored
+        // Calculate closing values - always recalculate to ensure accuracy with latest transaction data
+        // Only use stored values if they are explicitly set and we want to preserve manual edits
+        // For now, always recalculate to match employee DSR behavior
         let closingFull = stored?.closingFull
         let closingEmpty = stored?.closingEmpty
         
-        if (closingFull === undefined || closingEmpty === undefined) {
+        // Check if stored values are valid numbers (not null, undefined, or 0 when there are transactions)
+        const hasStoredClosing = closingFull !== undefined && closingFull !== null && 
+                                 closingEmpty !== undefined && closingEmpty !== null
+        
+        // Always recalculate if no stored values OR if we have transactions that should affect closing
+        const shouldRecalculate = !hasStoredClosing || 
+                                  transactions.receivedGas > 0 || 
+                                  transactions.receivedEmpty > 0 ||
+                                  transactions.refilled > 0 ||
+                                  transactions.fullCylinderSales > 0 ||
+                                  transactions.emptyCylinderSales > 0 ||
+                                  transactions.gasSales > 0
+        
+        if (shouldRecalculate) {
           // Calculate closing using DSR formula (matching admin DSR)
           // Closing Full = Opening Full + Full Purchase + Refilled - Full Cyl Sales - Gas Sales - Transfer Gas + Received Gas
           closingFull = Math.max(0, 
@@ -475,6 +619,31 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
           closingEmpty = Math.max(0, 
             openingFull + openingEmpty + (transactions.fullPurchase || 0) + (transactions.emptyPurchase || 0) - transactions.fullCylinderSales - transactions.emptyCylinderSales - transactions.deposits + transactions.returns - transactions.transferEmpty + transactions.receivedEmpty - closingFull
           )
+          
+          // Always log closing calculation for debugging
+          console.log(`🧮 [ADMIN DSR] ${itemName} Closing Calculation:`, {
+            hasStoredClosing,
+            storedClosingFull: stored?.closingFull,
+            storedClosingEmpty: stored?.closingEmpty,
+            openingFull,
+            openingEmpty,
+            fullPurchase: transactions.fullPurchase || 0,
+            emptyPurchase: transactions.emptyPurchase || 0,
+            refilled: transactions.refilled,
+            fullCylinderSales: transactions.fullCylinderSales,
+            emptyCylinderSales: transactions.emptyCylinderSales,
+            gasSales: transactions.gasSales,
+            deposits: transactions.deposits,
+            returns: transactions.returns,
+            transferGas: transactions.transferGas,
+            transferEmpty: transactions.transferEmpty,
+            receivedGas: transactions.receivedGas,
+            receivedEmpty: transactions.receivedEmpty,
+            calculatedClosingFull: closingFull,
+            calculatedClosingEmpty: closingEmpty
+          })
+        } else {
+          console.log(`📌 [ADMIN DSR] ${itemName} Using stored closing values: Full=${closingFull}, Empty=${closingEmpty}`)
         }
         
         return {
@@ -502,9 +671,10 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         }
       })
       
+      console.log('✅ [ADMIN DSR] Successfully fetched employee DSR data:', mergedData.length, 'entries')
       setEmployeeDsrData(mergedData)
     } catch (error) {
-      console.error('Failed to fetch employee DSR data:', error)
+      console.error('❌ [ADMIN DSR] Failed to fetch employee DSR data:', error)
       setEmployeeDsrData([])
     } finally {
       setEmployeeLoading(false)
@@ -1662,8 +1832,12 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   // Fetch employees when employee DSR dialog opens
   useEffect(() => {
     if (showEmployeeDSR) {
-      console.log('Employee DSR dialog opened, current employees:', employees.length)
+      console.log('🔄 [ADMIN DSR] Employee DSR dialog opened, fetching employees...')
       fetchEmployees()
+    } else {
+      // Reset state when dialog closes
+      setSelectedEmployeeId("")
+      setEmployeeDsrData([])
     }
   }, [showEmployeeDSR])
 
@@ -1694,8 +1868,15 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   // Fetch employee DSR data when employee or date changes
   useEffect(() => {
     if (showEmployeeDSR && selectedEmployeeId && employeeDsrDate) {
+      console.log('🔄 [ADMIN DSR] Fetching employee DSR data for:', selectedEmployeeId, 'on date:', employeeDsrDate)
       fetchEmployeeDsrData(selectedEmployeeId, employeeDsrDate)
+    } else {
+      // Reset data when dialog closes or no employee selected
+      if (!showEmployeeDSR || !selectedEmployeeId) {
+        setEmployeeDsrData([])
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showEmployeeDSR, selectedEmployeeId, employeeDsrDate])
 
   // Download DSR PDF for a specific date
