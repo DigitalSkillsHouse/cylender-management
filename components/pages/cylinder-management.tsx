@@ -1400,8 +1400,7 @@ export const CylinderManagement = () => {
         depositAmount: formData.type === 'deposit' ? (formData.paymentOption === 'delivery_note' ? 0 : Number(formData.depositAmount) || 0) : 0,
         returnAmount: formData.type === 'return' ? (single ? (Number(formData.amount) || 0) : itemsTotal) : 0,
         paymentOption: formData.paymentOption,
-        // Include custom transaction date for deposits
-        transactionDate: formData.type === 'deposit' ? formData.transactionDate : undefined,
+        // Transaction date removed - using current date automatically
         paymentMethod: formData.paymentOption === 'debit' ? formData.paymentMethod : undefined,
         cashAmount: formData.paymentOption === 'debit' && formData.paymentMethod === 'cash' ? Number(formData.cashAmount) : 0,
         bankName: formData.paymentOption === 'debit' && formData.paymentMethod === 'cheque' ? formData.bankName : undefined,
@@ -2162,21 +2161,6 @@ export const CylinderManagement = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                
-                {/* Date field - only show for deposit transactions */}
-                {formData.type === 'deposit' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="transactionDate">Date *</Label>
-                    <Input
-                      id="transactionDate"
-                      type="date"
-                      value={formData.transactionDate}
-                      onChange={(e) => setFormData({ ...formData, transactionDate: e.target.value })}
-                      required
-                      className="w-full"
-                    />
-                  </div>
-                )}
               </div>
               
               {/* Customer/Supplier section */}
