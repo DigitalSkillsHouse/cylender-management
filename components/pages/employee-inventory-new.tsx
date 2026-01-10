@@ -220,8 +220,8 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
         console.log('🔄 [GAS ORDER] Gas order without cylinder detected, showing cylinder selection popup')
         setSelectedGasOrder(order)
         
-        // Fetch employee's empty cylinders
-        await fetchEmptyCylinders()
+        // Fetch employee's empty cylinders filtered by gas product name (matching admin behavior)
+        await fetchEmptyCylinders(order.productName)
         setShowCylinderDialog(true)
         return
       }
@@ -290,15 +290,52 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
     }
   }
 
-  // Fetch employee's empty cylinders for selection
-  const fetchEmptyCylinders = async () => {
+  // Fetch employee's empty cylinders for selection (filtered by gas product name if provided)
+  const fetchEmptyCylinders = async (gasProductName?: string) => {
     try {
-      console.log('🔍 [EMPTY CYLINDERS] Fetching employee empty cylinders')
+      console.log('🔍 [EMPTY CYLINDERS] Fetching employee empty cylinders', gasProductName ? `for gas: ${gasProductName}` : '')
+      
+      // Helper function to extract base name from gas product (remove "Gas" prefix)
+      const extractGasBaseName = (gasName: string): string => {
+        let baseName = gasName.trim()
+        // Remove "Gas" prefix if it exists (case-insensitive)
+        if (baseName.toLowerCase().startsWith('gas ')) {
+          baseName = baseName.substring(4).trim() // Remove "Gas " prefix
+        } else if (baseName.toLowerCase().startsWith('gas')) {
+          baseName = baseName.substring(3).trim() // Remove "Gas" prefix (no space)
+        }
+        return baseName.toLowerCase()
+      }
+      
+      // Helper function to check if cylinder name matches gas name
+      const matchesGasName = (cylinderName: string, gasName: string): boolean => {
+        const gasBase = extractGasBaseName(gasName)
+        const cylinderLower = cylinderName.toLowerCase().trim()
+        
+        // Check if cylinder name contains the gas base name (e.g., "Cylinder Oxygen 40ltr" matches "Oxygen 40ltr")
+        // Also check if removing "Cylinder" prefix from cylinder name matches gas base
+        let cylinderBase = cylinderLower
+        if (cylinderBase.startsWith('cylinder ')) {
+          cylinderBase = cylinderBase.substring(9).trim() // Remove "Cylinder " prefix
+        } else if (cylinderBase.startsWith('cylinder')) {
+          cylinderBase = cylinderBase.substring(8).trim() // Remove "Cylinder" prefix (no space)
+        }
+        
+        return cylinderBase === gasBase || cylinderLower.includes(gasBase) || gasBase.includes(cylinderBase)
+      }
       
       // First try to use already loaded receivedStock data
-      const emptyCylinderStock = receivedStock.filter((item: EmployeeInventoryStock) => 
+      let emptyCylinderStock = receivedStock.filter((item: EmployeeInventoryStock) => 
         item.category === 'cylinder' && item.availableEmpty > 0
       )
+      
+      // Filter by gas product name if provided (matching admin behavior - only show relevant cylinders)
+      if (gasProductName) {
+        emptyCylinderStock = emptyCylinderStock.filter((item: EmployeeInventoryStock) => 
+          matchesGasName(item.productName, gasProductName)
+        )
+        console.log('🔍 [EMPTY CYLINDERS] Filtered by gas product name:', gasProductName, 'Found:', emptyCylinderStock.length)
+      }
       
       if (emptyCylinderStock.length > 0) {
         console.log('✅ [EMPTY CYLINDERS] Using already loaded data:', emptyCylinderStock)
@@ -315,9 +352,17 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
         console.log('📋 [EMPTY CYLINDERS] Fresh data received:', data)
         
         // Filter for empty cylinders from the received stock
-        const freshEmptyCylinderStock = data.receivedStock?.filter((item: EmployeeInventoryStock) => 
+        let freshEmptyCylinderStock = data.receivedStock?.filter((item: EmployeeInventoryStock) => 
           item.category === 'cylinder' && item.availableEmpty > 0
         ) || []
+        
+        // Filter by gas product name if provided
+        if (gasProductName) {
+          freshEmptyCylinderStock = freshEmptyCylinderStock.filter((item: EmployeeInventoryStock) => 
+            matchesGasName(item.productName, gasProductName)
+          )
+          console.log('🔍 [EMPTY CYLINDERS] Filtered fresh data by gas product name:', gasProductName, 'Found:', freshEmptyCylinderStock.length)
+        }
         
         setEmptyCylinders(freshEmptyCylinderStock)
         console.log('✅ [EMPTY CYLINDERS] Fresh empty cylinders:', freshEmptyCylinderStock)
@@ -492,8 +537,8 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
         
         setSelectedGasOrder(gasOrder)
         
-        // Fetch employee's empty cylinders
-        await fetchEmptyCylinders()
+        // Fetch employee's empty cylinders filtered by gas product name (matching admin behavior)
+        await fetchEmptyCylinders(assignment.productName)
         setShowCylinderDialog(true)
         return
       }
