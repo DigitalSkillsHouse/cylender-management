@@ -2403,8 +2403,8 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                   {/* totalAmount is subtotal (without VAT), calculate VAT and total with VAT for display */}
                   {(() => {
                     const subtotal = totalAmount // totalAmount is already subtotal (sum of price * quantity)
-                    const vatAmount = subtotal * 0.05 // Calculate 5% VAT
-                    const totalWithVAT = subtotal * 1.05 // Total with VAT included
+                    const vatAmount = Math.trunc((subtotal * 0.05) * 100) / 100 // Calculate 5% VAT (truncated, not rounded)
+                    const totalWithVAT = Math.trunc((subtotal + vatAmount) * 100) / 100 // Total with VAT included (truncated)
                     return (
                       <>
                         <div className="text-lg text-gray-700">Subtotal: AED {subtotal.toFixed(2)}</div>

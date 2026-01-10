@@ -283,8 +283,8 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
 
         // Calculate financial breakdown for each order (employee orders have single product)
         const orderSubtotal = (order.quantity || 0) * (order.unitPrice || 0);
-        const orderVat = orderSubtotal * 0.05;
-        const orderTotal = orderSubtotal + orderVat;
+        const orderVat = Math.trunc((orderSubtotal * 0.05) * 100) / 100;
+        const orderTotal = Math.trunc((orderSubtotal + orderVat) * 100) / 100;
         
         // Accumulate totals for summary
         totalAmount += orderSubtotal;
@@ -932,8 +932,9 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     const quantity = Number(item.quantity) || 0
     const unitPrice = Number(item.unitPrice) || 0
     const subtotal = quantity * unitPrice
-    const vatAmount = subtotal * 0.05
-    return sum + (subtotal + vatAmount)
+    const vatAmount = Math.trunc((subtotal * 0.05) * 100) / 100
+    const itemTotal = Math.trunc((subtotal + vatAmount) * 100) / 100
+    return sum + itemTotal
   }, 0)
 
   if (loading) {
@@ -1014,7 +1015,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
         const up = item.unitPrice || 0;
         return sum + (qty * up);
       }, 0);
-      group.vatAmount = subtotal * 0.05;
+      group.vatAmount = Math.trunc((subtotal * 0.05) * 100) / 100;
     });
     // Keep order roughly by latest date desc
     return Object.values(map).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -1369,7 +1370,9 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                         value={(() => {
                           const qty = Number(currentItem.quantity) || 0;
                           const up = Number(currentItem.unitPrice) || 0;
-                          return ((qty * up) * 0.05).toFixed(2)
+                          const subtotal = qty * up;
+                          const vat = Math.trunc((subtotal * 0.05) * 100) / 100;
+                          return vat.toFixed(2)
                         })()}
                         className="h-10 bg-gray-100 cursor-not-allowed"
                         tabIndex={-1}
@@ -1438,8 +1441,8 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                           const qty = Number(it.quantity) || 0
                           const up = Number(it.unitPrice) || 0
                           const subtotal = qty * up
-                          const vat = subtotal * 0.05
-                          const total = subtotal + vat
+                          const vat = Math.trunc((subtotal * 0.05) * 100) / 100
+                          const total = Math.trunc((subtotal + vat) * 100) / 100
                           return (
                             <TableRow key={idx}>
                               <TableCell className="whitespace-nowrap">{it.purchaseType}</TableCell>
@@ -1486,8 +1489,17 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                   <div className="flex justify-end mt-4">
                     <div className="bg-gray-100 rounded-lg px-6 py-3 text-base font-semibold text-[#2B3068] shadow space-y-1 min-w-[220px]">
                       <div>Subtotal: <span className="font-bold">AED {formData.items.reduce((acc, item) => acc + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0).toFixed(2)}</span></div>
-                      <div>VAT (5%): <span className="font-bold text-green-700">AED {formData.items.reduce((acc, item) => acc + ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) * 0.05), 0).toFixed(2)}</span></div>
-                      <div>Total Amount: <span className="font-bold">AED {formData.items.reduce((acc, item) => acc + ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0) * 1.05), 0).toFixed(2)}</span></div>
+                      <div>VAT (5%): <span className="font-bold text-green-700">AED {formData.items.reduce((acc, item) => {
+                        const subtotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+                        const vat = Math.trunc((subtotal * 0.05) * 100) / 100;
+                        return acc + vat;
+                      }, 0).toFixed(2)}</span></div>
+                      <div>Total Amount: <span className="font-bold">AED {formData.items.reduce((acc, item) => {
+                        const subtotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+                        const vat = Math.trunc((subtotal * 0.05) * 100) / 100;
+                        const total = Math.trunc((subtotal + vat) * 100) / 100;
+                        return acc + total;
+                      }, 0).toFixed(2)}</span></div>
                     </div>
                   </div>
                 )}
@@ -1722,7 +1734,13 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                                       <TableCell className="text-xs sm:text-sm">{order.quantity || 0}</TableCell>
                                       <TableCell className="font-semibold text-xs sm:text-sm">AED {order.unitPrice?.toFixed(2) || "0.00"}</TableCell>
                                       <TableCell className="font-semibold text-xs sm:text-sm">AED {order.totalAmount?.toFixed(2) || ((order.quantity || 0) * (order.unitPrice || 0)).toFixed(2)}</TableCell>
-                                      <TableCell className="font-semibold text-green-700 text-xs sm:text-sm">AED {((order.quantity || 0) * (order.unitPrice || 0) * 0.05).toFixed(2)}</TableCell>
+                                      <TableCell className="font-semibold text-green-700 text-xs sm:text-sm">
+                                        {(() => {
+                                          const subtotal = (order.quantity || 0) * (order.unitPrice || 0);
+                                          const vat = Math.trunc((subtotal * 0.05) * 100) / 100;
+                                          return `AED ${vat.toFixed(2)}`;
+                                        })()}
+                                      </TableCell>
                                       <TableCell className="text-xs sm:text-sm">
                                         <Badge
                                           variant={

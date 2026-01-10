@@ -817,8 +817,8 @@ export const PurchaseManagement = () => {
         const orderSubtotal = order.items?.reduce((sum, item) => {
           return sum + ((item.quantity || 0) * (item.unitPrice || 0))
         }, 0) || 0
-        const orderVat = orderSubtotal * 0.05
-        const orderTotal = orderSubtotal + orderVat
+        const orderVat = Math.trunc((orderSubtotal * 0.05) * 100) / 100
+        const orderTotal = Math.trunc((orderSubtotal + orderVat) * 100) / 100
         
         // Accumulate totals for summary
         totalAmount += orderSubtotal
@@ -1506,7 +1506,7 @@ export const PurchaseManagement = () => {
                       <Label>VAT 5%</Label>
                       <Input
                         type="text"
-                        value={`AED ${(((Number(currentItem.quantity) || 0) * (Number(currentItem.unitPrice) || 0)) * 0.05).toFixed(2)}`}
+                        value={`AED ${(Math.trunc((((Number(currentItem.quantity) || 0) * (Number(currentItem.unitPrice) || 0)) * 0.05) * 100) / 100).toFixed(2)}`}
                         readOnly
                         className="h-10 bg-gray-50 text-gray-700"
                         placeholder="VAT will be calculated"
@@ -1665,7 +1665,7 @@ export const PurchaseManagement = () => {
                             const quantity = Number(item.quantity) || 0;
                             const unitPrice = Number(item.unitPrice) || 0;
                             const subtotal = quantity * unitPrice;
-                            return sum + (subtotal * 0.05);
+                            return sum + Math.trunc((subtotal * 0.05) * 100) / 100;
                           }, 0)).toFixed(2)}
                         </span>
                       </div>
@@ -1867,8 +1867,8 @@ export const PurchaseManagement = () => {
                         const invoiceSubtotal = group.items[0]?.items?.reduce((sum, item) => {
                           return sum + ((item.quantity || 0) * (item.unitPrice || 0))
                         }, 0) || 0
-                        const invoiceVat = invoiceSubtotal * 0.05
-                        const invoiceTotal = invoiceSubtotal + invoiceVat
+                        const invoiceVat = Math.trunc((invoiceSubtotal * 0.05) * 100) / 100
+                        const invoiceTotal = Math.trunc((invoiceSubtotal + invoiceVat) * 100) / 100
                         
                         return (
                           <>
@@ -1925,8 +1925,8 @@ export const PurchaseManagement = () => {
                                 <TableBody>
                                   {group.items[0]?.items?.map((item, itemIndex) => {
                                     const itemSubtotal = (item.quantity || 0) * (item.unitPrice || 0)
-                                    const itemVat = itemSubtotal * 0.05
-                                    const itemTotalWithVat = itemSubtotal + itemVat
+                                    const itemVat = Math.trunc((itemSubtotal * 0.05) * 100) / 100
+                                    const itemTotalWithVat = Math.trunc((itemSubtotal + itemVat) * 100) / 100
                                     return (
                                     <TableRow key={`${group.items[0]._id}-${itemIndex}`} className="border-b">
                                       <TableCell className="text-xs sm:text-sm max-w-[220px] truncate">{item.product?.name || "Unknown Product"}</TableCell>

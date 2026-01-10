@@ -2355,9 +2355,13 @@ export const GasSales = () => {
 
                 <div className="text-right space-y-2">
                   <div className="text-lg text-gray-700">Subtotal: AED {totalAmount.toFixed(2)}</div>
-                  <div className="text-lg text-gray-700">VAT (5%): AED {(totalAmount * 0.05).toFixed(2)}</div>
+                  <div className="text-lg text-gray-700">VAT (5%): AED {Math.trunc((totalAmount * 0.05) * 100) / 100}</div>
                   <div className="border-t pt-2">
-                    <div className="text-2xl font-bold text-[#2B3068]">Total: AED {(totalAmount * 1.05).toFixed(2)}</div>
+                    {(() => {
+                      const vatAmount = Math.trunc((totalAmount * 0.05) * 100) / 100
+                      const totalWithVAT = Math.trunc((totalAmount + vatAmount) * 100) / 100
+                      return <div className="text-2xl font-bold text-[#2B3068]">Total: AED {totalWithVAT.toFixed(2)}</div>
+                    })()}
                   </div>
                 </div>
               </div>

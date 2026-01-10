@@ -87,7 +87,7 @@ const CashPaperSection = ({
   const downloadPdf = () => {
     if (!data) return
     try {
-      const vat = (n: number) => (Number(n || 0) * 0.05)
+      const vat = (n: number) => Math.trunc((Number(n || 0) * 0.05) * 100) / 100
       
       const creditRows = (data.creditSales || [])
         .map(r => `<tr><td>${r.invoiceNumber}</td><td>${r.customerName || "-"}</td><td class='right'>${currency(vat(r.totalAmount))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 

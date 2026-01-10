@@ -86,7 +86,7 @@ export async function POST(request) {
       
       // Calculate amounts: Amount Per Day × Days × Quantity
       const itemSubtotal = parseFloat(amountPerDay) * parseInt(days) * parseInt(quantity)
-      const itemVat = itemSubtotal * 0.05 // 5% VAT
+      const itemVat = Math.trunc((itemSubtotal * 0.05) * 100) / 100 // 5% VAT (truncated, not rounded)
       const itemTotal = itemSubtotal + itemVat
       
       processedItems.push({

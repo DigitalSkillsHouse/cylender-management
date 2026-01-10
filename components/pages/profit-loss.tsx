@@ -136,8 +136,8 @@ export default function ProfitLoss() {
     }
 
     const expenseAmount = Number(formData.expense)
-    const vatAmount = expenseAmount * 0.05
-    const totalAmount = expenseAmount + vatAmount
+    const vatAmount = Math.trunc((expenseAmount * 0.05) * 100) / 100
+    const totalAmount = Math.trunc((expenseAmount + vatAmount) * 100) / 100
 
     try {
       const response = await fetch("/api/expenses", {
@@ -271,8 +271,18 @@ export default function ProfitLoss() {
       currentY += 8
 
       const totalExpenseAmount = filteredExpenses.reduce((sum, expense) => sum + expense.expense, 0)
-      const totalVATAmount = filteredExpenses.reduce((sum, expense) => sum + (expense.vatAmount || (expense.expense * 0.05)), 0)
-      const grandTotal = filteredExpenses.reduce((sum, expense) => sum + (expense.totalAmount || (expense.expense + (expense.expense * 0.05))), 0)
+      const totalVATAmount = filteredExpenses.reduce((sum, expense) => {
+        const vat = expense.vatAmount || Math.trunc((expense.expense * 0.05) * 100) / 100
+        return sum + vat
+      }, 0)
+      const grandTotal = filteredExpenses.reduce((sum, expense) => {
+        if (expense.totalAmount) {
+          return sum + expense.totalAmount
+        }
+        const vat = Math.trunc((expense.expense * 0.05) * 100) / 100
+        const total = Math.trunc((expense.expense + vat) * 100) / 100
+        return sum + total
+      }, 0)
 
       pdf.setFont('helvetica', 'normal')
       pdf.setFontSize(10)
@@ -371,8 +381,8 @@ export default function ProfitLoss() {
         pdf.setLineWidth(0.1)
         pdf.rect(tableX, currentRowY, tableWidth, rowHeight)
 
-        const vatAmount = expense.vatAmount || (expense.expense * 0.05)
-        const totalAmount = expense.totalAmount || (expense.expense + vatAmount)
+        const vatAmount = expense.vatAmount || Math.trunc((expense.expense * 0.05) * 100) / 100
+        const totalAmount = expense.totalAmount || Math.trunc((expense.expense + vatAmount) * 100) / 100
 
         // Cell content
         let cellX = tableX
@@ -519,7 +529,7 @@ export default function ProfitLoss() {
                 <Input
                   id="vatAmount"
                   type="text"
-                  value={`AED ${((Number(formData.expense) || 0) * 0.05).toFixed(2)}`}
+                  value={`AED ${(Math.trunc(((Number(formData.expense) || 0) * 0.05) * 100) / 100).toFixed(2)}`}
                   readOnly
                   className="h-11 sm:h-12 bg-gray-50 text-gray-700"
                   placeholder="VAT will be calculated"
@@ -530,7 +540,7 @@ export default function ProfitLoss() {
                 <Input
                   id="totalAmount"
                   type="text"
-                  value={`AED ${((Number(formData.expense) || 0) + ((Number(formData.expense) || 0) * 0.05)).toFixed(2)}`}
+                  value={`AED ${(Math.trunc(((Number(formData.expense) || 0) + Math.trunc(((Number(formData.expense) || 0) * 0.05) * 100) / 100) * 100) / 100).toFixed(2)}`}
                   readOnly
                   className="h-11 sm:h-12 bg-blue-50 text-blue-700 font-semibold"
                   placeholder="Total will be calculated"
@@ -727,8 +737,8 @@ export default function ProfitLoss() {
                 </TableHeader>
                 <TableBody>
                   {expenses.map((expense) => {
-                    const vatAmount = expense.vatAmount || (expense.expense * 0.05)
-                    const totalAmount = expense.totalAmount || (expense.expense + vatAmount)
+                    const vatAmount = expense.vatAmount || Math.trunc((expense.expense * 0.05) * 100) / 100
+                    const totalAmount = expense.totalAmount || Math.trunc((expense.expense + vatAmount) * 100) / 100
                     return (
                     <TableRow key={expense._id}>
                       <TableCell className="text-sm">
