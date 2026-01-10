@@ -378,7 +378,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         pdf.setTextColor(102, 102, 102);
         pdf.text(`TR Number: ${customer.trNumber}`, margin + 5, currentY + 12);
         
-        currentY += 20;
+        currentY += 15; // Reduced from 20 to 15 for tighter spacing
 
         if (pendingGasSales.length > 0 || pendingCylinders.length > 0) {
           // Table header
@@ -439,10 +439,10 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           pdf.text('Customer Total:', margin + 80, currentY + 5);
           pdf.text(formatCurrency(customerTotal), pageWidth - margin - 2, currentY + 5, { align: 'right' });
           
-          currentY += 12;
+          currentY += 8; // Reduced from 12 to 8 for tighter spacing
         }
 
-        currentY += 10;
+        currentY += 5; // Space between customers (reduced from 10 to 5)
       }
 
       // Add grand total

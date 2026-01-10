@@ -426,200 +426,16 @@ export const Reports = () => {
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const margin = 15;
+    const footerSpace = 70; // Space needed for footer
 
-    try {
-      // Add header image
-      const headerImg = new Image();
-      headerImg.crossOrigin = "anonymous";
-      
-      await new Promise<void>((resolve, reject) => {
-        headerImg.onload = () => {
-          try {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = headerImg.width;
-            canvas.height = headerImg.height;
-            
-            if (ctx) {
-              ctx.drawImage(headerImg, 0, 0);
-              const headerImgData = canvas.toDataURL("image/png");
-              
-              const headerWidth = pageWidth - margin * 2;
-              const headerHeight = (headerImg.height * headerWidth) / headerImg.width;
-              
-              pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight);
-            }
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        };
-        headerImg.onerror = () => reject(new Error("Failed to load header image"));
-        headerImg.src = "/images/Customer-Ledger-header-pending.jpg";
-      });
-
-      // Add report title and info
-      let currentY = margin + 60; // Start below header image
-      
-      
-      currentY += 10;
-      pdf.setFontSize(10);
-      pdf.setFont(undefined, 'normal');
-      pdf.text(`Generated on: ${getDubaiDateTimeString()}`, pageWidth / 2, currentY, { align: "center" });
-      
-      currentY += 6;
-      const filterText = filters.customerName.trim() !== '' 
-        ? `Customer Filter: ${filters.customerName}`
-        : `All Customers with Pending Transactions`;
-      pdf.text(filterText, pageWidth / 2, currentY, { align: "center" });
-      
-      currentY += 6;
-      pdf.text(`Total Customers: ${pendingCustomers.length}`, pageWidth / 2, currentY, { align: "center" });
-      
-      currentY += 15;
-
-      let grandTotal = 0;
-
-      // Process each customer
-      for (const customer of pendingCustomers) {
-        // Get pending gas sales
-        const pendingGasSales = customer.recentSales?.filter((sale: any) => sale.paymentStatus === 'pending') || [];
-        
-        // Get pending cylinder transactions
-        const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
-
-        // Calculate customer total
-        const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0);
-        const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + (Number(transaction.amount) || 0), 0);
-        const customerTotal = gasSalesTotal + cylindersTotal;
-        grandTotal += customerTotal;
-
-        // Check if we need a new page
-        if (currentY > pageHeight - 80) {
-          pdf.addPage();
-          currentY = margin + 20;
-        }
-
-        // Customer header
-        pdf.setFillColor(248, 249, 250); // Light gray background
-        pdf.rect(margin, currentY, pageWidth - margin * 2, 15, 'F');
-        
-        pdf.setFontSize(12);
-        pdf.setTextColor(43, 48, 104); // #2B3068
-        pdf.setFont(undefined, 'bold');
-        pdf.text(customer.name, margin + 5, currentY + 8);
-        
-        pdf.setFontSize(9);
-        pdf.setFont(undefined, 'normal');
-        pdf.setTextColor(102, 102, 102);
-        pdf.text(`TR Number: ${customer.trNumber}`, margin + 5, currentY + 12);
-        
-        currentY += 20;
-
-        if (pendingGasSales.length > 0 || pendingCylinders.length > 0) {
-          // Table header
-          pdf.setFillColor(241, 243, 244); // Light gray
-          pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
-          
-          pdf.setFontSize(9);
-          pdf.setTextColor(0, 0, 0);
-          pdf.setFont(undefined, 'bold');
-          pdf.text('Date', margin + 2, currentY + 5);
-          pdf.text('Invoice Number', margin + 35, currentY + 5);
-          pdf.text('Reference Name', margin + 80, currentY + 5);
-          pdf.text('Amount (AED)', pageWidth - margin - 25, currentY + 5, { align: 'right' });
-          
-          currentY += 10;
-
-          // Add gas sales
-          pendingGasSales.forEach((sale: any) => {
-            const date = new Date(sale.createdAt).toLocaleDateString();
-            const invoiceNumber = sale.invoiceNumber || 'N/A';
-            // Get employee name properly - check if sale is from employee and get name
-            let createdBy = 'Admin';
-            if (sale.employee && sale.employee.name) {
-              createdBy = sale.employee.name;
-            } else if (sale.saleSource === 'employee' || sale._saleSource === 'employee') {
-              // Employee sale but name not available
-              createdBy = 'Employee';
-            }
-            const amount = Number(sale.totalAmount) || 0;
-
-            pdf.setFont(undefined, 'normal');
-            pdf.setFontSize(8);
-            pdf.text(date, margin + 2, currentY + 4);
-            pdf.text(invoiceNumber, margin + 35, currentY + 4);
-            pdf.text(createdBy, margin + 80, currentY + 4);
-            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 4, { align: 'right' });
-            
-            currentY += 6;
-          });
-
-          // Add cylinder transactions
-          pendingCylinders.forEach((transaction: any) => {
-            const date = new Date(transaction.createdAt).toLocaleDateString();
-            const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
-            // Get employee name properly - employee should be populated with name from API
-            let createdBy = 'Admin';
-            if (transaction.employee && transaction.employee.name) {
-              createdBy = transaction.employee.name;
-            }
-            const amount = Number(transaction.amount) || 0;
-
-            pdf.setFont(undefined, 'normal');
-            pdf.setFontSize(8);
-            pdf.text(date, margin + 2, currentY + 4);
-            pdf.text(invoiceNumber, margin + 35, currentY + 4);
-            pdf.text(createdBy, margin + 80, currentY + 4);
-            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 4, { align: 'right' });
-            
-            currentY += 6;
-          });
-
-          // Customer total
-          pdf.setFillColor(232, 244, 253); // Light blue
-          pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
-          
-          pdf.setFont(undefined, 'bold');
-          pdf.setFontSize(9);
-          pdf.setTextColor(43, 48, 104);
-          pdf.text('Customer Total:', margin + 80, currentY + 5);
-          pdf.text(formatCurrency(customerTotal), pageWidth - margin - 2, currentY + 5, { align: 'right' });
-          
-          currentY += 12;
-        } else {
-          pdf.setFontSize(9);
-          pdf.setTextColor(153, 153, 153);
-          pdf.text('No pending transactions found for this customer.', pageWidth / 2, currentY + 10, { align: 'center' });
-          currentY += 20;
-        }
-
-        currentY += 10; // Space between customers
-      }
-
-      // Add grand total
-      if (currentY > pageHeight - 40) {
-        pdf.addPage();
-        currentY = margin + 20;
-      }
-
-      pdf.setFillColor(248, 249, 250);
-      pdf.setDrawColor(43, 48, 104);
-      pdf.setLineWidth(1);
-      pdf.rect(margin, currentY, pageWidth - margin * 2, 15, 'FD');
-      
-      pdf.setFontSize(14);
-      pdf.setTextColor(43, 48, 104);
-      pdf.setFont(undefined, 'bold');
-      pdf.text(`Grand Total: ${formatCurrency(grandTotal)}`, pageWidth - margin - 5, currentY + 10, { align: 'right' });
-
-      // Add footer image and admin signature
+    // Helper function to add footer to a page
+    const addFooterToPage = async (pdf: any, pageWidth: number, pageHeight: number, margin: number, adminSignature: string | null) => {
       const footerY = pageHeight - 60;
       
       const footerImg = new Image();
       footerImg.crossOrigin = "anonymous";
       
-      await new Promise<void>((resolve, reject) => {
+      return new Promise<void>((resolve, reject) => {
         footerImg.onload = async () => {
           try {
             const canvas = document.createElement('canvas');
@@ -703,6 +519,7 @@ export const Reports = () => {
                   pdf.setFontSize(8);
                   pdf.setTextColor(43, 48, 104);
                   pdf.setFont(undefined, 'bold');
+                  const actualFooterHeight = (footerImg.height * (pageWidth - margin * 2)) / footerImg.width;
                   pdf.text("Admin Signature", pageWidth - margin - 30, footerY + actualFooterHeight - 8, { align: "center" });
                 }
               } else {
@@ -710,6 +527,7 @@ export const Reports = () => {
                 pdf.setFontSize(8);
                 pdf.setTextColor(43, 48, 104);
                 pdf.setFont(undefined, 'bold');
+                const actualFooterHeight = (footerImg.height * (pageWidth - margin * 2)) / footerImg.width;
                 pdf.text("Admin Signature", pageWidth - margin - 30, footerY + actualFooterHeight - 8, { align: "center" });
               }
             }
@@ -721,6 +539,233 @@ export const Reports = () => {
         footerImg.onerror = () => reject(new Error("Failed to load footer image"));
         footerImg.src = "/images/Footer-qoute-paper.jpg";
       });
+    };
+
+    try {
+      // Add header image
+      const headerImg = new Image();
+      headerImg.crossOrigin = "anonymous";
+      
+      await new Promise<void>((resolve, reject) => {
+        headerImg.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = headerImg.width;
+            canvas.height = headerImg.height;
+            
+            if (ctx) {
+              ctx.drawImage(headerImg, 0, 0);
+              const headerImgData = canvas.toDataURL("image/png");
+              
+              const headerWidth = pageWidth - margin * 2;
+              const headerHeight = (headerImg.height * headerWidth) / headerImg.width;
+              
+              pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight);
+            }
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        };
+        headerImg.onerror = () => reject(new Error("Failed to load header image"));
+        headerImg.src = "/images/Customer-Ledger-header-pending.jpg";
+      });
+
+      // Add report title and info
+      let currentY = margin + 60; // Start below header image
+      
+      
+      currentY += 10;
+      pdf.setFontSize(10);
+      pdf.setFont(undefined, 'normal');
+      pdf.text(`Generated on: ${getDubaiDateTimeString()}`, pageWidth / 2, currentY, { align: "center" });
+      
+      currentY += 6;
+      const filterText = filters.customerName.trim() !== '' 
+        ? `Customer Filter: ${filters.customerName}`
+        : `All Customers with Pending Transactions`;
+      pdf.text(filterText, pageWidth / 2, currentY, { align: "center" });
+      
+      currentY += 6;
+      pdf.text(`Total Customers: ${pendingCustomers.length}`, pageWidth / 2, currentY, { align: "center" });
+      
+      currentY += 15;
+
+      let grandTotal = 0;
+
+      // Process each customer
+      for (const customer of pendingCustomers) {
+        // Get pending gas sales
+        const pendingGasSales = customer.recentSales?.filter((sale: any) => sale.paymentStatus === 'pending') || [];
+        
+        // Get pending cylinder transactions
+        const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
+
+        // Calculate customer total
+        const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0);
+        const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + (Number(transaction.amount) || 0), 0);
+        const customerTotal = gasSalesTotal + cylindersTotal;
+        grandTotal += customerTotal;
+
+        // Check if we need a new page - leave more space for footer
+        if (currentY > pageHeight - footerSpace) {
+          pdf.addPage();
+          currentY = margin + 20;
+        }
+
+        // Customer header
+        pdf.setFillColor(248, 249, 250); // Light gray background
+        pdf.rect(margin, currentY, pageWidth - margin * 2, 15, 'F');
+        
+        pdf.setFontSize(12);
+        pdf.setTextColor(43, 48, 104); // #2B3068
+        pdf.setFont(undefined, 'bold');
+        pdf.text(customer.name, margin + 5, currentY + 8);
+        
+        pdf.setFontSize(9);
+        pdf.setFont(undefined, 'normal');
+        pdf.setTextColor(102, 102, 102);
+        pdf.text(`TR Number: ${customer.trNumber}`, margin + 5, currentY + 12);
+        
+        currentY += 15; // Reduced from 20 to 15 for tighter spacing
+
+        if (pendingGasSales.length > 0 || pendingCylinders.length > 0) {
+          // Table header
+          pdf.setFillColor(241, 243, 244); // Light gray
+          pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
+          
+          pdf.setFontSize(9);
+          pdf.setTextColor(0, 0, 0);
+          pdf.setFont(undefined, 'bold');
+          pdf.text('Date', margin + 2, currentY + 5);
+          pdf.text('Invoice Number', margin + 35, currentY + 5);
+          pdf.text('Reference Name', margin + 80, currentY + 5);
+          pdf.text('Amount (AED)', pageWidth - margin - 25, currentY + 5, { align: 'right' });
+          
+          currentY += 10;
+
+          // Add gas sales - use for...of loop to allow await
+          for (const sale of pendingGasSales) {
+            // Check if we need a new page before adding each row
+            if (currentY > pageHeight - footerSpace) {
+              pdf.addPage();
+              currentY = margin + 20;
+              // Re-add table header on new page
+              pdf.setFillColor(241, 243, 244);
+              pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
+              pdf.setFontSize(9);
+              pdf.setTextColor(0, 0, 0);
+              pdf.setFont(undefined, 'bold');
+              pdf.text('Date', margin + 2, currentY + 5);
+              pdf.text('Invoice Number', margin + 35, currentY + 5);
+              pdf.text('Reference Name', margin + 80, currentY + 5);
+              pdf.text('Amount (AED)', pageWidth - margin - 25, currentY + 5, { align: 'right' });
+              currentY += 10;
+            }
+            
+            const date = new Date(sale.createdAt).toLocaleDateString();
+            const invoiceNumber = sale.invoiceNumber || 'N/A';
+            // Get employee name properly - check if sale is from employee and get name
+            let createdBy = 'Admin';
+            if (sale.employee && sale.employee.name) {
+              createdBy = sale.employee.name;
+            } else if (sale.saleSource === 'employee' || sale._saleSource === 'employee') {
+              // Employee sale but name not available
+              createdBy = 'Employee';
+            }
+            const amount = Number(sale.totalAmount) || 0;
+
+            pdf.setFont(undefined, 'normal');
+            pdf.setFontSize(8);
+            pdf.text(date, margin + 2, currentY + 4);
+            pdf.text(invoiceNumber, margin + 35, currentY + 4);
+            pdf.text(createdBy, margin + 80, currentY + 4);
+            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 4, { align: 'right' });
+            
+            currentY += 6;
+          }
+
+          // Add cylinder transactions - use for...of loop to allow await
+          for (const transaction of pendingCylinders) {
+            // Check if we need a new page before adding each row
+            if (currentY > pageHeight - footerSpace) {
+              pdf.addPage();
+              currentY = margin + 20;
+              // Re-add table header on new page
+              pdf.setFillColor(241, 243, 244);
+              pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
+              pdf.setFontSize(9);
+              pdf.setTextColor(0, 0, 0);
+              pdf.setFont(undefined, 'bold');
+              pdf.text('Date', margin + 2, currentY + 5);
+              pdf.text('Invoice Number', margin + 35, currentY + 5);
+              pdf.text('Reference Name', margin + 80, currentY + 5);
+              pdf.text('Amount (AED)', pageWidth - margin - 25, currentY + 5, { align: 'right' });
+              currentY += 10;
+            }
+            
+            const date = new Date(transaction.createdAt).toLocaleDateString();
+            const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
+            // Get employee name properly - employee should be populated with name from API
+            let createdBy = 'Admin';
+            if (transaction.employee && transaction.employee.name) {
+              createdBy = transaction.employee.name;
+            }
+            const amount = Number(transaction.amount) || 0;
+
+            pdf.setFont(undefined, 'normal');
+            pdf.setFontSize(8);
+            pdf.text(date, margin + 2, currentY + 4);
+            pdf.text(invoiceNumber, margin + 35, currentY + 4);
+            pdf.text(createdBy, margin + 80, currentY + 4);
+            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 4, { align: 'right' });
+            
+            currentY += 6;
+          }
+
+          // Customer total
+          pdf.setFillColor(232, 244, 253); // Light blue
+          pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
+          
+          pdf.setFont(undefined, 'bold');
+          pdf.setFontSize(9);
+          pdf.setTextColor(43, 48, 104);
+          pdf.text('Customer Total:', margin + 80, currentY + 5);
+          pdf.text(formatCurrency(customerTotal), pageWidth - margin - 2, currentY + 5, { align: 'right' });
+          
+          currentY += 8;
+        } else {
+          pdf.setFontSize(9);
+          pdf.setTextColor(153, 153, 153);
+          pdf.text('No pending transactions found for this customer.', pageWidth / 2, currentY + 10, { align: 'center' });
+          currentY += 20;
+        }
+
+        currentY += 5; // Space between customers (reduced from 10 to 5)
+      }
+
+      // Add grand total - ensure enough space for footer
+      const grandTotalHeight = 20; // Space needed for grand total section
+      if (currentY > pageHeight - footerSpace - grandTotalHeight) {
+        pdf.addPage();
+        currentY = margin + 20;
+      }
+
+      pdf.setFillColor(248, 249, 250);
+      pdf.setDrawColor(43, 48, 104);
+      pdf.setLineWidth(1);
+      pdf.rect(margin, currentY, pageWidth - margin * 2, 15, 'FD');
+      
+      pdf.setFontSize(14);
+      pdf.setTextColor(43, 48, 104);
+      pdf.setFont(undefined, 'bold');
+      pdf.text(`Grand Total: ${formatCurrency(grandTotal)}`, pageWidth - margin - 5, currentY + 10, { align: 'right' });
+      
+      currentY += 25; // Space after grand total
+
+      // Add footer to the last page
+      await addFooterToPage(pdf, pageWidth, pageHeight, margin, adminSignature);
 
       // Save the PDF
       const dt = new Date();
