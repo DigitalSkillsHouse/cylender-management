@@ -455,7 +455,7 @@ export const Reports = () => {
           }
         };
         headerImg.onerror = () => reject(new Error("Failed to load header image"));
-        headerImg.src = "/images/Customer-Ledger-header.jpg";
+        headerImg.src = "/images/Customer-Ledger-header-pending.jpg";
       });
 
       // Add report title and info
