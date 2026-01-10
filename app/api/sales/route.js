@@ -234,9 +234,9 @@ export async function POST(request) {
     })
 
     // Create the sale
-    // Round totalAmount to 2 decimal places to avoid floating point precision issues
-    const roundedTotalAmount = Math.round((Number(totalAmount) || 0) * 100) / 100
-    const roundedReceivedAmount = Math.round((Number(receivedAmount) || 0) * 100) / 100
+    // Truncate to 2 decimal places (exact calculation, no rounding)
+    const roundedTotalAmount = Math.trunc((Number(totalAmount) || 0) * 100) / 100
+    const roundedReceivedAmount = Math.trunc((Number(receivedAmount) || 0) * 100) / 100
     
     const sale = new Sale({
       invoiceNumber,

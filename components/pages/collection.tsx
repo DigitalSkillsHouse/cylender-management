@@ -449,9 +449,9 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       return
     }
     
-    // Round to 2 decimal places to avoid floating point precision issues
-    const totalAmount = Math.round(selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) * 100) / 100
-    const currentReceived = Math.round(selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0) * 100) / 100
+    // Truncate to 2 decimal places (exact calculation, no rounding)
+    const totalAmount = Math.trunc(selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) * 100) / 100
+    const currentReceived = Math.trunc(selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0) * 100) / 100
     
     console.log('Opening payment dialog with:', {
       totalAmount,
@@ -511,11 +511,11 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       }
     }
     
-    // Round values to avoid floating point precision issues
-    const roundedTotalAmount = Math.round(paymentDialog.totalAmount * 100) / 100
-    const roundedCurrentReceived = Math.round(paymentDialog.currentReceived * 100) / 100
+    // Truncate to 2 decimal places (exact calculation, no rounding)
+    const roundedTotalAmount = Math.trunc(paymentDialog.totalAmount * 100) / 100
+    const roundedCurrentReceived = Math.trunc(paymentDialog.currentReceived * 100) / 100
     const remaining = Math.max(0, roundedTotalAmount - roundedCurrentReceived)
-    const roundedAdd = Math.round(add * 100) / 100
+    const roundedAdd = Math.trunc(add * 100) / 100
     
     console.log('Remaining balance check:', { 
       totalAmount: paymentDialog.totalAmount, 
@@ -548,7 +548,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     // For single invoice collection, apply the full amount directly
     if (paymentDialog.selectedInvoices.length === 1) {
       const invoice = paymentDialog.selectedInvoices[0]
-      const roundedAmount = Math.round(roundedAdd * 100) / 100
+      const roundedAmount = Math.trunc(roundedAdd * 100) / 100
       console.log('Single invoice payment:', { model: invoice.model, id: invoice._id, amount: roundedAmount })
       payments.push({
         model: invoice.model,
@@ -558,13 +558,13 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     } else {
       // For multiple invoices, calculate proportional payment based on remaining balance
       console.log('Multiple invoices payment calculation:')
-      // Round invoice amounts to avoid floating point precision issues
+      // Truncate invoice amounts to 2 decimal places (exact calculation, no rounding)
       const invoiceRemainings = paymentDialog.selectedInvoices.map(inv => {
-        const invTotal = Math.round(inv.totalAmount * 100) / 100
-        const invReceived = Math.round((inv.receivedAmount || 0) * 100) / 100
-        return Math.round((invTotal - invReceived) * 100) / 100
+        const invTotal = Math.trunc(inv.totalAmount * 100) / 100
+        const invReceived = Math.trunc((inv.receivedAmount || 0) * 100) / 100
+        return Math.trunc((invTotal - invReceived) * 100) / 100
       })
-      const totalRemaining = Math.round(invoiceRemainings.reduce((sum, rem) => sum + rem, 0) * 100) / 100
+      const totalRemaining = Math.trunc(invoiceRemainings.reduce((sum, rem) => sum + rem, 0) * 100) / 100
       
       console.log('Invoice remainings:', invoiceRemainings)
       console.log('Total remaining:', totalRemaining)
@@ -576,11 +576,11 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
         if (invoiceRemaining > 0 && totalRemaining > 0) {
           // Calculate proportional amount
           let proportionalAmount = (invoiceRemaining / totalRemaining) * roundedAdd
-          proportionalAmount = Math.round(proportionalAmount * 100) / 100
+          proportionalAmount = Math.trunc(proportionalAmount * 100) / 100
           
           // For the last invoice, ensure we don't exceed the total amount
           if (index === paymentDialog.selectedInvoices.length - 1) {
-            proportionalAmount = Math.round((roundedAdd - distributedTotal) * 100) / 100
+            proportionalAmount = Math.trunc((roundedAdd - distributedTotal) * 100) / 100
           }
           
           distributedTotal += proportionalAmount

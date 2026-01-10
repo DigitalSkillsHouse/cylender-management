@@ -521,13 +521,14 @@ export const PurchaseManagement = () => {
     })
   }
 
-  // Calculate total amount for all items including VAT
+  // Calculate total amount for all items including VAT (truncate to 2 decimals)
   const totalAmount = formData.items.reduce((sum, item) => {
     const quantity = Number(item.quantity) || 0
     const unitPrice = Number(item.unitPrice) || 0
     const subtotal = quantity * unitPrice
-    const vatAmount = subtotal * 0.05
-    return sum + (subtotal + vatAmount)
+    const vatAmount = Math.trunc((subtotal * 0.05) * 100) / 100
+    const itemTotal = Math.trunc((subtotal + vatAmount) * 100) / 100
+    return sum + itemTotal
   }, 0)
 
   if (loading) {
@@ -1577,8 +1578,8 @@ export const PurchaseManagement = () => {
                           const qty = Number(it.quantity) || 0
                           const up = Number(it.unitPrice) || 0
                           const subtotal = qty * up
-                          const vatAmount = subtotal * 0.05
-                          const totalWithVat = subtotal + vatAmount
+                          const vatAmount = Math.trunc((subtotal * 0.05) * 100) / 100
+                          const totalWithVat = Math.trunc((subtotal + vatAmount) * 100) / 100
                           return (
                             <TableRow key={idx}>
                               <TableCell className="whitespace-nowrap">{it.purchaseType}</TableCell>

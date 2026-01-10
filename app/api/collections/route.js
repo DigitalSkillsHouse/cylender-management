@@ -4,12 +4,12 @@ import Sale from "@/models/Sale"
 import EmployeeSale from "@/models/EmployeeSale"
 import { getNextRcNo } from "@/lib/invoice-generator"
 
-// Helper function to round to 2 decimal places to avoid floating-point precision errors
+// Helper function to truncate to 2 decimal places (exact calculation, no rounding)
 const roundToTwo = (value) => {
   if (value === null || value === undefined || isNaN(value)) {
     return 0;
   }
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  return Math.trunc(Number(value) * 100) / 100;
 };
 // Cylinder transaction imports removed - collections only handle gas sales
 

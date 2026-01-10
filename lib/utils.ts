@@ -28,18 +28,34 @@ export const formatCurrencyAED = (amount: number | null | undefined): string => 
 }
 
 /**
- * Format number with thousand separators and exactly 2 decimal places
+ * Format number with thousand separators and exactly 2 decimal places (truncates, no rounding)
  */
 export const formatNumberWithSeparators = (amount: number | null | undefined): string => {
   if (amount === null || amount === undefined || isNaN(amount)) {
     return "0.00"
   }
-  const formatted = Number(amount).toFixed(2)
+  // Truncate to 2 decimal places without rounding
+  const truncated = Math.trunc(Number(amount) * 100) / 100
+  const formatted = truncated.toFixed(2)
   // Add thousand separators
   return formatted.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
 
 /**
+ * Truncate number to exactly 2 decimal places without rounding (exact calculation)
+ * Use this for all financial calculations to preserve exact values
+ * Example: 15.756 becomes 15.75 (not 15.76), 15.5 stays 15.5
+ */
+export const truncateToTwoDecimals = (value: number | null | undefined): number => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return 0
+  }
+  // Truncate to 2 decimal places without rounding
+  return Math.trunc(Number(value) * 100) / 100
+}
+
+/**
+ * @deprecated Use truncateToTwoDecimals instead for exact calculations
  * Round number to exactly 2 decimal places to avoid floating-point precision errors
  * Use this for all financial calculations to ensure 15+15 = 30.00, not 30.01
  */
@@ -47,5 +63,6 @@ export const roundToTwoDecimals = (value: number | null | undefined): number => 
   if (value === null || value === undefined || isNaN(value)) {
     return 0
   }
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100
+  // Use truncation instead of rounding for exact calculations
+  return Math.trunc(Number(value) * 100) / 100
 }

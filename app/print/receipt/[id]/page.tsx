@@ -107,8 +107,8 @@ const ReceiptPrintPage = () => {
       const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
       return sum + itemSubtotal
     }, 0)
-    vatAmount = subTotal * 0.05
-    grandTotal = subTotal + vatAmount
+    vatAmount = Math.trunc((subTotal * 0.05) * 100) / 100
+    grandTotal = Math.trunc((subTotal + vatAmount) * 100) / 100
   } else {
     // Totals breakdown: Subtotal (price*qty), VAT (5% of subtotal), Grand Total (subtotal + VAT)
     subTotal = sale.items.reduce((sum, item) => {
@@ -117,8 +117,8 @@ const ReceiptPrintPage = () => {
       const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
       return sum + line
     }, 0)
-    vatAmount = subTotal * 0.05
-    grandTotal = subTotal + vatAmount
+    vatAmount = Math.trunc((subTotal * 0.05) * 100) / 100
+    grandTotal = Math.trunc((subTotal + vatAmount) * 100) / 100
   }
 
   // Choose header by transaction type first (Deposit/Return),
@@ -241,15 +241,15 @@ const ReceiptPrintPage = () => {
                   // For rentals: calculate quantity * days * amountPerDay + VAT
                   const daysNum = Number((item as any)?.days || 0)
                   const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
-                  const itemVat = itemSubtotal * 0.05
-                  itemTotal = itemSubtotal + itemVat
+                  const itemVat = Math.trunc((itemSubtotal * 0.05) * 100) / 100
+                  itemTotal = Math.trunc((itemSubtotal + itemVat) * 100) / 100
                 } else {
-                  const unitVat = priceNum * 0.05
-                  const unitWithVat = priceNum + unitVat
-                  itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+                  const unitVat = Math.trunc((priceNum * 0.05) * 100) / 100
+                  const unitWithVat = Math.trunc((priceNum + unitVat) * 100) / 100
+                  itemTotal = Math.trunc(((isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)) * 100) / 100
                 }
                 
-                const unitVat = priceNum * 0.05
+                const unitVat = Math.trunc((priceNum * 0.05) * 100) / 100
                 
                 // Extract invoice number for collection receipts
                 let invoiceNumber = item.invoiceNumber

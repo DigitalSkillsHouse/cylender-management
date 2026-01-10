@@ -153,9 +153,9 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
         const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
         return sum + itemSubtotal
       }, 0)
-      vatAmount = subTotal * 0.05
-      // Ensure grandTotal matches subtotal + VAT
-      grandTotal = subTotal + vatAmount
+      vatAmount = Math.trunc((subTotal * 0.05) * 100) / 100
+      // Ensure grandTotal matches subtotal + VAT (truncate to 2 decimals)
+      grandTotal = Math.trunc((subTotal + vatAmount) * 100) / 100
     } else {
       // Fallback: calculate from items
       subTotal = itemsSafe.reduce((sum, item) => {
@@ -165,8 +165,8 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
         const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
         return sum + itemSubtotal
       }, 0)
-      vatAmount = subTotal * 0.05
-      grandTotal = subTotal + vatAmount
+      vatAmount = Math.trunc((subTotal * 0.05) * 100) / 100
+      grandTotal = Math.trunc((subTotal + vatAmount) * 100) / 100
     }
   } else {
     // VAT is 5% of unit price. We show per-item VAT column and a totals breakdown.
@@ -177,8 +177,8 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
       const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
       return sum + line
     }, 0)
-    vatAmount = subTotal * 0.05
-    grandTotal = subTotal + vatAmount
+    vatAmount = Math.trunc((subTotal * 0.05) * 100) / 100
+    grandTotal = Math.trunc((subTotal + vatAmount) * 100) / 100
   }
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
@@ -528,16 +528,16 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                         // For rentals: calculate quantity * days * amountPerDay + VAT
                         const daysNum = Number((item as any)?.days || 0)
                         const itemSubtotal = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0) * (isFinite(daysNum) ? daysNum : 0)
-                        const itemVat = itemSubtotal * 0.05
-                        itemTotal = itemSubtotal + itemVat
+                        const itemVat = Math.trunc((itemSubtotal * 0.05) * 100) / 100
+                        itemTotal = Math.trunc((itemSubtotal + itemVat) * 100) / 100
                       } else {
-                        // Calculate with VAT
-                        const unitVat = priceNum * 0.05
-                        const unitWithVat = priceNum + unitVat
-                        itemTotal = (isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)
+                        // Calculate with VAT (truncate to 2 decimals)
+                        const unitVat = Math.trunc((priceNum * 0.05) * 100) / 100
+                        const unitWithVat = Math.trunc((priceNum + unitVat) * 100) / 100
+                        itemTotal = Math.trunc(((isFinite(unitWithVat) ? unitWithVat : 0) * (isFinite(qtyNum) ? qtyNum : 0)) * 100) / 100
                       }
                       
-                      const unitVat = priceNum * 0.05
+                      const unitVat = Math.trunc((priceNum * 0.05) * 100) / 100
                       
                       return (
                         <tr key={index} className="border-b h-5">

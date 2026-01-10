@@ -7,13 +7,13 @@ import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
 import Rental from "@/models/Rental";
 import { getDateRangeForPeriod } from "@/lib/date-utils";
 
-// Helper function to round to 2 decimal places to avoid floating-point precision errors
+// Helper function to truncate to 2 decimal places (exact calculation, no rounding)
 // Use this for calculations only
 const roundToTwo = (value) => {
   if (value === null || value === undefined || isNaN(value)) {
     return 0;
   }
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  return Math.trunc(Number(value) * 100) / 100;
 };
 
 // Helper function to preserve exact decimal values (truncate to 2 decimals without rounding)

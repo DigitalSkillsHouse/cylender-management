@@ -230,8 +230,8 @@ export const RentalCollection = ({ user }: RentalCollectionProps = {}) => {
 
   const calculateItemTotal = (quantity: number, days: number, amount: number) => {
     const subtotal = quantity * days * amount
-    const vat = subtotal * 0.05
-    const total = subtotal + vat
+    const vat = Math.trunc((subtotal * 0.05) * 100) / 100
+    const total = Math.trunc((subtotal + vat) * 100) / 100
     return { subtotal, vat, total }
   }
 
