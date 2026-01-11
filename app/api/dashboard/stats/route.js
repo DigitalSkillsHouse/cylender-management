@@ -591,9 +591,9 @@ export async function GET(request) {
     const totalCylinderTransactionRevenue = (adminCylinderRevenueExcludingDeposits[0]?.cylinderRevenue || 0) + 
                                   (employeeCylinderRevenueExcludingDeposits[0]?.employeeCylinderRevenue || 0)
     
-    // Total Revenue = Gas Sales Revenue + Cylinder Sales Revenue + Cylinder Transaction Revenue
+    // Total Revenue = Gas Sales Revenue + Cylinder Sales Revenue (EXCLUDING Cylinder Transaction Revenue)
     // Don't round intermediate calculations to prevent cumulative errors
-    const totalCombinedRevenue = totalGasRevenue + totalCylinderSalesRevenue + totalCylinderTransactionRevenue
+    const totalCombinedRevenue = totalGasRevenue + totalCylinderSalesRevenue
 
     // Calculate total due (admin + employee)
     // Don't round intermediate calculations to prevent cumulative errors
@@ -673,9 +673,9 @@ export async function GET(request) {
 
     // Ensure all values are numbers and not null/undefined, rounded to 2 decimal places
     const statsResponse = {
-      totalRevenue: roundToTwo(totalCombinedRevenue), // Total revenue = Gas Sales + Cylinder Sales + Cylinder Transactions
+      totalRevenue: roundToTwo(totalCombinedRevenue), // Total revenue = Gas Sales + Cylinder Sales (EXCLUDES cylinder management transactions)
       gasSales: roundToTwo(totalGasRevenue), // Total gas sales revenue ONLY (admin + employee, from gas items only)
-      cylinderRefills: roundToTwo(totalCylinderTransactionRevenue), // Total cylinder transaction revenue (refills + returns only, excludes deposits)
+      cylinderRefills: roundToTwo(totalCylinderTransactionRevenue), // Total cylinder transaction revenue (refills + returns only, excludes deposits) - NOT included in totalRevenue
       totalDue: roundToTwo(totalDue), // Outstanding amounts (admin + employee)
       totalCustomers: Number(customerCount) || 0,
       totalEmployees: Number(employeeCount) || 0,
