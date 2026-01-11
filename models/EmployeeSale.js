@@ -28,6 +28,11 @@ const EmployeeSaleSchema = new mongoose.Schema(
         enum: ["gas", "cylinder"],
         required: true,
       },
+      cylinderStatus: {
+        type: String,
+        enum: ["empty", "full"],
+        required: false, // Optional field for cylinder items
+      },
       cylinderSize: {
         type: String,
         enum: ["large", "small"],

@@ -554,16 +554,22 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                               // For other transactions, show product category
                               const category = (item as any)?.category || (item?.product as any)?.category || '-'
                               const status = (item as any)?.cylinderStatus
+                              // For gas, show as "Gas"
+                              if (category === 'gas') {
+                                return 'Gas'
+                              }
                               // For cylinders, show status with "Cylinder" (e.g., "Full Cylinder", "Empty Cylinder")
                               if (category === 'cylinder') {
-                                if (status) {
-                                  // Capitalize first letter and add "Cylinder" (e.g., "empty" -> "Empty Cylinder", "full" -> "Full Cylinder")
-                                  return status.charAt(0).toUpperCase() + status.slice(1) + ' Cylinder'
+                                if (status === 'full') {
+                                  return 'Full Cylinder'
+                                } else if (status === 'empty') {
+                                  return 'Empty Cylinder'
+                                } else {
+                                  // If no status, just show "Cylinder"
+                                  return 'Cylinder'
                                 }
-                                // If no status, just show "Cylinder"
-                                return 'Cylinder'
                               }
-                              // For gas, show as-is
+                              // Fallback for other categories
                               return category.charAt(0).toUpperCase() + category.slice(1)
                             })()}
                           </td>

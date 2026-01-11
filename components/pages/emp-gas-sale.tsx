@@ -2692,7 +2692,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                                     variant="outline"
                                     className={`text-xs font-medium ${item.category === 'gas' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'}`}
                                   >
-                                    {item.category}
+                                    {item.category === 'gas' ? 'Gas' : item.category}
                                   </Badge>
                                 </div>
                                 <div className="text-xs text-gray-500">AED {Number(item.price || 0).toFixed(2)} each</div>
@@ -2818,7 +2818,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                                         variant="outline"
                                         className={`text-xs font-medium ${item.category === 'gas' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'}`}
                                       >
-                                        {item.category}
+                                        {item.category === 'gas' ? 'Gas' : item.category}
                                       </Badge>
                                     </div>
                                     <div className="text-xs text-gray-600">Qty: {item.quantity} • AED {Number(item.price || 0).toFixed(2)} each</div>

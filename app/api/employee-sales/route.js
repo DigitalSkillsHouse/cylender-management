@@ -175,7 +175,7 @@ export async function POST(request) {
         total: itemTotal,
         category: productCategory,
         cylinderSize: cylinderSize,
-        cylinderStatus: item.cylinderStatus,
+        cylinderStatus: item.cylinderStatus || (productCategory === 'cylinder' ? 'empty' : undefined),
         cylinderProductId: item.cylinderProductId,
         gasProductId: item.gasProductId,
       }
@@ -567,6 +567,14 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
       
     } else if (product.category === 'cylinder' || item.category === 'cylinder') {
       // Cylinder Sales - distinguish between Full and Empty
+      console.log(`🔍 [EMPLOYEE DAILY SALES] Processing cylinder item:`, {
+        productName: product.name,
+        itemCylinderStatus: item.cylinderStatus,
+        itemGasProductId: item.gasProductId,
+        itemCategory: item.category,
+        productCategory: product.category
+      })
+      
       // Check if cylinderStatus is explicitly set, or infer from other indicators
       let isFullCylinder = item.cylinderStatus === 'full'
       
