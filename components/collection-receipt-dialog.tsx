@@ -154,7 +154,7 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
           Receipt preview for collected payments against pending invoices with signature area.
         </div>
 
-        <div ref={contentRef} className="space-y-6">
+        <div ref={contentRef} className="space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh]">
           {/* Header image to match ReceiptDialog styling (Tax invoice) */}
           <div className="text-center pb-4">
             <img src="/images/Header-Tax-invoice.jpg" alt="Header" className="mx-auto max-w-full h-auto" />
@@ -223,8 +223,8 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
             </table>
           </div>
 
-          {/* Footer with signatures, matching visual style */}
-          <div className="mt-8 print-area relative">
+          {/* Footer with signatures, matching visual style - pushed to bottom */}
+          <div className="mt-auto pt-8 print-area relative flex-shrink-0">
             <div className="text-center">
               <img src="/images/footer.png" alt="Footer" className="mx-auto max-w-full h-auto" />
             </div>

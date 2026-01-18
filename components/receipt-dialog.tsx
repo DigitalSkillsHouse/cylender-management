@@ -315,8 +315,8 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
           Sales receipt for invoice {sale.invoiceNumber} showing customer information, purchased items, and total amount with signature area for printing or download.
         </div>
 
-        <div className="space-y-6">
-          <div ref={contentRef}>
+        <div className="space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh]">
+          <div ref={contentRef} className="flex flex-col flex-grow">
             {/* Company Header Image */}
             <div className="text-center pb-4">
             <img 
@@ -663,8 +663,8 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
             </div>
           )}
 
-          {/* Footer with Signature */}
-          <div className="mt-8 print-area relative">
+          {/* Footer with Signature - pushed to bottom using flexbox */}
+          <div className="mt-auto pt-8 print-area relative flex-shrink-0">
             {/* Footer Image */}
             <div className="text-center">
               <img 

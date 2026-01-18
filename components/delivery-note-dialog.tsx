@@ -448,8 +448,8 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
           Delivery note for invoice DN-{sale.invoiceNumber} showing customer information and items delivered.
         </div>
 
-        <div className="space-y-6">
-          <div ref={contentRef}>
+        <div className="space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh]">
+          <div ref={contentRef} className="flex flex-col flex-grow">
             {/* Company Header Image */}
             <div className="text-center pb-4">
               <img 
@@ -524,8 +524,8 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
 
             <Separator />
 
-            {/* Footer Image with Signatures */}
-            <div className="mt-8 print-area relative">
+            {/* Footer Image with Signatures - pushed to bottom */}
+            <div className="mt-auto pt-8 print-area relative flex-shrink-0">
               <div className="text-center">
                 <img 
                   src="/images/footer.png" 

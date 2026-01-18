@@ -148,8 +148,8 @@ const ReceiptPrintPage = () => {
         </Button>
       </header>
 
-      {/* This is the printable receipt area */}
-      <main className="printable-area max-w-3xl mx-auto p-8 bg-white">
+      {/* This is the printable receipt area - use flexbox to push footer to bottom */}
+      <main className="printable-area max-w-3xl mx-auto p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen">
         <div className="text-center">
           <img 
             src={headerSrc}
@@ -384,7 +384,7 @@ const ReceiptPrintPage = () => {
           </section>
         )}
 
-        <footer className="text-center pt-8 mt-8 relative">
+        <footer className="text-center pt-8 mt-auto relative flex-shrink-0">
           {/* The footer image acts as a container */}
           <img 
             src="/images/footer.png" 
@@ -444,10 +444,16 @@ const ReceiptPrintPage = () => {
             position: absolute;
             top: 0;
             left: 0;
+            display: flex !important;
+            flex-direction: column !important;
+            min-height: 100vh !important;
           }
           /* Ensure the page content fits a single page height when <= 15 rows */
           table tr { break-inside: avoid; }
-          footer { break-inside: avoid; }
+          footer { 
+            break-inside: avoid;
+            margin-top: auto !important;
+          }
         }
       `}</style>
     </div>
