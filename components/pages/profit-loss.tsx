@@ -299,7 +299,7 @@ export default function ProfitLoss() {
       // Table header
       const tableStartY = currentY
       const rowHeight = 8
-      const colWidths = [25, 30, 50, 25, 20, 25] // Date, Invoice, Description, Amount, VAT, Total
+      const colWidths = [25, 30, 80, 25, 20, 25] // Date, Invoice, Description (increased), Amount, VAT, Total
       const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
       const tableX = (pageWidth - tableWidth) / 2
 
@@ -396,25 +396,38 @@ export default function ProfitLoss() {
         pdf.text(invoiceText.length > 12 ? invoiceText.substring(0, 10) + "..." : invoiceText, cellX + 2, currentRowY + 5.5)
         cellX += colWidths[1]
         
-        // Description
-        const descText = expense.description.length > 25 ? expense.description.substring(0, 22) + "..." : expense.description
-        pdf.text(descText, cellX + 2, currentRowY + 5.5)
+        // Description - wrap long text into multiple lines without truncation
+        const maxWidth = colWidths[2] - 4 // Available width for description text (minus padding)
+        const descriptionLines = (pdf as any).splitTextToSize(expense.description || '', maxWidth)
+        
+        // Calculate required row height for description
+        const descLineHeight = 3.5
+        const descNeededHeight = Math.max(rowHeight, (descriptionLines.length * descLineHeight) + 2)
+        
+        // Draw each line of description
+        descriptionLines.forEach((line: string, lineIdx: number) => {
+          pdf.text(line, cellX + 2, currentRowY + 3 + (lineIdx * descLineHeight))
+        })
         cellX += colWidths[2]
         
-        // Amount
+        // Adjust row height if description is multi-line
+        const actualRowHeight = descNeededHeight > rowHeight ? descNeededHeight : rowHeight
+        
+        // Amount - align with description start (top of cell)
         pdf.text(`${expense.expense.toFixed(2)}`, cellX + colWidths[3] - 2, currentRowY + 5.5, { align: "right" })
         cellX += colWidths[3]
         
-        // VAT
+        // VAT - align with description start (top of cell)
         pdf.text(`${vatAmount.toFixed(2)}`, cellX + colWidths[4] - 2, currentRowY + 5.5, { align: "right" })
         cellX += colWidths[4]
         
-        // Total
+        // Total - align with description start (top of cell)
         pdf.setFont('helvetica', 'bold')
         pdf.text(`${totalAmount.toFixed(2)}`, cellX + colWidths[5] - 2, currentRowY + 5.5, { align: "right" })
         pdf.setFont('helvetica', 'normal')
 
-        currentRowY += rowHeight
+        // Use actual row height (which accounts for multi-line descriptions)
+        currentRowY += actualRowHeight
       })
 
       // Footer
