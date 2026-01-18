@@ -375,15 +375,22 @@ export async function PATCH(request, { params }) {
           })
           
           if (originalInventoryStatus === "pending" && employeeStatus === "approved") {
-            // Admin is approving employee order - create stock assignment with "assigned" status
-            console.log("Admin approving employee purchase - creating stock assignment with assigned status")
+            // Check if this is an employee's own purchase (autoApproved) - don't create StockAssignment
+            // Employee purchases should ONLY show in "Pending Purchase", not "Pending Assignments"
+            if (updatedOrder.autoApproved) {
+              console.log("Employee's own purchase (autoApproved) - skipping StockAssignment creation. Will show in Pending Purchase only.")
+              // Don't create StockAssignment - the purchase will show in "Pending Purchase" tab
+              // Employee will accept it directly from there
+            } else {
+              // Admin is approving employee order assigned by admin - create stock assignment with "assigned" status
+              console.log("Admin approving employee purchase (assigned by admin) - creating stock assignment with assigned status")
+              
+              const StockAssignment = require("@/models/StockAssignment").default
             
-            const StockAssignment = require("@/models/StockAssignment").default
+              // ENHANCED PRODUCT MATCHING
+              let product = await findProductByEnhancedMatching(item)
             
-            // ENHANCED PRODUCT MATCHING
-            let product = await findProductByEnhancedMatching(item)
-            
-            if (product && employeeId) {
+              if (product && employeeId) {
               // Check if this is a gas purchase with empty cylinder conversion
               if (product.category === 'gas' && updatedOrder.emptyCylinderId) {
                 console.log("🔄 Gas purchase with empty cylinder conversion detected")
@@ -489,13 +496,22 @@ export async function PATCH(request, { params }) {
                 await stockAssignment.save()
                 console.log(`✅ Created stock assignment for employee ${employeeId}: ${item.quantity} units of ${product.name}`)
               }
+              }
             }
             
-            // Also send notification
+            // Send notification for both autoApproved and admin-assigned purchases
             try {
               const Notification = require("@/models/Notification").default
               
-              let productName = product?.name || "Unknown Product"
+              // Get product name for notification (need to fetch if autoApproved since product might not be set)
+              let productName = "Unknown Product"
+              if (updatedOrder.autoApproved) {
+                const Product = require("@/models/Product").default
+                const productDoc = await Product.findById(item.product || item.productId)
+                productName = productDoc?.name || "Unknown Product"
+              } else {
+                productName = product?.name || "Unknown Product"
+              }
               
               const notification = new Notification({
                 userId: employeeId,
