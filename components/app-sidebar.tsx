@@ -80,7 +80,7 @@ const adminMenuItems = [
     icon: Fuel,
   },
   {
-    title: "Cylinder Management",
+    title: "Deposit / Return",
     url: "cylinders",
     icon: Cylinder,
   },
@@ -138,7 +138,7 @@ const employeeMenuItems = [
     icon: Fuel,
   },
   {
-    title: "Cylinder Sales",
+    title: "Deposit / Return",
     url: "employee-cylinder-sales",
     icon: Cylinder,
   },
