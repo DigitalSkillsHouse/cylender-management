@@ -2260,10 +2260,9 @@ export const CylinderManagement = () => {
                                 const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0
                                 return availableEmpty > 0
                               }
-                              // For returns, check empty cylinder availability from inventory
+                              // For returns, show ALL products even if stock is 0 (customer can return cylinders)
                               if (formData.type === 'return') {
-                                const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0
-                                return availableEmpty > 0
+                                return true // Show all products for return transactions
                               }
                               // Fallback to currentStock
                               return (p.currentStock || 0) > 0
