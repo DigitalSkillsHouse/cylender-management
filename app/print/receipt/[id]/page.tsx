@@ -148,8 +148,8 @@ const ReceiptPrintPage = () => {
         </Button>
       </header>
 
-      {/* This is the printable receipt area - use flexbox to push footer to bottom */}
-      <main className="printable-area max-w-3xl mx-auto p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen">
+      {/* This is the printable receipt area - use flexbox to push footer to bottom, constrained to one page */}
+      <main className="printable-area max-w-3xl mx-auto p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen print:max-h-[297mm] print:overflow-hidden">
         <div className="text-center">
           <img 
             src={headerSrc}
@@ -446,13 +446,36 @@ const ReceiptPrintPage = () => {
             left: 0;
             display: flex !important;
             flex-direction: column !important;
-            min-height: 100vh !important;
+            height: 100vh !important;
+            max-height: 297mm !important; /* A4 page height - ensures it fits on one page */
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            page-break-after: avoid !important;
+            break-after: avoid !important;
           }
-          /* Ensure the page content fits a single page height when <= 15 rows */
-          table tr { break-inside: avoid; }
-          footer { 
+          /* Prevent page breaks in all child sections */
+          .printable-area > section,
+          .printable-area > div {
+            page-break-inside: avoid;
             break-inside: avoid;
+          }
+          /* Ensure the page content fits a single page height */
+          table tr { break-inside: avoid; }
+          table { page-break-inside: avoid; break-inside: avoid; }
+          /* Footer should stay on same page - prevent it from breaking to next page */
+          footer { 
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            page-break-before: avoid !important;
+            break-before: avoid !important;
             margin-top: auto !important;
+            flex-shrink: 0 !important;
+            position: relative !important;
+          }
+          /* Prevent any element from forcing a page break */
+          * {
+            page-break-after: avoid;
+            break-after: avoid;
           }
         }
       `}</style>
