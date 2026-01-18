@@ -47,6 +47,9 @@ const ReceiptPrintPage = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Set page title to minimal value to reduce browser print header text
+    document.title = 'Receipt';
+    
     setLoading(true);
     try {
       // Data is passed from the dialog via sessionStorage
@@ -413,21 +416,34 @@ const ReceiptPrintPage = () => {
       </main>
 
       <style jsx global>{`
+        /* Remove browser print headers and footers - set margins to 0 */
+        @page {
+          margin: 0;
+          size: A4;
+        }
         @media print {
           .no-print {
             display: none !important;
           }
-          body {
+          html, body {
             background-color: #fff !important;
             -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100%;
+            height: 100%;
           }
           .printable-area {
-            margin: 0;
-            padding: 0;
+            margin: 0 !important;
+            padding: 0 !important;
             box-shadow: none;
             border: none;
             width: 100%;
             max-width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
           }
           /* Ensure the page content fits a single page height when <= 15 rows */
           table tr { break-inside: avoid; }

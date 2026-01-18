@@ -1082,10 +1082,15 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
           receivedAmount: saved?.receivedAmount ?? derivedReceivedAmount,
           notes: saved?.notes || formData.notes,
           createdAt: saved?.createdAt || new Date().toISOString(),
+          // Include employee field for signature lookup
+          employee: saved?.employee || user?.id || null,
         }
         setPendingSale(normalizedSale)
         setShowSignatureDialog(true)
-      } catch {}
+      } catch (normalizeError: any) {
+        // Log error but don't block the flow - signature dialog is optional enhancement
+        console.warn("Failed to normalize sale data for signature dialog:", normalizeError?.message || normalizeError)
+      }
     } catch (error: any) {
       console.error("❌ Failed to save sale:", error?.response?.data || error?.message)
       console.error("❌ Full error object:", error)
@@ -2900,7 +2905,8 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
           onClose={() => {
             setReceiptSale(null)
             // Don't clear signature - keep it for reuse
-          }} 
+          }}
+          user={user}
         />
       )}
 

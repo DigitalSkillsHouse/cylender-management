@@ -2,7 +2,7 @@
 const { createServer } = require("http");
 const next = require("next");
 
-const port = process.env.PORT; // Railway uses this (8080)
+const port = process.env.PORT || 3000; // Railway uses PORT (8080), fallback to 3000
 const dev = process.env.NODE_ENV !== "production";
 
 const app = next({ dev });
