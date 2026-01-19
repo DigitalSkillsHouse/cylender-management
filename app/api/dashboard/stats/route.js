@@ -174,13 +174,6 @@ export async function GET(request) {
           due: { $subtract: ["$totalAmount", "$receivedAmount"] },
           receivedAmount: 1,
           paymentStatus: 1,
-          // Flag to indicate if this sale is pending
-          isPending: {
-            $or: [
-              { $eq: ["$paymentStatus", "pending"] },
-              { $gt: [{ $subtract: ["$totalAmount", "$receivedAmount"] }, 0] }
-            ]
-          },
         },
       },
       // Filter to only include pending sales for totalDue calculation
