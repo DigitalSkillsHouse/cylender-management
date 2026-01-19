@@ -149,7 +149,7 @@ const ReceiptPrintPage = () => {
       </header>
 
       {/* This is the printable receipt area - use flexbox to push footer to bottom, constrained to one page */}
-      <main className="printable-area max-w-3xl mx-auto p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen print:max-h-[297mm] print:overflow-hidden">
+      <main className="printable-area max-w-3xl mx-auto p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen print:max-h-[297mm] print:overflow-hidden print:p-[15mm] print:box-border">
         {/* Content wrapper that can scroll if needed, but footer stays at bottom */}
         <div className="flex-1 flex flex-col print:max-h-[calc(297mm-120px)] print:overflow-hidden">
           <div className="text-center">
@@ -419,9 +419,9 @@ const ReceiptPrintPage = () => {
       </main>
 
       <style jsx global>{`
-        /* Remove browser print headers and footers - set margins to 0 */
+        /* Set proper page margins for A4 printing - boxed content */
         @page {
-          margin: 0;
+          margin: 10mm;
           size: A4;
         }
         @media print {
@@ -439,20 +439,22 @@ const ReceiptPrintPage = () => {
           }
           .printable-area {
             margin: 0 !important;
-            padding: 0 !important;
+            padding: 15mm !important; /* Boxed padding inside page margins */
             box-shadow: none;
             border: none;
-            width: 100%;
-            max-width: 100%;
+            width: calc(100% - 20mm) !important; /* Account for page margins */
+            max-width: calc(210mm - 20mm) !important; /* A4 width (210mm) minus page margins */
             position: relative !important;
             display: flex !important;
             flex-direction: column !important;
-            min-height: 100vh !important;
-            max-height: 297mm !important; /* A4 page height - ensures it fits on one page */
+            min-height: calc(297mm - 20mm) !important; /* A4 height minus page margins */
+            max-height: calc(297mm - 20mm) !important; /* A4 page height - ensures it fits on one page */
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             page-break-after: avoid !important;
             break-after: avoid !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
           }
           /* Prevent page breaks in all child sections */
           .printable-area > section,
@@ -465,15 +467,33 @@ const ReceiptPrintPage = () => {
           table { page-break-inside: avoid; break-inside: avoid; }
           /* Ensure footer is always visible and at bottom of first page */
           .printable-area {
-            min-height: 297mm !important;
-            max-height: 297mm !important;
-            height: 297mm !important;
+            min-height: calc(297mm - 20mm) !important;
+            max-height: calc(297mm - 20mm) !important;
+            height: calc(297mm - 20mm) !important;
           }
           .printable-area > div:first-child {
             flex: 1 1 auto !important;
             min-height: 0 !important;
-            max-height: calc(297mm - 120px) !important;
+            max-height: calc(297mm - 20mm - 120px) !important; /* Account for page margins and footer */
             overflow: hidden !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+          }
+          /* Prevent text from being cut off */
+          * {
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            box-sizing: border-box !important;
+          }
+          table {
+            width: 100% !important;
+            table-layout: auto !important;
+            word-wrap: break-word !important;
+          }
+          td, th {
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            padding: 4px !important;
           }
           /* Footer should stay on same page - prevent it from breaking to next page */
           footer { 

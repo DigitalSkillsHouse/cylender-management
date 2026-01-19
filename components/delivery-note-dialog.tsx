@@ -568,20 +568,37 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
           </div>
           
           <style jsx global>{`
+            @page {
+              margin: 10mm;
+              size: A4;
+            }
             @media print {
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+              }
               div[class*="space-y-6"] {
                 position: relative !important;
-                min-height: 297mm !important;
-                max-height: 297mm !important;
-                height: 297mm !important;
+                min-height: calc(297mm - 20mm) !important;
+                max-height: calc(297mm - 20mm) !important;
+                height: calc(297mm - 20mm) !important;
                 display: flex !important;
                 flex-direction: column !important;
+                padding: 15mm !important;
+                width: calc(100% - 20mm) !important;
+                max-width: calc(210mm - 20mm) !important;
+                box-sizing: border-box !important;
+                overflow: hidden !important;
               }
               div[ref] {
                 flex: 1 1 auto !important;
                 min-height: 0 !important;
-                max-height: calc(297mm - 120px) !important;
+                max-height: calc(297mm - 20mm - 120px) !important;
                 overflow: hidden !important;
+                word-wrap: break-word !important;
+                overflow-wrap: break-word !important;
               }
               .print-area {
                 flex: 0 0 auto !important;
@@ -597,6 +614,22 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
                 display: block !important;
                 visibility: visible !important;
                 opacity: 1 !important;
+              }
+              /* Prevent text from being cut off */
+              * {
+                word-wrap: break-word !important;
+                overflow-wrap: break-word !important;
+                box-sizing: border-box !important;
+              }
+              table {
+                width: 100% !important;
+                table-layout: auto !important;
+                word-wrap: break-word !important;
+              }
+              td, th {
+                word-wrap: break-word !important;
+                overflow-wrap: break-word !important;
+                padding: 4px !important;
               }
             }
           `}</style>
