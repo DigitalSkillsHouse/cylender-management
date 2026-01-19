@@ -222,29 +222,53 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
   }
 
   const handlePrint = () => {
-    // Store the sale data in sessionStorage to pass it to the print page
-    sessionStorage.setItem('printReceiptData', JSON.stringify(sale));
-    if (adminSignature) {
-      sessionStorage.setItem('adminSignature', adminSignature)
+    try {
+      // Store the sale data in sessionStorage to pass it to the print page
+      sessionStorage.setItem('printReceiptData', JSON.stringify(sale));
+      if (adminSignature) {
+        sessionStorage.setItem('adminSignature', adminSignature)
+      }
+      // Persist header preference for print page
+      sessionStorage.setItem('useReceivingHeader', useReceivingHeader ? 'true' : 'false')
+      // Persist disableVAT flag for print page
+      const shouldDisableVAT = disableVAT || isCylinderTransaction
+      sessionStorage.setItem('disableVAT', shouldDisableVAT ? 'true' : 'false')
+      
+      // Open print page in new window
+      const printWindow = window.open(`/print/receipt/${sale._id}`, '_blank');
+      if (!printWindow) {
+        toast.error("Print window blocked", {
+          description: "Please allow popups to print the receipt.",
+        })
+        return
+      }
+    } catch (error) {
+      console.error("Error opening print window:", error)
+      toast.error("Failed to open print window", {
+        description: "Please try again or contact support if the issue persists.",
+      })
     }
-    // Persist header preference for print page
-    sessionStorage.setItem('useReceivingHeader', useReceivingHeader ? 'true' : 'false')
-    // Persist disableVAT flag for print page
-    const shouldDisableVAT = disableVAT || isCylinderTransaction
-    sessionStorage.setItem('disableVAT', shouldDisableVAT ? 'true' : 'false')
-    window.open(`/print/receipt/${sale._id}`, '_blank');
   }
 
   const handleDownload = async () => {
     try {
+      // Show loading toast
+      const loadingToast = toast.loading("Generating PDF...", {
+        description: "Please wait while we prepare your receipt.",
+      })
+
       // Dynamically import to avoid SSR issues
       const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
         import('html2canvas'),
         import('jspdf'),
       ])
 
+      // Wait a bit to ensure the dialog content is fully rendered
+      await new Promise(resolve => setTimeout(resolve, 100))
+
       const node = contentRef.current
       if (!node) {
+        toast.dismiss(loadingToast)
         toast.error("Failed to generate PDF", {
           description: "Content not available. Please try again.",
         })
@@ -256,6 +280,8 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
         scale: 4, // even sharper to reduce blurriness
         backgroundColor: '#ffffff',
         useCORS: true,
+        logging: false, // Disable console logging from html2canvas
+        allowTaint: true,
       })
       const imgData = canvas.toDataURL('image/png')
 
@@ -284,13 +310,15 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
 
       const fileName = `receipt-${sale.invoiceNumber}.pdf`
       pdf.save(fileName)
+      
+      toast.dismiss(loadingToast)
       toast.success("Receipt PDF downloaded successfully", {
         description: `File: ${fileName}`,
       })
     } catch (error) {
       console.error("Error generating PDF:", error)
       toast.error("Failed to download receipt PDF", {
-        description: "Please try again or contact support if the issue persists.",
+        description: error instanceof Error ? error.message : "Please try again or contact support if the issue persists.",
       })
     }
   }
@@ -708,11 +736,25 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
 
         {/* Action Buttons - Moved to bottom */}
         <div className="flex gap-3 justify-center mt-8 no-print">
-          <Button variant="outline" onClick={handleDownload}>
+          <Button 
+            variant="outline" 
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              handleDownload()
+            }}
+          >
             <Download className="w-4 h-4 mr-2" />
             Download
           </Button>
-          <Button onClick={handlePrint} className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white">
+          <Button 
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              handlePrint()
+            }} 
+            className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+          >
             <Printer className="w-4 h-4 mr-2" />
             Print Receipt
           </Button>
