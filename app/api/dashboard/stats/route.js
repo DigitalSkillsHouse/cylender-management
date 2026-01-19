@@ -159,19 +159,38 @@ export async function GET(request) {
     
     // Get total sales stats (for counts and due calculations)
     // Round each sale's due amount to 2 decimal places before summing to avoid floating point precision issues
+    // IMPORTANT: Only include pending sales (paymentStatus === 'pending' OR due > 0) in totalDue calculation
     const gasSalesResult = await Sale.aggregate([
       ...salesMatch,
       {
         $project: {
           totalAmount: { $round: ["$totalAmount", 2] },
           receivedAmount: { $round: [{ $ifNull: ["$receivedAmount", 0] }, 2] },
+          paymentStatus: 1,
         },
       },
       {
         $project: {
           due: { $subtract: ["$totalAmount", "$receivedAmount"] },
           receivedAmount: 1,
+          paymentStatus: 1,
+          // Flag to indicate if this sale is pending
+          isPending: {
+            $or: [
+              { $eq: ["$paymentStatus", "pending"] },
+              { $gt: [{ $subtract: ["$totalAmount", "$receivedAmount"] }, 0] }
+            ]
+          },
         },
+      },
+      // Filter to only include pending sales for totalDue calculation
+      {
+        $match: {
+          $or: [
+            { paymentStatus: "pending" },
+            { due: { $gt: 0 } }
+          ]
+        }
       },
       {
         $group: {
@@ -182,8 +201,24 @@ export async function GET(request) {
         },
       },
     ])
+    
+    // Also calculate total paid from ALL sales (not just pending) for accurate paid amount
+    const allSalesPaidResult = await Sale.aggregate([
+      ...salesMatch,
+      {
+        $group: {
+          _id: null,
+          gasSalesPaid: { $sum: { $round: [{ $ifNull: ["$receivedAmount", 0] }, 2] } },
+          totalSales: { $sum: 1 },
+        },
+      },
+    ])
 
     const gasSales = gasSalesResult[0] || { gasSalesPaid: 0, totalDue: 0, totalSales: 0 }
+    // Use paid amount from all sales, not just pending ones
+    const allSalesPaid = allSalesPaidResult[0] || { gasSalesPaid: 0, totalSales: 0 }
+    gasSales.gasSalesPaid = allSalesPaid.gasSalesPaid
+    gasSales.totalSales = allSalesPaid.totalSales
     gasSales.gasSalesRevenue = adminGasSalesRevenue
 
     // ========== DETAILED LOGGING FOR TOTAL DUE CALCULATION ==========
@@ -377,19 +412,31 @@ export async function GET(request) {
       : []
     
     // Round each employee sale's due amount to 2 decimal places before summing to avoid floating point precision issues
+    // IMPORTANT: Only include pending sales (paymentStatus === 'pending' OR due > 0) in employeeTotalDue calculation
     const employeeGasSalesResult = await EmployeeSale.aggregate([
       ...employeeSalesMatch,
       {
         $project: {
           totalAmount: { $round: ["$totalAmount", 2] },
           receivedAmount: { $round: [{ $ifNull: ["$receivedAmount", 0] }, 2] },
+          paymentStatus: 1,
         },
       },
       {
         $project: {
           due: { $subtract: ["$totalAmount", "$receivedAmount"] },
           receivedAmount: 1,
+          paymentStatus: 1,
         },
+      },
+      // Filter to only include pending sales for employeeTotalDue calculation
+      {
+        $match: {
+          $or: [
+            { paymentStatus: "pending" },
+            { due: { $gt: 0 } }
+          ]
+        }
       },
       {
         $group: {
@@ -400,8 +447,24 @@ export async function GET(request) {
         },
       },
     ])
+    
+    // Also calculate total paid from ALL employee sales (not just pending) for accurate paid amount
+    const allEmployeeSalesPaidResult = await EmployeeSale.aggregate([
+      ...employeeSalesMatch,
+      {
+        $group: {
+          _id: null,
+          employeeGasSalesPaid: { $sum: { $round: [{ $ifNull: ["$receivedAmount", 0] }, 2] } },
+          employeeTotalSales: { $sum: 1 },
+        },
+      },
+    ])
 
     const employeeGasSales = employeeGasSalesResult[0] || { employeeGasSalesPaid: 0, employeeTotalDue: 0, employeeTotalSales: 0 }
+    // Use paid amount from all employee sales, not just pending ones
+    const allEmployeeSalesPaid = allEmployeeSalesPaidResult[0] || { employeeGasSalesPaid: 0, employeeTotalSales: 0 }
+    employeeGasSales.employeeGasSalesPaid = allEmployeeSalesPaid.employeeGasSalesPaid
+    employeeGasSales.employeeTotalSales = allEmployeeSalesPaid.employeeTotalSales
     employeeGasSales.employeeGasSalesRevenue = employeeGasSalesRevenue
 
     // ========== DETAILED LOGGING FOR EMPLOYEE SALES TOTAL DUE CALCULATION ==========
