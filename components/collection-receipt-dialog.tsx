@@ -248,7 +248,7 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
         
         <style jsx global>{`
           @page {
-            margin: 10mm;
+            margin: 0;
             size: A4;
           }
           @media print {
@@ -260,21 +260,21 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
             }
             div[class*="space-y-6"] {
               position: relative !important;
-              min-height: calc(297mm - 20mm) !important;
-              max-height: calc(297mm - 20mm) !important;
-              height: calc(297mm - 20mm) !important;
+              min-height: 297mm !important;
+              max-height: 297mm !important;
+              height: 297mm !important;
               display: flex !important;
               flex-direction: column !important;
-              padding: 15mm !important;
-              width: calc(100% - 20mm) !important;
-              max-width: calc(210mm - 20mm) !important;
+              padding: 30px !important; /* Small margin from corners (30px) */
+              width: 100% !important;
+              max-width: 100% !important;
               box-sizing: border-box !important;
               overflow: hidden !important;
             }
             div[class*="flex-1"] {
               flex: 1 1 auto !important;
               min-height: 0 !important;
-              max-height: calc(297mm - 20mm - 120px) !important;
+              max-height: calc(297mm - 60px - 120px) !important; /* Account for padding and footer */
               overflow: hidden !important;
               word-wrap: break-word !important;
               overflow-wrap: break-word !important;

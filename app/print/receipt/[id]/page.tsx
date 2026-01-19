@@ -149,7 +149,7 @@ const ReceiptPrintPage = () => {
       </header>
 
       {/* This is the printable receipt area - use flexbox to push footer to bottom, constrained to one page */}
-      <main className="printable-area max-w-3xl mx-auto p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen print:max-h-[297mm] print:overflow-hidden print:p-[15mm] print:box-border">
+      <main className="printable-area w-full p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen print:max-h-[297mm] print:overflow-hidden print:p-[30px] print:box-border">
         {/* Content wrapper that can scroll if needed, but footer stays at bottom */}
         <div className="flex-1 flex flex-col print:max-h-[calc(297mm-120px)] print:overflow-hidden">
           <div className="text-center">
@@ -419,9 +419,9 @@ const ReceiptPrintPage = () => {
       </main>
 
       <style jsx global>{`
-        /* Set proper page margins for A4 printing - boxed content */
+        /* Set minimal page margins for A4 printing - full page usage */
         @page {
-          margin: 10mm;
+          margin: 0;
           size: A4;
         }
         @media print {
@@ -439,16 +439,17 @@ const ReceiptPrintPage = () => {
           }
           .printable-area {
             margin: 0 !important;
-            padding: 15mm !important; /* Boxed padding inside page margins */
+            padding: 30px !important; /* Small margin from corners (30px = ~8mm) */
             box-shadow: none;
             border: none;
-            width: calc(100% - 20mm) !important; /* Account for page margins */
-            max-width: calc(210mm - 20mm) !important; /* A4 width (210mm) minus page margins */
+            width: 100% !important;
+            max-width: 100% !important;
             position: relative !important;
             display: flex !important;
             flex-direction: column !important;
-            min-height: calc(297mm - 20mm) !important; /* A4 height minus page margins */
-            max-height: calc(297mm - 20mm) !important; /* A4 page height - ensures it fits on one page */
+            min-height: 297mm !important; /* Full A4 height */
+            max-height: 297mm !important; /* A4 page height - ensures it fits on one page */
+            height: 297mm !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             page-break-after: avoid !important;
@@ -466,15 +467,10 @@ const ReceiptPrintPage = () => {
           table tr { break-inside: avoid; }
           table { page-break-inside: avoid; break-inside: avoid; }
           /* Ensure footer is always visible and at bottom of first page */
-          .printable-area {
-            min-height: calc(297mm - 20mm) !important;
-            max-height: calc(297mm - 20mm) !important;
-            height: calc(297mm - 20mm) !important;
-          }
           .printable-area > div:first-child {
             flex: 1 1 auto !important;
             min-height: 0 !important;
-            max-height: calc(297mm - 20mm - 120px) !important; /* Account for page margins and footer */
+            max-height: calc(297mm - 60px - 120px) !important; /* Account for padding (30px top + 30px bottom) and footer */
             overflow: hidden !important;
             word-wrap: break-word !important;
             overflow-wrap: break-word !important;
