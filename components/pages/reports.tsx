@@ -333,7 +333,8 @@ export const Reports = () => {
       const cyl = Array.isArray(c.recentCylinderTransactions) ? c.recentCylinderTransactions : []
       const hasOverdue = sales.some((s: any) => s?.paymentStatus === 'overdue') || cyl.some((t: any) => t?.status === 'overdue')
       if (hasOverdue) return 'overdue'
-      const hasPending = sales.some((s: any) => s?.paymentStatus === 'pending') || cyl.some((t: any) => t?.status === 'pending')
+      // Check for pending: paymentStatus === 'pending' OR has outstanding balance (totalAmount > receivedAmount)
+      const hasPending = sales.some((s: any) => s?.paymentStatus === 'pending' || (Number(s?.totalAmount || 0) > Number(s?.receivedAmount || 0))) || cyl.some((t: any) => t?.status === 'pending')
       if (hasPending) return 'pending'
       if ((c.balance ?? 0) <= 0) return 'cleared'
       return (c.status || 'cleared') as any
@@ -365,7 +366,10 @@ export const Reports = () => {
     // Filter customers with pending transactions
     let pendingCustomers = customers.filter(customer => {
       // Check if customer has any pending transactions
-      const hasPendingGasSales = customer.recentSales?.some((sale: any) => sale.paymentStatus === 'pending') || false;
+      // Pending = paymentStatus === 'pending' OR has outstanding balance (totalAmount > receivedAmount)
+      const hasPendingGasSales = customer.recentSales?.some((sale: any) => 
+        sale.paymentStatus === 'pending' || (Number(sale.totalAmount || 0) > Number(sale.receivedAmount || 0))
+      ) || false;
       const hasPendingCylinders = customer.recentCylinderTransactions?.some((transaction: any) => transaction.status === 'pending') || false;
       return hasPendingGasSales || hasPendingCylinders;
     });
@@ -596,8 +600,10 @@ export const Reports = () => {
 
       // Process each customer
       for (const customer of pendingCustomers) {
-        // Get pending gas sales
-        const pendingGasSales = customer.recentSales?.filter((sale: any) => sale.paymentStatus === 'pending') || [];
+        // Get pending gas sales - paymentStatus === 'pending' OR has outstanding balance
+        const pendingGasSales = customer.recentSales?.filter((sale: any) => 
+          sale.paymentStatus === 'pending' || (Number(sale.totalAmount || 0) > Number(sale.receivedAmount || 0))
+        ) || [];
         
         // Get pending cylinder transactions
         const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
@@ -2807,7 +2813,9 @@ export const Reports = () => {
                                                 newTotalReceived: Number(sale.receivedAmount ?? sale.amountPaid ?? 0),
                                                 at: String(sale.createdAt || new Date().toISOString()),
                                               }
-                                              const canReceive = String(sale.paymentStatus).toLowerCase() === 'pending'
+                                              // Can receive if paymentStatus is 'pending' OR has outstanding balance
+                                              const hasOutstandingBalance = Number(sale.totalAmount || 0) > Number(sale.receivedAmount || 0)
+                                              const canReceive = String(sale.paymentStatus).toLowerCase() === 'pending' || hasOutstandingBalance
                                               // When pending, show both Receive and See Details (details uses either rec or minimal)
                                               if (canReceive) {
                                                 return (
