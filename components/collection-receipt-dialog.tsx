@@ -154,9 +154,11 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
           Receipt preview for collected payments against pending invoices with signature area.
         </div>
 
-        <div ref={contentRef} className="space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh]">
-          {/* Header image to match ReceiptDialog styling (Tax invoice) */}
-          <div className="text-center pb-4">
+        <div ref={contentRef} className="space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh] print:relative">
+          {/* Content wrapper */}
+          <div className="flex-1 flex flex-col print:max-h-[calc(100vh-120px)] print:overflow-hidden">
+            {/* Header image to match ReceiptDialog styling (Tax invoice) */}
+            <div className="text-center pb-4">
             <img src="/images/Header-Tax-invoice.jpg" alt="Header" className="mx-auto max-w-full h-auto" />
           </div>
 
@@ -222,6 +224,7 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
               </tbody>
             </table>
           </div>
+          </div>
 
           {/* Footer with signatures, matching visual style - pushed to bottom */}
           <div className="mt-auto pt-8 print-area relative flex-shrink-0">
@@ -242,6 +245,40 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
             )}
           </div>
         </div>
+        
+        <style jsx global>{`
+          @media print {
+            div[class*="space-y-6"] {
+              position: relative !important;
+              min-height: 297mm !important;
+              max-height: 297mm !important;
+              height: 297mm !important;
+              display: flex !important;
+              flex-direction: column !important;
+            }
+            div[class*="flex-1"] {
+              flex: 1 1 auto !important;
+              min-height: 0 !important;
+              max-height: calc(297mm - 120px) !important;
+              overflow: hidden !important;
+            }
+            .print-area {
+              flex: 0 0 auto !important;
+              margin-top: auto !important;
+              position: relative !important;
+              width: 100% !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              page-break-before: avoid !important;
+              break-before: avoid !important;
+              page-break-after: avoid !important;
+              break-after: avoid !important;
+              display: block !important;
+              visibility: visible !important;
+              opacity: 1 !important;
+            }
+          }
+        `}</style>
 
         {/* Actions */}
         <div className="flex gap-3 justify-center mt-6">

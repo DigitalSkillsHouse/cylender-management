@@ -150,15 +150,17 @@ const ReceiptPrintPage = () => {
 
       {/* This is the printable receipt area - use flexbox to push footer to bottom, constrained to one page */}
       <main className="printable-area max-w-3xl mx-auto p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen print:max-h-[297mm] print:overflow-hidden">
-        <div className="text-center">
-          <img 
-            src={headerSrc}
-            alt="Company Header"
-            className="mx-auto max-w-full h-auto"
-          />
-        </div>
+        {/* Content wrapper that can scroll if needed, but footer stays at bottom */}
+        <div className="flex-1 flex flex-col print:max-h-[calc(297mm-120px)] print:overflow-hidden">
+          <div className="text-center">
+            <img 
+              src={headerSrc}
+              alt="Company Header"
+              className="mx-auto max-w-full h-auto"
+            />
+          </div>
 
-        <section className="grid grid-cols-2 gap-8 my-8">
+          <section className="grid grid-cols-2 gap-8 my-8">
           <div>
             <div className="space-y-1 text-sm text-gray-700">
               <div><strong>Name:</strong> {sale.customer.name}</div>
@@ -383,6 +385,7 @@ const ReceiptPrintPage = () => {
             </ol>
           </section>
         )}
+        </div>
 
         <footer className="text-center pt-8 mt-auto relative flex-shrink-0">
           {/* The footer image acts as a container */}
@@ -441,12 +444,10 @@ const ReceiptPrintPage = () => {
             border: none;
             width: 100%;
             max-width: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
+            position: relative !important;
             display: flex !important;
             flex-direction: column !important;
-            height: 100vh !important;
+            min-height: 100vh !important;
             max-height: 297mm !important; /* A4 page height - ensures it fits on one page */
             page-break-inside: avoid !important;
             break-inside: avoid !important;
@@ -455,22 +456,40 @@ const ReceiptPrintPage = () => {
           }
           /* Prevent page breaks in all child sections */
           .printable-area > section,
-          .printable-area > div {
+          .printable-area > div:not(footer) {
             page-break-inside: avoid;
             break-inside: avoid;
           }
           /* Ensure the page content fits a single page height */
           table tr { break-inside: avoid; }
           table { page-break-inside: avoid; break-inside: avoid; }
+          /* Ensure footer is always visible and at bottom of first page */
+          .printable-area {
+            min-height: 297mm !important;
+            max-height: 297mm !important;
+            height: 297mm !important;
+          }
+          .printable-area > div:first-child {
+            flex: 1 1 auto !important;
+            min-height: 0 !important;
+            max-height: calc(297mm - 120px) !important;
+            overflow: hidden !important;
+          }
           /* Footer should stay on same page - prevent it from breaking to next page */
           footer { 
             break-inside: avoid !important;
             page-break-inside: avoid !important;
             page-break-before: avoid !important;
             break-before: avoid !important;
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+            flex: 0 0 auto !important;
             margin-top: auto !important;
-            flex-shrink: 0 !important;
             position: relative !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100% !important;
           }
           /* Prevent any element from forcing a page break */
           * {

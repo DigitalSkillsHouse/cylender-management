@@ -448,8 +448,8 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
           Delivery note for invoice DN-{sale.invoiceNumber} showing customer information and items delivered.
         </div>
 
-        <div className="space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh]">
-          <div ref={contentRef} className="flex flex-col flex-grow">
+        <div className="space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh] print:relative">
+          <div ref={contentRef} className="flex flex-col flex-grow print:max-h-[calc(100vh-120px)] print:overflow-hidden">
             {/* Company Header Image */}
             <div className="text-center pb-4">
               <img 
@@ -566,6 +566,40 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
               )}
             </div>
           </div>
+          
+          <style jsx global>{`
+            @media print {
+              div[class*="space-y-6"] {
+                position: relative !important;
+                min-height: 297mm !important;
+                max-height: 297mm !important;
+                height: 297mm !important;
+                display: flex !important;
+                flex-direction: column !important;
+              }
+              div[ref] {
+                flex: 1 1 auto !important;
+                min-height: 0 !important;
+                max-height: calc(297mm - 120px) !important;
+                overflow: hidden !important;
+              }
+              .print-area {
+                flex: 0 0 auto !important;
+                margin-top: auto !important;
+                position: relative !important;
+                width: 100% !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+                page-break-before: avoid !important;
+                break-before: avoid !important;
+                page-break-after: avoid !important;
+                break-after: avoid !important;
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+              }
+            }
+          `}</style>
 
           {/* Action Buttons */}
           <div className="flex gap-3 justify-center mt-8 no-print">
