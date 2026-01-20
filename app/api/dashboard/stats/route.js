@@ -651,9 +651,46 @@ export async function GET(request) {
     // Don't round intermediate calculations to prevent cumulative errors
     const totalCombinedRevenue = totalGasRevenue + totalCylinderSalesRevenue
 
-    // Calculate total due (admin + employee)
+    // Calculate pending cylinder transactions amounts (for totalDue calculation)
+    // Only include pending cylinder transactions (status === 'pending')
+    const adminPendingCylinderMatch = dateFilter.createdAt 
+      ? [{ $match: { ...dateFilter, status: 'pending' } }] 
+      : [{ $match: { status: 'pending' } }]
+    
+    const employeePendingCylinderMatch = dateFilter.createdAt 
+      ? [{ $match: { ...dateFilter, status: 'pending' } }] 
+      : [{ $match: { status: 'pending' } }]
+    
+    const adminPendingCylinderDue = await CylinderTransaction.aggregate([
+      ...adminPendingCylinderMatch,
+      {
+        $group: {
+          _id: null,
+          pendingCylinderAmount: { 
+            $sum: { $round: [{ $ifNull: ["$amount", 0] }, 2] }
+          },
+        },
+      },
+    ])
+    
+    const employeePendingCylinderDue = await EmployeeCylinderTransaction.aggregate([
+      ...employeePendingCylinderMatch,
+      {
+        $group: {
+          _id: null,
+          pendingCylinderAmount: { 
+            $sum: { $round: [{ $ifNull: ["$amount", 0] }, 2] }
+          },
+        },
+      },
+    ])
+    
+    const adminPendingCylinderAmount = adminPendingCylinderDue[0]?.pendingCylinderAmount || 0
+    const employeePendingCylinderAmount = employeePendingCylinderDue[0]?.pendingCylinderAmount || 0
+    
+    // Calculate total due (admin + employee sales due amounts + pending cylinder transactions)
     // Don't round intermediate calculations to prevent cumulative errors
-    const totalDue = (gasSales.totalDue || 0) + (employeeGasSales.employeeTotalDue || 0)
+    const totalDue = (gasSales.totalDue || 0) + (employeeGasSales.employeeTotalDue || 0) + adminPendingCylinderAmount + employeePendingCylinderAmount
 
     // Calculate total paid (admin + employee)
     // Don't round intermediate calculations to prevent cumulative errors
@@ -661,14 +698,16 @@ export async function GET(request) {
 
     // ========== FINAL TOTAL DUE CALCULATION LOGGING ==========
     console.log('\n========== FINAL TOTAL DUE CALCULATION ==========')
-    console.log(`Admin totalDue (from aggregation): ${(gasSales.totalDue || 0).toFixed(2)}`)
-    console.log(`Employee totalDue (from aggregation): ${(employeeGasSales.employeeTotalDue || 0).toFixed(2)}`)
-    console.log(`Combined totalDue (before rounding): ${totalDue.toFixed(2)}`)
+    console.log(`Admin sales totalDue (from aggregation): ${(gasSales.totalDue || 0).toFixed(2)}`)
+    console.log(`Employee sales totalDue (from aggregation): ${(employeeGasSales.employeeTotalDue || 0).toFixed(2)}`)
+    console.log(`Admin pending cylinder amount: ${adminPendingCylinderAmount.toFixed(2)}`)
+    console.log(`Employee pending cylinder amount: ${employeePendingCylinderAmount.toFixed(2)}`)
+    console.log(`Combined totalDue (sales + cylinders, before rounding): ${totalDue.toFixed(2)}`)
     console.log(`Combined totalDue (after roundToTwo): ${roundToTwo(totalDue).toFixed(2)}`)
-    console.log(`Manual admin totalDue: ${manualAdminTotalDue.toFixed(2)}`)
-    console.log(`Manual employee totalDue: ${manualEmployeeTotalDue.toFixed(2)}`)
-    console.log(`Manual combined totalDue: ${(manualAdminTotalDue + manualEmployeeTotalDue).toFixed(2)}`)
-    console.log(`Difference (manual vs aggregation): ${((manualAdminTotalDue + manualEmployeeTotalDue) - totalDue).toFixed(2)}`)
+    console.log(`Manual admin sales totalDue: ${manualAdminTotalDue.toFixed(2)}`)
+    console.log(`Manual employee sales totalDue: ${manualEmployeeTotalDue.toFixed(2)}`)
+    console.log(`Manual combined sales totalDue: ${(manualAdminTotalDue + manualEmployeeTotalDue).toFixed(2)}`)
+    console.log(`Total including cylinders: ${(manualAdminTotalDue + manualEmployeeTotalDue + adminPendingCylinderAmount + employeePendingCylinderAmount).toFixed(2)}`)
     console.log('================================================\n')
 
     // Find inactive customers (no transactions in the last 30 days)
