@@ -46,7 +46,7 @@ export async function POST(request) {
     await dbConnect()
     
     const body = await request.json()
-    const { employeeId, customer, items, totalAmount, paymentMethod, paymentStatus, notes, customerSignature, receivedAmount } = body
+    const { employeeId, customer, items, totalAmount, deliveryCharges, paymentMethod, paymentStatus, notes, customerSignature, receivedAmount } = body
 
     // Validate required fields
     if (!employeeId || !customer || !items || items.length === 0) {
@@ -228,6 +228,7 @@ export async function POST(request) {
       ? Math.trunc(Number(totalAmount) * 100) / 100
       : Math.trunc((calculatedTotal * 1.05) * 100) / 100 // Add 5% VAT if frontend didn't send totalAmount
     const roundedReceivedAmount = Math.trunc((parseFloat(receivedAmount) || 0) * 100) / 100
+    const roundedDeliveryCharges = Math.trunc((Number(deliveryCharges) || 0) * 100) / 100
     
     const newSale = new EmployeeSale({
       invoiceNumber,
@@ -235,6 +236,7 @@ export async function POST(request) {
       customer,
       items: validatedItems,
       totalAmount: finalTotalAmount, // Store with VAT included (matching admin sales)
+      deliveryCharges: roundedDeliveryCharges,
       paymentMethod: paymentMethod || "cash",
       paymentStatus: paymentStatus || "cleared",
       receivedAmount: roundedReceivedAmount,

@@ -113,15 +113,17 @@ const ReceiptPrintPage = () => {
     vatAmount = Math.trunc((subTotal * 0.05) * 100) / 100
     grandTotal = Math.trunc((subTotal + vatAmount) * 100) / 100
   } else {
-    // Totals breakdown: Subtotal (price*qty), VAT (5% of subtotal), Grand Total (subtotal + VAT)
+    // Totals breakdown: Subtotal (price*qty), Delivery Charges, Total (Subtotal + Delivery Charges), VAT (5% of Total), Grand Total (Total + VAT)
     subTotal = sale.items.reduce((sum, item) => {
       const priceNum = Number(item?.price || 0)
       const qtyNum = Number(item?.quantity || 0)
       const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
       return sum + line
     }, 0)
-    vatAmount = Math.trunc((subTotal * 0.05) * 100) / 100
-    grandTotal = Math.trunc((subTotal + vatAmount) * 100) / 100
+    const deliveryCharges = Number((sale as any)?.deliveryCharges || 0)
+    const total = Math.trunc((subTotal + deliveryCharges) * 100) / 100
+    vatAmount = Math.trunc((total * 0.05) * 100) / 100
+    grandTotal = Math.trunc((total + vatAmount) * 100) / 100
   }
 
   // Choose header by transaction type first (Deposit/Return),
@@ -339,6 +341,16 @@ const ReceiptPrintPage = () => {
                       <td className="text-right pr-4 text-base">Subtotal</td>
                       <td className="text-right w-36 text-base">AED {subTotal.toFixed(2)}</td>
                     </tr>
+                    {Number((sale as any)?.deliveryCharges || 0) > 0 && (
+                      <tr>
+                        <td className="text-right pr-4 text-base">Delivery Charges</td>
+                        <td className="text-right w-36 text-base">AED {Number((sale as any)?.deliveryCharges || 0).toFixed(2)}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="text-right pr-4 text-base">Total</td>
+                      <td className="text-right w-36 text-base">AED {Math.trunc((subTotal + Number((sale as any)?.deliveryCharges || 0)) * 100) / 100}</td>
+                    </tr>
                     <tr>
                       <td className="text-right pr-4 text-base">VAT (5%)</td>
                       <td className="text-right w-36 text-base">AED {vatAmount.toFixed(2)}</td>
@@ -346,7 +358,7 @@ const ReceiptPrintPage = () => {
                   </>
                 )}
                 <tr className="border-t-2 border-black mt-2">
-                  <td className="text-right pr-4 pt-2 font-bold text-xl">Total</td>
+                  <td className="text-right pr-4 pt-2 font-bold text-xl">Grand Total</td>
                   <td className="text-right font-bold text-xl w-36 pt-2">AED {grandTotal.toFixed(2)}</td>
                 </tr>
               </tbody>

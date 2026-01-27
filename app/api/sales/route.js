@@ -32,7 +32,7 @@ export async function POST(request) {
     await dbConnect()
 
     const body = await request.json()
-    const { customer, items, totalAmount, paymentMethod, paymentStatus, receivedAmount, notes } = body
+    const { customer, items, totalAmount, deliveryCharges, paymentMethod, paymentStatus, receivedAmount, notes } = body
 
     // Validate required fields
     if (!customer || !items || items.length === 0 || !totalAmount) {
@@ -237,12 +237,14 @@ export async function POST(request) {
     // Truncate to 2 decimal places (exact calculation, no rounding)
     const roundedTotalAmount = Math.trunc((Number(totalAmount) || 0) * 100) / 100
     const roundedReceivedAmount = Math.trunc((Number(receivedAmount) || 0) * 100) / 100
+    const roundedDeliveryCharges = Math.trunc((Number(deliveryCharges) || 0) * 100) / 100
     
     const sale = new Sale({
       invoiceNumber,
       customer,
       items: enrichedItems,
       totalAmount: roundedTotalAmount,
+      deliveryCharges: roundedDeliveryCharges,
       paymentMethod: paymentMethod || "cash",
       paymentStatus: paymentStatus || "cleared",
       receivedAmount: roundedReceivedAmount,

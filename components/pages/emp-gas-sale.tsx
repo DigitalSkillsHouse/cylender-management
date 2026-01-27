@@ -257,6 +257,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     receivedAmount: string
     paymentOption: "debit" | "credit" | "delivery_note"
     notes: string
+    deliveryCharges: string
   }>({
     customerId: "",
     category: "gas", 
@@ -266,6 +267,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     receivedAmount: "",
     paymentOption: "debit", // debit | credit | delivery_note
     notes: "",
+    deliveryCharges: "0",
   })
 
   // CSV export for Sales History
@@ -866,8 +868,12 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       }
 
       const subtotalAmount = saleItems.reduce((sum, item) => sum + item.total, 0)
-      // Add 5% VAT and truncate to 2 decimal places (exact calculation, no rounding)
-      const totalAmount = Math.trunc((subtotalAmount * 1.05) * 100) / 100
+      const deliveryCharges = parseFloat(formData.deliveryCharges) || 0
+      // Total = Subtotal + Delivery Charges
+      const total = Math.trunc((subtotalAmount + deliveryCharges) * 100) / 100
+      // VAT = 5% of Total, then Grand Total = Total + VAT
+      const vatAmount = Math.trunc((total * 0.05) * 100) / 100
+      const totalAmount = Math.trunc((total + vatAmount) * 100) / 100
 
       // Derive final payment fields from paymentOption
       let derivedPaymentMethod = formData.paymentMethod
@@ -894,6 +900,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         customer: formData.customerId,
         items: saleItems,  // Send only main items - backend handles inventory conversion internally
         totalAmount,
+        deliveryCharges: deliveryCharges,
         paymentMethod: derivedPaymentMethod,
         paymentStatus: derivedPaymentStatus,
         receivedAmount: derivedReceivedAmount,
@@ -1121,6 +1128,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       receivedAmount: "",
       paymentOption: "debit",
       notes: "",
+      deliveryCharges: "0",
     })
     setProductSearchTerms([])
     setShowProductSuggestions([])
@@ -1159,6 +1167,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         return "debit"
       })(),
       notes: sale.notes || "",
+      deliveryCharges: ((sale as any)?.deliveryCharges || 0).toString(),
     })
     // Initialize product search terms based on current products if available
     const initialTerms = (sale.items || []).map((it: any) => {
@@ -2405,22 +2414,44 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                 </div>
 
                 <div className="text-right space-y-2">
-                  {/* totalAmount is subtotal (without VAT), calculate VAT and total with VAT for display */}
                   {(() => {
                     const subtotal = totalAmount // totalAmount is already subtotal (sum of price * quantity)
-                    const vatAmount = Math.trunc((subtotal * 0.05) * 100) / 100 // Calculate 5% VAT (truncated, not rounded)
-                    const totalWithVAT = Math.trunc((subtotal + vatAmount) * 100) / 100 // Total with VAT included (truncated)
+                    const deliveryCharges = parseFloat(formData.deliveryCharges) || 0
+                    const total = Math.trunc((subtotal + deliveryCharges) * 100) / 100 // Total = Subtotal + Delivery Charges
+                    const vatAmount = Math.trunc((total * 0.05) * 100) / 100 // VAT = 5% of Total
+                    const grandTotal = Math.trunc((total + vatAmount) * 100) / 100 // Grand Total = Total + VAT
                     return (
                       <>
                         <div className="text-lg text-gray-700">Subtotal: AED {subtotal.toFixed(2)}</div>
+                        {deliveryCharges > 0 && (
+                          <div className="text-lg text-gray-700">Delivery Charges: AED {deliveryCharges.toFixed(2)}</div>
+                        )}
+                        <div className="text-lg text-gray-700">Total: AED {total.toFixed(2)}</div>
                         <div className="text-lg text-gray-700">VAT (5%): AED {vatAmount.toFixed(2)}</div>
                         <div className="border-t pt-2">
-                          <div className="text-2xl font-bold text-[#2B3068]">Total: AED {totalWithVAT.toFixed(2)}</div>
+                          <div className="text-2xl font-bold text-[#2B3068]">Grand Total: AED {grandTotal.toFixed(2)}</div>
                         </div>
                       </>
                     )
                   })()}
                 </div>
+              </div>
+
+              {/* Delivery Charges Section */}
+              <div className="space-y-2">
+                <Label htmlFor="deliveryCharges">Delivery Charges (AED)</Label>
+                <Input
+                  id="deliveryCharges"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.deliveryCharges}
+                  onChange={(e) => {
+                    setFormData({ ...formData, deliveryCharges: e.target.value })
+                  }}
+                  placeholder="0.00"
+                  className="text-lg"
+                />
               </div>
 
               {/* Payment Option / Received Amount Section */}
@@ -2471,8 +2502,12 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                         const receivedAmount = e.target.value
                         const receivedValue = parseFloat(receivedAmount) || 0
                         
-                        // totalAmount is subtotal, calculate total with VAT
-                        const totalWithVAT = totalAmount * 1.05
+                        // Calculate grand total: Subtotal + Delivery Charges = Total, then VAT on Total, then Grand Total
+                        const subtotal = totalAmount
+                        const deliveryCharges = parseFloat(formData.deliveryCharges) || 0
+                        const total = Math.trunc((subtotal + deliveryCharges) * 100) / 100
+                        const vatAmount = Math.trunc((total * 0.05) * 100) / 100
+                        const totalWithVAT = Math.trunc((total + vatAmount) * 100) / 100
                         let newPaymentStatus = formData.paymentStatus
                         // Use Math.abs for floating point comparison to handle precision issues
                         if (Math.abs(receivedValue - totalWithVAT) < 0.01 && totalWithVAT > 0) {
@@ -2497,7 +2532,12 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                       <div className="text-sm text-gray-600">
                         {(() => {
                           const receivedValue = parseFloat(formData.receivedAmount) || 0
-                          const totalWithVAT = totalAmount * 1.05 // Calculate total with VAT (totalAmount is subtotal)
+                          // Calculate grand total: Subtotal + Delivery Charges = Total, then VAT on Total, then Grand Total
+                          const subtotal = totalAmount
+                          const deliveryCharges = parseFloat(formData.deliveryCharges) || 0
+                          const total = Math.trunc((subtotal + deliveryCharges) * 100) / 100
+                          const vatAmount = Math.trunc((total * 0.05) * 100) / 100
+                          const totalWithVAT = Math.trunc((total + vatAmount) * 100) / 100
                           const remaining = totalWithVAT - receivedValue
                           if (remaining > 0) {
                             return `Remaining: AED ${remaining.toFixed(2)}`

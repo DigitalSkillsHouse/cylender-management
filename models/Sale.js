@@ -101,6 +101,11 @@ const SaleSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    deliveryCharges: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,

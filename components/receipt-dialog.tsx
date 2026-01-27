@@ -170,15 +170,17 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
     }
   } else {
     // VAT is 5% of unit price. We show per-item VAT column and a totals breakdown.
-    // Subtotal: sum(price * qty). VAT: 5% of subtotal. Grand Total: subtotal + VAT.
+    // Subtotal: sum(price * qty). Delivery Charges: from sale.deliveryCharges. Total: Subtotal + Delivery Charges. VAT: 5% of Total. Grand Total: Total + VAT.
     subTotal = itemsSafe.reduce((sum, item) => {
       const priceNum = Number(item?.price || 0)
       const qtyNum = Number(item?.quantity || 0)
       const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
       return sum + line
     }, 0)
-    vatAmount = Math.trunc((subTotal * 0.05) * 100) / 100
-    grandTotal = Math.trunc((subTotal + vatAmount) * 100) / 100
+    const deliveryCharges = Number((sale as any)?.deliveryCharges || 0)
+    const total = Math.trunc((subTotal + deliveryCharges) * 100) / 100
+    vatAmount = Math.trunc((total * 0.05) * 100) / 100
+    grandTotal = Math.trunc((total + vatAmount) * 100) / 100
   }
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
@@ -632,6 +634,16 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                       <td className="text-right pr-4 text-base">Subtotal</td>
                       <td className="text-right w-32 text-base">AED {subTotal.toFixed(2)}</td>
                     </tr>
+                    {Number((sale as any)?.deliveryCharges || 0) > 0 && (
+                      <tr>
+                        <td className="text-right pr-4 text-base">Delivery Charges</td>
+                        <td className="text-right w-32 text-base">AED {Number((sale as any)?.deliveryCharges || 0).toFixed(2)}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="text-right pr-4 text-base">Total</td>
+                      <td className="text-right w-32 text-base">AED {Math.trunc((subTotal + Number((sale as any)?.deliveryCharges || 0)) * 100) / 100}</td>
+                    </tr>
                     <tr>
                       <td className="text-right pr-4 text-base">VAT (5%)</td>
                       <td className="text-right w-32 text-base">AED {vatAmount.toFixed(2)}</td>
@@ -652,7 +664,7 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                   </>
                 )}
                 <tr>
-                  <td className="text-right pr-4 font-bold text-xl">Total</td>
+                  <td className="text-right pr-4 font-bold text-xl">Grand Total</td>
                   <td className="text-right font-bold text-xl w-32">AED {grandTotal.toFixed(2)}</td>
                 </tr>
               </tbody>
