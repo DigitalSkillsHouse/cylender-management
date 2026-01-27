@@ -49,6 +49,7 @@ interface ReceiptDialogProps {
     // Employee who created this sale (for employee sales)
     employee?: string | { _id: string; id?: string }
     employeeId?: string
+    deliveryCharges?: number
   }
   signature?: string
   onClose: () => void
@@ -177,7 +178,7 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
       const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
       return sum + line
     }, 0)
-    const deliveryCharges = Number((sale as any)?.deliveryCharges || 0)
+    const deliveryCharges = Number(sale?.deliveryCharges || 0)
     const total = Math.trunc((subTotal + deliveryCharges) * 100) / 100
     vatAmount = Math.trunc((total * 0.05) * 100) / 100
     grandTotal = Math.trunc((total + vatAmount) * 100) / 100
@@ -634,15 +635,15 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                       <td className="text-right pr-4 text-base">Subtotal</td>
                       <td className="text-right w-32 text-base">AED {subTotal.toFixed(2)}</td>
                     </tr>
-                    {Number((sale as any)?.deliveryCharges || 0) > 0 && (
+                    {Number(sale?.deliveryCharges || 0) > 0 && (
                       <tr>
                         <td className="text-right pr-4 text-base">Delivery Charges</td>
-                        <td className="text-right w-32 text-base">AED {Number((sale as any)?.deliveryCharges || 0).toFixed(2)}</td>
+                        <td className="text-right w-32 text-base">AED {Number(sale?.deliveryCharges || 0).toFixed(2)}</td>
                       </tr>
                     )}
                     <tr>
                       <td className="text-right pr-4 text-base">Total</td>
-                      <td className="text-right w-32 text-base">AED {Math.trunc((subTotal + Number((sale as any)?.deliveryCharges || 0)) * 100) / 100}</td>
+                      <td className="text-right w-32 text-base">AED {Math.trunc((subTotal + Number(sale?.deliveryCharges || 0)) * 100) / 100}</td>
                     </tr>
                     <tr>
                       <td className="text-right pr-4 text-base">VAT (5%)</td>

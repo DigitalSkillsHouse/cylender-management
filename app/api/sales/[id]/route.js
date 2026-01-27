@@ -78,22 +78,124 @@ export async function DELETE(request, { params }) {
 
     console.log('Deleting sale:', sale.invoiceNumber)
 
-    // Restore stock quantities back to products
+    // Restore inventory - reverse all changes made during sale creation
     try {
+      const InventoryItem = (await import('@/models/InventoryItem')).default
+      
       for (const item of sale.items) {
-        if (item.product && item.product._id) {
-          const currentProduct = await Product.findById(item.product._id)
-          if (currentProduct) {
-            const newStock = currentProduct.currentStock + item.quantity
-            await Product.findByIdAndUpdate(item.product._id, {
-              currentStock: newStock
+        if (!item.product || !item.product._id) continue
+        
+        const product = item.product
+        const category = (item as any).category || product.category || 'gas'
+        const quantity = Number(item.quantity) || 0
+        
+        console.log(`🔄 Reversing inventory for: ${product.name} (${category}), Qty: ${quantity}`)
+        
+        if (category === 'gas') {
+          // Gas sale reversal:
+          // 1. Restore gas stock in InventoryItem
+          const gasInventory = await InventoryItem.findOne({ product: product._id })
+          if (gasInventory) {
+            await InventoryItem.findByIdAndUpdate(gasInventory._id, {
+              $inc: { currentStock: quantity },
+              lastUpdatedAt: new Date()
             })
-            console.log(`✅ Restored ${item.product.name} stock from ${currentProduct.currentStock} to ${newStock} (returned ${item.quantity} units)`)
+            console.log(`✅ Restored gas inventory: ${product.name} +${quantity} units`)
+          }
+          
+          // 2. Reverse cylinder conversion (Empty back to Full) if cylinderProductId exists
+          const cylinderProductId = (item as any).cylinderProductId
+          if (cylinderProductId) {
+            const cylinderInventory = await InventoryItem.findOne({ product: cylinderProductId })
+            if (cylinderInventory) {
+              // Reverse: Empty cylinders back to Full
+              await InventoryItem.findByIdAndUpdate(cylinderInventory._id, {
+                $inc: {
+                  availableFull: quantity,
+                  availableEmpty: -quantity
+                },
+                lastUpdatedAt: new Date()
+              })
+              const cylinderProduct = await Product.findById(cylinderProductId)
+              console.log(`✅ Reversed cylinder conversion: ${cylinderProduct?.name || 'Cylinder'} - ${quantity} moved from Empty back to Full`)
+            }
+          }
+          
+          // 3. Restore Product model currentStock
+          const currentProduct = await Product.findById(product._id)
+          if (currentProduct) {
+            await Product.findByIdAndUpdate(product._id, {
+              currentStock: (currentProduct.currentStock || 0) + quantity
+            })
+            console.log(`✅ Restored Product.currentStock: ${product.name} +${quantity} units`)
+          }
+          
+        } else if (category === 'cylinder') {
+          // Cylinder sale reversal:
+          const cylinderStatus = (item as any).cylinderStatus || 'empty'
+          const cylinderInventory = await InventoryItem.findOne({ product: product._id })
+          
+          if (cylinderInventory) {
+            if (cylinderStatus === 'empty') {
+              // Restore empty cylinders
+              await InventoryItem.findByIdAndUpdate(cylinderInventory._id, {
+                $inc: { availableEmpty: quantity },
+                lastUpdatedAt: new Date()
+              })
+              console.log(`✅ Restored empty cylinders: ${product.name} +${quantity} units`)
+            } else if (cylinderStatus === 'full') {
+              // Restore full cylinders
+              await InventoryItem.findByIdAndUpdate(cylinderInventory._id, {
+                $inc: { availableFull: quantity },
+                lastUpdatedAt: new Date()
+              })
+              console.log(`✅ Restored full cylinders: ${product.name} +${quantity} units`)
+              
+              // Also restore gas stock if gasProductId exists (full cylinder contains gas)
+              const gasProductId = (item as any).gasProductId
+              if (gasProductId) {
+                const gasInventory = await InventoryItem.findOne({ product: gasProductId })
+                if (gasInventory) {
+                  await InventoryItem.findByIdAndUpdate(gasInventory._id, {
+                    $inc: { currentStock: quantity },
+                    lastUpdatedAt: new Date()
+                  })
+                  const gasProduct = await Product.findById(gasProductId)
+                  console.log(`✅ Restored gas from full cylinder: ${gasProduct?.name || 'Gas'} +${quantity} units`)
+                  
+                  // Also restore Product model
+                  const gasProductModel = await Product.findById(gasProductId)
+                  if (gasProductModel) {
+                    await Product.findByIdAndUpdate(gasProductId, {
+                      currentStock: (gasProductModel.currentStock || 0) + quantity
+                    })
+                  }
+                }
+              }
+            }
+          }
+          
+          // Restore Product model currentStock
+          const currentProduct = await Product.findById(product._id)
+          if (currentProduct) {
+            await Product.findByIdAndUpdate(product._id, {
+              currentStock: (currentProduct.currentStock || 0) + quantity
+            })
+            console.log(`✅ Restored Product.currentStock: ${product.name} +${quantity} units`)
+          }
+        } else {
+          // Other products - simple stock restoration
+          const currentProduct = await Product.findById(product._id)
+          if (currentProduct) {
+            await Product.findByIdAndUpdate(product._id, {
+              currentStock: (currentProduct.currentStock || 0) + quantity
+            })
+            console.log(`✅ Restored Product.currentStock: ${product.name} +${quantity} units`)
           }
         }
       }
     } catch (stockError) {
-      console.error('❌ Failed to restore product stock after sale deletion:', stockError)
+      console.error('❌ Failed to restore inventory after sale deletion:', stockError)
       // Continue with deletion even if stock restoration fails
     }
 

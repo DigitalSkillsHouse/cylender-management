@@ -38,6 +38,7 @@ interface Sale {
   customerSignature?: string;
   // Optional: used for cylinder returns to pick the correct header
   type?: 'deposit' | 'refill' | 'return' | 'collection' | string;
+  deliveryCharges?: number;
 }
 
 const ReceiptPrintPage = () => {
@@ -120,7 +121,7 @@ const ReceiptPrintPage = () => {
       const line = (isFinite(priceNum) ? priceNum : 0) * (isFinite(qtyNum) ? qtyNum : 0)
       return sum + line
     }, 0)
-    const deliveryCharges = Number((sale as any)?.deliveryCharges || 0)
+    const deliveryCharges = Number(sale?.deliveryCharges || 0)
     const total = Math.trunc((subTotal + deliveryCharges) * 100) / 100
     vatAmount = Math.trunc((total * 0.05) * 100) / 100
     grandTotal = Math.trunc((total + vatAmount) * 100) / 100
