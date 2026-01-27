@@ -109,7 +109,7 @@ export async function DELETE(request, { params }) {
         if (!item.product || !item.product._id) continue
         
         const product = item.product
-        const category = (item as any).category || product.category || 'gas'
+        const category = item.category || product.category || 'gas'
         const quantity = Number(item.quantity) || 0
         
         console.log(`🔄 [EMPLOYEE SALES DELETE] Reversing inventory for: ${product.name} (${category}), Qty: ${quantity}, Employee: ${employeeId}`)
@@ -129,7 +129,7 @@ export async function DELETE(request, { params }) {
           }
           
           // 2. Reverse cylinder conversion (Empty back to Full) if cylinderProductId exists
-          const cylinderProductId = (item as any).cylinderProductId
+          const cylinderProductId = item.cylinderProductId
           if (cylinderProductId) {
             const cylinderInventory = await EmployeeInventoryItem.findOne({
               employee: employeeId,
@@ -157,7 +157,7 @@ export async function DELETE(request, { params }) {
           
         } else if (category === 'cylinder') {
           // Cylinder sale reversal:
-          const cylinderStatus = (item as any).cylinderStatus || 'empty'
+          const cylinderStatus = item.cylinderStatus || 'empty'
           const cylinderInventory = await EmployeeInventoryItem.findOne({
             employee: employeeId,
             product: product._id
@@ -178,7 +178,7 @@ export async function DELETE(request, { params }) {
               console.log(`✅ [EMPLOYEE SALES DELETE] Restored full cylinders: ${product.name} +${quantity} units, new stock: ${cylinderInventory.availableFull}`)
               
               // Also restore gas stock if gasProductId exists (full cylinder contains gas)
-              const gasProductId = (item as any).gasProductId
+              const gasProductId = item.gasProductId
               if (gasProductId) {
                 const gasInventory = await EmployeeInventoryItem.findOne({
                   employee: employeeId,
