@@ -2357,9 +2357,9 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                             const p = allProducts.find((ap) => ap._id === it.productId)
                             return (
                               <div key={idx} className="grid grid-cols-[120px_200px_100px_180px_80px_120px_160px] gap-3 px-4 py-3 border-b border-gray-100 last:border-b-0 items-center hover:bg-gray-50 transition-colors">
-                                <div className="text-sm truncate" title={(it as any).category || 'gas'}>{(it as any).category || 'gas'}</div>
-                                <div className="text-sm truncate" title={p?.name || '-'}>{p?.name || '-'}</div>
-                                <div className="text-sm truncate" title={(() => {
+                                <div className="text-sm break-words whitespace-normal" title={(it as any).category || 'gas'}>{(it as any).category || 'gas'}</div>
+                                <div className="text-sm break-words whitespace-normal" title={p?.name || '-'}>{p?.name || '-'}</div>
+                                <div className="text-sm break-words whitespace-normal" title={(() => {
                                   // Show product status based on category and inventory data
                                   if ((it as any).category === 'gas') {
                                     return 'Gas'
@@ -2390,7 +2390,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                                     return '-'
                                   })()}
                                 </div>
-                                <div className="text-sm truncate" title={(it as any).cylinderName || '-'}>
+                                <div className="text-sm break-words whitespace-normal" title={(it as any).cylinderName || '-'}>
                                   {(it as any).cylinderName || '-'}
                                 </div>
                                 <div className="text-sm font-medium">{Number((it as any).quantity || 0)}</div>

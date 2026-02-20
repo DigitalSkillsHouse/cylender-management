@@ -476,8 +476,8 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
         pdf.text(item.productCode || "-", colX + 2, currentY + 5.5)
         colX += colWidths[1]
         
-        // Item - left aligned with smaller padding, truncate if too long
-        const itemName = (item.name || "-").length > 22 ? (item.name || "-").substring(0, 19) + "..." : (item.name || "-")
+        // Item - left aligned with smaller padding; keep full product name (no truncation)
+        const itemName = item.name || "-"
         pdf.text(itemName, colX + 2, currentY + 5.5)
         colX += colWidths[2]
         

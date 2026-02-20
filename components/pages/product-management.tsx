@@ -533,7 +533,7 @@ export const ProductManagement = () => {
                   {filteredProducts.map((product) => (
                     <TableRow key={product._id} className="border-b border-gray-100">
                       <TableCell className="p-3 font-mono font-medium text-[#2B3068] text-sm">{product.productCode || "N/A"}</TableCell>
-                      <TableCell className="p-3 font-medium text-[#2B3068] text-sm truncate max-w-[160px]">{product.name}</TableCell>
+                      <TableCell className="p-3 font-medium text-[#2B3068] text-sm break-words whitespace-normal">{product.name}</TableCell>
                       <TableCell className="p-3 capitalize text-sm">{product.category}</TableCell>
                       <TableCell className="p-3 text-sm">AED {product.costPrice.toFixed(2)}</TableCell>
                       <TableCell className="p-3 text-sm">AED {product.leastPrice.toFixed(2)}</TableCell>
