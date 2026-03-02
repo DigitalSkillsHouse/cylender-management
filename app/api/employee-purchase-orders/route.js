@@ -257,8 +257,16 @@ export async function POST(request) {
       }
     }
     
-    // If this is a gas purchase with empty cylinder, create stock assignments
-    if (purchaseType === 'gas' && emptyCylinderId) {
+    // Only create StockAssignment when admin is assigning to another employee.
+    // When employee creates their own purchase (targetEmployeeId === user.id), do NOT create
+    // StockAssignment — the order will show only in "Pending Purchase", not "Pending Assignments".
+    const isEmployeeSelfPurchase = targetEmployeeId === user.id
+    if (isEmployeeSelfPurchase) {
+      console.log('📋 Employee\'s own purchase: skipping StockAssignment creation. Order will show in Pending Purchase only.')
+    }
+
+    // If this is a gas purchase with empty cylinder, create stock assignments (admin-assigned only)
+    if (!isEmployeeSelfPurchase && purchaseType === 'gas' && emptyCylinderId) {
       console.log('🔄 Processing Gas Purchase with Empty Cylinder Conversion...')
       console.log(`   Empty Cylinder ID: ${emptyCylinderId}`)
       console.log(`   Product ID: ${product}`)
@@ -369,9 +377,9 @@ export async function POST(request) {
         console.error('   Stack trace:', assignmentError.stack)
         console.error('   Purchase order created but assignments failed')
       }
-    } else {
+    } else if (!isEmployeeSelfPurchase) {
       console.log('🔄 Processing Regular Purchase (No Empty Cylinder)...')
-      // For regular purchases (without empty cylinder), create stock assignment pending acceptance
+      // For regular purchases (without empty cylinder), create stock assignment pending acceptance (admin-assigned only)
       try {
         const StockAssignment = require("@/models/StockAssignment").default
         const Product = require("@/models/Product").default

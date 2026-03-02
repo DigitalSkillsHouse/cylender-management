@@ -28,7 +28,11 @@ export async function GET(request) {
     const status = searchParams.get("status");
     const date = searchParams.get("date");
     const query = {};
-    if (employeeId) query.employee = employeeId;
+    if (employeeId) {
+      query.employee = employeeId;
+      // Exclude self-assigned so employee's own purchases don't count as "pending assignments"
+      query.assignedBy = { $ne: employeeId };
+    }
     if (status) query.status = status;
     
     // Filter by assignedDate if date is provided (using Dubai timezone)

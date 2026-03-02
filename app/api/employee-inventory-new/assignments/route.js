@@ -22,10 +22,13 @@ export async function GET(request) {
 
     console.log('📋 Fetching pending assignments for employee:', employeeId)
     
-    // Fetch employee's pending stock assignments (admin assigned but employee hasn't accepted yet)
+    // Fetch employee's pending stock assignments (admin assigned but employee hasn't accepted yet).
+    // Exclude self-assigned (assignedBy === employeeId) so employee's own purchases don't appear here —
+    // they appear only in Pending Purchase.
     const pendingAssignments = await StockAssignment.find({
       employee: employeeId,
-      status: 'assigned' // Admin assigned but employee hasn't accepted yet
+      status: 'assigned',
+      assignedBy: { $ne: employeeId }
     })
     .populate('product', 'name productCode category cylinderSize')
     .populate('assignedBy', 'name')

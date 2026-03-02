@@ -56,7 +56,7 @@ export const EmployeeDashboard = ({ user, setUnreadCount }: EmployeeDashboardPro
       const purchaseData = await purchaseResponse.json()
       
       const pendingStock = Array.isArray(stockData?.data) ? stockData.data.filter((s: any) => s.status === 'assigned').length : 0
-      const pendingPurchases = Array.isArray(purchaseData?.data) ? purchaseData.data.filter((p: any) => p.inventoryStatus === 'approved').length : 0
+      const pendingPurchases = Array.isArray(purchaseData?.data) ? purchaseData.data.filter((p: any) => p.inventoryStatus === 'approved' || p.autoApproved === true).length : 0
       
       setPendingItemsCount(pendingStock + pendingPurchases)
       
