@@ -1987,16 +1987,27 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       // REMOVED: Admin sales fetching - Employee should only see their own transactions
       // Employee reports should not include admin sales data for security and data isolation
 
-      const sales: any[] = Array.isArray(salesRes)
+      let sales: any[] = Array.isArray(salesRes)
         ? salesRes
         : Array.isArray(salesRes?.data)
           ? salesRes.data
           : []
-      const cylinders: any[] = Array.isArray(cylRes)
+      let cylinders: any[] = Array.isArray(cylRes)
         ? cylRes
         : Array.isArray(cylRes?.data)
           ? cylRes.data
           : []
+      // Apply date filter when startDate/endDate are set
+      if (filters.startDate || filters.endDate) {
+        const dayStart = filters.startDate ? new Date(filters.startDate).getTime() : 0
+        const dayEnd = filters.endDate ? new Date(filters.endDate + 'T23:59:59.999').getTime() : Number.MAX_SAFE_INTEGER
+        const inRange = (createdAt: string | Date) => {
+          const t = new Date(createdAt).getTime()
+          return t >= dayStart && t <= dayEnd
+        }
+        sales = sales.filter((s: any) => inRange(s.createdAt || s.created_at || 0))
+        cylinders = cylinders.filter((c: any) => inRange(c.createdAt || c.created_at || 0))
+      }
       const assignmentsArr: any[] = Array.isArray(assignRes)
         ? assignRes
         : Array.isArray(assignRes?.data)
@@ -2959,7 +2970,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                                         <span className="font-semibold">{formatCurrency(customer.totalSalesAmount + customer.totalCylinderAmount)}</span>
                                       </div>
                                       <div className="flex justify-between">
-                                        <span>Total Debit:</span>
+                                        <span>Total Cash:</span>
                                         <span className="font-semibold text-red-600">{formatCurrency(customer.totalDebit)}</span>
                                       </div>
                                       <div className="flex justify-between">

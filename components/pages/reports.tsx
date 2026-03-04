@@ -2095,9 +2095,12 @@ export const Reports = () => {
         });
       }
 
-      // Only fetch customer data if requested
+      // Only fetch customer data if requested (with optional date filter)
       if (loadCustomers) {
-        const ledgerResponse = await reportsAPI.getLedger();
+        const ledgerParams: Record<string, string> = {};
+        if (filters.startDate) ledgerParams.startDate = filters.startDate;
+        if (filters.endDate) ledgerParams.endDate = filters.endDate;
+        const ledgerResponse = await reportsAPI.getLedger(ledgerParams);
         if (ledgerResponse.data?.success && Array.isArray(ledgerResponse.data.data)) {
           setCustomers(ledgerResponse.data.data);
         } else {
@@ -3018,7 +3021,7 @@ export const Reports = () => {
                                         <span className="font-semibold">{formatCurrency((customer.totalSalesAmount || 0) + (customer.totalCylinderAmount || 0))}</span>
                                       </div>
                                       <div className="flex justify-between">
-                                        <span>Total Debit:</span>
+                                        <span>Total Cash:</span>
                                         <span className="font-semibold text-red-600">{formatCurrency(customer.totalDebit || 0)}</span>
                                       </div>
                                       <div className="flex justify-between">

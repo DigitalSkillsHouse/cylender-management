@@ -158,10 +158,10 @@ const CashPaperSection = ({
       <tr><th>Inv Id</th><th>Customer</th><th class='right'>VAT 5%</th><th class='right'>Amount</th></tr>
     </thead>
     <tbody>
-      ${debitRows || `<tr><td colspan='4' style='text-align:center'>No debit sales</td></tr>`}
+      ${debitRows || `<tr><td colspan='4' style='text-align:center'>No cash sales</td></tr>`}
     </tbody>
     <tfoot>
-      <tr><td colspan='3'><b>Total Debit</b></td><td class='right'><b>${currency(data.totals.totalDebit)}</b></td></tr>
+      <tr><td colspan='3'><b>Total Cash</b></td><td class='right'><b>${currency(data.totals.totalDebit)}</b></td></tr>
     </tfoot>
   </table>
 
@@ -208,7 +208,7 @@ const CashPaperSection = ({
   <table>
     <tbody>
       <tr><td>Total Credit</td><td class='right'>${currency(data.totals.totalCredit)}</td></tr>
-      <tr><td>Total Debit</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
+      <tr><td>Total Cash</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
       <tr><td>Other</td><td class='right'>${currency(data.totals.totalOther)}</td></tr>
       <tr><td>Total Rental Collection</td><td class='right'>${currency(data.totals.totalRental || 0)}</td></tr>
       <tr><td>Total VAT (5%)</td><td class='right'>${currency(data.totals.totalVat || 0)}</td></tr>
@@ -292,9 +292,9 @@ const CashPaperSection = ({
               {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.credit} transactions</div>}
             </div>
             <div className="border rounded p-3">
-              <div className="text-gray-600">Debit</div>
+              <div className="text-gray-600">Cash</div>
               <div className="font-semibold">{currency(data.totals.totalDebit)}</div>
-              {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.debit} transactions</div>}
+              {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.debit} cash transactions</div>}
             </div>
             <div className="border rounded p-3">
               <div className="text-gray-600">Other</div>

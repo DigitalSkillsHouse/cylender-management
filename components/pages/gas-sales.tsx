@@ -443,7 +443,7 @@ export const GasSales = () => {
 
       // Headers: show Debit and Credit as separate columns (Customer removed — shown in header)
       const headers = [
-        'Invoice #','Items','Debit (AED)','Credit (AED)','Payment Method','Payment Status','Notes','Added By','Date'
+        'Invoice #','Items','Cash (AED)','Credit (AED)','Payment Method','Payment Status','Notes','Added By','Date'
       ]
       const colWidths = [
         80, 320, 80, 80, 100, 100, 140, 80, 100
@@ -828,7 +828,7 @@ export const GasSales = () => {
       if (formData.paymentOption === 'debit') {
         const receivedAmount = parseFloat(formData.receivedAmount) || 0
         if (receivedAmount <= 0) {
-          alert("Please enter the debit amount when 'Debit' payment option is selected")
+          alert("Please enter the cash amount when 'Cash' payment option is selected")
           return
         }
       }
@@ -2433,14 +2433,14 @@ export const GasSales = () => {
                   </SelectTrigger>
                   <SelectContent className="bg-white text-black">
                     <SelectItem value="credit">Credit</SelectItem>
-                    <SelectItem value="debit">Debit</SelectItem>
+                    <SelectItem value="debit">Cash</SelectItem>
                     <SelectItem value="delivery_note">Delivery Note</SelectItem>
                   </SelectContent>
                 </Select>
 
                 {formData.paymentOption === "debit" && (
                   <div className="space-y-2">
-                    <Label htmlFor="receivedAmount">Debit Amount (AED)</Label>
+                    <Label htmlFor="receivedAmount">Cash Amount (AED)</Label>
                     <Input
                       id="receivedAmount"
                       type="number"
@@ -2474,7 +2474,7 @@ export const GasSales = () => {
                           paymentMethod: "debit",
                         })
                       }}
-                      placeholder="Enter debit amount..."
+                      placeholder="Enter cash amount..."
                       className="text-lg"
                     />
                     {formData.receivedAmount && (
