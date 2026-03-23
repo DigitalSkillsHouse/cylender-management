@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { X, Printer, Download } from "lucide-react"
+import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
 import { getDubaiDateDisplayString, getDubaiDateTimeString } from "@/lib/date-utils"
 
@@ -142,12 +142,7 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby="collection-receipt-description">
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle>Collection Receipt</DialogTitle>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
+          <DialogTitle>Collection Receipt</DialogTitle>
         </DialogHeader>
 
         <div id="collection-receipt-description" className="sr-only">

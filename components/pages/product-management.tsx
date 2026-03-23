@@ -9,9 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, Edit, Trash2, Loader2, FileDown } from "lucide-react"
+import { Plus, Edit, Trash2, Loader2 } from "lucide-react"
 import { productsAPI } from "@/lib/api"
-import ProductQuoteDialog from "@/components/product-quote-dialog"
 
 interface Product {
   _id: string
@@ -32,7 +31,6 @@ export const ProductManagement = () => {
   const [productToDelete, setProductToDelete] = useState<Product | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
-  const [showQuoteDialog, setShowQuoteDialog] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     productCode: "",
@@ -454,10 +452,6 @@ export const ProductManagement = () => {
                   className="h-10 text-gray-800"
                 />
               </div>
-              <Button onClick={() => setShowQuoteDialog(true)} className="bg-white text-[#2B3068] hover:bg-white/90 font-semibold min-h-[44px]">
-                <FileDown className="w-4 h-4 mr-2" />
-                Generate Quote Paper
-              </Button>
             </div>
           </div>
         </CardHeader>
@@ -566,21 +560,6 @@ export const ProductManagement = () => {
           </div>
         </CardContent>
       </Card>
-
-      {showQuoteDialog && (
-        <ProductQuoteDialog
-          products={filteredProducts.map((p) => ({
-            _id: p._id,
-            name: p.name,
-            productCode: p.productCode,
-            category: p.category,
-            costPrice: p.costPrice,
-            leastPrice: p.leastPrice,
-          }))}
-          totalCount={products.length}
-          onClose={() => setShowQuoteDialog(false)}
-        />
-      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

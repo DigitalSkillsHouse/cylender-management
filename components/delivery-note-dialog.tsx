@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { X, Printer, Download } from "lucide-react"
+import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
 
 interface DeliveryNoteDialogProps {
@@ -435,12 +435,7 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" aria-describedby="delivery-note-dialog-description">
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle>Delivery Note</DialogTitle>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
+          <DialogTitle>Delivery Note</DialogTitle>
         </DialogHeader>
         
         {/* Hidden description for accessibility */}

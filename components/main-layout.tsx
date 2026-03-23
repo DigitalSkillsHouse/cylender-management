@@ -7,6 +7,7 @@ import { Dashboard } from "@/components/pages/dashboard"
 import { ProductManagement } from "@/components/pages/product-management"
 import { SupplierManagement } from "@/components/pages/supplier-management"
 import { PurchaseManagement } from "@/components/pages/purchase-management"
+import { GenerateQuotation } from "@/components/pages/generate-quotation"
 import { Inventory } from "@/components/pages/inventory"
 import { CustomerManagement } from "@/components/pages/customer-management"
 import { GasSales } from "@/components/pages/gas-sales"
@@ -235,6 +236,8 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
         return <SupplierManagement />
       case "purchases":
         return <PurchaseManagement />
+      case "generate-quotation":
+        return <GenerateQuotation />
       case "inventory":
         return <Inventory />
       case "customers":

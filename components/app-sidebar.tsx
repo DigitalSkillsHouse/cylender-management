@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Receipt,
   BarChart3,
+  FileDown,
 } from "lucide-react"
 
 import {
@@ -68,6 +69,11 @@ const adminMenuItems = [
     title: "Purchase Management",
     url: "purchases",
     icon: ShoppingCart,
+  },
+  {
+    title: "Generate Quotation",
+    url: "generate-quotation",
+    icon: FileDown,
   },
   {
     title: "Inventory",

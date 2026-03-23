@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Download, Trash2, X, Eye, Check, ChevronsUpDown, Package, Users } from "lucide-react"
+import { Download, Trash2, Check, ChevronsUpDown, Package, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { customersAPI } from "@/lib/api"
 import { toast } from "sonner"
@@ -35,11 +35,29 @@ interface ProductQuoteDialogProps {
   }>
   totalCount: number
   onClose: () => void
+  onSaved?: (quotation: any) => void
+  initialQuotation?: {
+    _id: string
+    quotationNumber: string
+    customerName: string
+    customerId?: string
+    customerAddress?: string
+    customerTRNumber?: string
+    items: Array<{
+      productId?: string
+      name: string
+      productCode?: string
+      category?: "gas" | "cylinder"
+      price: number
+      quantity: number
+    }>
+  }
 }
 
-export default function ProductQuoteDialog({ products, totalCount, onClose }: ProductQuoteDialogProps) {
+export default function ProductQuoteDialog({ products, totalCount, onClose, onSaved, initialQuotation }: ProductQuoteDialogProps) {
   // Reference to PRINT-ONLY content (read-only view)
   const printRef = useRef<HTMLDivElement | null>(null)
+  const hydratedFromInitialRef = useRef(false)
   
   // Start with empty items array - no auto-population
   const [items, setItems] = useState<ProductQuoteItem[]>([])
@@ -50,10 +68,37 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   const [customers, setCustomers] = useState<Array<{ _id: string; name: string; phone?: string; email?: string; address?: string; trNumber?: string }>>([])
   const [showPreview, setShowPreview] = useState(false)
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
+  const [quotationNumber, setQuotationNumber] = useState<string>("")
+  const [savedQuotationId, setSavedQuotationId] = useState<string>("")
+  const [savingQuotation, setSavingQuotation] = useState(false)
   const [productSearchOpen, setProductSearchOpen] = useState(false)
   const [productSearchValue, setProductSearchValue] = useState("")
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false)
   const [customerSearchValue, setCustomerSearchValue] = useState("")
+
+  useEffect(() => {
+    if (!initialQuotation || hydratedFromInitialRef.current) return
+
+    hydratedFromInitialRef.current = true
+
+    setSavedQuotationId(initialQuotation._id || "")
+    setQuotationNumber(initialQuotation.quotationNumber || "")
+    setCustomerName(initialQuotation.customerName || "")
+    setSelectedCustomerId(initialQuotation.customerId || "")
+    setCustomerAddress(initialQuotation.customerAddress || "")
+    setCustomerTRNumber(initialQuotation.customerTRNumber || "")
+
+    const mappedItems: ProductQuoteItem[] = (initialQuotation.items || []).map((it, idx) => ({
+      _id: (it.productId || `manual-${idx}`).toString(),
+      name: it.name,
+      productCode: it.productCode || "",
+      category: (it.category as any) || "gas",
+      price: Number(it.price || 0),
+      quantity: Number(it.quantity || 1),
+    }))
+
+    setItems(mappedItems)
+  }, [initialQuotation])
 
   // Load admin signature from database first, fallback to localStorage
   useEffect(() => {
@@ -280,8 +325,75 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
   const vatAmount = Math.trunc((subtotal * 0.05) * 100) / 100 // 5% VAT (truncated, not rounded)
   const grandTotal = Math.trunc((subtotal + vatAmount) * 100) / 100
 
+  const saveQuotationOnce = async () => {
+    if (!customerName.trim()) {
+      toast.error("Customer name is required", {
+        description: "Select a customer or enter the name manually before generating the quotation.",
+      })
+      return null
+    }
+
+    if (items.length === 0) {
+      toast.error("No items selected", {
+        description: "Please add at least one product before generating the quotation.",
+      })
+      return null
+    }
+
+    setSavingQuotation(true)
+    try {
+      const isUpdate = Boolean(savedQuotationId)
+      const res = await fetch(isUpdate ? `/api/quotations/${savedQuotationId}` : "/api/quotations", {
+        method: isUpdate ? "PUT" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          customerName: customerName.trim(),
+          customerId: selectedCustomerId || undefined,
+          customerAddress: customerAddress || "",
+          customerTRNumber: customerTRNumber || "",
+          items: items.map((it) => ({
+            productId: it._id,
+            name: it.name,
+            productCode: it.productCode,
+            category: it.category,
+            price: Number(it.price || 0),
+            quantity: Number(it.quantity || 1),
+          })),
+          subtotal,
+          vatAmount,
+          grandTotal,
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.success || !data?.data) {
+        toast.error("Failed to save quotation", {
+          description: data?.error || "Please try again.",
+        })
+        return null
+      }
+
+      const saved = data.data
+      setSavedQuotationId(saved._id?.toString?.() || saved._id || savedQuotationId || "")
+      setQuotationNumber(saved.quotationNumber || quotationNumber || "")
+      if (onSaved) onSaved(saved)
+      return saved
+    } catch (error) {
+      console.error("Save quotation error:", error)
+      toast.error("Failed to save quotation", {
+        description: "Please try again.",
+      })
+      return null
+    } finally {
+      setSavingQuotation(false)
+    }
+  }
+
   const handleDownload = async () => {
     try {
+      const saved = await saveQuotationOnce()
+      if (!saved?.quotationNumber) return
+
       const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
         import("html2canvas"),
         import("jspdf"),
@@ -348,6 +460,16 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       }
 
       let currentYPosition = margin + headerHeight + 10 // Start after header with some spacing
+
+      // Quotation number + date (top-right, each page)
+      pdf.setFontSize(10)
+      pdf.setFont(undefined, "bold")
+      pdf.setTextColor(43, 48, 104) // #2B3068
+      pdf.text(`Quotation #: ${saved.quotationNumber}`, pageWidth - margin, currentYPosition, { align: "right" })
+      pdf.setFont(undefined, "normal")
+      pdf.setTextColor(0, 0, 0)
+      pdf.text(`Date: ${getDubaiDateDisplayString()}`, pageWidth - margin, currentYPosition + 6, { align: "right" })
+      currentYPosition += 10
       
       // Add customer information with better styling
       if (customerName) {
@@ -820,13 +942,12 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
       pdf.text(`Page ${pageNum + 1} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" })
     }
 
-      const dt = new Date()
-      const stamp = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
-      const fileName = `product-quote-${stamp}.pdf`
+      const fileName = `quotation-${saved.quotationNumber}.pdf`
       pdf.save(fileName)
       toast.success("Quotation PDF downloaded successfully", {
         description: `File: ${fileName}`,
       })
+      onClose()
     } catch (error) {
       console.error("Error generating PDF:", error)
       toast.error("Failed to download quotation PDF", {
@@ -841,12 +962,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto" aria-describedby="product-quote-description">
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle>Product Quote</DialogTitle>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
+          <DialogTitle>Product Quote</DialogTitle>
         </DialogHeader>
 
         <div id="product-quote-description" className="sr-only">
@@ -859,6 +975,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
             <div className="text-center">
               <h2 className="text-lg font-bold text-[#2B3068]">Product Quote</h2>
               <p className="text-[11px] text-gray-500">Selected Products ({visibleCount})</p>
+              {quotationNumber && (
+                <p className="mt-1 text-[11px] text-gray-600">Quotation #: {quotationNumber}</p>
+              )}
             </div>
             
             {/* Customer Name Input - Searchable with Suggestions */}
@@ -1204,6 +1323,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
                 <div className="text-center">
                   <h2 className="text-sm font-bold text-[#2B3068]">Product Quote</h2>
                   <p className="text-[10px] text-gray-600">{getDubaiDateDisplayString()}</p>
+                  {quotationNumber && (
+                    <p className="text-[10px] text-gray-600">Quotation #: {quotationNumber}</p>
+                  )}
                   {customerName && (
                     <div className="mt-2 text-left">
                       <p className="text-[12px] font-semibold text-[#2B3068]">Customer: {customerName}</p>
@@ -1315,18 +1437,16 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
             </div>
           </div>
 
-          {/* Action buttons - do not show in print */}
+          {/* Action button - do not show in print */}
           <div className="flex flex-wrap justify-end items-center gap-3 no-print print:hidden">
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={() => setShowPreview(true)}>
-                <Eye className="w-4 h-4 mr-2" />
-                Preview PDF
-              </Button>
-              <Button variant="outline" onClick={handleDownload}>
-                <Download className="w-4 h-4 mr-2" />
-                Download PDF
-              </Button>
-            </div>
+            <Button
+              onClick={handleDownload}
+              disabled={savingQuotation}
+              className="bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              {savingQuotation ? "Generating..." : "Generate Quotation"}
+            </Button>
           </div>
         </div>
       </DialogContent>
@@ -1339,12 +1459,9 @@ export default function ProductQuoteDialog({ products, totalCount, onClose }: Pr
               <div className="flex items-center justify-between">
                 <DialogTitle>PDF Preview</DialogTitle>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={handleDownload}>
+                  <Button variant="outline" onClick={handleDownload} disabled={savingQuotation}>
                     <Download className="w-4 h-4 mr-2" />
-                    Download PDF
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setShowPreview(false)}>
-                    <X className="w-4 h-4" />
+                    {savingQuotation ? "Saving..." : "Download PDF"}
                   </Button>
                 </div>
               </div>

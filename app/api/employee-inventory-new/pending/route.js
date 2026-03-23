@@ -46,14 +46,14 @@ export async function GET(request) {
       }))
     })
     
-    // Fetch employee's pending purchase orders: (1) approved by admin, or (2) employee's own (autoApproved)
-    // Exclude received/accepted so we only show "waiting for employee to accept"
+    // Fetch employee's pending purchase orders ready for employee acceptance.
+    // Keep it strict to avoid stale/messy entries:
+    // - status must be "approved"
+    // - inventoryStatus must be "approved"
     const pendingOrders = await EmployeePurchaseOrder.find({
       employee: employeeId,
-      $or: [
-        { inventoryStatus: 'approved' },  // Admin approved, waiting for employee to accept
-        { autoApproved: true }            // Employee's own purchase, show in Pending Purchase only (not Pending Assignments)
-      ]
+      status: 'approved',
+      inventoryStatus: 'approved'
     })
     .populate('product', 'name productCode category cylinderSize')
     .populate('supplier', 'name')

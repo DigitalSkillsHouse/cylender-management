@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { X, Printer, Download } from "lucide-react"
+import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
 import { fetchAdminSignature } from "@/lib/admin-signature"
 import { fetchEmployeeSignature } from "@/lib/employee-signature"
@@ -346,14 +346,9 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" aria-describedby="receipt-dialog-description">
         <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle>
-              {sale?.type === 'collection' ? `Receipt - RC-NO-${sale?.invoiceNumber || '-'}` : 'Receipt'}
-            </DialogTitle>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
+          <DialogTitle>
+            {sale?.type === 'collection' ? `Receipt - RC-NO-${sale?.invoiceNumber || '-'}` : 'Receipt'}
+          </DialogTitle>
         </DialogHeader>
         
         {/* Hidden description for accessibility */}
