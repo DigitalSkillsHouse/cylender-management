@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" fill="none">
+  <defs>
+    <linearGradient id="g0" x1="200" y1="120" x2="1400" y2="1120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A5B4FC" stop-opacity="0.25"/>
+      <stop offset="0.5" stop-color="#22D3EE" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#F472B6" stop-opacity="0.18"/>
+    </linearGradient>
+    <pattern id="grid" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" stroke="white" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="1200" fill="url(#grid)"/>
+  <rect width="1600" height="1200" fill="url(#g0)" opacity="0.9"/>
+
+  <!-- Subtle smoke plumes -->
+  <g filter="url(#soft)" opacity="0.6">
+    <path d="M1080 250c-60 40-70 110-10 150s55 110-5 150c-60 40-55 100 20 135" stroke="white" stroke-opacity="0.08" stroke-width="52" stroke-linecap="round"/>
+    <path d="M1240 210c-50 35-60 95-10 130s48 95-6 130c-54 35-48 85 16 115" stroke="white" stroke-opacity="0.07" stroke-width="44" stroke-linecap="round"/>
+  </g>
+
+  <!-- Industrial silhouette -->
+  <g opacity="0.78">
+    <path d="M140 980H1460V1100H140V980Z" fill="#0B1026" fill-opacity="0.55"/>
+    <path d="M160 980V760l170-80v90l190-100v120l210-110v130l180-90v160H160Z" fill="#0B1026" fill-opacity="0.72"/>
+
+    <!-- Chimneys -->
+    <path d="M1010 980V620h80v360h-80Z" fill="#0B1026" fill-opacity="0.78"/>
+    <path d="M1130 980V680h60v300h-60Z" fill="#0B1026" fill-opacity="0.74"/>
+    <path d="M1220 980V640h70v340h-70Z" fill="#0B1026" fill-opacity="0.76"/>
+
+    <!-- Pipes -->
+    <path d="M300 900h520c50 0 90-40 90-90v-70" stroke="white" stroke-opacity="0.14" stroke-width="18" stroke-linecap="round"/>
+    <path d="M990 740v-40c0-30 24-54 54-54h160" stroke="white" stroke-opacity="0.12" stroke-width="14" stroke-linecap="round"/>
+    <path d="M520 860v-90c0-36 29-65 65-65h140" stroke="white" stroke-opacity="0.10" stroke-width="12" stroke-linecap="round"/>
+
+    <!-- Tanks -->
+    <g>
+      <rect x="240" y="820" width="110" height="160" rx="24" fill="#0B1026" fill-opacity="0.78"/>
+      <rect x="380" y="790" width="130" height="190" rx="28" fill="#0B1026" fill-opacity="0.74"/>
+      <path d="M255 860h80" stroke="white" stroke-opacity="0.10" stroke-width="8" stroke-linecap="round"/>
+      <path d="M398 840h94" stroke="white" stroke-opacity="0.10" stroke-width="8" stroke-linecap="round"/>
+    </g>
+
+    <!-- Accent strokes -->
+    <path d="M170 980h1240" stroke="white" stroke-opacity="0.10" stroke-width="2"/>
+    <path d="M200 1015h1180" stroke="white" stroke-opacity="0.06" stroke-width="2"/>
+  </g>
+</svg>
