@@ -4,6 +4,19 @@ import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
 
+const formatPaymentMethodLabel = (paymentMethod: unknown) => {
+  const raw = (paymentMethod ?? '').toString().trim();
+  if (!raw) return '-';
+
+  const normalized = raw.toLowerCase();
+
+  // Stored value can be `debit`, but invoices should display Cash.
+  if (normalized === 'debit') return 'Cash';
+  if (normalized === 'cash') return 'Cash';
+
+  return raw.replace(/[\-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
 // This interface MUST match the 'sale' object structure from ReceiptDialogProps
 interface Sale {
   _id: string;
@@ -183,14 +196,7 @@ const ReceiptPrintPage = () => {
               {/* Hide Payment Method for rental receipts */}
               {sale?.type !== 'rental' && (
                 <div>
-                  <strong>Payment Method:</strong> {(
-                    sale?.paymentMethod
-                      ? sale.paymentMethod
-                          .toString()
-                          .replace(/[\-_]/g, ' ')
-                          .replace(/\b\w/g, (c) => c.toUpperCase())
-                      : '-'
-                  )}
+                  <strong>Payment Method:</strong> {formatPaymentMethodLabel(sale?.paymentMethod)}
                 </div>
               )}
               {sale?.paymentMethod?.toLowerCase() === 'cheque' && (

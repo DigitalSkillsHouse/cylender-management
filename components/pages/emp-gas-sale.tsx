@@ -2775,7 +2775,9 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                           })()}
                         </TableCell>
                         <TableCell className="p-4 font-semibold">AED {Number(group.receivedAmount || 0).toFixed(2)}</TableCell>
-                        <TableCell className="p-4 capitalize">{group.paymentMethod}</TableCell>
+                        <TableCell className="p-4 capitalize">
+                          {String(group.paymentMethod || "").toLowerCase() === "debit" ? "cash" : group.paymentMethod}
+                        </TableCell>
                         <TableCell className="p-4">
                           <Badge
                             variant={

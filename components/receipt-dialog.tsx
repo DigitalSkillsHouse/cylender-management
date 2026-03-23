@@ -9,6 +9,21 @@ import { toast } from "sonner"
 import { fetchAdminSignature } from "@/lib/admin-signature"
 import { fetchEmployeeSignature } from "@/lib/employee-signature"
 
+const formatPaymentMethodLabel = (paymentMethod: unknown) => {
+  const raw = (paymentMethod ?? "").toString().trim()
+  if (!raw) return "-"
+
+  const normalized = raw.toLowerCase()
+
+  // Keep stored value (`debit`) unchanged in DB, but show Cash on invoice/receipt.
+  if (normalized === "debit") return "Cash"
+  if (normalized === "cash") return "Cash"
+
+  return raw
+    .replace(/[\-_]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 interface ReceiptDialogProps {
   sale: {
     _id: string
@@ -391,14 +406,7 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                 {/* Hide Payment Method for rental receipts */}
                 {sale?.type !== 'rental' && (
                   <div>
-                    <strong>Payment Method:</strong> {(
-                      sale?.paymentMethod
-                        ? sale.paymentMethod
-                            .toString()
-                            .replace(/[\-_]/g, ' ')
-                            .replace(/\b\w/g, (c) => c.toUpperCase())
-                        : '-'
-                    )}
+                    <strong>Payment Method:</strong> {formatPaymentMethodLabel(sale?.paymentMethod)}
                   </div>
                 )}
                 {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
