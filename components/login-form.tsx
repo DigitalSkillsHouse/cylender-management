@@ -108,7 +108,7 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
       <div className="relative flex min-h-screen items-center justify-center p-4 sm:p-8">
         <Card className="w-full max-w-4xl overflow-hidden border-white/10 bg-white/[0.06] shadow-[0_30px_120px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
           <div className="grid md:grid-cols-2">
-            <div className="relative p-8 sm:p-10 text-white">
+            <div className="relative hidden p-10 text-white md:block">
               <div className="absolute inset-0 bg-[url('/login-industrial.svg')] bg-cover bg-center opacity-[0.55]" />
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.28),transparent_55%),radial-gradient(circle_at_bottom_left,rgba(236,72,153,0.20),transparent_55%)]" />
               <div className="absolute inset-0 opacity-60 [mask-image:radial-gradient(ellipse_at_center,black,transparent_70%)] bg-[linear-gradient(to_right,rgba(255,255,255,0.10)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.10)_1px,transparent_1px)] bg-[size:52px_52px]" />
@@ -118,8 +118,8 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
                   <Fuel className="h-6 w-6 text-white" />
                 </div>
 
-                <div className="mt-10">
-                  <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                <div className="mt-10 max-w-[28rem]">
+                  <h1 className="text-3xl font-semibold leading-tight tracking-tight text-white sm:text-4xl">
                     SYED TAYYAB INDUSTRIAL GASES L.L.C
                   </h1>
                   <p className="mt-2 text-sm text-white/70">Gas Management System</p>
@@ -127,9 +127,21 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
               </div>
             </div>
 
-            <div className="bg-white/95 p-8 sm:p-10 md:rounded-l-none">
+            <div className="bg-white/95 p-5 sm:p-8 md:p-10 md:rounded-l-none">
+              <div className="mb-5 flex items-center gap-3 md:hidden">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-slate-900 text-white shadow-sm">
+                  <Fuel className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold tracking-tight text-slate-900">
+                    SYED TAYYAB INDUSTRIAL GASES L.L.C
+                  </div>
+                  <div className="text-xs text-slate-600">Gas Management System</div>
+                </div>
+              </div>
+
               {error && (
-                <div className="mt-6 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-800">
+                <div className="mt-4 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-800">
                   <div className="mt-0.5 rounded-md bg-rose-100 p-1">
                     <AlertCircle className="h-4 w-4" />
                   </div>
@@ -137,13 +149,13 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+              <form onSubmit={handleSubmit} className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="userType" className="text-sm font-medium text-slate-700">
                     User Type
                   </Label>
                   <Select value={userType} onValueChange={handleUserTypeChange}>
-                    <SelectTrigger className="h-12 border-slate-200 bg-white shadow-sm focus:ring-indigo-500/20">
+                    <SelectTrigger className="h-11 border-slate-200 bg-white shadow-sm focus:ring-indigo-500/20 sm:h-12">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="border-slate-200">
@@ -162,7 +174,7 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="h-12 border-slate-200 bg-white shadow-sm placeholder:text-slate-400 focus-visible:ring-indigo-500/20"
+                    className="h-11 border-slate-200 bg-white shadow-sm placeholder:text-slate-400 focus-visible:ring-indigo-500/20 sm:h-12"
                     placeholder="Enter your email"
                     required
                     disabled={loading}
@@ -178,7 +190,7 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="h-12 border-slate-200 bg-white shadow-sm placeholder:text-slate-400 focus-visible:ring-indigo-500/20"
+                    className="h-11 border-slate-200 bg-white shadow-sm placeholder:text-slate-400 focus-visible:ring-indigo-500/20 sm:h-12"
                     placeholder="Enter your password"
                     required
                     disabled={loading}
@@ -187,7 +199,7 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
 
                 <Button
                   type="submit"
-                  className="h-12 w-full rounded-xl bg-slate-900 text-base font-semibold text-white shadow-[0_12px_30px_rgba(15,23,42,0.25)] hover:bg-slate-800 active:scale-[0.99]"
+                  className="h-11 w-full rounded-xl bg-slate-900 text-base font-semibold text-white shadow-[0_12px_30px_rgba(15,23,42,0.25)] hover:bg-slate-800 active:scale-[0.99] sm:h-12"
                   disabled={loading}
                 >
                   {loading ? (
@@ -201,7 +213,7 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
                 </Button>
               </form>
 
-              <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-xs text-slate-600">
+              <div className="mt-5 hidden rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-center text-xs text-slate-600 sm:block">
                 Employee accounts can be created by admin.
               </div>
             </div>
