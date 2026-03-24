@@ -1659,7 +1659,7 @@ export const GasSales = () => {
   }
 
   // Handle signature completion - show receipt or delivery note with signature
-  const handleSignatureComplete = (signature: string) => {
+  const handleSignatureComplete = async (signature: string) => {
     console.log('GasSales - Signature received:', signature)
     console.log('GasSales - Signature length:', signature?.length)
     console.log('GasSales - Pending sale:', pendingSale?.invoiceNumber)
@@ -1672,6 +1672,19 @@ export const GasSales = () => {
     // Open the appropriate dialog based on pendingDialogType
     if (pendingSale) {
       const saleWithSignature = { ...pendingSale, customerSignature: signature }
+
+      // Save signature on this invoice so next time it won't ask again
+      try {
+        if (pendingSale?._id) {
+          await fetch(`/api/sales/${pendingSale._id}`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ customerSignature: signature }),
+          })
+        }
+      } catch (e) {
+        console.warn("Failed to persist customer signature for sale:", e)
+      }
       
       if (pendingDialogType === 'deliveryNote') {
         console.log('GasSales - Opening delivery note dialog with signature embedded in sale')

@@ -419,7 +419,7 @@ const ReceiptPrintPage = () => {
               <img 
                 src={sale.customerSignature} 
                 alt="Customer Signature" 
-                className="max-h-12 object-contain opacity-90 mix-blend-multiply"
+                className="max-h-20 object-contain opacity-90 mix-blend-multiply"
                 style={{ filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))' }}
               />
             </div>
@@ -429,7 +429,7 @@ const ReceiptPrintPage = () => {
               <img 
                 src={adminSignature} 
                 alt="Admin Signature" 
-                className="max-h-12 object-contain opacity-90 mix-blend-multiply"
+                className="max-h-20 object-contain opacity-90 mix-blend-multiply"
                 style={{ filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))' }}
               />
             </div>

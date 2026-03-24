@@ -21,6 +21,7 @@ export async function PUT(request, { params }) {
       paymentStatus,
       receivedAmount,
       notes,
+      customerSignature,
     } = body
 
     // Ensure sale exists
@@ -52,6 +53,7 @@ export async function PUT(request, { params }) {
       updateData.receivedAmount = ra
     }
     if (notes !== undefined) updateData.notes = notes
+    if (customerSignature !== undefined) updateData.customerSignature = customerSignature
 
     const sale = await Sale.findByIdAndUpdate(id, updateData, { new: true })
       .populate("customer", "name phone address email trNumber")

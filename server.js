@@ -1,9 +1,13 @@
 
 const { createServer } = require("http");
 const next = require("next");
+const { loadEnvConfig } = require("@next/env");
 
 const port = process.env.PORT || 3000; // Railway uses PORT (8080), fallback to 3000
 const dev = process.env.NODE_ENV !== "production";
+
+// Ensure .env / .env.local are loaded even when using a custom server.
+loadEnvConfig(process.cwd(), dev);
 
 const app = next({ dev });
 const handle = app.getRequestHandler();

@@ -1827,14 +1827,28 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     setPendingCustomer(null)
   }
 
-  const handleSignatureComplete = (signature: string) => {
+  const handleSignatureComplete = async (signature: string) => {
     // Save signature and close dialog
     setCustomerSignature(signature)
     setShowSignatureDialog(false)
 
-    // If invoked from Receive Amount flow, fetch updated record and open receipt
+    // If invoked from Receive Amount flow, save signature on the same invoice (so re-download/print won't ask again),
+    // then fetch updated record and open receipt.
     if (pendingReceiptData) {
       const { kind, targetId } = pendingReceiptData
+
+      try {
+        if (kind === "sale") {
+          await fetch(`/api/employee-sales/${targetId}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ customerSignature: signature }),
+          })
+        }
+      } catch (e) {
+        console.warn("Failed to persist customer signature from employee reports:", e)
+      }
+
       const getUrl = kind === 'cylinder' ? `/api/employee-cylinders/${targetId}` : `/api/employee-sales/${targetId}`
 
       const buildReceiptFromSource = (src: any) => {

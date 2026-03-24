@@ -5,6 +5,51 @@ import Product from "@/models/Product"
 
 import { verifyToken } from "@/lib/auth"
 
+// PATCH /api/employee-sales/[id]
+// Allow saving customerSignature for the same invoice so re-download/print won't ask again.
+export async function PATCH(request, { params }) {
+  try {
+    await dbConnect()
+
+    const user = await verifyToken(request)
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { id } = params
+    const body = await request.json().catch(() => ({}))
+    const customerSignature = body?.customerSignature
+
+    if (!customerSignature) {
+      return NextResponse.json({ error: "customerSignature is required" }, { status: 400 })
+    }
+
+    const existing = await EmployeeSale.findById(id)
+    if (!existing) {
+      return NextResponse.json({ error: "Employee sale not found" }, { status: 404 })
+    }
+
+    // Employees can only update their own sale signature
+    if (String(user.role || "").toLowerCase() === "employee" && existing.employee.toString() !== user.id) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+
+    const updated = await EmployeeSale.findByIdAndUpdate(
+      id,
+      { $set: { customerSignature: customerSignature } },
+      { new: true }
+    )
+      .populate("customer", "name email phone address trNumber")
+      .populate("items.product", "name category cylinderSize costPrice leastPrice")
+      .populate("employee", "name email")
+
+    return NextResponse.json({ success: true, data: updated })
+  } catch (error) {
+    console.error("Error patching employee sale signature:", error)
+    return NextResponse.json({ error: "Failed to save signature" }, { status: 500 })
+  }
+}
+
 // PUT /api/employee-sales/[id]
 // Aligns with POST schema: items[], totalAmount, paymentMethod, paymentStatus, receivedAmount, notes, customer
 export async function PUT(request, { params }) {

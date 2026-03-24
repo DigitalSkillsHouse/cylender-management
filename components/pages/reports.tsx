@@ -1906,14 +1906,34 @@ export const Reports = () => {
     setCustomerSignature("")
   }
 
-  const handleSignatureComplete = (signature: string) => {
+  const handleSignatureComplete = async (signature: string) => {
     // Save signature and close dialog
     setCustomerSignature(signature)
     setShowSignatureDialog(false)
 
-    // If invoked from Receive Amount flow, fetch record and open receipt with signature
+    // If invoked from Receive Amount flow, save signature on the same invoice (so re-download/print won't ask again),
+    // then fetch record and open receipt with signature.
     if (pendingReceiptData) {
       const { kind, targetId } = pendingReceiptData
+
+      try {
+        if (kind === "sale") {
+          await fetch(`/api/sales/${targetId}`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ customerSignature: signature }),
+          })
+        } else if (kind === "employee_sale") {
+          await fetch(`/api/employee-sales/${targetId}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ customerSignature: signature }),
+          })
+        }
+      } catch (e) {
+        console.warn("Failed to persist customer signature from reports:", e)
+      }
+
       // Route to correct API to fetch updated record with populated customer
       const getUrl = kind === 'cylinder'
         ? `/api/cylinders/${targetId}`
