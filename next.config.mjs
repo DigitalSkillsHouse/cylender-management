@@ -3,6 +3,17 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['mongoose'],
   },
+  webpack: (config, { isServer }) => {
+    // Fix intermittent Windows builds where server runtime tries to `require("./<id>.js")`
+    // but Next emits the chunk under `.next/server/chunks/<id>.js`.
+    if (isServer && config?.output?.chunkFilename && typeof config.output.chunkFilename === "string") {
+      const chunkFilename = config.output.chunkFilename
+      if (!chunkFilename.includes("/") && !chunkFilename.includes("\\")) {
+        config.output.chunkFilename = `chunks/${chunkFilename}`
+      }
+    }
+    return config
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },

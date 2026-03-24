@@ -117,50 +117,50 @@ export const GenerateQuotation = () => {
     })
   }
 
-  const getImageSize = async (dataUrl: string) => {
-    return await new Promise<{ width: number; height: number }>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height })
-      img.onerror = () => reject(new Error("Failed to load image"))
-      img.src = dataUrl
-    })
-  }
+	  const getImageSize = async (dataUrl: string) => {
+	    return await new Promise<{ width: number; height: number }>((resolve, reject) => {
+	      const img = new Image()
+	      img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height })
+	      img.onerror = () => reject(new Error("Failed to load image"))
+	      img.src = dataUrl
+	    })
+	  }
 
-  const buildQuotationPdf = async (q: Quotation) => {
-    const jsPDFModule = await import("jspdf")
-    const pdf = new (jsPDFModule as any).jsPDF("p", "mm", "a4")
+		  const buildQuotationPdf = async (q: Quotation) => {
+		    const jsPDFModule = await import("jspdf")
+		    const pdf = new (jsPDFModule as any).jsPDF("p", "mm", "a4")
 
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 15
+		    const pageWidth = pdf.internal.pageSize.getWidth()
+		    const pageHeight = pdf.internal.pageSize.getHeight()
+		    const margin = 15
 
     // Load header/footer images once per build
     const [headerDataUrl, footerDataUrl] = await Promise.all([
       loadImageDataUrl("/images/Quotation-Paper-Invoice-Header.jpg"),
       loadImageDataUrl("/images/Footer-qoute-paper.jpg"),
     ])
-    const [headerSize, footerSize] = await Promise.all([getImageSize(headerDataUrl), getImageSize(footerDataUrl)])
+	    const [headerSize, footerSize] = await Promise.all([getImageSize(headerDataUrl), getImageSize(footerDataUrl)])
 
-    const items = Array.isArray(q.items) ? q.items : []
-    const itemsPerPage = 10
-    const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage))
+		    const items = Array.isArray(q.items) ? q.items : []
+		    const itemsPerPage = 15
+		    const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage))
 
-    const dateStr = q.createdAt ? new Date(q.createdAt).toLocaleDateString() : new Date().toLocaleDateString()
+	    const dateStr = q.createdAt ? new Date(q.createdAt).toLocaleDateString() : new Date().toLocaleDateString()
 
-    for (let pageNum = 0; pageNum < totalPages; pageNum++) {
-      if (pageNum > 0) pdf.addPage()
+			    for (let pageNum = 0; pageNum < totalPages; pageNum++) {
+			      if (pageNum > 0) pdf.addPage()
 
-      // Header
-      const headerWidth = pageWidth - margin * 2
-      const headerHeight = headerSize.width ? (headerSize.height * headerWidth) / headerSize.width : 40
-      pdf.addImage(headerDataUrl, "JPEG", margin, margin, headerWidth, headerHeight)
+			      // Header
+			      const headerWidth = pageWidth - margin * 2
+			      const headerHeight = headerSize.width ? (headerSize.height * headerWidth) / headerSize.width : 40
+			      pdf.addImage(headerDataUrl, "JPEG", margin, margin, headerWidth, headerHeight)
 
-      let currentY = margin + headerHeight + 10
+			      let currentY = margin + headerHeight + 10
 
-      // Quotation number + date (top-right)
-      pdf.setFontSize(10)
-      pdf.setFont(undefined, "bold")
-      pdf.setTextColor(43, 48, 104)
+	      // Quotation number + date (top-right)
+	      pdf.setFontSize(10)
+	      pdf.setFont(undefined, "bold")
+	      pdf.setTextColor(43, 48, 104)
       pdf.text(`Quotation #: ${q.quotationNumber}`, pageWidth - margin, currentY, { align: "right" })
       pdf.setFont(undefined, "normal")
       pdf.setTextColor(0, 0, 0)
@@ -201,12 +201,12 @@ export const GenerateQuotation = () => {
       const endIndex = Math.min(startIndex + itemsPerPage, items.length)
       const pageItems = items.slice(startIndex, endIndex)
 
-      // Table
-      const tableStartY = currentY + 5
-      const rowHeight = 7.5
-      const colWidths = [12, 20, 50, 15, 22, 22, 25]
-      const tableWidth = colWidths.reduce((sum, w) => sum + w, 0)
-      const tableX = (pageWidth - tableWidth) / 2
+	      // Table
+	      const tableStartY = currentY + 4
+	      const rowHeight = 6.2
+	      const colWidths = [12, 22, 62, 15, 24, 24, 27]
+	      const tableWidth = colWidths.reduce((sum, w) => sum + w, 0)
+	      const tableX = margin
 
       // Header row background
       pdf.setFillColor(43, 48, 104)
@@ -228,11 +228,11 @@ export const GenerateQuotation = () => {
       pdf.setFont(undefined, "normal")
       pdf.setTextColor(0, 0, 0)
       let y = tableStartY + rowHeight
-      pageItems.forEach((it, idx) => {
-        const quantity = Number(it.quantity || 1)
-        const price = Number(it.price || 0)
-        const itemSubtotal = quantity * price
-        const itemVAT = Math.trunc(itemSubtotal * 0.05 * 100) / 100
+	      pageItems.forEach((it, idx) => {
+	        const quantity = Number(it.quantity || 1)
+	        const price = Number(it.price || 0)
+	        const itemSubtotal = quantity * price
+	        const itemVAT = Math.trunc(itemSubtotal * 0.05 * 100) / 100
         const itemTotal = Math.trunc((itemSubtotal + itemVAT) * 100) / 100
 
         const row = [
@@ -260,20 +260,20 @@ export const GenerateQuotation = () => {
           }
         })
 
-        y += rowHeight
-      })
+	        y += rowHeight
+		      })
 
-      // Footer image
-      const footerWidth = pageWidth - margin * 2
-      const footerHeight = footerSize.width ? (footerSize.height * footerWidth) / footerSize.width : 20
-      const footerY = pageHeight - margin - footerHeight - 8
-      pdf.addImage(footerDataUrl, "JPEG", margin, footerY, footerWidth, footerHeight)
+			      // Footer image
+			      const footerWidth = pageWidth - margin * 2
+			      const footerHeight = footerSize.width ? (footerSize.height * footerWidth) / footerSize.width : 20
+			      const footerY = pageHeight - margin - footerHeight - 8
+			      pdf.addImage(footerDataUrl, "JPEG", margin, footerY, footerWidth, footerHeight)
 
-      // Page number
-      pdf.setFontSize(8)
-      pdf.setTextColor(107, 114, 128)
-      pdf.text(`Page ${pageNum + 1} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" })
-    }
+			      // Page number
+			      pdf.setFontSize(8)
+		      pdf.setTextColor(107, 114, 128)
+		      pdf.text(`Page ${pageNum + 1} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" })
+	    }
 
     return pdf
   }

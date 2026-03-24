@@ -18,6 +18,7 @@ import { toast } from "sonner"
 import CashPaperSection from "@/components/cash-paper-section"
 import { getStartOfDate, getEndOfDate, getDubaiDateDisplayString, getDubaiDateTimeString } from "@/lib/date-utils"
 import { formatCurrencyAED } from "@/lib/utils"
+import { cacheInvoiceSignature, persistEmployeeSaleCustomerSignature } from "@/lib/invoice-signature"
 
 interface CustomerLedgerData {
   _id: string
@@ -291,15 +292,17 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 
     // Import jsPDF dynamically
     const jsPDFModule = await import("jspdf");
-    const pdf = new (jsPDFModule as any).jsPDF("p", "mm", "a4");
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 15;
+			    const pdf = new (jsPDFModule as any).jsPDF("p", "mm", "a4");
+			    const pageWidth = pdf.internal.pageSize.getWidth();
+			    const pageHeight = pdf.internal.pageSize.getHeight();
+			    const margin = 15;
+			    const footerSpace = 60; // Space needed for footer (footer starts at pageHeight - 60)
 
-    try {
-      // Add header image
-      const headerImg = new Image();
-      headerImg.crossOrigin = "anonymous";
+	    try {
+	      // Add header image
+	      let headerHeight = 0;
+	      const headerImg = new Image();
+	      headerImg.crossOrigin = "anonymous";
       
       await new Promise<void>((resolve, reject) => {
         headerImg.onload = () => {
@@ -309,17 +312,15 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             canvas.width = headerImg.width;
             canvas.height = headerImg.height;
             
-            if (ctx) {
-              ctx.drawImage(headerImg, 0, 0);
-              const headerImgData = canvas.toDataURL("image/png");
-              
-              const headerWidth = pageWidth - margin * 2;
-              const headerHeight = (headerImg.height * headerWidth) / headerImg.width;
-              
-              pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight);
-            }
-            resolve();
-          } catch (err) {
+		            if (ctx) {
+		              ctx.drawImage(headerImg, 0, 0);
+		              const headerImgData = canvas.toDataURL("image/png");
+		              const headerWidth = pageWidth - margin * 2;
+		              headerHeight = (headerImg.height * headerWidth) / headerImg.width;
+		              pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight);
+		            }
+	            resolve();
+	          } catch (err) {
             reject(err);
           }
         };
@@ -327,24 +328,19 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         headerImg.src = "/images/Customer-Ledger-header-pending.jpg";
       });
 
-      // Add report title and info
-      let currentY = margin + 60;
-      
-      currentY += 10;
-      pdf.setFontSize(10);
-      pdf.setFont(undefined, 'normal');
-      pdf.text(`Generated on: ${getDubaiDateTimeString()}`, pageWidth / 2, currentY, { align: "center" });
-      
-      currentY += 6;
-      const filterText = filters.customerName.trim() !== '' 
-        ? `Customer Filter: ${filters.customerName}`
-        : `Employee: ${user?.name || 'N/A'} - All Customers with Pending Transactions`;
-      pdf.text(filterText, pageWidth / 2, currentY, { align: "center" });
-      
-      currentY += 6;
-      pdf.text(`Total Customers: ${pendingCustomers.length}`, pageWidth / 2, currentY, { align: "center" });
-      
-      currentY += 15;
+		      // Report info (compact) - ensure it starts below the header image
+		      let currentY = margin + headerHeight + 4;
+
+	      const filterText = filters.customerName.trim() !== '' 
+	        ? `Customer Filter: ${filters.customerName}`
+	        : `Employee: ${user?.name || 'N/A'} - All Customers with Pending Transactions`;
+
+	      pdf.setFontSize(7);
+	      pdf.setFont(undefined, 'normal');
+	      pdf.setTextColor(0, 0, 0);
+	      const reportLine = `Generated: ${getDubaiDateTimeString()} | Total Customers: ${pendingCustomers.length} | ${filterText}`
+	      pdf.text(reportLine, pageWidth / 2, currentY, { align: "center" });
+	      currentY += 6;
 
       let grandTotal = 0;
 
@@ -358,92 +354,93 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         const customerTotal = gasSalesTotal + cylindersTotal;
         grandTotal += customerTotal;
 
-        // Check if we need a new page
-        if (currentY > pageHeight - 80) {
-          pdf.addPage();
-          currentY = margin + 20;
-        }
+	        const hasAnyRows = pendingGasSales.length > 0 || pendingCylinders.length > 0;
+	        const minBlockHeight = hasAnyRows ? 24 : 14;
+	        if (currentY + minBlockHeight > pageHeight - footerSpace) {
+	          pdf.addPage();
+	          currentY = margin + 2;
+	        }
 
-        // Customer header (same styling as admin)
-        pdf.setFillColor(248, 249, 250);
-        pdf.rect(margin, currentY, pageWidth - margin * 2, 15, 'F');
-        
-        pdf.setFontSize(12);
-        pdf.setTextColor(43, 48, 104);
-        pdf.setFont(undefined, 'bold');
-        pdf.text(customer.name, margin + 5, currentY + 8);
-        
-        pdf.setFontSize(9);
-        pdf.setFont(undefined, 'normal');
-        pdf.setTextColor(102, 102, 102);
-        pdf.text(`TR Number: ${customer.trNumber}`, margin + 5, currentY + 12);
-        
-        currentY += 15; // Reduced from 20 to 15 for tighter spacing
+	        // Customer header (same styling as admin)
+	        pdf.setFillColor(248, 249, 250);
+	        pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
+	        
+	        pdf.setFontSize(9);
+	        pdf.setTextColor(43, 48, 104);
+	        pdf.setFont(undefined, 'bold');
+	        pdf.text(customer.name, margin + 4, currentY + 5);
+	        
+	        pdf.setFontSize(7);
+	        pdf.setFont(undefined, 'normal');
+	        pdf.setTextColor(102, 102, 102);
+	        pdf.text(`TR Number: ${customer.trNumber}`, margin + 4, currentY + 7.2);
+	        
+	        currentY += 8;
 
-        if (pendingGasSales.length > 0 || pendingCylinders.length > 0) {
-          // Table header
-          pdf.setFillColor(241, 243, 244);
-          pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
-          
-          pdf.setFontSize(9);
-          pdf.setTextColor(0, 0, 0);
-          pdf.setFont(undefined, 'bold');
-          pdf.text('Date', margin + 2, currentY + 5);
-          pdf.text('Invoice Number', margin + 35, currentY + 5);
-          pdf.text('Reference Name', margin + 80, currentY + 5);
-          pdf.text('Amount (AED)', pageWidth - margin - 25, currentY + 5, { align: 'right' });
-          
-          currentY += 10;
+	        if (pendingGasSales.length > 0 || pendingCylinders.length > 0) {
+	          // Table header
+	          pdf.setFillColor(241, 243, 244);
+	          pdf.rect(margin, currentY, pageWidth - margin * 2, 5, 'F');
+	          
+	          pdf.setFontSize(7.5);
+	          pdf.setTextColor(0, 0, 0);
+	          pdf.setFont(undefined, 'bold');
+	          pdf.text('Date', margin + 2, currentY + 3.5);
+	          pdf.text('Invoice Number', margin + 35, currentY + 3.5);
+	          pdf.text('Reference Name', margin + 80, currentY + 3.5);
+	          pdf.text('Amount (AED)', pageWidth - margin - 2, currentY + 3.5, { align: 'right' });
+	          
+	          currentY += 6.5;
 
           // Add gas sales
-          pendingGasSales.forEach((sale: any) => {
-            const date = new Date(sale.createdAt).toLocaleDateString();
-            const invoiceNumber = sale.invoiceNumber || 'N/A';
-            const createdBy = user?.name || 'Employee';
-            const amount = Number(sale.totalAmount) || 0;
+	          pendingGasSales.forEach((sale: any) => {
+	            const date = new Date(sale.createdAt).toLocaleDateString();
+	            const invoiceNumber = sale.invoiceNumber || 'N/A';
+	            const createdBy = user?.name || 'Employee';
+	            const amount = Number(sale.totalAmount) || 0;
 
-            pdf.setFont(undefined, 'normal');
-            pdf.setFontSize(8);
-            pdf.text(date, margin + 2, currentY + 4);
-            pdf.text(invoiceNumber, margin + 35, currentY + 4);
-            pdf.text(createdBy, margin + 80, currentY + 4);
-            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 4, { align: 'right' });
-            
-            currentY += 6;
-          });
+	            pdf.setFont(undefined, 'normal');
+	            pdf.setFontSize(7);
+	            pdf.text(date, margin + 2, currentY + 3);
+	            pdf.text(invoiceNumber, margin + 35, currentY + 3);
+	            pdf.text(createdBy, margin + 80, currentY + 3);
+	            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 3, { align: 'right' });
+	            
+	            currentY += 4.5;
+	          });
 
           // Add cylinder transactions
-          pendingCylinders.forEach((transaction: any) => {
-            const date = new Date(transaction.createdAt).toLocaleDateString();
-            const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
-            const createdBy = user?.name || 'Employee';
-            const amount = Number(transaction.amount) || 0;
+	          pendingCylinders.forEach((transaction: any) => {
+	            const date = new Date(transaction.createdAt).toLocaleDateString();
+	            const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
+	            const createdBy = user?.name || 'Employee';
+	            const amount = Number(transaction.amount) || 0;
 
-            pdf.setFont(undefined, 'normal');
-            pdf.setFontSize(8);
-            pdf.text(date, margin + 2, currentY + 4);
-            pdf.text(invoiceNumber, margin + 35, currentY + 4);
-            pdf.text(createdBy, margin + 80, currentY + 4);
-            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 4, { align: 'right' });
-            
-            currentY += 6;
-          });
+	            pdf.setFont(undefined, 'normal');
+	            pdf.setFontSize(7);
+	            pdf.text(date, margin + 2, currentY + 3);
+	            pdf.text(invoiceNumber, margin + 35, currentY + 3);
+	            pdf.text(createdBy, margin + 80, currentY + 3);
+	            pdf.text(formatCurrency(amount), pageWidth - margin - 2, currentY + 3, { align: 'right' });
+	            
+	            currentY += 4.5;
+	          });
 
-          // Customer total
-          pdf.setFillColor(232, 244, 253);
-          pdf.rect(margin, currentY, pageWidth - margin * 2, 8, 'F');
-          
-          pdf.setFont(undefined, 'bold');
-          pdf.setFontSize(9);
-          pdf.setTextColor(43, 48, 104);
-          pdf.text('Customer Total:', margin + 80, currentY + 5);
-          pdf.text(formatCurrency(customerTotal), pageWidth - margin - 2, currentY + 5, { align: 'right' });
-          
-          currentY += 8; // Reduced from 12 to 8 for tighter spacing
-        }
+	          // Customer total
+	          pdf.setFillColor(232, 244, 253);
+	          pdf.rect(margin, currentY, pageWidth - margin * 2, 5, 'F');
+	          
+	          pdf.setFont(undefined, 'bold');
+	          pdf.setFontSize(7.5);
+	          pdf.setTextColor(43, 48, 104);
+	          pdf.text('Customer Total:', margin + 80, currentY + 3.5);
+	          pdf.text(formatCurrency(customerTotal), pageWidth - margin - 2, currentY + 3.5, { align: 'right' });
+	          
+	          currentY += 5;
+	        }
 
-        currentY += 5; // Space between customers (reduced from 10 to 5)
-      }
+	        currentY += 2; // Space between customers
+	      }
 
       // Add grand total
       if (currentY > pageHeight - 40) {
@@ -459,10 +456,10 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
       pdf.setFontSize(14);
       pdf.setTextColor(43, 48, 104);
       pdf.setFont(undefined, 'bold');
-      pdf.text(`Grand Total: ${formatCurrency(grandTotal)}`, pageWidth - margin - 5, currentY + 10, { align: 'right' });
+		      pdf.text(`Grand Total: ${formatCurrency(grandTotal)}`, pageWidth - margin - 5, currentY + 10, { align: 'right' });
 
-      // Add footer image and employee signature (same structure as admin)
-      const footerY = pageHeight - 60;
+		      // Add footer image and employee signature (same structure as admin)
+		      const footerY = pageHeight - 60;
       
       const footerImg = new Image();
       footerImg.crossOrigin = "anonymous";
@@ -475,14 +472,12 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
             canvas.width = footerImg.width;
             canvas.height = footerImg.height;
             
-            if (ctx) {
-              ctx.drawImage(footerImg, 0, 0);
-              const footerImgData = canvas.toDataURL("image/png");
-              
-              const footerWidth = pageWidth - margin * 2;
-              const actualFooterHeight = (footerImg.height * footerWidth) / footerImg.width;
-              
-              pdf.addImage(footerImgData, "PNG", margin, footerY, footerWidth, actualFooterHeight);
+		            if (ctx) {
+		              ctx.drawImage(footerImg, 0, 0);
+		              const footerImgData = canvas.toDataURL("image/png");
+		              const footerWidth = pageWidth - margin * 2;
+		              const actualFooterHeight = (footerImg.height * footerWidth) / footerImg.width;
+		              pdf.addImage(footerImgData, "PNG", margin, footerY, footerWidth, actualFooterHeight);
               
               // Add employee signature on bottom right
               if (employeeSignature) {
@@ -527,8 +522,8 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                           
                           const sigWidth = 30;
                           const sigHeight = 30 / aspectRatio;
-                          const sigX = pageWidth - margin - sigWidth - 8;
-                          const sigY = footerY + actualFooterHeight - sigHeight - 8;
+	                          const sigX = pageWidth - margin - sigWidth - 8;
+	                          const sigY = footerY + actualFooterHeight - sigHeight - 8;
                           
                           pdf.addImage(sigImgData, "PNG", sigX, sigY, sigWidth, sigHeight);
                         }
@@ -544,13 +539,13 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
                   pdf.setFontSize(8);
                   pdf.setTextColor(43, 48, 104);
                   pdf.setFont(undefined, 'bold');
-                  pdf.text("Employee Signature", pageWidth - margin - 30, footerY + actualFooterHeight - 8, { align: "center" });
+		                  pdf.text("Employee Signature", pageWidth - margin - 30, footerY + actualFooterHeight - 8, { align: "center" });
                 }
               } else {
                 pdf.setFontSize(8);
                 pdf.setTextColor(43, 48, 104);
                 pdf.setFont(undefined, 'bold');
-                pdf.text("Employee Signature", pageWidth - margin - 30, footerY + actualFooterHeight - 8, { align: "center" });
+		                pdf.text("Employee Signature", pageWidth - margin - 30, footerY + actualFooterHeight - 8, { align: "center" });
               }
             }
             resolve();
@@ -1834,20 +1829,14 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 
     // If invoked from Receive Amount flow, save signature on the same invoice (so re-download/print won't ask again),
     // then fetch updated record and open receipt.
-    if (pendingReceiptData) {
-      const { kind, targetId } = pendingReceiptData
+	    if (pendingReceiptData) {
+	      const { kind, targetId } = pendingReceiptData
 
-      try {
-        if (kind === "sale") {
-          await fetch(`/api/employee-sales/${targetId}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ customerSignature: signature }),
-          })
-        }
-      } catch (e) {
-        console.warn("Failed to persist customer signature from employee reports:", e)
-      }
+	      cacheInvoiceSignature(targetId, signature)
+	      if (kind === "sale") {
+	        const ok = await persistEmployeeSaleCustomerSignature(targetId, signature)
+	        if (!ok) console.warn("Failed to persist customer signature for employee sale from employee reports")
+	      }
 
       const getUrl = kind === 'cylinder' ? `/api/employee-cylinders/${targetId}` : `/api/employee-sales/${targetId}`
 

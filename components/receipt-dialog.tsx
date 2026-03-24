@@ -269,9 +269,10 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
   }
 
   const handleDownload = async () => {
+    let loadingToast: any = null
     try {
       // Show loading toast
-      const loadingToast = toast.loading("Generating PDF...", {
+      loadingToast = toast.loading("Generating PDF...", {
         description: "Please wait while we prepare your receipt.",
       })
 
@@ -293,48 +294,116 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
         return
       }
 
-      // Render the receipt content to a canvas
-      const canvas = await html2canvas(node, {
-        scale: 4, // even sharper to reduce blurriness
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false, // Disable console logging from html2canvas
-        allowTaint: true,
-      })
-      const imgData = canvas.toDataURL('image/png')
+      // For accurate A4 pagination (and to prevent rows getting cut), capture the dedicated print page
+      // which is already styled and paginated for A4.
+      sessionStorage.setItem('printReceiptData', JSON.stringify(sale))
+      if (adminSignature) {
+        sessionStorage.setItem('adminSignature', adminSignature)
+      }
+      sessionStorage.setItem('useReceivingHeader', useReceivingHeader ? 'true' : 'false')
+      const shouldDisableVAT = disableVAT || isCylinderTransaction
+      sessionStorage.setItem('disableVAT', shouldDisableVAT ? 'true' : 'false')
 
-      // Create PDF (A4 portrait)
-      const pdf = new (jsPDFModule as any).jsPDF('p', 'mm', 'a4')
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = pdf.internal.pageSize.getHeight()
+      const iframe = document.createElement('iframe')
+      iframe.setAttribute('aria-hidden', 'true')
+      iframe.style.position = 'fixed'
+      iframe.style.left = '-10000px'
+      iframe.style.top = '0'
+      iframe.style.width = '1px'
+      iframe.style.height = '1px'
+      iframe.style.opacity = '0'
+      iframe.style.pointerEvents = 'none'
+      document.body.appendChild(iframe)
 
-      // Add margins (10mm on each side)
-      const margin = 10
-      const imgWidth = pageWidth - margin * 2
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      try {
+        await new Promise<void>((resolve, reject) => {
+          iframe.onload = () => resolve()
+          iframe.onerror = () => reject(new Error('Failed to load print page'))
+          iframe.src = `/print/receipt/${sale._id}`
+        })
 
-      let heightLeft = imgHeight
-      let position = 0
+        // Give images a moment to load/render inside the iframe
+        await new Promise((resolve) => setTimeout(resolve, 300))
 
-      pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
-      heightLeft -= pageHeight
+        const doc = iframe.contentDocument
+        if (!doc) throw new Error('Unable to access print document')
 
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight
-        pdf.addPage()
-        pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
-        heightLeft -= pageHeight
+        // Ensure clean capture (no shadows/borders/margins in download)
+        const injected = doc.createElement('style')
+        injected.textContent = `
+          .receipt-page { box-shadow: none !important; border: 0 !important; margin: 0 !important; }
+          .no-print { display: none !important; }
+        `
+        doc.head?.appendChild(injected)
+
+        const waitForPages = async () => {
+          const start = Date.now()
+          while (Date.now() - start < 5000) {
+            const els = Array.from(doc.querySelectorAll('.receipt-page')) as HTMLElement[]
+            if (els.length) return els
+            await new Promise((r) => setTimeout(r, 100))
+          }
+          return [] as HTMLElement[]
+        }
+
+        const waitForImages = async () => {
+          const imgs = Array.from(doc.querySelectorAll('img')) as HTMLImageElement[]
+          await Promise.all(
+            imgs.map(
+              (img) =>
+                new Promise<void>((resolve) => {
+                  if (img.complete && img.naturalWidth > 0) return resolve()
+                  img.addEventListener('load', () => resolve(), { once: true })
+                  img.addEventListener('error', () => resolve(), { once: true })
+                })
+            )
+          )
+        }
+
+        const pageEls = await waitForPages()
+        if (!pageEls.length) throw new Error('Printable pages not found')
+        await waitForImages()
+
+        // Create PDF (A4 portrait)
+        const pdf = new (jsPDFModule as any).jsPDF('p', 'mm', 'a4')
+        const pageWidth = pdf.internal.pageSize.getWidth()
+        const pageHeight = pdf.internal.pageSize.getHeight()
+
+        for (let i = 0; i < pageEls.length; i++) {
+          const pageEl = pageEls[i]
+          const canvas = await html2canvas(pageEl, {
+            scale: 4,
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false,
+            allowTaint: true,
+          })
+
+          const imgData = canvas.toDataURL('image/png')
+          const ratio = Math.min(pageWidth / canvas.width, pageHeight / canvas.height)
+          const imgWidth = canvas.width * ratio
+          const imgHeight = canvas.height * ratio
+          const x = (pageWidth - imgWidth) / 2
+          const y = (pageHeight - imgHeight) / 2
+
+          if (i > 0) pdf.addPage()
+          pdf.addImage(imgData, 'PNG', x, y, imgWidth, imgHeight, undefined, 'FAST')
+        }
+
+        const fileName = `receipt-${sale.invoiceNumber}.pdf`
+        pdf.save(fileName)
+
+        toast.dismiss(loadingToast)
+        toast.success("Receipt PDF downloaded successfully", {
+          description: `File: ${fileName}`,
+        })
+      } finally {
+        iframe.remove()
       }
 
-      const fileName = `receipt-${sale.invoiceNumber}.pdf`
-      pdf.save(fileName)
-      
-      toast.dismiss(loadingToast)
-      toast.success("Receipt PDF downloaded successfully", {
-        description: `File: ${fileName}`,
-      })
     } catch (error) {
       console.error("Error generating PDF:", error)
+      if (loadingToast) toast.dismiss(loadingToast)
       toast.error("Failed to download receipt PDF", {
         description: error instanceof Error ? error.message : "Please try again or contact support if the issue persists.",
       })

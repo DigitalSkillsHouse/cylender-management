@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, Fragment } from "react"
+import { useState, useEffect, useMemo, Fragment } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,6 +22,7 @@ import { ProductDropdown } from "@/components/ui/product-dropdown"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import jsPDF from "jspdf"
 import { getStartOfDate, getEndOfDate } from "@/lib/date-utils"
+import { cacheInvoiceSignature, getCachedInvoiceSignature, persistEmployeeSaleCustomerSignature } from "@/lib/invoice-signature"
 
 interface Sale {
   _id: string
@@ -1663,29 +1664,45 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       })
     }
     
-    if (!customerSignature && !sale.customerSignature) {
-      // No signature yet - show signature dialog first
-      setPendingSale(enrichedSale)
-      setPendingDialogType('receipt')
-      setShowSignatureDialog(true)
-    } else {
-      // Signature already exists - show receipt directly with existing signature
-      setReceiptSale(enrichedSale)
-    }
-  }
+	    const cached = !sale.customerSignature ? getCachedInvoiceSignature(sale._id) : ""
+	    if (!sale.customerSignature && cached) {
+	      const saleWithSignature = { ...enrichedSale, customerSignature: cached }
+	      setReceiptSale(saleWithSignature)
+	      void persistEmployeeSaleCustomerSignature(sale._id, cached)
+	      return
+	    }
 
-  // Handle delivery note button click - show signature dialog only if no signature exists
-  const handleDeliveryNoteClick = (sale: Sale) => {
-    if (!customerSignature && !sale.customerSignature) {
-      // No signature yet - show signature dialog first
-      setPendingSale(sale)
-      setPendingDialogType('deliveryNote')
-      setShowSignatureDialog(true)
-    } else {
-      // Signature already exists - show delivery note directly with existing signature
-      setDeliveryNoteSale(sale)
-    }
-  }
+	    if (!sale.customerSignature) {
+	      // No signature saved on this invoice yet - show signature dialog first
+	      setPendingSale(enrichedSale)
+	      setPendingDialogType('receipt')
+	      setShowSignatureDialog(true)
+	    } else {
+	      // Signature already exists - show receipt directly with existing signature
+	      setReceiptSale(enrichedSale)
+	    }
+	  }
+
+	  // Handle delivery note button click - show signature dialog only if no signature exists
+	  const handleDeliveryNoteClick = (sale: Sale) => {
+	    const cached = !sale.customerSignature ? getCachedInvoiceSignature(sale._id) : ""
+	    if (!sale.customerSignature && cached) {
+	      const saleWithSignature = { ...sale, customerSignature: cached }
+	      setDeliveryNoteSale(saleWithSignature)
+	      void persistEmployeeSaleCustomerSignature(sale._id, cached)
+	      return
+	    }
+
+	    if (!sale.customerSignature) {
+	      // No signature saved on this invoice yet - show signature dialog first
+	      setPendingSale(sale)
+	      setPendingDialogType('deliveryNote')
+	      setShowSignatureDialog(true)
+	    } else {
+	      // Signature already exists - show delivery note directly with existing signature
+	      setDeliveryNoteSale(sale)
+	    }
+	  }
 
   // Handle signature completion - show receipt or delivery note with signature
   const handleSignatureComplete = async (signature: string) => {
@@ -1702,18 +1719,12 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     if (pendingSale) {
       const saleWithSignature = { ...pendingSale, customerSignature: signature }
 
-      // Save signature on this invoice so next time it won't ask again
-      try {
-        if (pendingSale?._id) {
-          await fetch(`/api/employee-sales/${pendingSale._id}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ customerSignature: signature }),
-          })
-        }
-      } catch (e) {
-        console.warn("Failed to persist customer signature for employee sale:", e)
-      }
+	      // Cache locally first (so re-download/print won't ask again even if network fails),
+	      // then persist on the invoice record.
+	      if (pendingSale?._id) {
+	        cacheInvoiceSignature(pendingSale._id, signature)
+	        await persistEmployeeSaleCustomerSignature(pendingSale._id, signature)
+	      }
       
       if (pendingDialogType === 'deliveryNote') {
         console.log('EmployeeGasSales - Opening delivery note dialog with signature embedded in sale')
@@ -1887,6 +1898,38 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     const price = Number(item.price) || 0
     return sum + price * quantity
   }, 0)
+
+  const cashGrandTotal = useMemo(() => {
+    const subtotal = totalAmount
+    const deliveryCharges = parseFloat(formData.deliveryCharges) || 0
+    const total = Math.trunc((subtotal + deliveryCharges) * 100) / 100
+    const vatAmount = Math.trunc((total * 0.05) * 100) / 100
+    return Math.trunc((total + vatAmount) * 100) / 100
+  }, [totalAmount, formData.deliveryCharges])
+
+  useEffect(() => {
+    if (formData.paymentOption !== "debit") return
+
+    const nextReceivedAmount = cashGrandTotal.toFixed(2)
+    const nextPaymentStatus = cashGrandTotal > 0 ? "cleared" : "pending"
+
+    setFormData((prev) => {
+      if (prev.paymentOption !== "debit") return prev
+      if (
+        prev.receivedAmount === nextReceivedAmount &&
+        prev.paymentStatus === nextPaymentStatus &&
+        prev.paymentMethod === "debit"
+      ) {
+        return prev
+      }
+      return {
+        ...prev,
+        receivedAmount: nextReceivedAmount,
+        paymentStatus: nextPaymentStatus,
+        paymentMethod: "debit",
+      }
+    })
+  }, [cashGrandTotal, formData.paymentOption, setFormData])
 
   if (loading) {
     return (
@@ -2486,8 +2529,10 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                       next.receivedAmount = "0"
                     }
                     if (value === "debit") {
-                      // Default to 0 and let user type amount
+                      // Auto-fill cash received amount from grand total
                       next.paymentMethod = "debit"
+                      next.receivedAmount = cashGrandTotal.toFixed(2)
+                      next.paymentStatus = cashGrandTotal > 0 ? "cleared" : "pending"
                     }
                     setFormData(next)
                   }}
@@ -2508,12 +2553,13 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                     <Input
                       id="receivedAmount"
                       type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.receivedAmount}
-                      onChange={(e) => {
-                        const receivedAmount = e.target.value
-                        const receivedValue = parseFloat(receivedAmount) || 0
+	                      step="0.01"
+	                      min="0"
+	                      value={formData.receivedAmount}
+	                      readOnly
+	                      onChange={(e) => {
+	                        const receivedAmount = e.target.value
+	                        const receivedValue = parseFloat(receivedAmount) || 0
                         
                         // Calculate grand total: Subtotal + Delivery Charges = Total, then VAT on Total, then Grand Total
                         const subtotal = totalAmount

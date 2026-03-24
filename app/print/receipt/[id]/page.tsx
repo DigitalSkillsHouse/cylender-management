@@ -4,6 +4,14 @@ import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
 
+const chunkArray = <T,>(arr: T[], size: number) => {
+  const safe = Array.isArray(arr) ? arr : [];
+  const chunkSize = Math.max(1, Math.floor(size || 1));
+  const out: T[][] = [];
+  for (let i = 0; i < safe.length; i += chunkSize) out.push(safe.slice(i, i + chunkSize));
+  return out.length ? out : [[]];
+};
+
 const formatPaymentMethodLabel = (paymentMethod: unknown) => {
   const raw = (paymentMethod ?? '').toString().trim();
   if (!raw) return '-';
@@ -153,6 +161,83 @@ const ReceiptPrintPage = () => {
     return '/images/Header-Tax-invoice.jpg'
   })()
 
+  const transactionType = (sale?.type || '').toString().toLowerCase()
+  const hasGasItems =
+    Array.isArray(sale?.items) &&
+    sale.items.some((it: any) => (it?.category || (it?.product as any)?.category || '').toString().toLowerCase() === 'gas')
+
+  // Page row limits (layout only):
+  // - Collection "Receiving Invoice": 15 lines per page
+  // - Gas sales invoice: 10 lines per page
+  // - Others: keep 15 as default
+  const itemsPerPage = transactionType === 'collection' ? 15 : hasGasItems ? 10 : 15
+
+  const collectionRows = (() => {
+    if (transactionType !== 'collection') return null
+
+    const groups: Record<string, any[]> = {}
+    const safeItems = Array.isArray(sale.items) ? sale.items : []
+
+    safeItems.forEach((item: any) => {
+      const name = String(item?.product?.name || '')
+      let invoiceNumber = item?.invoiceNumber
+
+      if (!invoiceNumber && name.includes('Invoice #')) {
+        const parts = name.split('Invoice #')
+        if (parts.length > 1) {
+          invoiceNumber = parts[1].split(' ')[0].trim()
+        }
+      }
+
+      if (!invoiceNumber && sale?.invoiceNumber) invoiceNumber = sale.invoiceNumber
+
+      const key = String(invoiceNumber || 'no-invoice')
+      if (!groups[key]) groups[key] = []
+      groups[key].push(item)
+    })
+
+    return Object.entries(groups).map(([invoiceNumber, groupItems]) => {
+      let totalAmount = 0
+      let receivedAmount = 0
+      let remainingAmount = 0
+      let invoiceDate = ''
+      let paymentStatus = 'pending'
+
+      groupItems.forEach((item: any) => {
+        const itemTotal = Number(item?.total || 0)
+        const itemTotalAmount = Number(item?.totalAmount ?? itemTotal)
+        const itemReceivedAmount = Number(item?.receivedAmount ?? itemTotal)
+        const itemRemainingAmount =
+          item?.remainingAmount !== undefined ? Number(item?.remainingAmount) : itemTotalAmount - itemReceivedAmount
+
+        totalAmount += isFinite(itemTotalAmount) ? itemTotalAmount : 0
+        receivedAmount += isFinite(itemReceivedAmount) ? itemReceivedAmount : 0
+        remainingAmount += isFinite(itemRemainingAmount) ? itemRemainingAmount : 0
+
+        if (!invoiceDate && item?.invoiceDate) invoiceDate = String(item.invoiceDate)
+        if (paymentStatus === 'pending' && item?.paymentStatus) paymentStatus = String(item.paymentStatus)
+      })
+
+      const dateToShow = invoiceDate
+        ? new Date(invoiceDate).toLocaleDateString()
+        : sale?.createdAt
+          ? new Date(sale.createdAt).toLocaleDateString()
+          : '-'
+
+      return {
+        invoiceNumber: String(invoiceNumber || '-'),
+        date: dateToShow,
+        paymentStatus: paymentStatus || 'pending',
+        totalAmount,
+        receivedAmount,
+        remainingAmount,
+      }
+    })
+  })()
+
+  const rowsToRender: any[] = transactionType === 'collection' ? (collectionRows || []) : (sale.items || [])
+  const itemPages = chunkArray(rowsToRender, itemsPerPage)
+
   return (
     <div className="bg-gray-100 min-h-screen print:bg-white">
       {/* This is the non-printable header with the print button */}
@@ -164,88 +249,120 @@ const ReceiptPrintPage = () => {
         </Button>
       </header>
 
-      {/* This is the printable receipt area - use flexbox to push footer to bottom, constrained to one page */}
-      <main className="printable-area w-full p-8 bg-white flex flex-col min-h-[297mm] print:min-h-screen print:max-h-[297mm] print:overflow-hidden print:p-[30px] print:box-border">
-        {/* Content wrapper that can scroll if needed, but footer stays at bottom */}
-        <div className="flex-1 flex flex-col print:max-h-[calc(297mm-120px)] print:overflow-hidden">
-          <div className="text-center">
-            <img 
-              src={headerSrc}
-              alt="Company Header"
-              className="mx-auto max-w-full h-auto"
-            />
-          </div>
+      {/* Printable pages (A4) */}
+      <main className="w-full">
+        <div className="mx-auto w-full max-w-[210mm]">
+          {itemPages.map((pageItems, pageIndex) => {
+            const isLast = pageIndex === itemPages.length - 1
 
-          <section className="grid grid-cols-2 gap-8 my-8">
-          <div>
-            <div className="space-y-1 text-sm text-gray-700">
-              <div><strong>Name:</strong> {sale.customer.name}</div>
-              <div><strong>TR Number:</strong> {sale.customer.trNumber || '-'}</div>
-              <div><strong>Address:</strong> {sale.customer.address || '-'}</div>
-            </div>
-          </div>
-          <div>
-            <div className="space-y-1 text-sm text-gray-700">
-              {/* Show RC-NO for collection receipts, regular Invoice # for others */}
-              {sale?.type === 'collection' ? (
-                <div><strong>RC-NO-{sale?.invoiceNumber || '-'}</strong></div>
-              ) : (
-                <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
-              )}
-              <div><strong>Date:</strong> {new Date(sale.createdAt).toLocaleDateString()}</div>
-              {/* Hide Payment Method for rental receipts */}
-              {sale?.type !== 'rental' && (
-                <div>
-                  <strong>Payment Method:</strong> {formatPaymentMethodLabel(sale?.paymentMethod)}
-                </div>
-              )}
-              {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
-                <>
-                  {sale?.bankName && (
-                    <div>
-                      <strong>Bank Name:</strong> {sale.bankName}
-                    </div>
-                  )}
-                  {sale?.chequeNumber && (
-                    <div>
-                      <strong>Cheque Number:</strong> {sale.chequeNumber}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </section>
+            return (
+              <section
+                key={pageIndex}
+                className="receipt-page bg-white shadow-sm border border-gray-200 my-4 print:my-0 print:shadow-none print:border-0 flex flex-col"
+              >
+                <div className="flex flex-col flex-1">
+                  <div className="text-center">
+                    <img
+                      src={headerSrc}
+                      alt="Company Header"
+                      className="receipt-header-img mx-auto max-w-full h-auto"
+                    />
+                  </div>
 
-        <section>
-          <table className="w-full border-collapse text-[11px] leading-tight">
-            <thead>
-              <tr className="bg-[#2B3068] text-white">
-                {sale?.type === 'collection' ? (
-                  <>
-                    <th className="text-left p-2 font-semibold border">Invoice</th>
-                    <th className="text-center p-2 font-semibold border">Date</th>
-                    <th className="text-right p-2 font-semibold border">Type</th>
-                    <th className="text-right p-2 font-semibold border">Total</th>
-                  </>
-                ) : (
-                  <>
-                    <th className="text-left p-2 font-semibold border">Item</th>
-                    <th className="text-center p-2 font-semibold border">Category</th>
-                    <th className="text-center p-2 font-semibold border">Qty</th>
-                    <th className="text-right p-2 font-semibold border">Price</th>
-                    {!shouldDisableVAT && (
-                      <th className="text-right p-2 font-semibold border">VAT (5%)</th>
-                    )}
-                    <th className="text-right p-2 font-semibold border">Total</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {sale.items.map((item, index) => {
-                const priceNum = Number(item?.price || 0)
-                const qtyNum = Number(item?.quantity || 0)
+                  {pageIndex === 0 ? (
+                    <section className="grid grid-cols-2 gap-4 mt-3 mb-3">
+                      <div>
+                        <div className="space-y-0.5 text-[11px] leading-snug text-gray-700">
+                          <div><strong>Name:</strong> {sale.customer.name}</div>
+                          <div><strong>TR Number:</strong> {sale.customer.trNumber || '-'}</div>
+                          <div><strong>Address:</strong> {sale.customer.address || '-'}</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="space-y-0.5 text-[11px] leading-snug text-gray-700">
+                          {sale?.type === 'collection' ? (
+                            <div><strong>RC-NO-{sale?.invoiceNumber || '-'}</strong></div>
+                          ) : (
+                            <div><strong>Invoice #:</strong> {sale.invoiceNumber}</div>
+                          )}
+                          <div><strong>Date:</strong> {new Date(sale.createdAt).toLocaleDateString()}</div>
+                          {sale?.type !== 'rental' && (
+                            <div>
+                              <strong>Payment Method:</strong> {formatPaymentMethodLabel(sale?.paymentMethod)}
+                            </div>
+                          )}
+                          {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
+                            <>
+                              {sale?.bankName && (
+                                <div>
+                                  <strong>Bank Name:</strong> {sale.bankName}
+                                </div>
+                              )}
+                              {sale?.chequeNumber && (
+                                <div>
+                                  <strong>Cheque Number:</strong> {sale.chequeNumber}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </section>
+                  ) : (
+                    <section className="flex items-center justify-between mt-2 mb-2 text-[10px] text-gray-600">
+                      <div className="font-medium">{sale.customer.name}</div>
+                      <div className="font-mono">
+                        {sale?.type === 'collection' ? `RC-NO-${sale?.invoiceNumber || '-'}` : `Invoice: ${sale.invoiceNumber}`}
+                      </div>
+                      <div>{new Date(sale.createdAt).toLocaleDateString()}</div>
+                    </section>
+                  )}
+
+                  <section>
+                    <table className="w-full border-collapse text-[10px] leading-tight receipt-table">
+                      <thead>
+                        <tr className="bg-[#2B3068] text-white">
+                          {sale?.type === 'collection' ? (
+                            <>
+                              <th className="text-left p-1 font-semibold border">Invoice</th>
+                              <th className="text-center p-1 font-semibold border">Date</th>
+                              <th className="text-right p-1 font-semibold border">Type</th>
+                              <th className="text-right p-1 font-semibold border">Total</th>
+                              <th className="text-right p-1 font-semibold border">Received</th>
+                              <th className="text-right p-1 font-semibold border">Remaining</th>
+                            </>
+                          ) : (
+                            <>
+                              <th className="text-left p-1 font-semibold border">Item</th>
+                              <th className="text-center p-1 font-semibold border">Category</th>
+                              <th className="text-center p-1 font-semibold border">Qty</th>
+                              <th className="text-right p-1 font-semibold border">Price</th>
+                              {!shouldDisableVAT && (
+                                <th className="text-right p-1 font-semibold border">VAT (5%)</th>
+                              )}
+                              <th className="text-right p-1 font-semibold border">Total</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pageItems.map((item, index) => {
+                          if (sale?.type === 'collection') {
+                            const row = item as any
+                            return (
+                              <tr key={`${pageIndex}-${index}`} className="border-b">
+                                <td className="p-1 border">{row?.invoiceNumber || '-'}</td>
+                                <td className="text-center p-1 border">{row?.date || '-'}</td>
+                                <td className="text-right p-1 border">{row?.paymentStatus || 'pending'}</td>
+                                <td className="text-right p-1 border font-medium">AED {Number(row?.totalAmount || 0).toFixed(2)}</td>
+                                <td className="text-right p-1 border">AED {Number(row?.receivedAmount || 0).toFixed(2)}</td>
+                                <td className="text-right p-1 border">AED {Number(row?.remainingAmount || 0).toFixed(2)}</td>
+                              </tr>
+                            )
+                          }
+
+                  const priceNum = Number(item?.price || 0)
+                  const qtyNum = Number(item?.quantity || 0)
                 
                 // For collection receipts and cylinder transactions, use the item total directly without VAT calculation
                 let itemTotal
@@ -265,39 +382,12 @@ const ReceiptPrintPage = () => {
                 
                 const unitVat = Math.trunc((priceNum * 0.05) * 100) / 100
                 
-                // Extract invoice number for collection receipts
-                let invoiceNumber = item.invoiceNumber
-                // If item doesn't have invoiceNumber, try to extract from product name
-                if (!invoiceNumber && item.product.name.includes('Invoice #')) {
-                  const parts = item.product.name.split('Invoice #')
-                  if (parts.length > 1) {
-                    invoiceNumber = parts[1].split(' ')[0].trim()
-                  }
-                }
-                // If still no invoice number, use the sale's invoice number (for collected invoices)
-                if (!invoiceNumber && sale?.invoiceNumber) {
-                  invoiceNumber = sale.invoiceNumber
-                }
-                invoiceNumber = invoiceNumber || '-'
-                
                 return (
-                  <tr key={index} className="border-b h-5">
-                    {sale?.type === 'collection' ? (
-                      <>
-                        <td className="p-2 border">{invoiceNumber}</td>
-                        <td className="text-center p-2 border">{
-                          // Use the invoice date from the item data, or fall back to sale date
-                          item.invoiceDate ? new Date(item.invoiceDate).toLocaleDateString() : 
-                          (sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-')
-                        }</td>
-                        <td className="text-right p-2 border">{item.paymentStatus || 'pending'}</td>
-                        <td className="text-right p-2 border font-medium">AED {itemTotal.toFixed(2)}</td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="p-2 border">{item.product.name}</td>
-                        <td className="text-center p-2 border">
-                          {(() => {
+                  <tr key={`${pageIndex}-${index}`} className="border-b">
+                    <>
+                      <td className="p-1 border">{item.product.name}</td>
+                      <td className="text-center p-1 border">
+                        {(() => {
                             // For cylinder transactions (deposit/return/refill), show the transaction type with "Empty"
                             if (sale?.type === 'deposit' || sale?.type === 'return' || sale?.type === 'refill') {
                               // Capitalize the transaction type and add "Empty" (e.g., "deposit" -> "Deposit Empty", "return" -> "Return Empty")
@@ -320,125 +410,126 @@ const ReceiptPrintPage = () => {
                             // For gas, show as-is
                             return category.charAt(0).toUpperCase() + category.slice(1)
                           })()}
-                        </td>
-                        <td className="text-center p-2 border">{qtyNum}</td>
-                        <td className="text-right p-2 border">AED {priceNum.toFixed(2)}</td>
-                        {!shouldDisableVAT && (
-                          <td className="text-right p-2 border">AED {unitVat.toFixed(2)}</td>
-                        )}
-                        <td className="text-right p-2 border font-medium">AED {itemTotal.toFixed(2)}</td>
-                      </>
-                    )}
+                      </td>
+                      <td className="text-center p-1 border">{qtyNum}</td>
+                      <td className="text-right p-1 border">AED {priceNum.toFixed(2)}</td>
+                      {!shouldDisableVAT && (
+                        <td className="text-right p-1 border">AED {unitVat.toFixed(2)}</td>
+                      )}
+                      <td className="text-right p-1 border font-medium">AED {itemTotal.toFixed(2)}</td>
+                    </>
                   </tr>
                 )
               })}
-              {/* No padding rows - show only actual items */}
-            </tbody>
-          </table>
-        </section>
+                      </tbody>
+                    </table>
+                  </section>
 
-        <section className="flex justify-end mt-8">
-          <div className="w-full max-w-sm text-sm">
-            <table className="w-full">
-              <tbody>
-                {/* Hide subtotal and VAT breakdown for collection receipts and cylinder transactions */}
-                {sale?.type !== 'collection' && !shouldDisableVAT && (
-                  <>
-                    <tr>
-                      <td className="text-right pr-4 text-base">Subtotal</td>
-                      <td className="text-right w-36 text-base">AED {subTotal.toFixed(2)}</td>
-                    </tr>
-                    {Number((sale as any)?.deliveryCharges || 0) > 0 && (
-                      <tr>
-                        <td className="text-right pr-4 text-base">Delivery Charges</td>
-                        <td className="text-right w-36 text-base">AED {Number((sale as any)?.deliveryCharges || 0).toFixed(2)}</td>
-                      </tr>
+                  {isLast && (
+                    <>
+                      <section className="flex justify-end mt-3">
+                        <div className="w-full max-w-sm text-[11px] leading-tight">
+                          <table className="w-full">
+                            <tbody>
+                              {sale?.type !== 'collection' && !shouldDisableVAT && (
+                                <>
+                                  <tr>
+                                    <td className="text-right pr-3">Subtotal</td>
+                                    <td className="text-right w-32">AED {subTotal.toFixed(2)}</td>
+                                  </tr>
+                                  {Number((sale as any)?.deliveryCharges || 0) > 0 && (
+                                    <tr>
+                                      <td className="text-right pr-3">Delivery Charges</td>
+                                      <td className="text-right w-32">AED {Number((sale as any)?.deliveryCharges || 0).toFixed(2)}</td>
+                                    </tr>
+                                  )}
+                                  <tr>
+                                    <td className="text-right pr-3">Total</td>
+                                    <td className="text-right w-32">AED {Math.trunc((subTotal + Number((sale as any)?.deliveryCharges || 0)) * 100) / 100}</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="text-right pr-3">VAT (5%)</td>
+                                    <td className="text-right w-32">AED {vatAmount.toFixed(2)}</td>
+                                  </tr>
+                                </>
+                              )}
+                              <tr className="border-t-2 border-black">
+                                <td className="text-right pr-3 pt-1 font-bold text-[14px]">Grand Total</td>
+                                <td className="text-right font-bold text-[14px] w-32 pt-1">AED {grandTotal.toFixed(2)}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
+
+                      {String(sale?.type || '').toLowerCase() === 'deposit' && (
+                        <section className="mt-3 text-[9px] leading-snug text-gray-700">
+                          <h3 className="font-semibold mb-1">TERMS & CONDITIONS FOR CYLINDER(S) (ON DEPOSIT) FOR GAS SUPPLY</h3>
+                          <ol className="list-decimal pl-4 space-y-0.5">
+                            <li>
+                              Syed Tayyab Industrial Gas L.L.C. (herein after referred to as STIG) cylinder(s) (on deposit/loan) for
+                              gas supply held by the customer is/are the property of STIG and will remain so while in use by customer unless sold.
+                              The customer has no right to the cylinder(s) and undertakes & agrees to restrict the usage and refilling of cylinder(s)
+                              regularly Loan/Exchange/Damage from STIG only.
+                            </li>
+                            <li>
+                              If any cylinder(s) is/are kept in customer's custody for a period of more than 30 days without refilling at STIG,
+                              the same will be considered as cylinder(s) purchased by customer from STIG. The cylinders will not be accepted if
+                              returned after the above period. In such case the deposit paid or security cheque is not given will not be refunded/returned.
+                              If the deposit paid or the security cheque is not given, the customer is able to pay the value of cylinder(s) immediately.
+                              The customer is also liable to pay a rental charge of AED. 10/- per day per cylinder for any delay in paying the value of cylinder (s).
+                            </li>
+                            <li>
+                              STIG will refund the cash deposit paid/return security cheque given (Except for the cases mentioned in point no. 2)
+                              when the customer return the cylinder in good condition along with original deposit invoice).
+                            </li>
+                            <li>
+                              In the event of either partial or total damage to the cylinder(s) while in the custody of the customer, is liable to
+                              compensate DEF for the value of partial damage as determined by STIG.
+                            </li>
+                          </ol>
+                        </section>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {isLast && (
+                  <footer className="receipt-footer text-center pt-3 mt-auto relative">
+                    <img
+                      src="/images/footer.png"
+                      alt="Footer Graphic"
+                      className="receipt-footer-img mx-auto max-w-full h-auto"
+                    />
+                    {sale.customerSignature && (
+                      <div className="absolute bottom-3 right-10">
+                        <img
+                          src={sale.customerSignature}
+                          alt="Customer Signature"
+                          className="receipt-signature max-h-12 object-contain opacity-90 mix-blend-multiply"
+                          style={{ filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))' }}
+                        />
+                      </div>
                     )}
-                    <tr>
-                      <td className="text-right pr-4 text-base">Total</td>
-                      <td className="text-right w-36 text-base">AED {Math.trunc((subTotal + Number((sale as any)?.deliveryCharges || 0)) * 100) / 100}</td>
-                    </tr>
-                    <tr>
-                      <td className="text-right pr-4 text-base">VAT (5%)</td>
-                      <td className="text-right w-36 text-base">AED {vatAmount.toFixed(2)}</td>
-                    </tr>
-                  </>
+                    {adminSignature && (
+                      <div className="absolute bottom-4 left-10">
+                        <img
+                          src={adminSignature}
+                          alt="Admin Signature"
+                          className="receipt-signature max-h-12 object-contain opacity-90 mix-blend-multiply"
+                          style={{ filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))' }}
+                        />
+                      </div>
+                    )}
+                  </footer>
                 )}
-                <tr className="border-t-2 border-black mt-2">
-                  <td className="text-right pr-4 pt-2 font-bold text-xl">Grand Total</td>
-                  <td className="text-right font-bold text-xl w-36 pt-2">AED {grandTotal.toFixed(2)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* Removed Payment Method and Status section as requested */}
-
-        {/* Terms & Conditions for Deposit (shown above footer) */}
-        {String(sale?.type || '').toLowerCase() === 'deposit' && (
-          <section className="mt-4 text-[10px] leading-snug text-gray-700">
-            <h3 className="font-semibold mb-2">TERMS & CONDITIONS FOR CYLINDER(S) (ON DEPOSIT) FOR GAS SUPPLY</h3>
-            <ol className="list-decimal pl-4 space-y-1">
-              <li>
-                Syed Tayyab Industrial Gas L.L.C. (herein after referred to as STIG) cylinder(s) (on deposit/loan) for
-                gas supply held by the customer is/are the property of STIG and will remain so while in use by customer unless sold.
-                The customer has no right to the cylinder(s) and undertakes & agrees to restrict the usage and refilling of cylinder(s)
-                regularly Loan/Exchange/Damage from STIG only.
-              </li>
-              <li>
-                If any cylinder(s) is/are kept in customer's custody for a period of more than 30 days without refilling at STIG,
-                the same will be considered as cylinder(s) purchased by customer from STIG. The cylinders will not be accepted if
-                returned after the above period. In such case the deposit paid or security cheque is not given will not be refunded/returned.
-                If the deposit paid or the security cheque is not given, the customer is able to pay the value of cylinder(s) immediately.
-                The customer is also liable to pay a rental charge of AED. 10/- per day per cylinder for any delay in paying the value of cylinder (s).
-              </li>
-              <li>
-                STIG will refund the cash deposit paid/return security cheque given (Except for the cases mentioned in point no. 2)
-                when the customer return the cylinder in good condition along with original deposit invoice).
-              </li>
-              <li>
-                In the event of either partial or total damage to the cylinder(s) while in the custody of the customer, is liable to
-                compensate DEF for the value of partial damage as determined by STIG.
-              </li>
-            </ol>
-          </section>
-        )}
+              </section>
+            )
+          })}
         </div>
-
-        <footer className="text-center pt-8 mt-auto relative flex-shrink-0">
-          {/* The footer image acts as a container */}
-          <img 
-            src="/images/footer.png" 
-            alt="Footer Graphic"
-            className="mx-auto max-w-full h-auto"
-          />
-          {/* The signatures are absolutely positioned on top of the footer image */}
-          {sale.customerSignature && (
-            <div className="absolute bottom-7 right-16">
-              <img 
-                src={sale.customerSignature} 
-                alt="Customer Signature" 
-                className="max-h-20 object-contain opacity-90 mix-blend-multiply"
-                style={{ filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))' }}
-              />
-            </div>
-          )}
-          {adminSignature && (
-            <div className="absolute bottom-9 left-16">
-              <img 
-                src={adminSignature} 
-                alt="Admin Signature" 
-                className="max-h-20 object-contain opacity-90 mix-blend-multiply"
-                style={{ filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))' }}
-              />
-            </div>
-          )}
-        </footer>
       </main>
 
       <style jsx global>{`
-        /* Set minimal page margins for A4 printing - full page usage */
         @page {
           margin: 0;
           size: A4;
@@ -456,80 +547,33 @@ const ReceiptPrintPage = () => {
             width: 100%;
             height: 100%;
           }
-          .printable-area {
+          .receipt-page {
+            width: 210mm !important;
+            min-height: 297mm !important;
+            padding: 8mm !important;
+            box-sizing: border-box !important;
+            page-break-after: always !important;
+            break-after: page !important;
             margin: 0 !important;
-            padding: 30px !important; /* Small margin from corners (30px = ~8mm) */
-            box-shadow: none;
-            border: none;
-            width: 100% !important;
-            max-width: 100% !important;
-            position: relative !important;
-            display: flex !important;
-            flex-direction: column !important;
-            min-height: 297mm !important; /* Full A4 height */
-            max-height: 297mm !important; /* A4 page height - ensures it fits on one page */
-            height: 297mm !important;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            page-break-after: avoid !important;
-            break-after: avoid !important;
-            box-sizing: border-box !important;
-            overflow: hidden !important;
           }
-          /* Prevent page breaks in all child sections */
-          .printable-area > section,
-          .printable-area > div:not(footer) {
-            page-break-inside: avoid;
-            break-inside: avoid;
+          .receipt-page:last-child {
+            page-break-after: auto !important;
+            break-after: auto !important;
           }
-          /* Ensure the page content fits a single page height */
-          table tr { break-inside: avoid; }
-          table { page-break-inside: avoid; break-inside: avoid; }
-          /* Ensure footer is always visible and at bottom of first page */
-          .printable-area > div:first-child {
-            flex: 1 1 auto !important;
-            min-height: 0 !important;
-            max-height: calc(297mm - 60px - 120px) !important; /* Account for padding (30px top + 30px bottom) and footer */
-            overflow: hidden !important;
-            word-wrap: break-word !important;
-            overflow-wrap: break-word !important;
+          .receipt-header-img {
+            max-height: 42mm !important;
+            object-fit: contain !important;
           }
-          /* Prevent text from being cut off */
-          * {
-            word-wrap: break-word !important;
-            overflow-wrap: break-word !important;
-            box-sizing: border-box !important;
+          .receipt-footer-img {
+            max-height: 26mm !important;
+            object-fit: contain !important;
           }
-          table {
-            width: 100% !important;
-            table-layout: auto !important;
-            word-wrap: break-word !important;
+          .receipt-signature {
+            max-height: 16mm !important;
           }
-          td, th {
-            word-wrap: break-word !important;
-            overflow-wrap: break-word !important;
-            padding: 4px !important;
-          }
-          /* Footer should stay on same page - prevent it from breaking to next page */
-          footer { 
+          table, tr, td, th {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
-            page-break-before: avoid !important;
-            break-before: avoid !important;
-            page-break-after: avoid !important;
-            break-after: avoid !important;
-            flex: 0 0 auto !important;
-            margin-top: auto !important;
-            position: relative !important;
-            display: block !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            width: 100% !important;
-          }
-          /* Prevent any element from forcing a page break */
-          * {
-            page-break-after: avoid;
-            break-after: avoid;
           }
         }
       `}</style>

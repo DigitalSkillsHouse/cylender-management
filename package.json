@@ -3,8 +3,9 @@
   "version": "0.1.1",
   "private": true,
   "scripts": {
-    "build": "next build",
-    "dev": "node -e \"process.env.NODE_ENV='development';require('./server.js')\"",
+    "clean:next": "node scripts/clean-next.js",
+    "build": "node scripts/clean-next.js && next build",
+    "dev": "node scripts/clean-next.js && next dev -H 0.0.0.0 -p 3000",
     "lint": "next lint",
     "start": "node -e \"process.env.NODE_ENV='production';require('./server.js')\"",
     "run": "npm i"

@@ -389,20 +389,20 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
     }
   }
 
-  const handleDownload = async () => {
-    try {
-      const saved = await saveQuotationOnce()
-      if (!saved?.quotationNumber) return
+	  const handleDownload = async () => {
+	    try {
+	      const saved = await saveQuotationOnce()
+	      if (!saved?.quotationNumber) return
 
-      const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ])
+	      const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
+	        import("html2canvas"),
+	        import("jspdf"),
+	      ])
 
-      // Capture the PRINT-ONLY node to avoid inputs in the PDF
-      const node = printRef.current
-      if (!node) {
-        toast.error("Failed to generate PDF", {
+	      // Capture the PRINT-ONLY node to avoid inputs in the PDF
+	      const node = printRef.current
+	      if (!node) {
+	        toast.error("Failed to generate PDF", {
           description: "Content not available. Please try again.",
         })
         return
@@ -423,11 +423,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
 
     const pdf = new (jsPDFModule as any).jsPDF("p", "mm", "a4")
     const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 15
+	    const pageHeight = pdf.internal.pageSize.getHeight()
+	    const margin = 15
 
-    // Calculate items per page - maximum 10 items per page to ensure proper fit with header, footer, warning, etc.
-    const itemsPerPage = 10
+    // Layout-only pagination: target 15 lines per A4 page
+    const itemsPerPage = 15
     const totalPages = Math.ceil(items.length / itemsPerPage)
 
     for (let pageNum = 0; pageNum < totalPages; pageNum++) {
@@ -439,27 +439,27 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
       const endIndex = Math.min(startIndex + itemsPerPage, items.length)
       const pageItems = items.slice(startIndex, endIndex)
 
-      // Add header image to each page
-      const headerImg = node.querySelector("img") as HTMLImageElement
-      let headerHeight = 0
-      if (headerImg) {
-        try {
-          const headerCanvas = await html2canvas(headerImg, {
-            scale: 2,
-            backgroundColor: "#ffffff",
-            useCORS: true,
-          })
-          const headerImgData = headerCanvas.toDataURL("image/png")
-          const headerWidth = pageWidth - margin * 2
-          headerHeight = (headerCanvas.height * headerWidth) / headerCanvas.width
-          pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight)
-        } catch (error) {
-          console.warn("Failed to capture header image:", error)
-          headerHeight = 40 // Fallback height if image fails
-        }
-      }
+		      // Add header image to each page
+			      const headerImg = node.querySelector("img") as HTMLImageElement
+			      let headerHeight = 0
+			      if (headerImg) {
+			        try {
+			          const headerCanvas = await html2canvas(headerImg, {
+			            scale: 2,
+			            backgroundColor: "#ffffff",
+			            useCORS: true,
+			          })
+			          const headerImgData = headerCanvas.toDataURL("image/png")
+			          const headerWidth = pageWidth - margin * 2
+			          headerHeight = (headerCanvas.height * headerWidth) / headerCanvas.width
+			          pdf.addImage(headerImgData, "PNG", margin, margin, headerWidth, headerHeight)
+			        } catch (error) {
+			          console.warn("Failed to capture header image:", error)
+			          headerHeight = 40 // Fallback height if image fails
+			        }
+			      }
 
-      let currentYPosition = margin + headerHeight + 10 // Start after header with some spacing
+	      let currentYPosition = margin + headerHeight + 10 // Start after header with some spacing
 
       // Quotation number + date (top-right, each page)
       pdf.setFontSize(10)
@@ -505,11 +505,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
       }
 
       // Add table with perfect margins and spacing
-      const tableStartY = currentYPosition + 5
-      const rowHeight = 7.5 // Optimized row height to fit 10 items per page
-      const colWidths = [12, 20, 50, 15, 22, 22, 25] // S.No, Code, Item, Quantity, Price, VAT 5%, Total - removed Category, adjusted widths
-      const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
-      const tableX = (pageWidth - tableWidth) / 2 // Center table with equal left and right margins
+      const tableStartY = currentYPosition + 4
+      const rowHeight = 6.2 // Compact row height to fit 15 items per page
+	      const colWidths = [12, 22, 62, 15, 24, 24, 27] // S.No, Code, Item, Qty, Price, VAT 5%, Total
+	      const tableWidth = colWidths.reduce((sum, width) => sum + width, 0)
+	      const tableX = margin // Use full content width for better fit
 
       // Table header background
       pdf.setFillColor(43, 48, 104) // #2B3068
@@ -700,10 +700,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
           preCalcFooterImg.crossOrigin = "anonymous"
           await new Promise<void>((resolve) => {
             preCalcFooterImg.onload = () => {
-              const footerWidth = pageWidth - margin * 2
-              actualFooterHeight = (preCalcFooterImg.height * footerWidth) / preCalcFooterImg.width
-              resolve()
-            }
+	              const footerWidth = pageWidth - margin * 2
+	              const rawHeight = (preCalcFooterImg.height * footerWidth) / preCalcFooterImg.width
+	              actualFooterHeight = rawHeight
+	              resolve()
+	            }
             preCalcFooterImg.onerror = () => resolve()
             preCalcFooterImg.src = "/images/Footer-qoute-paper.jpg"
           })
@@ -717,11 +718,12 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
         const warningText = "Prices mentioned in the quotation are valid for one week only, and may be updated after this time. During cylinder use, if the Valve, spindle, Valve Guard, Paint Charge, or cylinder is found Damaged or Broken the customer will need to pay for the necessary repairs or part replacement."
         
         // Calculate warning text height (title + text lines)
-        pdf.setFontSize(8) // Title font size
         const maxWidth = pageWidth - margin * 2
+        pdf.setFontSize(6.5) // Body font size for accurate wrapping
         const warningLines = pdf.splitTextToSize(warningText, maxWidth)
-        const titleHeight = 5 // Height for title
-        const warningHeight = titleHeight + (warningLines.length * 4) + 3 // Title + text lines + spacing
+        const titleHeight = 4
+        const warningLineHeight = 3.2
+        const warningHeight = titleHeight + (warningLines.length * warningLineHeight) + 2
         
         const spacingBetween = 5
         const totalNeeded = warningHeight + actualFooterHeight + spacingBetween
@@ -731,7 +733,7 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
         let needsNewPage = false
         
         // Check if footer section (warning + footer image) will fit on current page
-        // Only move to new page if absolutely necessary (when items are more than 10)
+        // Only move to new page if absolutely necessary (multi-page quotations)
         if (totalNeeded > availableSpace && items.length > itemsPerPage) {
           // Not enough space - move entire footer section to new page (only if multiple pages)
           needsNewPage = true
@@ -747,14 +749,14 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
         // Draw warning text in red bold (no box) - only on current page if not moved to new page
         if (!needsNewPage) {
           // Draw on current page
-          pdf.setFontSize(8)
+          pdf.setFontSize(7)
           pdf.setTextColor(220, 38, 38) // red-600
           pdf.setFont(undefined, 'bold')
           pdf.text(warningTitle, margin, warningY)
           
-          pdf.setFontSize(7)
+          pdf.setFontSize(6.5)
           warningLines.forEach((line: string, index: number) => {
-            pdf.text(line, margin, warningY + titleHeight + (index * 4)) // Line spacing
+            pdf.text(line, margin, warningY + titleHeight + (index * warningLineHeight))
           })
           warningDrawn = true // Mark as drawn
         }
@@ -778,33 +780,32 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
                 canvas.width = footerImg.width
                 canvas.height = footerImg.height
                 
-                if (ctx) {
-                  ctx.drawImage(footerImg, 0, 0)
-                  const footerImgData = canvas.toDataURL("image/png")
-                  
-                  const footerWidth = pageWidth - margin * 2
-                  const calculatedFooterHeight = (footerImg.height * footerWidth) / footerImg.width
-                  
-                  // Use the pre-calculated footerY position (already checked for page fit)
-                  let finalFooterY = footerY
+	                if (ctx) {
+	                  ctx.drawImage(footerImg, 0, 0)
+			                  const footerImgData = canvas.toDataURL("image/png")
+			                  const footerWidth = pageWidth - margin * 2
+			                  const calculatedFooterHeight = (footerImg.height * footerWidth) / footerImg.width
+	                  
+	                  // Use the pre-calculated footerY position (already checked for page fit)
+	                  let finalFooterY = footerY
                   
                   // Draw warning if it needs to be on a new page (only if moved to new page earlier AND not already drawn)
                   if (needsNewPage && !warningDrawn) {
-                    pdf.setFontSize(8)
+                    pdf.setFontSize(7)
                     pdf.setTextColor(220, 38, 38) // red-600
                     pdf.setFont(undefined, 'bold')
                     pdf.text(warningTitle, margin, warningY)
                     
-                    pdf.setFontSize(7)
+                    pdf.setFontSize(6.5)
                     const newLines = pdf.splitTextToSize(warningText, maxWidth)
                     newLines.forEach((line: string, index: number) => {
-                      pdf.text(line, margin, warningY + titleHeight + (index * 4))
+                      pdf.text(line, margin, warningY + titleHeight + (index * warningLineHeight))
                     })
                     warningDrawn = true // Mark as drawn
                   }
                   
                   // Ensure footer doesn't go beyond page bottom (only check if not already on new page)
-                  const maxFooterY = pageHeight - calculatedFooterHeight - 20
+                  const maxFooterY = pageHeight - calculatedFooterHeight - margin - 10
                   if (finalFooterY > maxFooterY && !needsNewPage && !warningDrawn) {
                     // If somehow it still doesn't fit, move to next page
                     pdf.addPage()
@@ -812,25 +813,25 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
                     finalFooterY = emergencyWarningY + warningHeight + spacingBetween
                     
                     // Draw warning text on new page (red bold, no box) - only if not already drawn
-                    pdf.setFontSize(8)
+                    pdf.setFontSize(7)
                     pdf.setTextColor(220, 38, 38) // red-600
                     pdf.setFont(undefined, 'bold')
                     pdf.text(warningTitle, margin, emergencyWarningY)
                     
-                    pdf.setFontSize(7)
+                    pdf.setFontSize(6.5)
                     const newLines = pdf.splitTextToSize(warningText, maxWidth)
                     newLines.forEach((line: string, index: number) => {
-                      pdf.text(line, margin, emergencyWarningY + titleHeight + (index * 4))
+                      pdf.text(line, margin, emergencyWarningY + titleHeight + (index * warningLineHeight))
                     })
                     warningDrawn = true // Mark as drawn
                   }
-                  
-                  // Add footer image
-                  pdf.addImage(footerImgData, "PNG", margin, finalFooterY, footerWidth, calculatedFooterHeight)
-                  
-                  // Add admin signature on bottom right of footer image
-                  if (adminSignature) {
-                    try {
+	                  
+	                  // Add footer image
+		                  pdf.addImage(footerImgData, "PNG", margin, finalFooterY, footerWidth, calculatedFooterHeight)
+	                  
+	                  // Add admin signature on bottom right of footer image
+	                  if (adminSignature) {
+	                    try {
                       // Create a promise to handle signature loading
                       await new Promise<void>((sigResolve, sigReject) => {
                         const signatureImg = new Image()
@@ -880,11 +881,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
                               
                               const sigImgData = sigCanvas.toDataURL("image/png")
                               
-                              // Position signature on bottom right of footer
-                              const sigWidth = 30
-                              const sigHeight = 30 / aspectRatio
-                              const sigX = pageWidth - margin - sigWidth - 8
-                              const sigY = finalFooterY + calculatedFooterHeight - sigHeight - 8
+	                              // Position signature on bottom right of footer
+	                              const sigWidth = 30
+	                              const sigHeight = 30 / aspectRatio
+		                              const sigX = pageWidth - margin - sigWidth - 8
+	                              const sigY = finalFooterY + calculatedFooterHeight - sigHeight - 8
                               
                               pdf.addImage(sigImgData, "PNG", sigX, sigY, sigWidth, sigHeight)
                               console.log("Admin signature added to PDF")
