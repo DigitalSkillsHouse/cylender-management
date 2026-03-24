@@ -161,6 +161,8 @@ const ReceiptPrintPage = () => {
     return '/images/Header-Tax-invoice.jpg'
   })()
 
+  const isTaxInvoice = headerSrc === '/images/Header-Tax-invoice.jpg'
+
   const transactionType = (sale?.type || '').toString().toLowerCase()
   const hasGasItems =
     Array.isArray(sale?.items) &&
@@ -258,7 +260,7 @@ const ReceiptPrintPage = () => {
             return (
               <section
                 key={pageIndex}
-                className="receipt-page bg-white shadow-sm border border-gray-200 my-4 print:my-0 print:shadow-none print:border-0 flex flex-col"
+                className={`receipt-page bg-white shadow-sm border border-gray-200 my-4 print:my-0 print:shadow-none print:border-0 flex flex-col ${isTaxInvoice ? 'receipt-page-tax' : ''}`}
               >
                 <div className="flex flex-col flex-1">
                   <div className="text-center">
@@ -502,7 +504,7 @@ const ReceiptPrintPage = () => {
                       className="receipt-footer-img mx-auto max-w-full h-auto"
                     />
                     {sale.customerSignature && (
-                      <div className="absolute bottom-3 right-10">
+                      <div className="receipt-customer-signature absolute bottom-3 right-10">
                         <img
                           src={sale.customerSignature}
                           alt="Customer Signature"
@@ -512,7 +514,7 @@ const ReceiptPrintPage = () => {
                       </div>
                     )}
                     {adminSignature && (
-                      <div className="absolute bottom-4 left-10">
+                      <div className="receipt-admin-signature absolute bottom-4 left-10">
                         <img
                           src={adminSignature}
                           alt="Admin Signature"
@@ -570,6 +572,27 @@ const ReceiptPrintPage = () => {
           }
           .receipt-signature {
             max-height: 16mm !important;
+          }
+          /* Restore original look for Sales (Tax) invoice header/footer only */
+          .receipt-page-tax .receipt-header-img {
+            max-height: none !important;
+          }
+          .receipt-page-tax .receipt-footer-img {
+            max-height: none !important;
+          }
+          .receipt-page-tax .receipt-signature {
+            max-height: 20mm !important;
+          }
+          .receipt-page-tax .receipt-footer {
+            padding-top: 2rem !important;
+          }
+          .receipt-page-tax .receipt-customer-signature {
+            bottom: 28px !important;
+            right: 64px !important;
+          }
+          .receipt-page-tax .receipt-admin-signature {
+            bottom: 36px !important;
+            left: 64px !important;
           }
           table, tr, td, th {
             break-inside: avoid !important;
