@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import ReturnTransaction from "@/models/ReturnTransaction"
+import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import mongoose from "mongoose"
+import { addDaysToDate, getDubaiNowISOString, getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -15,6 +17,64 @@ export async function GET(request) {
     console.log('🌍 [DEBUG] Database URI exists:', !!process.env.MONGODB_URI)
     
     await dbConnect()
+
+    // Auto-expire pending returns at 23:55 Dubai time (lazy, runs on read)
+    try {
+      const nowDubai = new Date(getDubaiNowISOString())
+      const candidates = await ReturnTransaction.find({
+        status: 'pending',
+        $or: [
+          { expiresAt: { $ne: null, $lte: nowDubai } },
+          { expiresAt: null }
+        ]
+      }).lean()
+
+      for (const r of candidates) {
+        const baseDate = getLocalDateStringFromDate(r.returnDate || r.createdAt || nowDubai)
+        let expiry = r.expiresAt ? new Date(r.expiresAt) : new Date(`${baseDate}T23:55:00+04:00`)
+        if (!r.expiresAt && r.returnDate) {
+          const cutoff = new Date(`${baseDate}T23:55:00+04:00`)
+          const dubaiReturnTime = new Date(new Date(r.returnDate).toLocaleString('en-US', { timeZone: 'Asia/Dubai' }))
+          if (dubaiReturnTime > cutoff) {
+            const next = addDaysToDate(baseDate, 1)
+            expiry = new Date(`${next}T23:55:00+04:00`)
+          }
+        }
+
+        if (expiry <= nowDubai) {
+          // Restore employee inventory if it was deducted on send-back
+          if (r.inventoryDeducted) {
+            const qty = Number(r.quantity || 0)
+            if (r.stockType === 'empty') {
+              await EmployeeInventoryItem.findOneAndUpdate(
+                { employee: r.employee, product: r.product },
+                { $inc: { availableEmpty: qty }, $set: { lastUpdatedAt: new Date() } }
+              )
+            } else if (r.stockType === 'gas') {
+              await EmployeeInventoryItem.findOneAndUpdate(
+                { employee: r.employee, product: r.product },
+                { $inc: { currentStock: qty }, $set: { lastUpdatedAt: new Date() } }
+              )
+              if (r.cylinderProductId) {
+                await EmployeeInventoryItem.findOneAndUpdate(
+                  { employee: r.employee, product: r.cylinderProductId },
+                  { $inc: { availableFull: qty, availableEmpty: -qty }, $set: { lastUpdatedAt: new Date() } }
+                )
+              }
+            }
+          }
+
+          await ReturnTransaction.updateOne(
+            { _id: r._id, status: 'pending' },
+            { $set: { status: 'rejected', processedAt: nowDubai, inventoryDeducted: false, expiresAt: expiry } }
+          )
+        } else if (!r.expiresAt) {
+          await ReturnTransaction.updateOne({ _id: r._id }, { $set: { expiresAt: expiry } })
+        }
+      }
+    } catch (e) {
+      console.warn('[pending-returns] expiry check failed:', e?.message || e)
+    }
     
     // Verify database connection
     const connectionState = mongoose.connection.readyState
@@ -146,6 +206,7 @@ export async function GET(request) {
       
       return {
         id: returnTx._id.toString(),
+        batchId: returnTx.batchId?.toString() || null,
         employeeName: employee?.name || (employeeId ? 'Employee ID: ' + employeeId : 'Unknown Employee'),
         employeeEmail: employee?.email || '',
         employeeId: employeeId,

@@ -2,6 +2,11 @@ import mongoose from "mongoose"
 
 const StockAssignmentSchema = new mongoose.Schema(
   {
+    batchId: {
+      type: String,
+      index: true,
+      default: null,
+    },
     employee: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -31,6 +36,16 @@ const StockAssignmentSchema = new mongoose.Schema(
       type: String,
       enum: ["assigned", "received", "returned", "rejected"],
       default: "assigned",
+    },
+    inventoryDeducted: {
+      // True when admin inventory was deducted at assignment time (reserved/held for this assignment)
+      type: Boolean,
+      default: false,
+    },
+    expiresAt: {
+      type: Date,
+      default: null,
+      index: true,
     },
     assignedDate: {
       type: Date,

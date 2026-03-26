@@ -41,6 +41,10 @@ const CylinderTransactionSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    transactionDate: {
+      type: String,
+      index: true,
+    },
     // Optional: list of items for multi-item transactions
     items: [
       {

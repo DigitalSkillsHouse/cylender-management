@@ -5,6 +5,8 @@ import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
 import Product from "@/models/Product"
 import StockManager from "@/lib/stock-manager"
 import { verifyToken } from "@/lib/auth"
+import { normalizeAdminEntryDate, recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync"
+import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // GET - Fetch single inventory item
 export async function GET(request, { params }) {
@@ -201,8 +203,7 @@ export async function PATCH(request, { params }) {
       // Create/update daily refill entries for DSR tracking
       try {
         const DailyRefill = (await import('@/models/DailyRefill')).default
-        const { getLocalDateString } = await import('@/lib/date-utils')
-        const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
+        const trackedPurchaseDate = normalizeAdminEntryDate(getLocalDateStringFromDate(updatedOrder.purchaseDate || new Date()))
         
         console.log("Processing daily refill entries for purchase order:", updatedOrder._id)
         console.log("Purchase order structure:", {
@@ -233,7 +234,7 @@ export async function PATCH(request, { params }) {
                 // Create or update daily refill entry
                 await DailyRefill.findOneAndUpdate(
                   {
-                    date: today,
+                    date: trackedPurchaseDate,
                     cylinderProductId: cylinderProductId,
                     employeeId: null // Admin refills
                   },
@@ -246,7 +247,7 @@ export async function PATCH(request, { params }) {
                     new: true
                   }
                 )
-                console.log(`Updated daily refill: ${cylinderName} +${quantity} (total refills for ${today})`)
+                console.log(`Updated daily refill: ${cylinderName} +${quantity} (total refills for ${trackedPurchaseDate})`)
               }
             } else if (item.purchaseType === 'cylinder' && item.cylinderStatus === 'full') {
               // Full cylinder purchase - do NOT count as refilled, just inventory addition
@@ -273,7 +274,7 @@ export async function PATCH(request, { params }) {
               // Create or update daily refill entry
               await DailyRefill.findOneAndUpdate(
                 {
-                  date: today,
+                  date: trackedPurchaseDate,
                   cylinderProductId: cylinderProductId,
                   employeeId: null // Admin refills
                 },
@@ -286,7 +287,7 @@ export async function PATCH(request, { params }) {
                   new: true
                 }
               )
-              console.log(`Updated daily refill (single): ${cylinderName} +${quantity} (total refills for ${today})`)
+              console.log(`Updated daily refill (single): ${cylinderName} +${quantity} (total refills for ${trackedPurchaseDate})`)
             }
           } else if (updatedOrder.purchaseType === 'cylinder' && updatedOrder.cylinderStatus === 'full') {
             // Full cylinder purchase - do NOT count as refilled, just inventory addition
@@ -459,6 +460,15 @@ export async function PATCH(request, { params }) {
       } catch (stockError) {
         console.error("Stock processing error:", stockError)
         // Don't fail the entire operation if stock processing fails
+      }
+    }
+
+    if (status === "received" && !isEmployeePurchase) {
+      try {
+        const trackedPurchaseDate = normalizeAdminEntryDate(getLocalDateStringFromDate(updatedOrder.purchaseDate || new Date()))
+        await recalculateAdminDailyStockReportsFrom(trackedPurchaseDate)
+      } catch (syncError) {
+        console.error("Failed to recalculate admin DSR after purchase receive:", syncError)
       }
     }
 

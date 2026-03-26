@@ -1,16 +1,25 @@
 import dbConnect from "../../../lib/mongodb"
 import Expense from "../../../models/Expense"
 import { NextResponse } from "next/server"
+import { getDocumentDateValue, normalizeAdminEntryDate } from "@/lib/admin-backdated-sync"
 
 export async function GET() {
   await dbConnect()
 
   try {
-    const expenses = await Expense.find({}).sort({ createdAt: -1 })
+    const expenses = await Expense.find({}).lean()
+    const sortedExpenses = expenses.sort((a, b) => {
+      const dateA = getDocumentDateValue(a, "expenseDate")
+      const dateB = getDocumentDateValue(b, "expenseDate")
+      if (dateA === dateB) {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+      }
+      return dateA > dateB ? -1 : 1
+    })
     
     return NextResponse.json({
       success: true,
-      data: expenses
+      data: sortedExpenses
     })
   } catch (error) {
     console.error("Error fetching expenses:", error)
@@ -26,7 +35,7 @@ export async function POST(request) {
 
   try {
     const body = await request.json()
-    const { invoiceNumber, expense, description, vatAmount, totalAmount } = body
+    const { invoiceNumber, expense, description, vatAmount, totalAmount, expenseDate } = body
 
     if (!invoiceNumber || !expense || !description) {
       return NextResponse.json({
@@ -47,7 +56,8 @@ export async function POST(request) {
       expense: Number(expense),
       description: description.trim(),
       vatAmount: Number(vatAmount),
-      totalAmount: Number(totalAmount)
+      totalAmount: Number(totalAmount),
+      expenseDate: normalizeAdminEntryDate(expenseDate),
     })
 
     await newExpense.save()

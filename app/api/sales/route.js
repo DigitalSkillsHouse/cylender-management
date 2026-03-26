@@ -4,7 +4,7 @@ import Sale from "@/models/Sale"
 import Customer from "@/models/Customer"
 import Product from "@/models/Product"
 import Counter from "@/models/Counter"
-import { getLocalDateStringFromDate } from "@/lib/date-utils"
+import { normalizeAdminEntryDate, recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync"
 
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -32,7 +32,8 @@ export async function POST(request) {
     await dbConnect()
 
     const body = await request.json()
-    const { customer, items, totalAmount, deliveryCharges, paymentMethod, paymentStatus, receivedAmount, notes } = body
+    const { customer, items, totalAmount, deliveryCharges, paymentMethod, paymentStatus, receivedAmount, notes, saleDate, lpoNo } = body
+    const selectedSaleDate = normalizeAdminEntryDate(saleDate)
 
     // Validate required fields
     if (!customer || !items || items.length === 0 || !totalAmount) {
@@ -244,11 +245,13 @@ export async function POST(request) {
       customer,
       items: enrichedItems,
       totalAmount: roundedTotalAmount,
+      saleDate: selectedSaleDate,
       deliveryCharges: roundedDeliveryCharges,
       paymentMethod: paymentMethod || "cash",
       paymentStatus: paymentStatus || "cleared",
       receivedAmount: roundedReceivedAmount,
       notes: notes || "",
+      lpoNo: String(lpoNo || "").trim(),
     })
 
     // Try to save with retry logic for duplicate key errors
@@ -287,9 +290,9 @@ export async function POST(request) {
     try {
       const DailySales = (await import('@/models/DailySales')).default
       // Use local date instead of UTC to ensure correct date assignment
-      const saleDate = getLocalDateStringFromDate(savedSale.createdAt)
+      const trackedSaleDate = normalizeAdminEntryDate(savedSale.saleDate || selectedSaleDate)
       
-      console.log(`[Daily Sales Tracking] Processing ${items.length} items for date: ${saleDate}`)
+      console.log(`[Daily Sales Tracking] Processing ${items.length} items for date: ${trackedSaleDate}`)
       
       for (const item of items) {
         const product = products.find(p => p._id.toString() === item.product)
@@ -311,7 +314,7 @@ export async function POST(request) {
           if (!item.cylinderProductId) {
           await DailySales.findOneAndUpdate(
             {
-              date: saleDate,
+              date: trackedSaleDate,
               productId: product._id
             },
             {
@@ -337,7 +340,7 @@ export async function POST(request) {
             // Full Cylinder Sales
             await DailySales.findOneAndUpdate(
               {
-                date: saleDate,
+                date: trackedSaleDate,
                 productId: product._id
               },
               {
@@ -361,7 +364,7 @@ export async function POST(request) {
             // Empty Cylinder Sales
             await DailySales.findOneAndUpdate(
               {
-                date: saleDate,
+                date: trackedSaleDate,
                 productId: product._id
               },
               {
@@ -385,7 +388,7 @@ export async function POST(request) {
             // Default cylinder sales (assume full if not specified)
             await DailySales.findOneAndUpdate(
               {
-                date: saleDate,
+                date: trackedSaleDate,
                 productId: product._id
               },
               {
@@ -458,12 +461,12 @@ export async function POST(request) {
                 // Full cylinder sales should only be recorded when a full cylinder is sold directly
                 try {
                   // Use local date instead of UTC to ensure correct date assignment
-                  const saleDate = getLocalDateStringFromDate(savedSale.createdAt)
+                  const trackedSaleDate = normalizeAdminEntryDate(savedSale.saleDate || selectedSaleDate)
                   const DailySales = (await import('@/models/DailySales')).default
                   
                   await DailySales.findOneAndUpdate(
                     {
-                      date: saleDate,
+                      date: trackedSaleDate,
                       productId: item.cylinderProductId
                     },
                     {
@@ -485,7 +488,7 @@ export async function POST(request) {
                   
                   console.log(`✅ Gas sale recorded in daily sales tracking for ${cylinderProduct?.name}: ${item.quantity} units gas`)
                   console.log(`🔧 Daily sales record updated:`, {
-                    date: saleDate,
+                    date: trackedSaleDate,
                     productId: item.cylinderProductId,
                     productName: cylinderProduct?.name,
                     gasSalesQuantity: item.quantity,
@@ -681,6 +684,27 @@ export async function POST(request) {
     } catch (stockError) {
       console.error("❌ Failed to update inventory after sale:", stockError)
       // Note: Sale is already created, but inventory update failed
+    }
+
+    try {
+      const impactedProductNames = Array.from(
+        new Set(
+          enrichedItems
+            .map((item) => {
+              if (item.category === "gas") {
+                return item.cylinderName || ""
+              }
+              return products.find((product) => product._id.toString() === String(item.product))?.name || ""
+            })
+            .filter(Boolean)
+        )
+      )
+
+      await recalculateAdminDailyStockReportsFrom(selectedSaleDate, {
+        productNames: impactedProductNames,
+      })
+    } catch (syncError) {
+      console.error("Failed to recalculate admin DSR after sale:", syncError)
     }
 
     // Populate the created sale for response

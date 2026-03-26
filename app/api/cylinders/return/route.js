@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils";
+import { normalizeAdminEntryDate, recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync";
 
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -93,6 +94,7 @@ export async function POST(request) {
 
   try {
     const data = await request.json();
+    const selectedTransactionDate = normalizeAdminEntryDate(data.transactionDate);
     
     // Validate customer exists
     const customer = await Customer.findById(data.customer);
@@ -106,6 +108,7 @@ export async function POST(request) {
     // Create return transaction
     const transactionData = {
       ...data,
+      transactionDate: selectedTransactionDate,
       type: "return",
       status: data.status || "pending"
     };
@@ -136,12 +139,12 @@ export async function POST(request) {
         for (const item of data.items) {
           await updateInventoryForReturn(item.productId, Number(item.quantity));
           // Update daily tracking for each item
-          await updateDailyTracking(item.productId, Number(item.quantity), Number(item.amount || 0), data.transactionDate);
+          await updateDailyTracking(item.productId, Number(item.quantity), Number(item.amount || 0), selectedTransactionDate);
         }
       } else if (data.product && data.quantity) {
         await updateInventoryForReturn(data.product, Number(data.quantity));
         // Update daily tracking
-        await updateDailyTracking(data.product, Number(data.quantity), Number(data.amount || 0), data.transactionDate);
+        await updateDailyTracking(data.product, Number(data.quantity), Number(data.amount || 0), selectedTransactionDate);
       }
     } catch (stockErr) {
       console.error("[cylinders/return] Failed to update inventory stock:", stockErr)
@@ -175,6 +178,12 @@ export async function POST(request) {
     } catch (linkErr) {
       console.error('[cylinders/return] Failed to update linked deposit status:', linkErr)
       // Non-fatal
+    }
+
+    try {
+      await recalculateAdminDailyStockReportsFrom(selectedTransactionDate);
+    } catch (syncError) {
+      console.error("[Return] Failed to recalculate admin DSR:", syncError);
     }
 
     return NextResponse.json(populatedTransaction, { status: 201 });

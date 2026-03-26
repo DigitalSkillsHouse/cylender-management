@@ -8,6 +8,7 @@
     "dev": "node scripts/clean-next.js && next dev -H 0.0.0.0 -p 3000",
     "lint": "next lint",
     "start": "node -e \"process.env.NODE_ENV='production';require('./server.js')\"",
+    "rebuild:dsr": "node scripts/rebuild-dsr-history.js",
     "run": "npm i"
   },
   "dependencies": {

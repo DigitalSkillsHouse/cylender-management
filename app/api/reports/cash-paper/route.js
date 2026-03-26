@@ -5,7 +5,9 @@ import CylinderTransaction from "@/models/Cylinder";
 import EmployeeSale from "@/models/EmployeeSale";
 import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
 import Rental from "@/models/Rental";
+import Expense from "@/models/Expense";
 import { getDateRangeForPeriod } from "@/lib/date-utils";
+import { buildAdminDateRangeQuery, getDocumentDateValue } from "@/lib/admin-backdated-sync";
 
 // Helper function to truncate to 2 decimal places (exact calculation, no rounding)
 // Use this for calculations only
@@ -54,35 +56,39 @@ export async function GET(request) {
     // Decide sources based on scope
     // - If employeeId present: use employee collections only (EmployeeSale, EmployeeCylinderTransaction)
     // - Else (admin scope): use BOTH admin and employee collections to show all invoices
-    const baseQuery = { createdAt: { $gte: start, $lte: end } };
+    const salesDateQuery = buildAdminDateRangeQuery("saleDate", fromDate, toDate);
+    const cylinderDateQuery = buildAdminDateRangeQuery("transactionDate", fromDate, toDate);
+    const expenseDateQuery = buildAdminDateRangeQuery("expenseDate", fromDate, toDate);
     let gasSales = [];
     let cylTxns = [];
+    let expenses = [];
     if (employeeId) {
-      gasSales = await EmployeeSale.find({ ...baseQuery, employee: employeeId })
+      gasSales = await EmployeeSale.find({ ...salesDateQuery, employee: employeeId })
         .populate('employee', 'name email')
         .populate('customer', 'name')
         .lean();
-      cylTxns = await EmployeeCylinderTransaction.find({ ...baseQuery, employee: employeeId })
+      cylTxns = await EmployeeCylinderTransaction.find({ ...cylinderDateQuery, employee: employeeId })
         .populate('employee', 'name email')
         .populate('customer', 'name')
         .lean();
     } else {
       // Admin scope: fetch from both admin and employee collections to show all invoices
-      const [adminGasSales, employeeGasSales, adminCylTxns, employeeCylTxns] = await Promise.all([
-        Sale.find(baseQuery)
+      const [adminGasSales, employeeGasSales, adminCylTxns, employeeCylTxns, adminExpenses] = await Promise.all([
+        Sale.find(salesDateQuery)
           .populate('customer', 'name')
           .lean(),
-        EmployeeSale.find(baseQuery)
+        EmployeeSale.find(salesDateQuery)
           .populate('employee', 'name email')
           .populate('customer', 'name')
           .lean(),
-        CylinderTransaction.find(baseQuery)
+        CylinderTransaction.find(cylinderDateQuery)
           .populate('customer', 'name')
           .lean(),
-        EmployeeCylinderTransaction.find(baseQuery)
+        EmployeeCylinderTransaction.find(cylinderDateQuery)
           .populate('employee', 'name email')
           .populate('customer', 'name')
-          .lean()
+          .lean(),
+        Expense.find(expenseDateQuery).lean()
       ]);
       
       // Combine admin and employee sales, marking their source
@@ -94,6 +100,7 @@ export async function GET(request) {
         ...adminCylTxns.map(c => ({ ...c, _isEmployeeTransaction: false })),
         ...employeeCylTxns.map(c => ({ ...c, _isEmployeeTransaction: true }))
       ];
+      expenses = adminExpenses;
     }
 
     const creditSales = [];
@@ -102,6 +109,7 @@ export async function GET(request) {
     const depositCylinderSales = [];
     const returnCylinderSales = [];
     const rentalSales = [];
+    const expenseEntries = [];
 
     let totalCredit = 0;
     let totalDebit = 0;
@@ -109,6 +117,7 @@ export async function GET(request) {
     let totalDepositCylinder = 0;
     let totalReturnCylinder = 0;
     let totalRental = 0;
+    let totalExpenses = 0;
     let grandTotal = 0;
 
     // Aggregate gas sales first
@@ -126,6 +135,7 @@ export async function GET(request) {
         paymentMethod: s.paymentMethod,
         paymentStatus: s.paymentStatus,
         createdAt: s.createdAt,
+        entryDate: getDocumentDateValue(s, "saleDate"),
       };
       // Accumulate without rounding to prevent cumulative errors
       grandTotal += rec.totalAmount;
@@ -157,6 +167,7 @@ export async function GET(request) {
         paymentMethod: c.paymentMethod || 'cash',
         paymentStatus: c.status,
         createdAt: c.createdAt,
+        entryDate: getDocumentDateValue(c, "transactionDate"),
         type: c.type, // Include type to distinguish deposit/return
       };
       
@@ -176,6 +187,26 @@ export async function GET(request) {
         totalDepositCylinder += rec.totalAmount; // Accumulate without rounding
         grandTotal += rec.totalAmount; // Accumulate without rounding
       }
+    }
+
+    for (const expense of expenses) {
+      const totalAmount = preserveDecimal(expense.totalAmount || expense.expense || 0);
+      const rec = {
+        _id: expense._id,
+        source: 'expense',
+        invoiceNumber: expense.invoiceNumber || '-',
+        employeeName: 'Admin',
+        customerName: expense.description || '-',
+        totalAmount,
+        receivedAmount: 0,
+        paymentMethod: 'expense',
+        paymentStatus: 'cleared',
+        createdAt: expense.createdAt,
+        entryDate: getDocumentDateValue(expense, "expenseDate"),
+        type: 'expense',
+      };
+      expenseEntries.push(rec);
+      totalExpenses += totalAmount;
     }
 
     // Fetch rental invoices for the given date
@@ -199,6 +230,7 @@ export async function GET(request) {
         paymentMethod: 'rental',
         paymentStatus: 'cleared',
         createdAt: rental.createdAt || rental.date,
+        entryDate: getDocumentDateValue({ createdAt: rental.createdAt || rental.date }, "rentalDate"),
         subtotal: preserveDecimal(rental.subtotal || 0), // Preserve exact decimal value from database
         totalVat: preserveDecimal(rental.totalVat || 0), // Preserve exact decimal value from database
       };
@@ -252,7 +284,8 @@ export async function GET(request) {
           depositCylinder: depositCylinderSales.length,
           returnCylinder: returnCylinderSales.length,
           rental: rentalSales.length,
-          total: gasSales.length + cylTxns.length + rentalSales.length,
+          expense: expenseEntries.length,
+          total: gasSales.length + cylTxns.length + rentalSales.length + expenseEntries.length,
         },
         creditSales,
         debitSales,
@@ -260,6 +293,7 @@ export async function GET(request) {
         depositCylinderSales,
         returnCylinderSales,
         rentalSales,
+        expenseEntries,
         otherByMethod,
         totals: {
           totalCredit: roundToTwo(totalCredit), // Round only at final display
@@ -268,8 +302,10 @@ export async function GET(request) {
           totalDepositCylinder: roundToTwo(totalDepositCylinder), // Round only at final display
           totalReturnCylinder: roundToTwo(totalReturnCylinder), // Round only at final display
           totalRental: roundToTwo(totalRental), // Round only at final display
+          totalExpenses: roundToTwo(totalExpenses),
           totalVat: roundToTwo(totalVat), // Round only at final display - Total VAT amount
           grandTotal: roundToTwo(grandTotal), // Round only at final display
+          netAfterExpenses: roundToTwo(grandTotal - totalExpenses),
         },
       },
     });

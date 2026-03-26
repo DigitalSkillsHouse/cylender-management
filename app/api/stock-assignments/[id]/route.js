@@ -1,6 +1,9 @@
 import dbConnect from "@/lib/mongodb";
 import StockAssignment from "@/models/StockAssignment";
 import Product from "@/models/Product";
+import { recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync";
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync";
+import { getLocalDateStringFromDate } from "@/lib/date-utils";
 import { NextResponse } from "next/server";
 
 export async function PATCH(request, { params }) {
@@ -27,10 +30,17 @@ export async function PATCH(request, { params }) {
       requestedStatus: data.status
     });
     
-    // Now update the assignment status
+    // Now update the assignment status (+ timestamps)
+    const statusUpdate = { status: data.status }
+    if (data.status === 'received' || data.status === 'active') {
+      statusUpdate.receivedDate = new Date()
+    }
+    if (data.status === 'rejected') {
+      statusUpdate.rejectedDate = new Date()
+    }
     const assignment = await StockAssignment.findByIdAndUpdate(
       id,
-      { status: data.status },
+      statusUpdate,
       { new: true }
     ).populate("product", "name category cylinderSize productCode");
     
@@ -72,6 +82,7 @@ export async function PATCH(request, { params }) {
         originalAssignment.status !== 'received' && originalAssignment.status !== 'active') {
       
       // FIRST: Deduct from admin inventory when employee accepts assignment
+      // If inventory was already deducted at assignment time, skip deduction steps to prevent double deduction.
       const InventoryItem = (await import("@/models/InventoryItem")).default;
       
       console.log('🔄 Deducting admin inventory for accepted assignment:', {
@@ -85,40 +96,44 @@ export async function PATCH(request, { params }) {
       
       if (assignment.category === 'gas' && assignment.cylinderProductId) {
         // Gas assignment: deduct gas stock and convert full cylinder to empty
-        const gasUpdate = await InventoryItem.findOneAndUpdate(
-          { product: assignment.product._id },
-          { $inc: { currentStock: -assignment.quantity } },
-          { new: true }
-        );
-        console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
-        
-        const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-          { product: assignment.cylinderProductId },
-          { 
-            $inc: { 
-              availableFull: -assignment.quantity,
-              availableEmpty: assignment.quantity 
-            }
-          },
-          { new: true }
-        );
-        console.log('✅ Cylinder converted full->empty:', cylinderUpdate?.availableFull, '->', cylinderUpdate?.availableEmpty);
-      } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && assignment.gasProductId) {
-        try {
-          // Full cylinder assignment: deduct full cylinders and gas stock
-          const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-            { product: assignment.product._id },
-            { $inc: { availableFull: -assignment.quantity } },
-            { new: true }
-          );
-          console.log('✅ Full cylinders deducted:', cylinderUpdate?.availableFull);
-          
+        if (!originalAssignment.inventoryDeducted) {
           const gasUpdate = await InventoryItem.findOneAndUpdate(
-            { product: assignment.gasProductId },
+            { product: assignment.product._id },
             { $inc: { currentStock: -assignment.quantity } },
             { new: true }
           );
           console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+          
+          const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+            { product: assignment.cylinderProductId },
+            { 
+              $inc: { 
+                availableFull: -assignment.quantity,
+                availableEmpty: assignment.quantity 
+              }
+            },
+            { new: true }
+          );
+          console.log('✅ Cylinder converted full->empty:', cylinderUpdate?.availableFull, '->', cylinderUpdate?.availableEmpty);
+        }
+      } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full' && assignment.gasProductId) {
+        try {
+          // Full cylinder assignment: deduct full cylinders and gas stock
+          if (!originalAssignment.inventoryDeducted) {
+            const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+              { product: assignment.product._id },
+              { $inc: { availableFull: -assignment.quantity } },
+              { new: true }
+            );
+            console.log('✅ Full cylinders deducted:', cylinderUpdate?.availableFull);
+            
+            const gasUpdate = await InventoryItem.findOneAndUpdate(
+              { product: assignment.gasProductId },
+              { $inc: { currentStock: -assignment.quantity } },
+              { new: true }
+            );
+            console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+          }
           
           // Also create/update employee gas inventory for the gas inside the cylinder
           console.log('🔄 Creating/updating employee gas inventory for gas inside full cylinder');
@@ -185,28 +200,34 @@ export async function PATCH(request, { params }) {
         }
       } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'empty') {
         // Empty cylinder assignment: deduct empty cylinders
-        const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-          { product: assignment.product._id },
-          { $inc: { availableEmpty: -assignment.quantity } },
-          { new: true }
-        );
-        console.log('✅ Empty cylinders deducted:', cylinderUpdate?.availableEmpty);
+        if (!originalAssignment.inventoryDeducted) {
+          const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+            { product: assignment.product._id },
+            { $inc: { availableEmpty: -assignment.quantity } },
+            { new: true }
+          );
+          console.log('✅ Empty cylinders deducted:', cylinderUpdate?.availableEmpty);
+        }
       } else if (assignment.category === 'cylinder' && assignment.cylinderStatus === 'full') {
         // Full cylinder only assignment (no gas product)
-        const cylinderUpdate = await InventoryItem.findOneAndUpdate(
-          { product: assignment.product._id },
-          { $inc: { availableFull: -assignment.quantity } },
-          { new: true }
-        );
-        console.log('✅ Full cylinders deducted (no gas):', cylinderUpdate?.availableFull);
+        if (!originalAssignment.inventoryDeducted) {
+          const cylinderUpdate = await InventoryItem.findOneAndUpdate(
+            { product: assignment.product._id },
+            { $inc: { availableFull: -assignment.quantity } },
+            { new: true }
+          );
+          console.log('✅ Full cylinders deducted (no gas):', cylinderUpdate?.availableFull);
+        }
       } else if (assignment.category === 'gas') {
         // Gas only assignment (no cylinder product)
-        const gasUpdate = await InventoryItem.findOneAndUpdate(
-          { product: assignment.product._id },
-          { $inc: { currentStock: -assignment.quantity } },
-          { new: true }
-        );
-        console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+        if (!originalAssignment.inventoryDeducted) {
+          const gasUpdate = await InventoryItem.findOneAndUpdate(
+            { product: assignment.product._id },
+            { $inc: { currentStock: -assignment.quantity } },
+            { new: true }
+          );
+          console.log('✅ Gas stock deducted:', gasUpdate?.currentStock);
+        }
       }
       
       // SECOND: Create employee inventory records
@@ -451,7 +472,100 @@ export async function PATCH(request, { params }) {
       }
     }
     } // Close the main createEmployeeInventory conditional block
+
+    // Restore admin inventory on rejection if it was deducted at assignment time (reserved)
+    if (data.status === 'rejected' && originalAssignment.status === 'assigned' && originalAssignment.inventoryDeducted) {
+      const InventoryItem = (await import("@/models/InventoryItem")).default;
+      const qty = Number(originalAssignment.quantity || 0);
+      const category = originalAssignment.category;
+      const cylinderStatus = originalAssignment.cylinderStatus;
+      const productId = originalAssignment.product?._id || originalAssignment.product;
+      const cylinderProductId = originalAssignment.cylinderProductId;
+      const gasProductId = originalAssignment.gasProductId;
+
+      console.log('↩️ Restoring inventory for rejected assignment:', {
+        assignmentId: id,
+        category,
+        cylinderStatus,
+        productId,
+        cylinderProductId,
+        gasProductId,
+        qty
+      });
+
+      if (category === 'gas' && cylinderProductId) {
+        await InventoryItem.findOneAndUpdate(
+          { product: productId },
+          { $inc: { currentStock: qty } },
+          { new: true }
+        );
+        await InventoryItem.findOneAndUpdate(
+          { product: cylinderProductId },
+          { $inc: { availableFull: qty, availableEmpty: -qty } },
+          { new: true }
+        );
+      } else if (category === 'cylinder' && cylinderStatus === 'empty') {
+        await InventoryItem.findOneAndUpdate(
+          { product: productId },
+          { $inc: { availableEmpty: qty } },
+          { new: true }
+        );
+      } else if (category === 'cylinder' && cylinderStatus === 'full' && gasProductId) {
+        await InventoryItem.findOneAndUpdate(
+          { product: productId },
+          { $inc: { availableFull: qty } },
+          { new: true }
+        );
+        await InventoryItem.findOneAndUpdate(
+          { product: gasProductId },
+          { $inc: { currentStock: qty } },
+          { new: true }
+        );
+      } else if (category === 'cylinder' && cylinderStatus === 'full') {
+        await InventoryItem.findOneAndUpdate(
+          { product: productId },
+          { $inc: { availableFull: qty } },
+          { new: true }
+        );
+      } else if (category === 'gas') {
+        await InventoryItem.findOneAndUpdate(
+          { product: productId },
+          { $inc: { currentStock: qty } },
+          { new: true }
+        );
+      }
+
+      await StockAssignment.findByIdAndUpdate(id, { inventoryDeducted: false }, { new: false });
+
+      // Notify admin (best-effort)
+      try {
+        const Notification = (await import("@/models/Notification")).default;
+        await Notification.create({
+          recipient: originalAssignment.assignedBy,
+          sender: data.employeeId || originalAssignment.employee,
+          type: "general",
+          title: "Stock Assignment Rejected",
+          message: `Employee rejected a stock assignment (Qty: ${qty}).`,
+          isRead: false
+        })
+      } catch (e) {
+        console.warn('Failed to create rejection notification', e)
+      }
+    }
     
+    if ((data.status === 'received' || data.status === 'active') && data.createEmployeeInventory) {
+      try {
+        const affectedDate = getLocalDateStringFromDate(assignment.receivedDate || assignment.updatedAt || new Date())
+        await Promise.all([
+          recalculateAdminDailyStockReportsFrom(affectedDate),
+          recalculateEmployeeDailyStockReportsFrom(String(assignment.employee), affectedDate),
+        ])
+        console.log(`✅ Rebuilt admin and employee DSR snapshots from ${affectedDate} after assignment acceptance`)
+      } catch (syncError) {
+        console.error("❌ Failed to rebuild DSR snapshots after assignment acceptance:", syncError)
+      }
+    }
+
     // Return success response
     return NextResponse.json({ success: true, data: assignment });
   } catch (error) {

@@ -18,6 +18,7 @@ type CashPaperRecord = {
   paymentMethod: string
   paymentStatus: string
   createdAt: string
+  entryDate?: string
   type?: string // For cylinder transactions: 'deposit', 'return', 'refill'
 }
 
@@ -32,15 +33,16 @@ const CashPaperSection = ({
   const [toDate, setToDate] = useState<string>(getLocalDateString())
   const [loading, setLoading] = useState<boolean>(false)
   const [data, setData] = useState<{
-    counts: { credit: number; debit: number; other: number; depositCylinder: number; returnCylinder: number; rental: number; total: number }
+    counts: { credit: number; debit: number; other: number; depositCylinder: number; returnCylinder: number; rental: number; expense?: number; total: number }
     creditSales: CashPaperRecord[]
     debitSales: CashPaperRecord[]
     otherSales: CashPaperRecord[]
     depositCylinderSales: CashPaperRecord[]
     returnCylinderSales: CashPaperRecord[]
     rentalSales: CashPaperRecord[]
+    expenseEntries?: CashPaperRecord[]
     otherByMethod: Record<string, number>
-    totals: { totalCredit: number; totalDebit: number; totalOther: number; totalDepositCylinder: number; totalReturnCylinder: number; totalRental: number; totalVat?: number; grandTotal: number }
+    totals: { totalCredit: number; totalDebit: number; totalOther: number; totalDepositCylinder: number; totalReturnCylinder: number; totalRental: number; totalExpenses?: number; totalVat?: number; grandTotal: number; netAfterExpenses?: number }
     fromDate?: string
     toDate?: string
   } | null>(null)
@@ -117,6 +119,9 @@ const CashPaperSection = ({
         .join("")
       const rentalRows = (data.rentalSales || [])
         .map((r: any) => `<tr><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(Number(r.totalVat || 0))}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`) 
+        .join("")
+      const expenseRows = (data.expenseEntries || [])
+        .map((r: any) => `<tr><td>${r.entryDate || '-'}</td><td>${r.invoiceNumber || '-'}</td><td>${r.customerName || '-'}</td><td class='right'>${currency(r.totalAmount)}</td></tr>`)
         .join("")
 
       const dateRange = fromDate === toDate ? fromDate : `${fromDate} to ${toDate}`
@@ -204,6 +209,19 @@ const CashPaperSection = ({
     </tfoot>
   </table>
 
+  <h2>Expenses</h2>
+  <table>
+    <thead>
+      <tr><th>Date</th><th>Inv Id</th><th>Description</th><th class='right'>Amount</th></tr>
+    </thead>
+    <tbody>
+      ${expenseRows || `<tr><td colspan='4' style='text-align:center'>No expenses</td></tr>`}
+    </tbody>
+    <tfoot>
+      <tr><td colspan='3'><b>Total Expenses</b></td><td class='right'><b>${currency(data.totals.totalExpenses || 0)}</b></td></tr>
+    </tfoot>
+  </table>
+
   <h2>Summary</h2>
   <table>
     <tbody>
@@ -211,8 +229,10 @@ const CashPaperSection = ({
       <tr><td>Total Cash</td><td class='right'>${currency(data.totals.totalDebit)}</td></tr>
       <tr><td>Other</td><td class='right'>${currency(data.totals.totalOther)}</td></tr>
       <tr><td>Total Rental Collection</td><td class='right'>${currency(data.totals.totalRental || 0)}</td></tr>
+      <tr><td>Total Expenses</td><td class='right'>${currency(data.totals.totalExpenses || 0)}</td></tr>
       <tr><td>Total VAT (5%)</td><td class='right'>${currency(data.totals.totalVat || 0)}</td></tr>
       <tr><td><b>Grand Total</b></td><td class='right'><b>${currency(data.totals.grandTotal)}</b></td></tr>
+      <tr><td><b>Net After Expenses</b></td><td class='right'><b>${currency(data.totals.netAfterExpenses || 0)}</b></td></tr>
     </tbody>
   </table>
 </body>
@@ -239,7 +259,16 @@ const CashPaperSection = ({
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="space-y-2">
             <Label htmlFor="cashPaperFromDate">From Date</Label>
-            <Input id="cashPaperFromDate" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <Input
+              id="cashPaperFromDate"
+              type="date"
+              value={fromDate}
+              onChange={(e) => {
+                const nextDate = e.target.value
+                setFromDate(nextDate)
+                setToDate(nextDate)
+              }}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="cashPaperToDate">To Date</Label>
@@ -265,6 +294,7 @@ const CashPaperSection = ({
             {data.counts && (
               <span className="ml-2">({data.counts.total} transactions)</span>
             )}
+            <span className="ml-2 text-xs text-gray-500">From Date select karne par by default same date ka view khulta hai. Range ke liye phir To Date alag set karein.</span>
           </div>
         )}
 
@@ -285,7 +315,7 @@ const CashPaperSection = ({
 
         {/* Quick totals */}
         {data && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
             <div className="border rounded p-3">
               <div className="text-gray-600">Credit</div>
               <div className="font-semibold">{currency(data.totals.totalCredit)}</div>
@@ -305,6 +335,11 @@ const CashPaperSection = ({
               <div className="text-gray-600">Grand Total</div>
               <div className="font-semibold">{currency(data.totals.grandTotal)}</div>
               {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.total} total</div>}
+            </div>
+            <div className="border rounded p-3">
+              <div className="text-gray-600">Expenses</div>
+              <div className="font-semibold">{currency(data.totals.totalExpenses || 0)}</div>
+              {data.counts && <div className="text-xs text-gray-500 mt-1">{data.counts.expense || 0} entries</div>}
             </div>
           </div>
         )}

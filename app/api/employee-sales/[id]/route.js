@@ -2,8 +2,10 @@ import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import EmployeeSale from "@/models/EmployeeSale"
 import Product from "@/models/Product"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
 
 import { verifyToken } from "@/lib/auth"
+import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // PATCH /api/employee-sales/[id]
 // Allow saving customerSignature for the same invoice so re-download/print won't ask again.
@@ -79,6 +81,7 @@ export async function PUT(request, { params }) {
       receivedAmount,
       notes,
       customerSignature,
+      lpoNo,
     } = body
 
     const existing = await EmployeeSale.findById(id)
@@ -108,11 +111,19 @@ export async function PUT(request, { params }) {
     }
     if (notes !== undefined) updateData.notes = notes
     if (customerSignature !== undefined) updateData.customerSignature = customerSignature
+    if (lpoNo !== undefined) updateData.lpoNo = String(lpoNo || "").trim()
 
     const updated = await EmployeeSale.findByIdAndUpdate(id, updateData, { new: true })
       .populate("customer", "name email phone")
       .populate("items.product", "name category")
       .populate("employee", "name email")
+
+    try {
+      const affectedDate = getLocalDateStringFromDate(existing.createdAt || updated?.createdAt || new Date())
+      await recalculateEmployeeDailyStockReportsFrom(String(existing.employee), affectedDate)
+    } catch (syncError) {
+      console.error("[employee-sales][PUT] Failed to rebuild employee DSR snapshots:", syncError)
+    }
 
     return NextResponse.json(updated)
   } catch (error) {
@@ -273,6 +284,14 @@ export async function DELETE(request, { params }) {
     }
 
     await EmployeeSale.findByIdAndDelete(id)
+
+    try {
+      const affectedDate = getLocalDateStringFromDate(sale.createdAt || new Date())
+      await recalculateEmployeeDailyStockReportsFrom(String(sale.employee), affectedDate)
+    } catch (syncError) {
+      console.error("[employee-sales][DELETE] Failed to rebuild employee DSR snapshots:", syncError)
+    }
+
     return NextResponse.json({ message: 'Employee sale deleted successfully' })
   } catch (error) {
     console.error('Error deleting employee sale:', error)

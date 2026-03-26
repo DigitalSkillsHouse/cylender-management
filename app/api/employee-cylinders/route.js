@@ -12,6 +12,7 @@ import DailyEmployeeCylinderAggregation from "@/models/DailyEmployeeCylinderAggr
 import Sale from "@/models/Sale"
 import EmployeeSale from "@/models/EmployeeSale"
 import CylinderTransaction from "@/models/Cylinder"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
 import mongoose from "mongoose"
 import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
@@ -453,6 +454,14 @@ export async function POST(request) {
       } catch (e) {
         console.error('[employee-cylinders] Failed to update linked deposit status:', e?.message)
       }
+    }
+
+    try {
+      const affectedDate = getLocalDateStringFromDate(savedTransaction.createdAt)
+      await recalculateEmployeeDailyStockReportsFrom(employeeId, affectedDate)
+      console.log(`✅ [EMPLOYEE CYLINDERS] Employee DSR snapshots rebuilt from ${affectedDate}`)
+    } catch (syncError) {
+      console.error("❌ [EMPLOYEE CYLINDERS] Failed to rebuild employee DSR snapshots:", syncError)
     }
 
     console.log("Employee cylinder transaction created successfully:", populatedTransaction._id)

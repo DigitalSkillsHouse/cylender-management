@@ -7,7 +7,9 @@ import Product from "@/models/Product"
 import User from "@/models/User"
 import Notification from "@/models/Notification"
 import mongoose from "mongoose"
-import { getLocalDateString } from "@/lib/date-utils"
+import { recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
+import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -365,6 +367,18 @@ export async function POST(request) {
     } catch (notificationError) {
       console.error('⚠️ Failed to update notification:', notificationError)
       // Don't fail the request if notification update fails
+    }
+
+    try {
+      const adminAffectedDate = getLocalDateStringFromDate(dsrRecord.assignmentDate || finalUpdate.processedAt || new Date())
+      const employeeAffectedDate = getLocalDateStringFromDate(returnTransaction.returnDate || finalUpdate.processedAt || new Date())
+      await Promise.all([
+        recalculateAdminDailyStockReportsFrom(adminAffectedDate),
+        recalculateEmployeeDailyStockReportsFrom(String(returnTransaction.employee._id), employeeAffectedDate),
+      ])
+      console.log(`✅ Rebuilt DSR snapshots after accepted return. Admin from ${adminAffectedDate}, employee from ${employeeAffectedDate}`)
+    } catch (syncError) {
+      console.error("❌ Failed to rebuild DSR snapshots after accepted return:", syncError)
     }
 
     return NextResponse.json({ 

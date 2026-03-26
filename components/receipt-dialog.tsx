@@ -56,6 +56,7 @@ interface ReceiptDialogProps {
     paymentMethod: string
     bankName?: string
     chequeNumber?: string
+    lpoNo?: string
     paymentStatus: string
     // Optional: used for cylinder returns to pick the correct header
     type?: 'deposit' | 'refill' | 'return' | 'collection' | string
@@ -200,6 +201,12 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
   }
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
+  const isCollectionReceipt = sale?.type === "collection"
+  const saleType = (sale?.type || "").toString().toLowerCase()
+  const isStandardSaleInvoice =
+    !["collection", "deposit", "return", "refill", "rental"].includes(saleType) &&
+    !String(sale?.invoiceNumber || "").startsWith("STATEMENT-") &&
+    String(sale?.paymentMethod || "").toLowerCase() !== "account statement"
 
   // Choose header image by transaction type first (Deposit/Return/Collection/Rental),
   // then allow forcing Receiving header, otherwise default to Tax header.
@@ -212,6 +219,7 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
     if (useReceivingHeader) return '/images/Header-Receiving-invoice.jpg'
     return '/images/Header-Tax-invoice.jpg'
   })()
+  const footerSrc = "/images/footer.png"
 
   // Convert signature to PNG with transparent background
   const convertToPNG = (signatureData: string): Promise<string> => {
@@ -425,10 +433,10 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
           Sales receipt for invoice {sale.invoiceNumber} showing customer information, purchased items, and total amount with signature area for printing or download.
         </div>
 
-        <div className="space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh] print:relative">
+        <div className={`space-y-6 flex flex-col min-h-[297mm] print:min-h-[100vh] print:relative ${isCollectionReceipt ? "receipt-preview-collection" : ""}`}>
           <div ref={contentRef} className="flex flex-col flex-grow print:max-h-[calc(100vh-120px)] print:overflow-hidden">
             {/* Company Header Image */}
-            <div className="text-center pb-4">
+            <div className={`text-center ${isCollectionReceipt ? "pb-2" : "pb-4"}`}>
             <img 
               src={headerSrc}
               alt="SYED TAYYAB INDUSTRIAL Header" 
@@ -437,9 +445,9 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
           </div>
 
           {/* Customer (left) and Invoice (right) Info */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className={`grid grid-cols-2 ${isCollectionReceipt ? "gap-3" : "gap-4"}`}>
             <div>
-              <div className="space-y-1 text-sm">
+              <div className={`space-y-1 ${isCollectionReceipt ? "text-[13px] leading-tight" : "text-sm"}`}>
                 <div>
                   <strong>Name:</strong> {sale?.customer?.name || '-'}
                 </div>
@@ -453,7 +461,7 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
             </div>
 
             <div>
-              <div className="space-y-1 text-sm">
+              <div className={`space-y-1 ${isCollectionReceipt ? "text-[13px] leading-tight" : "text-sm"}`}>
                 {/* Show RC-NO for collection receipts, regular Invoice # for others */}
                 {sale?.type === 'collection' ? (
                   <div>
@@ -487,6 +495,11 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                     )}
                   </>
                 )}
+                {isStandardSaleInvoice && (
+                  <div>
+                    <strong>LPO No:</strong> {sale?.lpoNo?.trim() || '-'}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -496,17 +509,17 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
           {/* Items */}
           <div>
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse receipt-table text-[11px] leading-tight">
+              <table className={`w-full border-collapse receipt-table leading-tight ${isCollectionReceipt ? "text-[10px]" : "text-[11px]"}`}>
                 <thead>
                   <tr className="bg-[#2B3068] text-white">
                     {sale?.type === 'collection' ? (
                       <>
-                        <th className="text-left p-2 border">Invoice</th>
-                        <th className="text-center p-2 border">Date</th>
-                        <th className="text-right p-2 border">Type</th>
-                        <th className="text-right p-2 border">Total</th>
-                        <th className="text-right p-2 border">Received</th>
-                        <th className="text-right p-2 border">Remaining</th>
+                        <th className={`text-left border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>Invoice</th>
+                        <th className={`text-center border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>Date</th>
+                        <th className={`text-right border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>Type</th>
+                        <th className={`text-right border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>Total</th>
+                        <th className={`text-right border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>Received</th>
+                        <th className={`text-right border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>Remaining</th>
                       </>
                     ) : (
                       <>
@@ -604,15 +617,15 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                         
                         return (
                           <tr key={`invoice-${groupIndex}`} className="border-b h-5">
-                            <td className="p-2 border">{displayInvoiceNumber || '-'}</td>
-                            <td className="text-center p-2 border">
+                            <td className={`border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>{displayInvoiceNumber || '-'}</td>
+                            <td className={`text-center border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>
                               {invoiceDate ? new Date(invoiceDate).toLocaleDateString() : 
                                (sale?.createdAt ? new Date(sale.createdAt).toLocaleDateString() : '-')}
                             </td>
-                            <td className="text-right p-2 border">{paymentStatus}</td>
-                            <td className="text-right p-2 border">AED {groupTotalAmount.toFixed(2)}</td>
-                            <td className="text-right p-2 border">AED {groupReceivedAmount.toFixed(2)}</td>
-                            <td className="text-right p-2 border">AED {groupRemainingAmount.toFixed(2)}</td>
+                            <td className={`text-right border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>{paymentStatus}</td>
+                            <td className={`text-right border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>AED {groupTotalAmount.toFixed(2)}</td>
+                            <td className={`text-right border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>AED {groupReceivedAmount.toFixed(2)}</td>
+                            <td className={`text-right border ${isCollectionReceipt ? "p-1.5" : "p-2"}`}>AED {groupRemainingAmount.toFixed(2)}</td>
                           </tr>
                         )
                       })
@@ -698,8 +711,8 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
           <Separator />
 
           {/* Total */}
-          <div className="mt-4">
-            <table className="w-full text-[12px] leading-tight">
+          <div className={isCollectionReceipt ? "mt-2" : "mt-4"}>
+            <table className={`w-full leading-tight ${isCollectionReceipt ? "text-[11px]" : "text-[12px]"}`}>
               <tbody>
                 {!disableVAT && sale?.type !== 'collection' && !isCylinderTransaction && (
                   <>
@@ -777,11 +790,11 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
           )}
 
           {/* Footer with Signature - pushed to bottom using flexbox */}
-          <div className="mt-auto pt-8 print-area relative flex-shrink-0">
+          <div className={`mt-auto print-area relative flex-shrink-0 ${isCollectionReceipt ? "pt-4" : "pt-8"}`}>
             {/* Footer Image */}
             <div className="text-center">
               <img 
-                src="/images/footer.png" 
+                src={footerSrc} 
                 alt="SYED TAYYAB INDUSTRIAL Footer" 
                 className="mx-auto max-w-full h-auto"
               />
@@ -909,6 +922,14 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
             word-wrap: break-word !important;
             overflow-wrap: break-word !important;
             padding: 4px !important;
+          }
+          .receipt-preview-collection table {
+            line-height: 1.15 !important;
+          }
+          .receipt-preview-collection td,
+          .receipt-preview-collection th {
+            padding-top: 5px !important;
+            padding-bottom: 5px !important;
           }
         }
       `}</style>

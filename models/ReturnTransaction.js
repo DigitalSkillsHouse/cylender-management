@@ -1,6 +1,11 @@
 import mongoose from 'mongoose'
 
 const returnTransactionSchema = new mongoose.Schema({
+  batchId: {
+    type: String,
+    index: true,
+    default: null
+  },
   // invoiceNumber removed - return transactions don't need invoice numbers
   employee: {
     type: mongoose.Schema.Types.ObjectId,
@@ -17,6 +22,12 @@ const returnTransactionSchema = new mongoose.Schema({
     enum: ['gas', 'empty'],
     required: true
   },
+  // For gas returns: which cylinder product was used (needed for reversal on reject/expiry)
+  cylinderProductId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    default: null
+  },
   quantity: {
     type: Number,
     required: true,
@@ -30,6 +41,16 @@ const returnTransactionSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'received', 'rejected'],
     default: 'pending'
+  },
+  inventoryDeducted: {
+    // Current system deducts employee stock immediately on send-back; reject/expiry must restore.
+    type: Boolean,
+    default: true
+  },
+  expiresAt: {
+    type: Date,
+    default: null,
+    index: true
   },
   // For gas returns - which empty cylinder was selected by admin
   selectedEmptyCylinderId: {

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { CalendarIcon, RefreshCw, Eye, PlusCircle, FileText } from "lucide-react"
+import { CalendarIcon, RefreshCw, Eye, FileText } from "lucide-react"
 import { getLocalDateString, getPreviousDate, getNextDate, getLocalDateStringFromDate, isToday } from "@/lib/date-utils"
 
 interface EmployeeDSRProps {
@@ -61,9 +61,104 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
     return ''
   }
 
+  const calculateEmployeeClosingFromStoredReport = (report: any) => {
+    let closingFull = (report?.closingFull !== null && report?.closingFull !== undefined) ? Number(report.closingFull) : null
+    let closingEmpty = (report?.closingEmpty !== null && report?.closingEmpty !== undefined) ? Number(report.closingEmpty) : null
+
+    if (closingFull === null || closingFull === 0 || closingEmpty === null || closingEmpty === 0) {
+      const openingFull = Number(report?.openingFull) || 0
+      const openingEmpty = Number(report?.openingEmpty) || 0
+      const fullPurchase = Number(report?.fullPurchase) || 0
+      const emptyPurchase = Number(report?.emptyPurchase) || 0
+      const refilled = Number(report?.refilled) || 0
+      const fullCylinderSales = Number(report?.fullCylinderSales) || 0
+      const emptyCylinderSales = Number(report?.emptyCylinderSales) || 0
+      const gasSales = Number(report?.gasSales) || 0
+      const deposits = Number(report?.deposits) || 0
+      const returns = Number(report?.returns) || 0
+      const transferGas = Number(report?.transferGas) || 0
+      const transferEmpty = Number(report?.transferEmpty) || 0
+      const receivedGas = Number(report?.receivedGas) || 0
+      const receivedEmpty = Number(report?.receivedEmpty) || 0
+
+      const calculatedClosingFull = Math.max(
+        0,
+        openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + receivedGas
+      )
+      const calculatedClosingEmpty = Math.max(
+        0,
+        openingFull +
+          openingEmpty +
+          fullPurchase +
+          emptyPurchase -
+          fullCylinderSales -
+          emptyCylinderSales -
+          deposits +
+          returns -
+          transferEmpty +
+          receivedEmpty -
+          calculatedClosingFull
+      )
+
+      if (closingFull === null || closingFull === 0) {
+        closingFull = calculatedClosingFull
+      }
+      if (closingEmpty === null || closingEmpty === 0) {
+        closingEmpty = calculatedClosingEmpty
+      }
+    }
+
+    return {
+      closingFull: closingFull || 0,
+      closingEmpty: closingEmpty || 0,
+    }
+  }
+
+  const fetchLatestPreviousEmployeeClosings = async (date: string, itemNames: string[]) => {
+    const previousDateStr = getPreviousDate(date)
+    const uniqueItemNames = Array.from(new Set(itemNames.filter(Boolean)))
+    const previousClosings: Record<string, { closingFull: number; closingEmpty: number; sourceDate?: string }> = {}
+
+    if (!uniqueItemNames.length) {
+      return { previousDateStr, previousClosings }
+    }
+
+    const responses = await Promise.all(
+      uniqueItemNames.map(async (itemName) => {
+        try {
+          const response = await fetch(
+            `/api/employee-daily-stock-reports/previous?employeeId=${encodeURIComponent(user.id)}&itemName=${encodeURIComponent(itemName)}&date=${encodeURIComponent(date)}`,
+            { cache: 'no-store' }
+          )
+          const data = await response.json()
+          return { itemName, data }
+        } catch (error) {
+          console.error(`[EMPLOYEE DSR] Failed to fetch previous report for ${itemName}:`, error)
+          return { itemName, data: null }
+        }
+      })
+    )
+
+    for (const { itemName, data } of responses) {
+      const key = normalizeName(itemName)
+      const report = data?.success ? data.data : null
+
+      if (!key || !report) continue
+
+      const { closingFull, closingEmpty } = calculateEmployeeClosingFromStoredReport(report)
+      previousClosings[key] = {
+        closingFull,
+        closingEmpty,
+        sourceDate: report.date,
+      }
+    }
+
+    return { previousDateStr, previousClosings }
+  }
+
   // Fetch stored employee DSR reports for opening values
   // Returns the reports data directly for immediate use (avoids state update delay)
-  const fetchStoredEmployeeDsrReports = async (date: string): Promise<Record<string, { openingFull: number; openingEmpty: number }>> => {
+  const fetchStoredEmployeeDsrReportsLegacy = async (date: string): Promise<Record<string, { openingFull: number; openingEmpty: number }>> => {
     // Check if this fetch is for the current date (cancel if date changed)
     if (currentFetchDateRef.current !== date) {
       return {}
@@ -317,7 +412,7 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
   }
 
   // Auto-fetch inventory for new days
-  const autoFetchEmployeeInventoryForNewDay = async (date: string) => {
+  const autoFetchEmployeeInventoryForNewDayLegacy = async (date: string) => {
     try {
       // Get previous day's date to fetch closing stock (Dubai timezone-safe)
       // Use getPreviousDate to ensure consistent timezone handling
@@ -431,7 +526,7 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
   }
 
   // Fetch and lock employee inventory
-  const fetchAndLockEmployeeInventory = async () => {
+  const fetchAndLockEmployeeInventoryLegacy = async () => {
     try {
       setLoading(true)
       
@@ -519,6 +614,234 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
       console.error('Failed to fetch and lock employee inventory:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  void [
+    fetchStoredEmployeeDsrReportsLegacy,
+    autoFetchEmployeeInventoryForNewDayLegacy,
+    fetchAndLockEmployeeInventoryLegacy,
+  ]
+
+  const autoFetchEmployeeInventoryForNewDay = async (date: string) => {
+    try {
+      const cylinderItemNames = inventoryData
+        .filter((item) => item.category === 'cylinder')
+        .map((item) => item.productName)
+
+      const { previousDateStr, previousClosings } = await fetchLatestPreviousEmployeeClosings(date, cylinderItemNames)
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+
+      for (const item of inventoryData) {
+        if (item.category !== 'cylinder') continue
+
+        const key = normalizeName(item.productName)
+        const prevClosing = previousClosings[key]
+        const openingFull = prevClosing?.closingFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? 0
+
+        console.log(`[EMPLOYEE AUTO-FETCH] ${item.productName}: opening ${openingFull}/${openingEmpty} from latest previous closing before ${date}${prevClosing?.sourceDate ? ` (${prevClosing.sourceDate})` : `, fallback after ${previousDateStr}`}`)
+
+        await fetch('/api/employee-daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employeeId: user.id,
+            date,
+            itemName: item.productName,
+            openingFull,
+            openingEmpty,
+          })
+        })
+
+        reports[key] = { openingFull, openingEmpty }
+      }
+
+      setStoredDsrReports((prev) => {
+        if (Object.keys(prev).length === 0) {
+          return reports
+        }
+
+        const merged: Record<string, { openingFull: number; openingEmpty: number }> = {}
+        for (const item of inventoryData) {
+          if (item.category !== 'cylinder') continue
+          const key = normalizeName(item.productName)
+          merged[key] = prev[key] || reports[key] || { openingFull: 0, openingEmpty: 0 }
+        }
+        return merged
+      })
+      setIsInventoryFetched(true)
+    } catch (error) {
+      console.error('Failed to auto-fetch employee inventory for new day:', error)
+    }
+  }
+
+  const fetchAndLockEmployeeInventory = async () => {
+    try {
+      setLoading(true)
+
+      let currentInventoryData = []
+
+      const newInventoryResponse = await fetch(`/api/employee-inventory-new/received?employeeId=${user.id}`)
+      if (newInventoryResponse.ok) {
+        const newInventoryResult = await newInventoryResponse.json()
+        const newInventoryItems = newInventoryResult.data || []
+
+        currentInventoryData = newInventoryItems.map((item: any) => ({
+          productName: item.productName || item.name,
+          availableFull: item.availableFull || 0,
+          availableEmpty: item.availableEmpty || 0,
+          currentStock: item.currentStock || item.quantity || 0,
+          category: item.category
+        }))
+      }
+
+      if (currentInventoryData.length === 0) {
+        const oldInventoryResponse = await fetch(`/api/employee-inventory-items?employeeId=${user.id}`)
+        if (oldInventoryResponse.ok) {
+          const oldInventoryResult = await oldInventoryResponse.json()
+          currentInventoryData = oldInventoryResult.data || []
+        }
+      }
+
+      const cylinderItemNames = currentInventoryData
+        .filter((item: any) => item.category === 'cylinder')
+        .map((item: any) => item.productName)
+      const { previousDateStr, previousClosings } = await fetchLatestPreviousEmployeeClosings(dsrDate, cylinderItemNames)
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+
+      for (const item of currentInventoryData) {
+        if (item.category !== 'cylinder') continue
+
+        const key = normalizeName(item.productName)
+        const prevClosing = previousClosings[key]
+        const openingFull = prevClosing?.closingFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? 0
+
+        console.log(`[EMPLOYEE OPENING STOCK] ${item.productName}: opening ${openingFull}/${openingEmpty} from latest previous closing before ${dsrDate}${prevClosing?.sourceDate ? ` (${prevClosing.sourceDate})` : `, fallback after ${previousDateStr}`}`)
+
+        await fetch('/api/employee-daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employeeId: user.id,
+            date: dsrDate,
+            itemName: item.productName,
+            openingFull,
+            openingEmpty,
+          })
+        })
+
+        reports[key] = { openingFull, openingEmpty }
+      }
+
+      setStoredDsrReports(reports)
+      setIsInventoryFetched(true)
+    } catch (error) {
+      console.error('Failed to fetch and lock employee inventory:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchStoredEmployeeDsrReports = async (date: string): Promise<Record<string, { openingFull: number; openingEmpty: number }>> => {
+    if (currentFetchDateRef.current !== date) {
+      return {}
+    }
+
+    console.log(`[DIAGNOSTIC] fetchStoredEmployeeDsrReports called for date: ${date}`)
+
+    try {
+      const response = await fetch(`/api/employee-daily-stock-reports?employeeId=${user.id}&date=${date}`, { cache: 'no-store' })
+
+      if (currentFetchDateRef.current !== date) {
+        return {}
+      }
+
+      const data = await response.json()
+      const storedReports = data.success && Array.isArray(data.data) ? data.data : []
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+
+      console.log(`[DIAGNOSTIC] API response for ${date}:`, {
+        success: data.success,
+        dataCount: storedReports.length,
+        itemNames: storedReports.map((report: any) => report.itemName),
+      })
+
+      const cylinderItemNames = inventoryData
+        .filter((item) => item.category === 'cylinder')
+        .map((item) => item.productName)
+      const hasValidOpeningStock = storedReports.some((report: any) =>
+        (report.openingFull && report.openingFull > 0) || (report.openingEmpty && report.openingEmpty > 0)
+      )
+
+      if (storedReports.length > 0 && hasValidOpeningStock) {
+        const { previousDateStr, previousClosings } = await fetchLatestPreviousEmployeeClosings(date, cylinderItemNames)
+
+        if (inventoryData.length > 0) {
+          for (const item of inventoryData) {
+            if (item.category !== 'cylinder') continue
+
+            const key = normalizeName(item.productName)
+            const prevClosing = previousClosings[key]
+            const storedOpening = storedReports.find((report: any) => normalizeName(report.itemName) === key)
+
+            reports[key] = prevClosing
+              ? {
+                  openingFull: prevClosing.closingFull,
+                  openingEmpty: prevClosing.closingEmpty,
+                }
+              : {
+                  openingFull: Number(storedOpening?.openingFull) || 0,
+                  openingEmpty: Number(storedOpening?.openingEmpty) || 0,
+                }
+
+            if (prevClosing?.sourceDate && prevClosing.sourceDate !== previousDateStr) {
+              console.log(`[DIAGNOSTIC] ${item.productName}: using latest previous closing from ${prevClosing.sourceDate} instead of exact previous day ${previousDateStr}`)
+            }
+          }
+        } else {
+          storedReports.forEach((report: any) => {
+            const key = normalizeName(report.itemName)
+            reports[key] = {
+              openingFull: Number(report.openingFull) || 0,
+              openingEmpty: Number(report.openingEmpty) || 0,
+            }
+          })
+        }
+
+        setIsInventoryFetched(true)
+        setStoredDsrReports(reports)
+        return reports
+      }
+
+      setIsInventoryFetched(false)
+
+      const { previousDateStr, previousClosings } = await fetchLatestPreviousEmployeeClosings(date, cylinderItemNames)
+      const openingReports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+
+      for (const item of inventoryData) {
+        if (item.category !== 'cylinder') continue
+
+        const key = normalizeName(item.productName)
+        const prevClosing = previousClosings[key]
+        openingReports[key] = {
+          openingFull: prevClosing?.closingFull ?? 0,
+          openingEmpty: prevClosing?.closingEmpty ?? 0,
+        }
+
+        if (prevClosing?.sourceDate && prevClosing.sourceDate !== previousDateStr) {
+          console.log(`[DIAGNOSTIC] ${item.productName}: filling opening from latest previous closing ${prevClosing.sourceDate} instead of exact previous day ${previousDateStr}`)
+        }
+      }
+
+      setIsInventoryFetched(true)
+      setStoredDsrReports(openingReports)
+      return openingReports
+    } catch (error) {
+      console.error('Failed to fetch stored employee DSR reports:', error)
+      setIsInventoryFetched(false)
+      return {}
     }
   }
 
@@ -1031,31 +1354,27 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
               foundItem.receivedEmpty += quantity
             }
           } else {
-            // Item not found in dsrMap - this shouldn't happen for cylinders, but might for gas
-            // Only create a new entry if it's a cylinder (gas should always match to a cylinder row)
-            if (category === 'cylinder' || !category) {
-              const newEntry: DSRItem = {
-                itemName: targetItemName,
-                openingFull: 0,
-                openingEmpty: 0,
-                emptyPurchase: 0,
-                fullPurchase: 0,
-                refilled: 0,
-                fullCylinderSales: 0,
-                emptyCylinderSales: 0,
-                gasSales: 0,
-                deposits: 0,
-                returns: 0,
-                transferGas: 0,
-                transferEmpty: 0,
-                receivedGas: 0,
-                receivedEmpty: quantity,
-                closingFull: 0,
-                closingEmpty: 0,
-                category: 'cylinder'
-              }
-              dsrMap.set(targetItemName, newEntry)
+            const newEntry: DSRItem = {
+              itemName: targetItemName,
+              openingFull: 0,
+              openingEmpty: 0,
+              emptyPurchase: 0,
+              fullPurchase: 0,
+              refilled: 0,
+              fullCylinderSales: 0,
+              emptyCylinderSales: 0,
+              gasSales: 0,
+              deposits: 0,
+              returns: 0,
+              transferGas: 0,
+              transferEmpty: 0,
+              receivedGas: category === 'gas' ? quantity : 0,
+              receivedEmpty: category === 'gas' ? 0 : quantity,
+              closingFull: 0,
+              closingEmpty: 0,
+              category: 'cylinder'
             }
+            dsrMap.set(targetItemName, newEntry)
           }
         }
       })
@@ -1184,6 +1503,15 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
       
       // Recalculate closing stock after fetching stored reports to ensure it's correct
       // Use the directly returned data instead of state (which may not be updated yet)
+      const currentInventoryMap = new Map<string, { availableFull: number; availableEmpty: number }>()
+      inventoryData.forEach((item: any) => {
+        if (item.category !== 'cylinder') return
+        currentInventoryMap.set(normalizeName(item.productName), {
+          availableFull: Number(item.availableFull || 0),
+          availableEmpty: Number(item.availableEmpty || 0)
+        })
+      })
+
       finalDsrData.forEach((item) => {
         const key = normalizeName(item.itemName)
         const openingFull = storedReportsData[key]?.openingFull ?? item.openingFull
@@ -1220,6 +1548,14 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
         } else {
           item.closingFull = Math.max(0, openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + receivedGas)
           item.closingEmpty = Math.max(0, openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmpty + receivedEmpty - item.closingFull)
+        }
+
+        if (isToday(dsrDate)) {
+          const currentInventory = currentInventoryMap.get(key)
+          if (currentInventory) {
+            item.closingFull = currentInventory.availableFull
+            item.closingEmpty = currentInventory.availableEmpty
+          }
         }
       })
       
@@ -1276,6 +1612,19 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
       if (fetchAbortControllerRef.current) {
         fetchAbortControllerRef.current.abort()
       }
+    }
+  }, [user.id, dsrDate])
+
+  useEffect(() => {
+    const handleDsrRefresh = () => {
+      if (user.id && dsrDate) {
+        fetchEmployeeDSR()
+      }
+    }
+
+    window.addEventListener("employee-dsr-refresh", handleDsrRefresh)
+    return () => {
+      window.removeEventListener("employee-dsr-refresh", handleDsrRefresh)
     }
   }, [user.id, dsrDate])
 
@@ -1497,31 +1846,6 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
             
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 flex-wrap">
               {(() => {
-                const today = new Date().toISOString().slice(0, 10)
-                const isToday = dsrDate === today
-                
-                if (isToday && isInventoryFetched && dsrData.length > 0) {
-                  return (
-                    <Button
-                      onClick={handleManualSave}
-                      size="sm"
-                      disabled={loading || saving}
-                      className="bg-green-600 hover:bg-green-700 text-white w-full sm:w-auto text-xs sm:text-sm"
-                    >
-                      {saving ? (
-                        <>
-                          <RefreshCw className="h-3 w-3 sm:h-4 sm:w-4 mr-1 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <PlusCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                          Save Today
-                        </>
-                      )}
-                    </Button>
-                  )
-                }
                 return null
               })()}
               

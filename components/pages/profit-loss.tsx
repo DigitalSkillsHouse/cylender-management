@@ -63,6 +63,7 @@ interface Expense {
   invoiceNumber?: string
   vatAmount?: number
   totalAmount?: number
+  expenseDate?: string
   createdAt: string
   updatedAt: string
 }
@@ -76,6 +77,7 @@ export default function ProfitLoss() {
     invoiceNumber: "",
     expense: "",
     description: "",
+    expenseDate: getLocalDateString(),
   })
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
   const [dateRange, setDateRange] = useState({
@@ -151,6 +153,7 @@ export default function ProfitLoss() {
           description: formData.description,
           vatAmount: vatAmount,
           totalAmount: totalAmount,
+          expenseDate: formData.expenseDate,
         }),
       })
 
@@ -158,7 +161,7 @@ export default function ProfitLoss() {
 
       if (result.success) {
         toast.success("Expense added successfully")
-        setFormData({ invoiceNumber: "", expense: "", description: "" })
+        setFormData({ invoiceNumber: "", expense: "", description: "", expenseDate: getLocalDateString() })
         setDialogOpen(false)
         fetchExpenses()
         fetchProfitLossData() // Refresh P&L data to include new expense
@@ -208,6 +211,8 @@ export default function ProfitLoss() {
     return new Date(dateString).toLocaleDateString()
   }
 
+  const getExpenseDateValue = (expense: Expense) => expense.expenseDate || expense.createdAt
+
   const handleDownloadExpensesPDF = async (fromDate?: string, toDate?: string) => {
     // Filter expenses by date range if provided
     let filteredExpenses = expenses
@@ -218,7 +223,7 @@ export default function ProfitLoss() {
       to.setHours(23, 59, 59, 999) // Include the entire end date
       
       filteredExpenses = expenses.filter(expense => {
-        const expenseDate = new Date(expense.createdAt)
+        const expenseDate = new Date(getExpenseDateValue(expense))
         return expenseDate >= from && expenseDate <= to
       })
       
@@ -388,7 +393,7 @@ export default function ProfitLoss() {
         let cellX = tableX
         
         // Date
-        pdf.text(formatDate(expense.createdAt), cellX + 2, currentRowY + 5.5)
+        pdf.text(formatDate(getExpenseDateValue(expense)), cellX + 2, currentRowY + 5.5)
         cellX += colWidths[0]
         
         // Invoice Number
@@ -485,6 +490,10 @@ export default function ProfitLoss() {
     )
   }
 
+  const expenseAmountValue = Number(formData.expense) || 0
+  const vatAmountValue = Math.trunc((expenseAmountValue * 0.05) * 100) / 100
+  const totalExpenseValue = Math.trunc((expenseAmountValue + vatAmountValue) * 100) / 100
+
   return (
     <div className="p-3 sm:p-4 lg:p-6 xl:p-8 space-y-4 sm:space-y-6">
       {/* Header */}
@@ -505,7 +514,7 @@ export default function ProfitLoss() {
               Add Expense
             </Button>
           </DialogTrigger>
-          <DialogContent className="w-[95vw] max-w-[500px]">
+          <DialogContent className="w-[95vw] max-w-[560px] p-5 sm:p-6">
             <DialogHeader>
               <DialogTitle>Add New Expense</DialogTitle>
               <DialogDescription>
@@ -513,63 +522,66 @@ export default function ProfitLoss() {
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="invoiceNumber">Invoice Number *</Label>
-                <Input
-                  id="invoiceNumber"
-                  type="text"
-                  placeholder="Enter invoice number"
-                  value={formData.invoiceNumber}
-                  onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
-                  className="h-11 sm:h-12"
-                />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="invoiceNumber" className="text-sm font-medium">Invoice Number *</Label>
+                  <Input
+                    id="invoiceNumber"
+                    type="text"
+                    placeholder="Enter invoice number"
+                    value={formData.invoiceNumber}
+                    onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                    className="h-10"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="expenseDate" className="text-sm font-medium">Expense Date *</Label>
+                  <Input
+                    id="expenseDate"
+                    type="date"
+                    value={formData.expenseDate}
+                    max={getLocalDateString()}
+                    onChange={(e) => setFormData({ ...formData, expenseDate: e.target.value })}
+                    className="h-10"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="expense" className="text-sm font-medium">Expense Amount (AED) *</Label>
+                  <Input
+                    id="expense"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Enter expense amount"
+                    value={formData.expense}
+                    onChange={(e) => setFormData({ ...formData, expense: e.target.value })}
+                    className="h-10"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border bg-slate-50 px-3 py-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">VAT 5%</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-700">AED {vatAmountValue.toFixed(2)}</p>
+                  </div>
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-blue-600">Total</p>
+                    <p className="mt-1 text-sm font-semibold text-blue-700">AED {totalExpenseValue.toFixed(2)}</p>
+                  </div>
+                </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="expense">Expense Amount (AED) *</Label>
-                <Input
-                  id="expense"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Enter expense amount"
-                  value={formData.expense}
-                  onChange={(e) => setFormData({ ...formData, expense: e.target.value })}
-                  className="h-11 sm:h-12"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vatAmount">VAT 5%</Label>
-                <Input
-                  id="vatAmount"
-                  type="text"
-                  value={`AED ${(Math.trunc(((Number(formData.expense) || 0) * 0.05) * 100) / 100).toFixed(2)}`}
-                  readOnly
-                  className="h-11 sm:h-12 bg-gray-50 text-gray-700"
-                  placeholder="VAT will be calculated"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="totalAmount">Total Amount (AED)</Label>
-                <Input
-                  id="totalAmount"
-                  type="text"
-                  value={`AED ${(Math.trunc(((Number(formData.expense) || 0) + Math.trunc(((Number(formData.expense) || 0) * 0.05) * 100) / 100) * 100) / 100).toFixed(2)}`}
-                  readOnly
-                  className="h-11 sm:h-12 bg-blue-50 text-blue-700 font-semibold"
-                  placeholder="Total will be calculated"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Description *</Label>
+                <Label htmlFor="description" className="text-sm font-medium">Description *</Label>
                 <Textarea
                   id="description"
                   placeholder="Enter expense description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="min-h-[80px] resize-none"
+                  className="min-h-[88px] resize-none"
                 />
               </div>
-              <DialogFooter>
+              <DialogFooter className="pt-1">
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancel
                 </Button>
@@ -757,7 +769,7 @@ export default function ProfitLoss() {
                       <TableCell className="text-sm">
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4 text-gray-400" />
-                          {formatDate(expense.createdAt)}
+                          {formatDate(getExpenseDateValue(expense))}
                         </div>
                       </TableCell>
                       <TableCell className="text-sm font-mono">

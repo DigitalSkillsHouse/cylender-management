@@ -889,14 +889,6 @@ export function EmployeeManagement({ user }: EmployeeManagementProps) {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleAssignStock(employee)}
-                            className="text-[#2B3068] border-[#2B3068] hover:bg-[#2B3068] hover:text-white text-xs p-1 sm:p-2"
-                          >
-                            Stock
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
                             onClick={() => handleEdit(employee)}
                             className="text-xs p-1 sm:p-2"
                           >

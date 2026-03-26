@@ -1986,6 +1986,7 @@ export const Reports = () => {
           paymentMethod,
           paymentStatus,
           type,
+          lpoNo: src?.lpoNo || '',
           createdAt,
           customerSignature: signature,
         }

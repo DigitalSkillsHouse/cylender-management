@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import Sale from "@/models/Sale"
 import Product from "@/models/Product"
+import { normalizeAdminEntryDate, recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync"
 
 // Align PUT with POST schema: items[], totalAmount, paymentMethod, paymentStatus, receivedAmount, notes, customer, invoiceNumber
 export async function PUT(request, { params }) {
@@ -22,6 +23,8 @@ export async function PUT(request, { params }) {
       receivedAmount,
       notes,
       customerSignature,
+      saleDate,
+      lpoNo,
     } = body
 
     // Ensure sale exists
@@ -54,10 +57,36 @@ export async function PUT(request, { params }) {
     }
     if (notes !== undefined) updateData.notes = notes
     if (customerSignature !== undefined) updateData.customerSignature = customerSignature
+    if (saleDate !== undefined) updateData.saleDate = normalizeAdminEntryDate(saleDate)
+    if (lpoNo !== undefined) updateData.lpoNo = String(lpoNo || "").trim()
 
     const sale = await Sale.findByIdAndUpdate(id, updateData, { new: true })
       .populate("customer", "name phone address email trNumber")
       .populate("items.product", "name price category")
+
+    if (sale?.saleDate) {
+      try {
+        const impactedProductNames = Array.from(
+          new Set(
+            (sale.items || [])
+              .map((item) => {
+                const category = item.category || item.product?.category
+                if (category === "gas") {
+                  return item.cylinderName || ""
+                }
+                return item.product?.name || ""
+              })
+              .filter(Boolean)
+          )
+        )
+
+        await recalculateAdminDailyStockReportsFrom(sale.saleDate, {
+          productNames: impactedProductNames,
+        })
+      } catch (syncError) {
+        console.error("Failed to recalculate admin DSR after sale update:", syncError)
+      }
+    }
 
     return NextResponse.json({ data: sale, message: "Sale updated successfully" })
   } catch (error) {
@@ -203,6 +232,29 @@ export async function DELETE(request, { params }) {
 
     // Delete the sale
     await Sale.findByIdAndDelete(id)
+
+    try {
+      const impactedProductNames = Array.from(
+        new Set(
+          (sale.items || [])
+            .map((item) => {
+              const category = item.category || item.product?.category
+              if (category === "gas") {
+                return item.cylinderName || ""
+              }
+              return item.product?.name || ""
+            })
+            .filter(Boolean)
+        )
+      )
+
+      const affectedDate = normalizeAdminEntryDate(sale.saleDate || sale.createdAt?.toISOString?.().slice(0, 10))
+      await recalculateAdminDailyStockReportsFrom(affectedDate, {
+        productNames: impactedProductNames,
+      })
+    } catch (syncError) {
+      console.error("Failed to recalculate admin DSR after sale delete:", syncError)
+    }
 
     return NextResponse.json({ message: "Sale deleted successfully" })
   } catch (error) {

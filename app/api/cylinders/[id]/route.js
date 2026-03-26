@@ -1,6 +1,8 @@
 import dbConnect from "@/lib/mongodb";
 import CylinderTransaction from "@/models/Cylinder";
 import Product from "@/models/Product";
+import { recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync";
+import { getLocalDateStringFromDate } from "@/lib/date-utils";
 import { NextResponse } from "next/server";
 
 export async function GET(request, { params }) {
@@ -83,6 +85,13 @@ export async function PUT(request, { params }) {
       .populate("customer", "name phone address")
       .populate("product", "name category cylinderType");
 
+    try {
+      const affectedDate = updatedTransaction.transactionDate || getLocalDateStringFromDate(originalTransaction?.createdAt || updatedTransaction.createdAt || new Date())
+      await recalculateAdminDailyStockReportsFrom(affectedDate)
+    } catch (syncError) {
+      console.error("[cylinders][PUT] Failed to rebuild admin DSR snapshots:", syncError)
+    }
+
     return NextResponse.json(populatedTransaction);
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -125,6 +134,13 @@ export async function DELETE(request, { params }) {
         { error: "Cylinder transaction not found" },
         { status: 404 }
       );
+    }
+
+    try {
+      const affectedDate = transactionToDelete.transactionDate || getLocalDateStringFromDate(transactionToDelete.createdAt || new Date())
+      await recalculateAdminDailyStockReportsFrom(affectedDate)
+    } catch (syncError) {
+      console.error("[cylinders][DELETE] Failed to rebuild admin DSR snapshots:", syncError)
     }
 
     return NextResponse.json({ message: "Cylinder transaction deleted successfully" });

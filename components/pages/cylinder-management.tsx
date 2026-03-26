@@ -60,6 +60,7 @@ interface CylinderTransaction {
   checkNumber?: string
   status: "pending" | "cleared" | "overdue"
   notes?: string
+  transactionDate?: string
   createdAt: string
   updatedAt: string
   isEmployeeTransaction?: boolean
@@ -176,6 +177,8 @@ export const CylinderManagement = () => {
   const [showSecurityDialog, setShowSecurityDialog] = useState(false)
   const [securityRecords, setSecurityRecords] = useState<any[]>([])
   const [securityPrompted, setSecurityPrompted] = useState(false)
+
+  const getTransactionDateValue = (transaction: CylinderTransaction) => transaction.transactionDate || transaction.createdAt
   
   // Customer autocomplete functionality for form
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
@@ -441,7 +444,7 @@ export const CylinderManagement = () => {
         </TableCell>
       ),
       date: () => (
-        <TableCell className="p-4">{new Date(transaction.createdAt).toLocaleDateString()}</TableCell>
+        <TableCell className="p-4">{new Date(getTransactionDateValue(transaction)).toLocaleDateString()}</TableCell>
       ),
       actions: () => (
         <TableCell className="p-4">
@@ -507,7 +510,7 @@ export const CylinderManagement = () => {
           return cname.includes(term) || sname.includes(term)
         })
       const list = base.filter((t) => {
-        const d = t.createdAt ? new Date(t.createdAt) : null
+        const d = getTransactionDateValue(t) ? new Date(getTransactionDateValue(t)) : null
         if (!d) return false
         return (!start || d >= start) && (!end || d <= end)
       })
@@ -559,7 +562,7 @@ export const CylinderManagement = () => {
         const party = t.customer?.name || t.supplier?.companyName || ''
         const inv = (t as any).invoiceNumber || ''
         return [
-          new Date(t.createdAt).toLocaleDateString(),
+          new Date(getTransactionDateValue(t)).toLocaleDateString(),
           inv,
           t.type,
           party,
@@ -613,7 +616,7 @@ export const CylinderManagement = () => {
           return cname.includes(term) || sname.includes(term)
         })
       const list = base.filter((t) => {
-        const d = t.createdAt ? new Date(t.createdAt) : null
+        const d = getTransactionDateValue(t) ? new Date(getTransactionDateValue(t)) : null
         if (!d) return false
         return (!start || d >= start) && (!end || d <= end)
       })
@@ -1399,8 +1402,8 @@ export const CylinderManagement = () => {
         amount: single ? (Number(formData.amount) || 0) : itemsTotal,
         depositAmount: formData.type === 'deposit' ? (formData.paymentOption === 'delivery_note' ? 0 : Number(formData.depositAmount) || 0) : 0,
         returnAmount: formData.type === 'return' ? (single ? (Number(formData.amount) || 0) : itemsTotal) : 0,
+        transactionDate: formData.transactionDate,
         paymentOption: formData.paymentOption,
-        // Transaction date removed - using current date automatically
         paymentMethod: formData.paymentOption === 'debit' ? formData.paymentMethod : undefined,
         cashAmount: formData.paymentOption === 'debit' && formData.paymentMethod === 'cash' ? Number(formData.cashAmount) : 0,
         bankName: formData.paymentOption === 'debit' && formData.paymentMethod === 'cheque' ? formData.bankName : undefined,
@@ -1519,7 +1522,8 @@ export const CylinderManagement = () => {
             items: savedTx?.items || (formData.items.length>0 ? formData.items : undefined),
             status: savedTx?.status || formData.status,
             notes: savedTx?.notes || formData.notes,
-            createdAt: savedTx?.createdAt || new Date().toISOString(),
+            transactionDate: savedTx?.transactionDate || formData.transactionDate,
+            createdAt: savedTx?.transactionDate || savedTx?.createdAt || formData.transactionDate || new Date().toISOString(),
           }
           setPendingTransaction(normalized)
           setShowSignatureDialog(true)
@@ -1602,7 +1606,7 @@ export const CylinderManagement = () => {
       })) : [],
       linkedDeposit: (transaction as any)?.linkedDeposit?._id || (transaction as any)?.linkedDeposit || "",
       // Extract transaction date from existing transaction or default to today
-      transactionDate: transaction.createdAt ? new Date(transaction.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      transactionDate: transaction.transactionDate || (transaction.createdAt ? new Date(transaction.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)),
     })
     setCustomerSearchTerm(transaction.customer?.name || "")
     setShowCustomerSuggestions(false)
@@ -1704,7 +1708,7 @@ export const CylinderManagement = () => {
         paymentStatus: transactionWithInvoice.status || "pending",
         // include type to support header selection logic in receipt
         type: transactionWithInvoice.type,
-        createdAt: transactionWithInvoice.createdAt,
+        createdAt: transactionWithInvoice.transactionDate || transactionWithInvoice.createdAt,
         customerSignature: customerSignature,
       }
       setReceiptDialogData(saleData)
@@ -1776,7 +1780,7 @@ export const CylinderManagement = () => {
       paymentMethod: (transaction as any).paymentMethod || "cash",
       paymentStatus: transaction.status || "pending",
       type: transaction.type,
-      createdAt: transaction.createdAt,
+      createdAt: transaction.transactionDate || transaction.createdAt,
       customerSignature: signature,
     }
   }
@@ -2160,6 +2164,16 @@ export const CylinderManagement = () => {
                       <SelectItem value="return">Return</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="transactionDate">Transaction Date *</Label>
+                  <Input
+                    id="transactionDate"
+                    type="date"
+                    value={formData.transactionDate}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setFormData({ ...formData, transactionDate: e.target.value })}
+                  />
                 </div>
               </div>
               

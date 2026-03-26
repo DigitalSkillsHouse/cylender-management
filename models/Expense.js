@@ -27,6 +27,10 @@ const ExpenseSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    expenseDate: {
+      type: String,
+      index: true,
+    },
   },
   {
     timestamps: true,

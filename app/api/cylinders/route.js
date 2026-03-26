@@ -3,6 +3,7 @@ import CylinderTransaction from "@/models/Cylinder";
 import Customer from "@/models/Customer";
 import Supplier from "@/models/Supplier";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
+import { normalizeAdminEntryDate, recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync";
 import { NextResponse } from "next/server";
 import Counter from "@/models/Counter";
 import { getLocalDateStringFromDate, getStartOfDate } from "@/lib/date-utils";
@@ -341,6 +342,18 @@ export async function POST(request) {
         console.error(`❌ [ADMIN CYLINDERS] Failed to update daily cylinder tracking:`, trackingError.message)
         // Don't fail the entire transaction if tracking fails
       }
+    }
+
+    try {
+      const impactedProductNames = Array.isArray(populatedTransaction.items) && populatedTransaction.items.length > 0
+        ? populatedTransaction.items.map((item) => item.productName).filter(Boolean)
+        : [populatedTransaction.product?.name].filter(Boolean)
+      const affectedDate = normalizeAdminEntryDate(
+        populatedTransaction.transactionDate || getLocalDateStringFromDate(populatedTransaction.createdAt)
+      )
+      await recalculateAdminDailyStockReportsFrom(affectedDate, { productNames: impactedProductNames })
+    } catch (syncError) {
+      console.error("[cylinders][POST] Failed to rebuild admin DSR snapshots:", syncError)
     }
 
     return NextResponse.json(populatedTransaction, { status: 201 });

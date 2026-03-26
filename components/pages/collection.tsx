@@ -30,6 +30,35 @@ interface PendingInvoiceItem {
   total: number
 }
 
+interface CollectionReceiptItem {
+  product: { name: string; price: number }
+  quantity: number
+  price: number
+  total: number
+  invoiceNumber?: string
+  invoiceDate?: string
+  paymentStatus?: string
+  totalAmount?: number
+  receivedAmount?: number
+  previousReceived?: number
+  remainingAmount?: number
+}
+
+interface CollectionReceiptPayload {
+  _id: string
+  invoiceNumber: string
+  customer: { name: string; phone: string; address: string; trNumber?: string }
+  items: CollectionReceiptItem[]
+  totalAmount: number
+  paymentMethod: string
+  bankName?: string
+  chequeNumber?: string
+  paymentStatus: string
+  type: string
+  createdAt: string
+  customerSignature?: string
+}
+
 interface PendingInvoice {
   _id: string
   model: "Sale" | "EmployeeSale"
@@ -46,6 +75,11 @@ interface PendingInvoice {
   paymentMethod?: string
   bankName?: string
   chequeNumber?: string
+  collectionSignature?: string
+  collectionPaymentMethod?: string
+  collectionBankName?: string
+  collectionChequeNumber?: string
+  collectionReceiptCreatedAt?: string | null
   createdAt: string
 }
 
@@ -61,42 +95,14 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [amounts, setAmounts] = useState<Record<string, string>>({})
   const [signatureOpen, setSignatureOpen] = useState(false)
-  const [collectedInvoiceSignatureOpen, setCollectedInvoiceSignatureOpen] = useState(false)
-  const [pendingCollectedInvoice, setPendingCollectedInvoice] = useState<PendingInvoice | null>(null)
   const [pendingPaymentsCache, setPendingPaymentsCache] = useState<Array<{ model: string; id: string; amount: number }>>([])
   // Receipt dialog state
   const [showReceiptDialog, setShowReceiptDialog] = useState(false)
-  const [receiptData, setReceiptData] = useState<{
-    _id: string
-    invoiceNumber: string
-    customer: { name: string; phone: string; address: string; trNumber?: string }
-    items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number; invoiceNumber?: string; invoiceDate?: string; paymentStatus?: string }>
-    totalAmount: number
-    paymentMethod: string
-    bankName?: string
-    chequeNumber?: string
-    paymentStatus: string
-    type: string
-    createdAt: string
-    customerSignature?: string  // Changed from signature to customerSignature to match ReceiptDialogProps
-  } | null>(null)
+  const [receiptData, setReceiptData] = useState<CollectionReceiptPayload | null>(null)
   
   // Receipt dialog state for individual collected invoices
   const [showCollectedReceiptDialog, setShowCollectedReceiptDialog] = useState(false)
-  const [collectedReceiptData, setCollectedReceiptData] = useState<{
-    _id: string
-    invoiceNumber: string
-    customer: { name: string; phone: string; address: string; trNumber?: string }
-    items: Array<{ product: { name: string; price: number }; quantity: number; price: number; total: number; invoiceNumber?: string; invoiceDate?: string; paymentStatus?: string }>
-    totalAmount: number
-    paymentMethod: string
-    bankName?: string
-    chequeNumber?: string
-    paymentStatus: string
-    type: string
-    createdAt: string
-    customerSignature?: string
-  } | null>(null)
+  const [collectedReceiptData, setCollectedReceiptData] = useState<CollectionReceiptPayload | null>(null)
   // Customer selection state
   const [customers, setCustomers] = useState<any[]>([])
   const [customerSearch, setCustomerSearch] = useState("")
@@ -130,6 +136,105 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     bankName: string
     chequeNumber: string
   }>({ method: 'cash', bankName: '', chequeNumber: '' })
+
+  const getReceiptCustomer = (receiptInvoices: PendingInvoice[]) => {
+    const primaryInvoice = receiptInvoices[0]
+    const customerId = selectedCustomer?._id || primaryInvoice?.customer?._id
+    const customerDetails = customers.find(c => c._id === customerId)
+
+    return {
+      name: selectedCustomer?.name || primaryInvoice?.customer?.name || 'Customer',
+      phone: selectedCustomer?.phone || primaryInvoice?.customer?.phone || '',
+      address: customerDetails?.address || primaryInvoice?.customer?.address || '',
+      trNumber: customerDetails?.trNumber || primaryInvoice?.customer?.trNumber || ''
+    }
+  }
+
+  const buildCollectionReceiptItems = (
+    receiptInvoices: PendingInvoice[],
+    appliedAmounts?: Record<string, number>
+  ): CollectionReceiptItem[] => {
+    return receiptInvoices.map((invoice) => {
+      const appliedAmount = appliedAmounts?.[invoice._id]
+      const hasAppliedAmount = typeof appliedAmount === 'number' && Number.isFinite(appliedAmount) && appliedAmount > 0
+      const previousReceived = hasAppliedAmount ? invoice.receivedAmount : undefined
+      const currentReceived = hasAppliedAmount
+        ? Math.min(invoice.totalAmount, invoice.receivedAmount + appliedAmount)
+        : invoice.receivedAmount
+      const displayAmount = hasAppliedAmount ? appliedAmount : currentReceived
+
+      return {
+        product: {
+          name: `Payment for Invoice #${invoice.invoiceNumber}`,
+          price: displayAmount
+        },
+        quantity: 1,
+        price: displayAmount,
+        total: displayAmount,
+        invoiceNumber: invoice.invoiceNumber,
+        invoiceDate: invoice.createdAt,
+        paymentStatus: invoice.paymentStatus,
+        totalAmount: invoice.totalAmount,
+        receivedAmount: currentReceived,
+        previousReceived,
+        remainingAmount: Math.max(0, invoice.totalAmount - currentReceived)
+      }
+    })
+  }
+
+  const buildCollectionReceiptPayload = ({
+    receiptId,
+    receiptNumber,
+    receiptInvoices,
+    paymentMethod,
+    bankName = '',
+    chequeNumber = '',
+    createdAt,
+    signature,
+    appliedAmounts,
+  }: {
+    receiptId: string
+    receiptNumber: string
+    receiptInvoices: PendingInvoice[]
+    paymentMethod: string
+    bankName?: string
+    chequeNumber?: string
+    createdAt: string
+    signature?: string | null
+    appliedAmounts?: Record<string, number>
+  }): CollectionReceiptPayload => {
+    const receiptItems = buildCollectionReceiptItems(receiptInvoices, appliedAmounts)
+    const totalAmount = receiptItems.reduce((sum, item) => sum + Number(item.total || 0), 0)
+    const paymentStatus = receiptInvoices.every((invoice) => invoice.paymentStatus === 'cleared') ? 'cleared' : 'pending'
+
+    return {
+      _id: receiptId,
+      invoiceNumber: receiptNumber,
+      customer: getReceiptCustomer(receiptInvoices),
+      items: receiptItems,
+      totalAmount,
+      paymentMethod,
+      bankName,
+      chequeNumber,
+      paymentStatus,
+      type: 'collection',
+      createdAt,
+      customerSignature: signature || undefined
+    }
+  }
+
+  const getSavedCollectionReceiptMeta = (receiptInvoices: PendingInvoice[]) => {
+    const invoiceWithSavedMeta = receiptInvoices.find((invoice) => invoice.collectionSignature)
+    if (!invoiceWithSavedMeta?.collectionSignature) return null
+
+    return {
+      signature: invoiceWithSavedMeta.collectionSignature,
+      paymentMethod: invoiceWithSavedMeta.collectionPaymentMethod || invoiceWithSavedMeta.paymentMethod || 'Cash',
+      bankName: invoiceWithSavedMeta.collectionBankName || '',
+      chequeNumber: invoiceWithSavedMeta.collectionChequeNumber || '',
+      createdAt: invoiceWithSavedMeta.collectionReceiptCreatedAt || invoiceWithSavedMeta.createdAt,
+    }
+  }
 
   const fetchCustomers = async () => {
     try {
@@ -646,7 +751,14 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       const res = await fetch("/api/collections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payments }),
+        body: JSON.stringify({
+          payments,
+          signature,
+          paymentMethod: lastPaymentMethod.method === 'cheque' ? 'Cheque' : 'Cash',
+          bankName: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.bankName : '',
+          chequeNumber: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.chequeNumber : '',
+          receiptCreatedAt: new Date().toISOString(),
+        }),
       })
       const data = await res.json()
       if (!res.ok || !data?.success) throw new Error(data?.error || "Failed to apply collections")
@@ -658,55 +770,28 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       
       // Get RC-NO from API response (generated sequentially starting from 0001)
       const rcNo = data?.data?.rcNo || '0001'
-      
-      // Format receipt data to show invoice numbers instead of individual items
-      const receiptItems = payments.map(p => {
-        const invoice = invoices.find(inv => inv._id === p.id)
-        if (!invoice) return null
-        
-        // Create a single line item for each invoice payment with additional invoice details
-        return {
-          product: {
-            name: `Payment for Invoice #${invoice.invoiceNumber}`,
-            price: p.amount
-          },
-          quantity: 1,
-          price: p.amount,
-          total: p.amount,
-          // Add invoice-specific data for collection receipts
-          invoiceNumber: invoice.invoiceNumber,
-          invoiceDate: invoice.createdAt,
-          paymentStatus: invoice.paymentStatus,
-          // Add received amount information for receipt preview
-          totalAmount: invoice.totalAmount,
-          receivedAmount: invoice.receivedAmount + p.amount, // Current received + new payment
-          previousReceived: invoice.receivedAmount,
-          remainingAmount: invoice.totalAmount - (invoice.receivedAmount + p.amount) // Remaining after this payment
-        }
-      }).filter((item): item is NonNullable<typeof item> => item !== null)
-      
-      // Fetch full customer details including TR number and address
-      const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
-      
-      setReceiptData({
-        _id: `collection-${Date.now()}`,
-        invoiceNumber: rcNo, // Use RC-NO instead of invoice number
-        customer: {
-          name: selectedCustomer?.name || 'Customer',
-          phone: selectedCustomer?.phone || '',
-          address: customerDetails?.address || '',
-          trNumber: customerDetails?.trNumber || ''
-        },
-        items: receiptItems,
-        totalAmount: payments.reduce((sum, p) => sum + p.amount, 0),
-        paymentMethod: lastPaymentMethod.method === 'cheque' ? 'Cheque' : 'Cash',
-        bankName: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.bankName : '',
-        chequeNumber: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.chequeNumber : '',
-        paymentStatus: 'cleared',
-        type: 'collection',
-        createdAt: new Date().toISOString(),
-        customerSignature: signature || undefined
-      })
+
+      const receiptInvoices = payments
+        .map((payment) => invoices.find((invoice) => invoice._id === payment.id))
+        .filter((invoice): invoice is PendingInvoice => Boolean(invoice))
+      const appliedAmounts = payments.reduce<Record<string, number>>((acc, payment) => {
+        acc[payment.id] = Number(payment.amount || 0)
+        return acc
+      }, {})
+
+      setReceiptData(
+        buildCollectionReceiptPayload({
+          receiptId: `collection-${Date.now()}`,
+          receiptNumber: rcNo,
+          receiptInvoices,
+          paymentMethod: lastPaymentMethod.method === 'cheque' ? 'Cheque' : 'Cash',
+          bankName: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.bankName : '',
+          chequeNumber: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.chequeNumber : '',
+          createdAt: new Date().toISOString(),
+          signature,
+          appliedAmounts,
+        })
+      )
       setShowReceiptDialog(true)
     } catch (e: any) {
       toast({ title: "Collection failed", description: e?.message || "", variant: "destructive" })
@@ -716,53 +801,39 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     }
   }
 
-  const generateReceiptForCollectedInvoice = (invoice: PendingInvoice) => {
-    // Store the invoice and open signature dialog first
-    setPendingCollectedInvoice(invoice)
-    setCollectedInvoiceSignatureOpen(true)
+  const generateReceiptForCollectedInvoices = (receiptInvoices: PendingInvoice[]) => {
+    if (!receiptInvoices.length) return
+
+    const savedMeta = getSavedCollectionReceiptMeta(receiptInvoices)
+    generateReceiptWithSignature(receiptInvoices, savedMeta?.signature || null)
   }
 
-  const generateReceiptWithSignature = (invoice: PendingInvoice, signature: string | null) => {
-    // Fetch full customer details including TR number and address
-    const customerDetails = customers.find(c => c._id === selectedCustomer?._id)
-    
-    // Use stored RC-NO from the invoice, or fallback if not available
-    const rcNo = invoice.rcNo || '0001'
-    
-    // Format items for receipt - add invoice number to each item for collection receipts
-    const receiptItems = invoice.items?.map(item => ({
-      product: {
-        name: item.product.name,
-        price: item.price || 0
-      },
-      quantity: item.quantity,
-      price: item.price,
-      total: item.total,
-      // Add invoice number for collection receipt display
-      invoiceNumber: invoice.invoiceNumber,
-      invoiceDate: invoice.createdAt,
-      paymentStatus: invoice.paymentStatus
-    })) || []
-    
-    setCollectedReceiptData({
-      _id: invoice._id,
-      invoiceNumber: rcNo, // Use RC-NO instead of invoice number
-      customer: {
-        name: selectedCustomer?.name || invoice.customer?.name || 'Customer',
-        phone: selectedCustomer?.phone || invoice.customer?.phone || '',
-        address: customerDetails?.address || '',
-        trNumber: customerDetails?.trNumber || ''
-      },
-      items: receiptItems,
-      totalAmount: invoice.totalAmount,
-      paymentMethod: invoice.paymentMethod || 'Cash',
-      bankName: invoice.bankName || '',
-      chequeNumber: invoice.chequeNumber || '',
-      paymentStatus: invoice.paymentStatus,
-      type: 'collection',
-      createdAt: invoice.createdAt,
-      customerSignature: signature || undefined
+  const generateReceiptWithSignature = (receiptInvoices: PendingInvoice[], signature: string | null) => {
+    if (!receiptInvoices.length) return
+
+    const sortedInvoices = [...receiptInvoices].sort((a, b) => {
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     })
+    const primaryInvoice = sortedInvoices[0]
+    const receiptNumber = primaryInvoice.rcNo || primaryInvoice.invoiceNumber || '0001'
+    const savedMeta = getSavedCollectionReceiptMeta(sortedInvoices)
+    const paymentMethod = savedMeta?.paymentMethod || primaryInvoice.collectionPaymentMethod || primaryInvoice.paymentMethod || 'Cash'
+    const bankName = savedMeta?.bankName || primaryInvoice.collectionBankName || primaryInvoice.bankName || ''
+    const chequeNumber = savedMeta?.chequeNumber || primaryInvoice.collectionChequeNumber || primaryInvoice.chequeNumber || ''
+    const createdAt = savedMeta?.createdAt || primaryInvoice.collectionReceiptCreatedAt || primaryInvoice.createdAt
+
+    setCollectedReceiptData(
+      buildCollectionReceiptPayload({
+        receiptId: primaryInvoice.rcNo ? `collection-${primaryInvoice.rcNo}` : primaryInvoice._id,
+        receiptNumber,
+        receiptInvoices: sortedInvoices,
+        paymentMethod,
+        bankName,
+        chequeNumber,
+        createdAt,
+        signature: signature || savedMeta?.signature || primaryInvoice.collectionSignature,
+      })
+    )
     setShowCollectedReceiptDialog(true)
   }
 
@@ -1159,7 +1230,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => generateReceiptForCollectedInvoice(inv)}
+                                  onClick={() => generateReceiptForCollectedInvoices([inv])}
                                   className="text-xs"
                                 >
                                   <FileText className="w-3 h-3 mr-1" />
@@ -1209,7 +1280,22 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                             <td className="p-2 align-middle text-right font-semibold text-red-600">{groupBalance.toFixed(2)}</td>
                             <td className="p-2 align-middle">-</td>
                             <td className="p-2 align-middle">-</td>
-                            <td className="p-2 align-middle">-</td>
+                            <td className="p-2 align-middle">
+                              <div className="flex gap-2 justify-center">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    generateReceiptForCollectedInvoices(group.invoices)
+                                  }}
+                                  className="text-xs"
+                                >
+                                  <FileText className="w-3 h-3 mr-1" />
+                                  Receipt
+                                </Button>
+                              </div>
+                            </td>
                           </tr>
                           
                           {/* Expanded invoice rows */}
@@ -1246,7 +1332,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      onClick={() => generateReceiptForCollectedInvoice(inv)}
+                                      onClick={() => generateReceiptForCollectedInvoices(group.invoices)}
                                       className="text-xs"
                                     >
                                       <FileText className="w-3 h-3 mr-1" />
@@ -1353,23 +1439,6 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
           const uniqueCustomers = Array.from(new Set(selectedInvoices.map((i) => i.customer?.name || 'Customer')))
           return uniqueCustomers.length === 1 ? uniqueCustomers[0] : undefined
         })()}
-      />
-
-      {/* Signature capture dialog for collected invoice receipts */}
-      <SignatureDialog
-        isOpen={collectedInvoiceSignatureOpen}
-        onClose={() => {
-          setCollectedInvoiceSignatureOpen(false)
-          setPendingCollectedInvoice(null)
-        }}
-        onSignatureComplete={(sig) => {
-          setCollectedInvoiceSignatureOpen(false)
-          if (pendingCollectedInvoice) {
-            generateReceiptWithSignature(pendingCollectedInvoice, sig)
-            setPendingCollectedInvoice(null)
-          }
-        }}
-        customerName={pendingCollectedInvoice?.customer?.name || selectedCustomer?.name}
       />
 
       {/* Use the standard ReceiptDialog for consistency */}

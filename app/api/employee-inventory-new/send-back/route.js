@@ -7,10 +7,22 @@ import DailyCylinderTransaction from "@/models/DailyCylinderTransaction"
 import DailyEmployeeCylinderAggregation from "@/models/DailyEmployeeCylinderAggregation"
 import Notification from "@/models/Notification"
 import User from "@/models/User"
+import { addDaysToDate, getDubaiNowISOString, getLocalDateStringFromDate } from "@/lib/date-utils"
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
+
+const getDubaiExpiry = () => {
+  const dubaiNow = new Date(getDubaiNowISOString())
+  const dubaiDate = getLocalDateStringFromDate(dubaiNow)
+  let cutoff = new Date(`${dubaiDate}T23:55:00+04:00`)
+  if (dubaiNow > cutoff) {
+    const nextDubaiDate = addDaysToDate(dubaiDate, 1)
+    cutoff = new Date(`${nextDubaiDate}T23:55:00+04:00`)
+  }
+  return cutoff
+}
 
 export async function POST(request) {
   try {
@@ -71,15 +83,20 @@ export async function POST(request) {
       status: 'pending'
     })
     
+    const expiresAt = getDubaiExpiry()
+
     // Create a return transaction record (no invoice number needed for returns)
     // invoiceNumber is NOT included - returns don't need invoice numbers
     const returnTransaction = await ReturnTransaction.create({
       employee: employeeId,
       product: inventoryItem.product._id,
       stockType: stockType,
+      cylinderProductId: stockType === 'gas' ? cylinderProductId : null,
       quantity: quantity,
       returnDate: new Date(),
       status: 'pending', // Admin needs to accept this return
+      inventoryDeducted: true,
+      expiresAt,
       notes: `Employee returned ${quantity} ${stockType} ${inventoryItem.product.name} to admin`
     })
     
@@ -161,8 +178,8 @@ export async function POST(request) {
       })
     }
 
-    // Update DSR tracking for transfers (use cylinder product for gas transfers)
-    await updateDSRForTransfer(employeeId, targetProductId, targetProductName, stockType, quantity)
+    // NOTE: Do NOT update daily stock report here.
+    // DSR must only reflect returns after admin Accepts (not while pending).
 
     // Send notification to admin about the stock return
     try {

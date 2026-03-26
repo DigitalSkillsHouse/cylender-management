@@ -54,6 +54,7 @@ interface Sale {
   paymentMethod: string;
   bankName?: string;
   chequeNumber?: string;
+  lpoNo?: string;
   paymentStatus: string;
   createdAt: string;
   customerSignature?: string;
@@ -164,15 +165,22 @@ const ReceiptPrintPage = () => {
   const isTaxInvoice = headerSrc === '/images/Header-Tax-invoice.jpg'
 
   const transactionType = (sale?.type || '').toString().toLowerCase()
+  const isCollectionReceipt = transactionType === 'collection'
+  const isStandardSaleInvoice =
+    !['collection', 'deposit', 'return', 'refill', 'rental'].includes(transactionType) &&
+    !String(sale?.invoiceNumber || '').startsWith('STATEMENT-') &&
+    String(sale?.paymentMethod || '').toLowerCase() !== 'account statement'
   const hasGasItems =
     Array.isArray(sale?.items) &&
     sale.items.some((it: any) => (it?.category || (it?.product as any)?.category || '').toString().toLowerCase() === 'gas')
+  const footerSrc = '/images/footer.png'
+  const pageVariantClass = isTaxInvoice ? 'receipt-page-tax' : isCollectionReceipt ? 'receipt-page-collection' : ''
 
   // Page row limits (layout only):
-  // - Collection "Receiving Invoice": 15 lines per page
+  // - Collection "Receiving Invoice": denser single-page layout to fit more invoice rows
   // - Gas sales invoice: 10 lines per page
   // - Others: keep 15 as default
-  const itemsPerPage = transactionType === 'collection' ? 15 : hasGasItems ? 10 : 15
+  const itemsPerPage = isCollectionReceipt ? 22 : hasGasItems ? 10 : 15
 
   const collectionRows = (() => {
     if (transactionType !== 'collection') return null
@@ -260,7 +268,7 @@ const ReceiptPrintPage = () => {
             return (
               <section
                 key={pageIndex}
-                className={`receipt-page bg-white shadow-sm border border-gray-200 my-4 print:my-0 print:shadow-none print:border-0 flex flex-col ${isTaxInvoice ? 'receipt-page-tax' : ''}`}
+                className={`receipt-page bg-white shadow-sm border border-gray-200 my-4 print:my-0 print:shadow-none print:border-0 flex flex-col ${pageVariantClass}`}
               >
                 <div className="flex flex-col flex-1">
                   <div className="text-center">
@@ -272,7 +280,7 @@ const ReceiptPrintPage = () => {
                   </div>
 
                   {pageIndex === 0 ? (
-                    <section className="grid grid-cols-2 gap-4 mt-3 mb-3">
+                    <section className="receipt-meta-grid grid grid-cols-2 gap-4 mt-3 mb-3">
                       <div>
                         <div className="space-y-0.5 text-[11px] leading-snug text-gray-700">
                           <div><strong>Name:</strong> {sale.customer.name}</div>
@@ -307,11 +315,14 @@ const ReceiptPrintPage = () => {
                               )}
                             </>
                           )}
+                          {isStandardSaleInvoice && (
+                            <div><strong>LPO No:</strong> {sale?.lpoNo?.trim() || '-'}</div>
+                          )}
                         </div>
                       </div>
                     </section>
                   ) : (
-                    <section className="flex items-center justify-between mt-2 mb-2 text-[10px] text-gray-600">
+                    <section className="receipt-meta-compact flex items-center justify-between mt-2 mb-2 text-[10px] text-gray-600">
                       <div className="font-medium">{sale.customer.name}</div>
                       <div className="font-mono">
                         {sale?.type === 'collection' ? `RC-NO-${sale?.invoiceNumber || '-'}` : `Invoice: ${sale.invoiceNumber}`}
@@ -321,7 +332,7 @@ const ReceiptPrintPage = () => {
                   )}
 
                   <section>
-                    <table className="w-full border-collapse text-[10px] leading-tight receipt-table">
+                    <table className={`w-full border-collapse text-[10px] leading-tight receipt-table ${isCollectionReceipt ? 'receipt-table-collection' : ''}`}>
                       <thead>
                         <tr className="bg-[#2B3068] text-white">
                           {sale?.type === 'collection' ? (
@@ -430,8 +441,8 @@ const ReceiptPrintPage = () => {
                   {isLast && (
                     <>
                       <section className="flex justify-end mt-3">
-                        <div className="w-full max-w-sm text-[11px] leading-tight">
-                          <table className="w-full">
+                        <div className="receipt-total-section w-full max-w-sm text-[11px] leading-tight">
+                          <table className="receipt-total-table w-full">
                             <tbody>
                               {sale?.type !== 'collection' && !shouldDisableVAT && (
                                 <>
@@ -455,9 +466,9 @@ const ReceiptPrintPage = () => {
                                   </tr>
                                 </>
                               )}
-                              <tr className="border-t-2 border-black">
-                                <td className="text-right pr-3 pt-1 font-bold text-[14px]">Grand Total</td>
-                                <td className="text-right font-bold text-[14px] w-32 pt-1">AED {grandTotal.toFixed(2)}</td>
+                              <tr className="receipt-grand-total-row border-t-2 border-black">
+                                <td className="receipt-grand-total-label text-right pr-3 pt-1 font-bold text-[14px]">Grand Total</td>
+                                <td className="receipt-grand-total-value text-right font-bold text-[14px] w-32 pt-1">AED {grandTotal.toFixed(2)}</td>
                               </tr>
                             </tbody>
                           </table>
@@ -499,7 +510,7 @@ const ReceiptPrintPage = () => {
                 {isLast && (
                   <footer className="receipt-footer text-center pt-3 mt-auto relative">
                     <img
-                      src="/images/footer.png"
+                      src={footerSrc}
                       alt="Footer Graphic"
                       className="receipt-footer-img mx-auto max-w-full h-auto"
                     />
@@ -562,6 +573,9 @@ const ReceiptPrintPage = () => {
             page-break-after: auto !important;
             break-after: auto !important;
           }
+          .receipt-page-collection {
+            padding: 4.5mm 5mm 4mm !important;
+          }
           .receipt-header-img {
             max-height: 42mm !important;
             object-fit: contain !important;
@@ -593,6 +607,62 @@ const ReceiptPrintPage = () => {
           .receipt-page-tax .receipt-admin-signature {
             bottom: 36px !important;
             left: 64px !important;
+          }
+          .receipt-page-collection .receipt-header-img,
+          .receipt-page-collection .receipt-footer-img {
+            max-height: none !important;
+          }
+          .receipt-page-collection .receipt-meta-grid {
+            gap: 3mm !important;
+            margin-top: 2.5mm !important;
+            margin-bottom: 2.5mm !important;
+          }
+          .receipt-page-collection .receipt-meta-grid > div > div,
+          .receipt-page-collection .receipt-meta-compact {
+            font-size: 10px !important;
+            line-height: 1.2 !important;
+          }
+          .receipt-page-collection .receipt-meta-compact {
+            margin-top: 1.5mm !important;
+            margin-bottom: 1.5mm !important;
+          }
+          .receipt-page-collection .receipt-table {
+            font-size: 9px !important;
+            line-height: 1.1 !important;
+          }
+          .receipt-page-collection .receipt-table th,
+          .receipt-page-collection .receipt-table td {
+            padding: 0.75mm 1mm !important;
+          }
+          .receipt-page-collection .receipt-total-section {
+            margin-top: 2.5mm !important;
+            max-width: 74mm !important;
+            font-size: 10px !important;
+          }
+          .receipt-page-collection .receipt-total-table td {
+            padding-top: 0.4mm !important;
+            padding-bottom: 0.4mm !important;
+          }
+          .receipt-page-collection .receipt-grand-total-label,
+          .receipt-page-collection .receipt-grand-total-value {
+            font-size: 12px !important;
+          }
+          .receipt-page-collection .receipt-grand-total-value {
+            width: 30mm !important;
+          }
+          .receipt-page-collection .receipt-footer {
+            padding-top: 2mm !important;
+          }
+          .receipt-page-collection .receipt-signature {
+            max-height: 14mm !important;
+          }
+          .receipt-page-collection .receipt-customer-signature {
+            bottom: 22px !important;
+            right: 56px !important;
+          }
+          .receipt-page-collection .receipt-admin-signature {
+            bottom: 26px !important;
+            left: 56px !important;
           }
           table, tr, td, th {
             break-inside: avoid !important;

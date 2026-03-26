@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import Product from "@/models/Product"
+import { syncEmployeeInventoryGasCylinderParity } from "@/lib/employee-dsr-sync"
 
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -21,6 +22,12 @@ export async function GET(request) {
     }
 
     console.log('📋 Fetching received inventory for employee:', employeeId)
+
+    try {
+      await syncEmployeeInventoryGasCylinderParity(employeeId)
+    } catch (syncError) {
+      console.error("❌ Failed to sync employee inventory gas/full parity:", syncError)
+    }
     
     // Fetch employee's inventory items (similar to admin inventory-items but employee-specific)
     const inventoryItems = await EmployeeInventoryItem.find({

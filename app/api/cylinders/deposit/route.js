@@ -9,6 +9,7 @@ import Sale from "@/models/Sale";
 import EmployeeSale from "@/models/EmployeeSale";
 import DailyCylinderTransaction from "@/models/DailyCylinderTransaction";
 import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils";
+import { normalizeAdminEntryDate, recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync";
 
 // Helper: get next sequential invoice number using centralized generator
 const getNextCylinderInvoice = async () => {
@@ -100,6 +101,7 @@ export async function POST(request) {
 
   try {
     const data = await request.json();
+    const selectedTransactionDate = normalizeAdminEntryDate(data.transactionDate);
     console.log("Received deposit data:", JSON.stringify(data, null, 2));
     
     // Validate customer exists
@@ -114,6 +116,7 @@ export async function POST(request) {
     // Create deposit transaction
     const transactionData = {
       ...data,
+      transactionDate: selectedTransactionDate,
       type: "deposit",
       status: data.status || "pending"
     };
@@ -145,17 +148,23 @@ export async function POST(request) {
         for (const item of data.items) {
           await updateInventoryForDeposit(item.productId, Number(item.quantity), item.gasProductId);
           // Update daily tracking for each item
-          await updateDailyTracking(item.productId, Number(item.quantity), Number(item.amount || 0), data.transactionDate);
+          await updateDailyTracking(item.productId, Number(item.quantity), Number(item.amount || 0), selectedTransactionDate);
         }
       } else if (data.product && data.quantity) {
         // Single item transaction
         await updateInventoryForDeposit(data.product, Number(data.quantity), data.gasProductId);
         // Update daily tracking
-        await updateDailyTracking(data.product, Number(data.quantity), Number(data.amount || 0), data.transactionDate);
+        await updateDailyTracking(data.product, Number(data.quantity), Number(data.amount || 0), selectedTransactionDate);
       }
     } catch (stockError) {
       console.error("Error updating inventory stock:", stockError);
       // Don't fail the transaction creation if stock update fails
+    }
+
+    try {
+      await recalculateAdminDailyStockReportsFrom(selectedTransactionDate);
+    } catch (syncError) {
+      console.error("[Deposit] Failed to recalculate admin DSR:", syncError);
     }
 
     return NextResponse.json(populatedTransaction, { status: 201 });

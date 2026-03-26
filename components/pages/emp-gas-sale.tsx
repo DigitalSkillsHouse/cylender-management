@@ -52,6 +52,7 @@ interface Sale {
   paymentStatus: string
   receivedAmount?: number
   notes?: string
+  lpoNo?: string
   customerSignature?: string
   employee?: {
     _id: string
@@ -258,6 +259,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     receivedAmount: string
     paymentOption: "debit" | "credit" | "delivery_note"
     notes: string
+    lpoNo: string
     deliveryCharges: string
   }>({
     customerId: "",
@@ -268,6 +270,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     receivedAmount: "",
     paymentOption: "debit", // debit | credit | delivery_note
     notes: "",
+    lpoNo: "",
     deliveryCharges: "0",
   })
 
@@ -906,6 +909,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         paymentStatus: derivedPaymentStatus,
         receivedAmount: derivedReceivedAmount,
         notes: formData.notes,
+        lpoNo: formData.lpoNo.trim(),
       }
 
       console.log('🚀 EmployeeGasSales - Submitting sale data:', saleData)
@@ -979,6 +983,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
             receivedAmount: derivedReceivedAmount,
             totalAmount: totalAmount,
             notes: formData.notes,
+            lpoNo: formData.lpoNo.trim(),
           }
           console.log('EmployeeGasSales - PUT minimal payload:', minimalUpdatePayload)
           savedResponse = await employeeSalesAPI.update(editingSale._id, minimalUpdatePayload)
@@ -1089,6 +1094,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
           paymentStatus: saved?.paymentStatus || derivedPaymentStatus,
           receivedAmount: saved?.receivedAmount ?? derivedReceivedAmount,
           notes: saved?.notes || formData.notes,
+          lpoNo: saved?.lpoNo || formData.lpoNo.trim(),
           createdAt: saved?.createdAt || new Date().toISOString(),
           // Include employee field for signature lookup
           employee: saved?.employee || user?.id || null,
@@ -1129,6 +1135,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       receivedAmount: "",
       paymentOption: "debit",
       notes: "",
+      lpoNo: "",
       deliveryCharges: "0",
     })
     setProductSearchTerms([])
@@ -1168,6 +1175,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         return "debit"
       })(),
       notes: sale.notes || "",
+      lpoNo: sale.lpoNo || "",
       deliveryCharges: ((sale as any)?.deliveryCharges || 0).toString(),
     })
     // Initialize product search terms based on current products if available
@@ -2060,6 +2068,16 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                       ))}
                     </div>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="lpoNo">LPO No</Label>
+                  <Input
+                    id="lpoNo"
+                    value={formData.lpoNo}
+                    onChange={(e) => setFormData({ ...formData, lpoNo: e.target.value })}
+                    placeholder="Enter LPO No"
+                  />
                 </div>
                 
                 {editingSale && (

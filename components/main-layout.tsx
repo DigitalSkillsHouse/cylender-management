@@ -8,6 +8,7 @@ import { ProductManagement } from "@/components/pages/product-management"
 import { SupplierManagement } from "@/components/pages/supplier-management"
 import { PurchaseManagement } from "@/components/pages/purchase-management"
 import { GenerateQuotation } from "@/components/pages/generate-quotation"
+import { AcceptReturn } from "@/components/pages/accept-return"
 import { Inventory } from "@/components/pages/inventory"
 import { CustomerManagement } from "@/components/pages/customer-management"
 import { GasSales } from "@/components/pages/gas-sales"
@@ -20,6 +21,7 @@ import { EmployeeGasSales } from "@/components/pages/emp-gas-sale"
 import { EmployeeCylinderSales } from "@/components/pages/employee-cylinder-sales"
 import EmployeeReports from "@/components/pages/employee-reports"
 import { EmployeeInventoryNew } from "@/components/pages/employee-inventory-new"
+import { EmployeeStock } from "@/components/pages/employee-stock"
 import { PurchaseManagement as EmployeePurchaseManagement } from "@/components/pages/purchase-emp-management"
 import { Notifications } from "@/components/pages/notifications"
 import { NotificationPopup } from "@/components/notification-popup"
@@ -209,6 +211,8 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
           return <EmployeeCylinderSales user={user} />
         case "employee-inventory":
           return <EmployeeInventoryNew user={user} />
+        case "employee-stock":
+          return <EmployeeStock user={user} />
         case "employee-reports":
           return <EmployeeReports user={user} />
         case "employee-daily-stock-report":
@@ -238,6 +242,8 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
         return <PurchaseManagement />
       case "generate-quotation":
         return <GenerateQuotation />
+      case "accept-return":
+        return <AcceptReturn user={user} />
       case "inventory":
         return <Inventory />
       case "customers":

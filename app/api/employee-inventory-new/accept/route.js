@@ -3,6 +3,7 @@ import dbConnect from "@/lib/mongodb"
 import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
 import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import Product from "@/models/Product"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
 import { updateEmpStockReceived } from "@/lib/emp-gas-sales-tracker"
 import { getLocalDateStringFromDate, getLocalDateString } from "@/lib/date-utils"
 
@@ -202,6 +203,14 @@ export async function POST(request) {
         // Don't fail the entire operation if refill tracking fails
       }
 
+      try {
+        const affectedDate = getLocalDateString()
+        await recalculateEmployeeDailyStockReportsFrom(employeeId, affectedDate)
+        console.log(`✅ Employee DSR snapshots rebuilt from ${affectedDate} after gas acceptance`)
+      } catch (syncError) {
+        console.error("❌ Failed to rebuild employee DSR snapshots after gas acceptance:", syncError.message)
+      }
+
       return NextResponse.json({ 
         success: true, 
         message: "Order accepted and added to inventory (gas + full cylinder)",
@@ -354,6 +363,14 @@ export async function POST(request) {
       availableFull: inventoryItem.availableFull,
       availableEmpty: inventoryItem.availableEmpty
     })
+
+    try {
+      const affectedDate = getLocalDateString()
+      await recalculateEmployeeDailyStockReportsFrom(employeeId, affectedDate)
+      console.log(`✅ Employee DSR snapshots rebuilt from ${affectedDate} after purchase acceptance`)
+    } catch (syncError) {
+      console.error("❌ Failed to rebuild employee DSR snapshots after purchase acceptance:", syncError.message)
+    }
 
     return NextResponse.json({ 
       success: true, 

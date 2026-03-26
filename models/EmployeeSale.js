@@ -96,9 +96,34 @@ const EmployeeSaleSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    lpoNo: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     customerSignature: {
       type: String,
       default: "",
+    },
+    collectionSignature: {
+      type: String,
+      default: "",
+    },
+    collectionPaymentMethod: {
+      type: String,
+      default: "",
+    },
+    collectionBankName: {
+      type: String,
+      default: "",
+    },
+    collectionChequeNumber: {
+      type: String,
+      default: "",
+    },
+    collectionReceiptCreatedAt: {
+      type: Date,
+      default: null,
     },
     rcNo: {
       type: String,

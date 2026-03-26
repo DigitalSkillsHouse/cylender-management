@@ -14,27 +14,23 @@ export async function GET(request) {
       return NextResponse.json({ success: false, error: "Missing itemName or date" }, { status: 400 });
     }
 
-    // Find the latest report before the given date for this item
-    const prev = await DailyStockReport.find({
+    // Find the latest admin report before the given date for this item.
+    // Admin DSR rows do not have employeeId set.
+    const prev = await DailyStockReport.findOne({
       itemName,
       date: { $lt: date },
+      $or: [{ employeeId: { $exists: false } }, { employeeId: null }],
     })
       .sort({ date: -1, createdAt: -1 })
-      .limit(1);
+      .lean();
 
-    if (!prev || prev.length === 0) {
+    if (!prev) {
       return NextResponse.json({ success: true, data: null });
     }
 
-    const doc = prev[0];
     return NextResponse.json({
       success: true,
-      data: {
-        date: doc.date,
-        itemName: doc.itemName,
-        closingFull: doc.closingFull || 0,
-        closingEmpty: doc.closingEmpty || 0,
-      },
+      data: prev,
     });
   } catch (error) {
     console.error("DSR previous GET error:", error);

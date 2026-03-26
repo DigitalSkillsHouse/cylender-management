@@ -1136,15 +1136,12 @@ export const Inventory = () => {
       )}
 
       <Tabs defaultValue="pending" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 h-auto">
+        <TabsList className="grid w-full grid-cols-2 h-auto">
           <TabsTrigger value="pending" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             Pending Orders
           </TabsTrigger>
           <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             Received Items
-          </TabsTrigger>
-          <TabsTrigger value="pending-returns" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Pending Returns
           </TabsTrigger>
         </TabsList>
 
@@ -1257,170 +1254,8 @@ export const Inventory = () => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="pending-returns">
-          <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex-1">
-                  <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold">
-                    Pending Returns from Employees ({pendingReturns.length})
-                  </CardTitle>
-                  <p className="text-white/80 text-sm sm:text-base mt-1">
-                    Employee returns awaiting admin approval
-                  </p>
-                </div>
-                <Button
-                  onClick={() => {
-                    console.log('🔄 [PENDING RETURNS] Manual refresh triggered')
-                    fetchPendingReturns()
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="bg-white/10 hover:bg-white/20 text-white border-white/20"
-                  title="Refresh pending returns"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Refresh
-                </Button>
-              </div>
-            </CardHeader>
-            
-            <CardContent className="p-0">
-              {renderPendingReturnsTable()}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
-      {/* Empty Cylinder Selection Dialog for Returns */}
-      <Dialog open={showReturnCylinderDialog} onOpenChange={setShowReturnCylinderDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Select Empty Cylinder</DialogTitle>
-            <DialogDescription>
-              Choose an empty cylinder to fill with returned {selectedReturn?.productName}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            {/* Cylinder Search Input */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="returnCylinderSearch">Empty Cylinder *</Label>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={fetchReturnEmptyCylinders}
-                  className="text-xs"
-                >
-                  <RefreshCw className="w-3 h-3 mr-1" />
-                  Refresh
-                </Button>
-              </div>
-              <div className="relative">
-                <Input
-                  id="returnCylinderSearch"
-                  type="text"
-                  placeholder="Search for empty cylinder..."
-                  value={returnCylinderSearch}
-                  onChange={(e) => {
-                    setReturnCylinderSearch(e.target.value)
-                    setShowReturnCylinderSuggestions(true)
-                    setSelectedReturnCylinderId("")
-                  }}
-                  onFocus={() => setShowReturnCylinderSuggestions(true)}
-                  className="w-full"
-                />
-                
-                {/* Cylinder Suggestions Dropdown */}
-                {showReturnCylinderSuggestions && (
-                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                    {returnEmptyCylinders
-                      .filter(cylinder => 
-                        cylinder.productName?.toLowerCase().includes(returnCylinderSearch.toLowerCase()) ||
-                        cylinder.productCode?.toLowerCase().includes(returnCylinderSearch.toLowerCase())
-                      )
-                      .map(cylinder => (
-                        <div
-                          key={cylinder._id}
-                          className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                          onClick={() => handleReturnCylinderSelection(cylinder._id, cylinder.productName)}
-                        >
-                          <div className="font-medium">{cylinder.productName}</div>
-                          {cylinder.productCode && (
-                            <div className="text-sm text-gray-500 font-mono">{cylinder.productCode}</div>
-                          )}
-                          <div className="text-sm text-blue-600">
-                            Available: {cylinder.availableEmpty} empty cylinders
-                          </div>
-                        </div>
-                      ))
-                    }
-                    {returnEmptyCylinders.filter(cylinder => 
-                      cylinder.productName?.toLowerCase().includes(returnCylinderSearch.toLowerCase()) ||
-                      cylinder.productCode?.toLowerCase().includes(returnCylinderSearch.toLowerCase())
-                    ).length === 0 && (
-                      <div className="px-4 py-3 text-gray-500 text-center">
-                        {returnEmptyCylinders.length === 0 ? 'No empty cylinders available' : 'No matching cylinders found'}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Selected Return Info */}
-            {selectedReturn && (
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-                <h4 className="font-medium text-orange-900">Return Details:</h4>
-                <p className="text-sm text-orange-700">
-                  <strong>Employee:</strong> {selectedReturn.employeeName}
-                </p>
-                <p className="text-sm text-orange-700">
-                  <strong>Product:</strong> {selectedReturn.productName}
-                </p>
-                <p className="text-sm text-orange-700">
-                  <strong>Quantity:</strong> {selectedReturn.quantity} units
-                </p>
-                <p className="text-sm text-orange-700">
-                  <strong>Return Date:</strong> {new Date(selectedReturn.returnDate).toLocaleDateString()}
-                </p>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex gap-3 pt-4">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowReturnCylinderDialog(false)
-                  setSelectedReturn(null)
-                  setReturnCylinderSearch("")
-                  setSelectedReturnCylinderId("")
-                  setShowReturnCylinderSuggestions(false)
-                }}
-                className="flex-1"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleGasReturnAcceptance}
-                disabled={!selectedReturnCylinderId || processingItems.has(selectedReturn?.id || "")}
-                className="flex-1 bg-[#2B3068] hover:bg-[#1a1f4a] text-white"
-              >
-                {processingItems.has(selectedReturn?.id || "") ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    Processing...
-                  </>
-                ) : (
-                  'Accept Return & Fill Cylinder'
-                )}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

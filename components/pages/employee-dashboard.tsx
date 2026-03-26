@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useNotifications } from "@/hooks/useNotifications"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Package, Warehouse, FileDown, PenTool } from "lucide-react"
+import { Package, Warehouse, FileDown, PenTool, Bell } from "lucide-react"
 import { productsAPI } from "@/lib/api"
 import ProductQuoteDialog from "@/components/product-quote-dialog"
 import { EmployeeSignatureDialog } from "@/components/employee-signature-dialog"
@@ -20,6 +20,7 @@ export const EmployeeDashboard = ({ user, setUnreadCount }: EmployeeDashboardPro
   const [totalDebit, setTotalDebit] = useState(0)
   const [totalCredit, setTotalCredit] = useState(0)
   const [pendingItemsCount, setPendingItemsCount] = useState(0)
+  const [pendingAssignedStockCount, setPendingAssignedStockCount] = useState(0)
   const [products, setProducts] = useState<any[]>([])
   const [showQuoteDialog, setShowQuoteDialog] = useState(false)
   const [showSignatureDialog, setShowSignatureDialog] = useState(false)
@@ -58,6 +59,7 @@ export const EmployeeDashboard = ({ user, setUnreadCount }: EmployeeDashboardPro
       const pendingStock = Array.isArray(stockData?.data) ? stockData.data.filter((s: any) => s.status === 'assigned').length : 0
       const pendingPurchases = Array.isArray(purchaseData?.data) ? purchaseData.data.filter((p: any) => p.inventoryStatus === 'approved').length : 0
       
+      setPendingAssignedStockCount(pendingStock)
       setPendingItemsCount(pendingStock + pendingPurchases)
       
       // Fetch products for quotation paper
@@ -102,6 +104,16 @@ export const EmployeeDashboard = ({ user, setUnreadCount }: EmployeeDashboardPro
           </div>
           
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
+            {/* Assigned Stock Bell (Accept/Reject) */}
+            <Button
+              onClick={() => (window.location.href = '?page=employee-stock')}
+              variant="secondary"
+              className="bg-white/10 hover:bg-white/20 text-white border border-white/20"
+              size="sm"
+            >
+              <Bell className="w-4 h-4 mr-2" />
+              Stock Requests{pendingAssignedStockCount > 0 ? ` (${pendingAssignedStockCount})` : ''}
+            </Button>
             {/* Employee Signature Button */}
             <Button
               onClick={() => setShowSignatureDialog(true)}

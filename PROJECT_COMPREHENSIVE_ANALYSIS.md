@@ -25,7 +25,7 @@ This is a **Gas & Cylinder Management System** built for **SYED TAYYAB INDUSTRIA
 - **JWT** authentication (HTTP-only cookies)
 - **bcryptjs** for password hashing
 
-### Key Libraries
+### Key Librariesk quantity 
 - **jsonwebtoken** - JWT token management
 - **date-fns** - Date manipulation
 - **html2canvas** + **jspdf** - PDF generation

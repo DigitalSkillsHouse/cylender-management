@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ListChecks, PlusCircle, FileText, Loader2, Eye } from "lucide-react"
+import { ListChecks, FileText, Loader2, Eye } from "lucide-react"
 import { getLocalDateString, getStartOfDate, getEndOfDate, getDateFromString, getPreviousDate, getNextDate, getLocalDateStringFromDate, isToday } from "@/lib/date-utils"
 
 interface DailyStockEntry {
@@ -87,6 +87,101 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   const normalizeName = (s: any) => (typeof s === 'string' || typeof s === 'number')
     ? String(s).replace(/\s+/g, ' ').trim().toLowerCase()
     : ''
+
+  const calculateClosingFromStoredReport = (report: any) => {
+    let closingFull = (report?.closingFull !== null && report?.closingFull !== undefined) ? Number(report.closingFull) : null
+    let closingEmpty = (report?.closingEmpty !== null && report?.closingEmpty !== undefined) ? Number(report.closingEmpty) : null
+
+    if (closingFull === null || closingFull === 0 || closingEmpty === null || closingEmpty === 0) {
+      const openingFull = Number(report?.openingFull) || 0
+      const openingEmpty = Number(report?.openingEmpty) || 0
+      const fullPurchase = Number(report?.fullPurchase) || 0
+      const emptyPurchase = Number(report?.emptyPurchase) || 0
+      const refilled = Number(report?.refilled) || 0
+      const fullCylinderSales = Number(report?.fullCylinderSales) || 0
+      const emptyCylinderSales = Number(report?.emptyCylinderSales) || 0
+      const gasSales = Number(report?.gasSales) || 0
+      const deposits = Number(report?.deposits) || 0
+      const returns = Number(report?.returns) || 0
+      const transferGas = Number(report?.transferGas) || 0
+      const transferEmpty = Number(report?.transferEmpty) || 0
+      const receivedGas = Number(report?.receivedGas) || 0
+      const receivedEmpty = Number(report?.receivedEmpty) || 0
+
+      const calculatedClosingFull = Math.max(
+        0,
+        openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGas + receivedGas
+      )
+      const calculatedClosingEmpty = Math.max(
+        0,
+        openingFull +
+          openingEmpty +
+          fullPurchase +
+          emptyPurchase -
+          fullCylinderSales -
+          emptyCylinderSales -
+          deposits +
+          returns -
+          transferEmpty +
+          receivedEmpty -
+          calculatedClosingFull
+      )
+
+      if (closingFull === null || closingFull === 0) {
+        closingFull = calculatedClosingFull
+      }
+      if (closingEmpty === null || closingEmpty === 0) {
+        closingEmpty = calculatedClosingEmpty
+      }
+    }
+
+    return {
+      closingFull: closingFull || 0,
+      closingEmpty: closingEmpty || 0,
+    }
+  }
+
+  const fetchLatestPreviousAdminClosings = async (date: string, itemNames: string[]) => {
+    const previousDateStr = getPreviousDate(date)
+    const uniqueItemNames = Array.from(new Set(itemNames.filter(Boolean)))
+    const previousClosings: Record<string, { closingFull: number; closingEmpty: number; sourceDate?: string }> = {}
+
+    if (!uniqueItemNames.length) {
+      return { previousDateStr, previousClosings }
+    }
+
+    const responses = await Promise.all(
+      uniqueItemNames.map(async (itemName) => {
+        try {
+          const response = await fetch(
+            `/api/daily-stock-reports/previous?itemName=${encodeURIComponent(itemName)}&date=${encodeURIComponent(date)}`,
+            { cache: 'no-store' }
+          )
+          const data = await response.json()
+          return { itemName, data }
+        } catch (error) {
+          console.error(`[ADMIN DSR] Failed to fetch previous report for ${itemName}:`, error)
+          return { itemName, data: null }
+        }
+      })
+    )
+
+    for (const { itemName, data } of responses) {
+      const key = normalizeName(itemName)
+      const report = data?.success ? data.data : null
+
+      if (!key || !report) continue
+
+      const { closingFull, closingEmpty } = calculateClosingFromStoredReport(report)
+      previousClosings[key] = {
+        closingFull,
+        closingEmpty,
+        sourceDate: report.date,
+      }
+    }
+
+    return { previousDateStr, previousClosings }
+  }
   
   // Aggregated daily totals
   const [dailyAggGasSales, setDailyAggGasSales] = useState<Record<string, number>>({})
@@ -174,7 +269,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   }
 
   // Fetch employee DSR data
-  const fetchEmployeeDsrData = async (employeeId: string, date: string) => {
+  const fetchEmployeeDsrDataLegacy = async (employeeId: string, date: string) => {
     if (!employeeId) {
       console.warn('⚠️ [ADMIN DSR] Cannot fetch employee DSR: no employeeId provided')
       return
@@ -729,7 +824,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   }
 
   // Fetch stored DSR reports for opening values
-  const fetchStoredDsrReports = async (date: string) => {
+  const fetchStoredDsrReportsLegacy = async (date: string) => {
     try {
       console.log(`🔍 [DIAGNOSTIC] fetchStoredDsrReports called for date: ${date}`)
       const today = getLocalDateString()
@@ -1103,7 +1198,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   }
 
   // Auto-fetch inventory for new days
-  const autoFetchInventoryForNewDay = async (date: string) => {
+  const autoFetchInventoryForNewDayLegacy = async (date: string) => {
     try {
       await fetchInventoryData()
       
@@ -1185,7 +1280,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   }
 
   // Fetch inventory and create DSR entries
-  const fetchAndLockInventory = async () => {
+  const fetchAndLockInventoryLegacy = async () => {
     try {
       setLoading(true)
       await fetchInventoryData()
@@ -1252,6 +1347,282 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
       console.error('Failed to fetch and lock inventory:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  void fetchEmployeeDsrDataLegacy
+
+  const fetchEmployeeDsrData = async (employeeId: string, date: string) => {
+    if (!employeeId) {
+      console.warn('[ADMIN DSR] Cannot fetch employee DSR: no employeeId provided')
+      setEmployeeDsrData([])
+      return
+    }
+
+    if (!date) {
+      console.warn('[ADMIN DSR] Cannot fetch employee DSR: no date provided')
+      setEmployeeDsrData([])
+      return
+    }
+
+    console.log('[ADMIN DSR] Fetching employee preview snapshot for:', employeeId, 'date:', date)
+    setEmployeeLoading(true)
+
+    try {
+      const previewUrl = new URL('/api/admin/employee-dsr-preview', window.location.origin)
+      previewUrl.searchParams.set('employeeId', employeeId)
+      previewUrl.searchParams.set('date', date)
+      previewUrl.searchParams.set('t', Date.now().toString())
+
+      const response = await fetch(previewUrl.toString(), {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      })
+
+      const result = await response.json().catch(() => ({}))
+
+      if (!response.ok || !result?.success) {
+        console.error('[ADMIN DSR] Employee preview API failed:', result)
+        setEmployeeDsrData([])
+        return
+      }
+
+      const previewRows: EmployeeDailyStockEntry[] = Array.isArray(result?.data)
+        ? result.data.map((row: any) => ({
+            _id: String(row?._id || `${row?.itemName || 'item'}-${date}`),
+            employeeId: String(row?.employeeId || employeeId),
+            date: String(row?.date || date),
+            itemName: String(row?.itemName || ''),
+            openingFull: Number(row?.openingFull) || 0,
+            openingEmpty: Number(row?.openingEmpty) || 0,
+            emptyPurchase: Number(row?.emptyPurchase) || 0,
+            fullPurchase: Number(row?.fullPurchase) || 0,
+            refilled: Number(row?.refilled) || 0,
+            fullCylinderSales: Number(row?.fullCylinderSales) || 0,
+            emptyCylinderSales: Number(row?.emptyCylinderSales) || 0,
+            gasSales: Number(row?.gasSales) || 0,
+            deposits: Number(row?.deposits) || 0,
+            returns: Number(row?.returns) || 0,
+            transferGas: Number(row?.transferGas) || 0,
+            transferEmpty: Number(row?.transferEmpty) || 0,
+            receivedGas: Number(row?.receivedGas) || 0,
+            receivedEmpty: Number(row?.receivedEmpty) || 0,
+            closingFull: Number(row?.closingFull) || 0,
+            closingEmpty: Number(row?.closingEmpty) || 0,
+            createdAt: row?.createdAt || new Date().toISOString(),
+          }))
+        : []
+
+      console.log('[ADMIN DSR] Employee preview rows fetched:', previewRows.length)
+      setEmployeeDsrData(previewRows)
+    } catch (error) {
+      console.error('[ADMIN DSR] Failed to fetch employee preview snapshot:', error)
+      setEmployeeDsrData([])
+    } finally {
+      setEmployeeLoading(false)
+    }
+  }
+
+  void [fetchStoredDsrReportsLegacy, autoFetchInventoryForNewDayLegacy, fetchAndLockInventoryLegacy]
+
+  const autoFetchInventoryForNewDay = async (date: string) => {
+    try {
+      await fetchInventoryData()
+
+      const { previousDateStr, previousClosings } = await fetchLatestPreviousAdminClosings(
+        date,
+        dsrProducts.map((product) => product.name)
+      )
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+
+      for (const product of dsrProducts) {
+        const key = normalizeName(product.name)
+        const prevClosing = previousClosings[key]
+        const openingFull = prevClosing?.closingFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? 0
+
+        console.log(`[AUTO-FETCH] ${product.name}: opening ${openingFull}/${openingEmpty} from latest previous closing before ${date}${prevClosing?.sourceDate ? ` (${prevClosing.sourceDate})` : `, fallback after ${previousDateStr}`}`)
+
+        await fetch('/api/daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date,
+            itemName: product.name,
+            openingFull,
+            openingEmpty,
+          })
+        })
+
+        reports[key] = { openingFull, openingEmpty }
+      }
+
+      setStoredDsrReports((prev) => (Object.keys(prev).length === 0 ? reports : prev))
+      setIsInventoryFetched(true)
+    } catch (error) {
+      console.error('Failed to auto-fetch inventory for new day:', error)
+    }
+  }
+
+  const fetchAndLockInventory = async () => {
+    try {
+      setLoading(true)
+      await fetchInventoryData()
+
+      const { previousDateStr, previousClosings } = await fetchLatestPreviousAdminClosings(
+        dsrViewDate,
+        dsrProducts.map((product) => product.name)
+      )
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+
+      for (const product of dsrProducts) {
+        const key = normalizeName(product.name)
+        const prevClosing = previousClosings[key]
+        const openingFull = prevClosing?.closingFull ?? 0
+        const openingEmpty = prevClosing?.closingEmpty ?? 0
+
+        console.log(`[OPENING STOCK] ${product.name}: opening ${openingFull}/${openingEmpty} from latest previous closing before ${dsrViewDate}${prevClosing?.sourceDate ? ` (${prevClosing.sourceDate})` : `, fallback after ${previousDateStr}`}`)
+
+        await fetch('/api/daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: dsrViewDate,
+            itemName: product.name,
+            openingFull,
+            openingEmpty,
+          })
+        })
+
+        reports[key] = { openingFull, openingEmpty }
+      }
+
+      setStoredDsrReports(reports)
+      setIsInventoryFetched(true)
+    } catch (error) {
+      console.error('Failed to fetch and lock inventory:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchStoredDsrReports = async (date: string) => {
+    try {
+      console.log(`[DIAGNOSTIC] fetchStoredDsrReports called for date: ${date}`)
+
+      const response = await fetch(`/api/daily-stock-reports?date=${date}`, { cache: 'no-store' })
+      const data = await response.json()
+      const storedReports = data.success && Array.isArray(data.data) ? data.data : []
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+
+      console.log(`[DIAGNOSTIC] API response for ${date}:`, {
+        success: data.success,
+        dataCount: storedReports.length,
+        itemNames: storedReports.map((report: any) => report.itemName),
+      })
+
+      const hasValidOpeningStock = storedReports.some((report: any) =>
+        (report.openingFull && report.openingFull > 0) || (report.openingEmpty && report.openingEmpty > 0)
+      )
+
+      if (storedReports.length > 0 && hasValidOpeningStock) {
+        const { previousDateStr, previousClosings } = await fetchLatestPreviousAdminClosings(
+          date,
+          dsrProducts.map((product) => product.name)
+        )
+
+        if (dsrProducts.length > 0) {
+          for (const product of dsrProducts) {
+            const key = normalizeName(product.name)
+            const prevClosing = previousClosings[key]
+            const storedOpening = storedReports.find((report: any) => normalizeName(report.itemName) === key)
+
+            reports[key] = prevClosing
+              ? {
+                  openingFull: prevClosing.closingFull,
+                  openingEmpty: prevClosing.closingEmpty,
+                }
+              : {
+                  openingFull: Number(storedOpening?.openingFull) || 0,
+                  openingEmpty: Number(storedOpening?.openingEmpty) || 0,
+                }
+
+            if (prevClosing?.sourceDate && prevClosing.sourceDate !== previousDateStr) {
+              console.log(`[DIAGNOSTIC] ${product.name}: using latest previous closing from ${prevClosing.sourceDate} instead of exact previous day ${previousDateStr}`)
+            }
+          }
+        } else {
+          storedReports.forEach((report: any) => {
+            const key = normalizeName(report.itemName)
+            reports[key] = {
+              openingFull: Number(report.openingFull) || 0,
+              openingEmpty: Number(report.openingEmpty) || 0,
+            }
+          })
+        }
+
+        setStoredDsrReports(reports)
+        setIsInventoryFetched(true)
+        return
+      }
+
+      setIsInventoryFetched(false)
+
+      const { previousDateStr, previousClosings } = await fetchLatestPreviousAdminClosings(
+        date,
+        dsrProducts.map((product) => product.name)
+      )
+      const openingReports: Record<string, { openingFull: number; openingEmpty: number }> = {}
+
+      for (const product of dsrProducts) {
+        const key = normalizeName(product.name)
+        const prevClosing = previousClosings[key]
+
+        openingReports[key] = {
+          openingFull: prevClosing?.closingFull ?? 0,
+          openingEmpty: prevClosing?.closingEmpty ?? 0,
+        }
+
+        if (prevClosing?.sourceDate && prevClosing.sourceDate !== previousDateStr) {
+          console.log(`[DIAGNOSTIC] ${product.name}: filling opening from latest previous closing ${prevClosing.sourceDate} instead of exact previous day ${previousDateStr}`)
+        }
+
+        await fetch('/api/daily-stock-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date,
+            itemName: product.name,
+            openingFull: openingReports[key].openingFull,
+            openingEmpty: openingReports[key].openingEmpty,
+          })
+        })
+      }
+
+      if (!dsrProducts.length) {
+        storedReports.forEach((report: any) => {
+          const key = normalizeName(report.itemName)
+          openingReports[key] = {
+            openingFull: Number(report.openingFull) || 0,
+            openingEmpty: Number(report.openingEmpty) || 0,
+          }
+        })
+      }
+
+      setStoredDsrReports(openingReports)
+      setIsInventoryFetched(true)
+
+      if (dsrProducts.length > 0) {
+        await autoFetchInventoryForNewDay(date)
+        setStoredDsrReports(openingReports)
+      }
+    } catch (error) {
+      console.error(`[DIAGNOSTIC] Error fetching stored DSR reports for ${date}:`, error)
+      setIsInventoryFetched(false)
     }
   }
 
@@ -1661,9 +2032,14 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
           continue
         }
         
-        // Check if assignment date matches selected date (for transfers)
-        // Or if received date matches (for received items)
-        const isTransferDate = assignedDate && inSelectedDay(assignedDate)
+        // DSR rule:
+        // - Transfers should be counted only when the RECEIVER accepts (status received/active),
+        //   and on the accepted (receivedDate) day (fallback to assignedDate for legacy data).
+        // - Pending (status assigned) must NOT affect DSR.
+        const isTransferDate =
+          (status === 'received' || status === 'active') &&
+          ((receivedDate && inSelectedDay(receivedDate)) || (!receivedDate && assignedDate && inSelectedDay(assignedDate)))
+
         const isReceivedDate = receivedDate && inSelectedDay(receivedDate)
         
         console.log(`[DSR] Date matching for ${productName}:`, {
@@ -1697,10 +2073,8 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         
         console.log(`[DSR] Processing assignment for DSR key: ${dsrKey}`)
         
-        // Track transfers (when stock is assigned to employee on this date)
-        // Status 'assigned' means pending, 'received' means employee accepted it
-        // Both count as transfers on the assignment date
-        if (isTransferDate && (status === 'assigned' || status === 'received')) {
+        // Track transfers only when employee ACCEPTED (status received/active)
+        if (isTransferDate) {
           if (category === 'gas') {
             inc(transferGas, dsrKey, quantity)
             console.log(`[DSR] ✅ StockAssignment Transfer Gas: ${productName} = ${quantity} (status: ${status}, key: ${dsrKey}, cylinder: ${targetProductName})`)
@@ -2356,37 +2730,14 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
                   </span>
                 )}
                 {(() => {
-                  const today = getLocalDateString()
-                  const isToday = dsrViewDate === today
-                  // Show save button when: it's today, inventory is fetched, and products are loaded
-                  const shouldShowSaveButton = isToday && isInventoryFetched && dsrProducts.length > 0 && !loading
-                  return shouldShowSaveButton && (
-                    <Button
-                      onClick={handleManualSave}
-                      size="sm"
-                      disabled={loading || saving}
-                      className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm ml-2"
-                    >
-                      {saving ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <PlusCircle className="h-4 w-4 mr-1" />
-                          Save Today
-                        </>
-                      )}
-                    </Button>
-                  )
+                  return null
                 })()}
                 {(() => {
                   const today = getLocalDateString()
                   const isToday = dsrViewDate === today
                   return !isToday && isInventoryFetched && (
                     <span className="text-xs text-blue-600 ml-2">
-                      Viewing historical data - Save only available for today
+                      Viewing historical data
                     </span>
                   )
                 })()}

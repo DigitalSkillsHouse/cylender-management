@@ -1881,6 +1881,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
           paymentMethod,
           paymentStatus,
           type,
+          lpoNo: src?.lpoNo || '',
           createdAt,
           customerSignature: signature,
         }

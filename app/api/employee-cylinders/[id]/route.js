@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
 import { verifyToken } from "@/lib/auth"
+import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // GET a single transaction by ID
 export async function GET(request, { params }) {
@@ -40,6 +42,7 @@ export async function PUT(request, { params }) {
     }
     
     const body = await request.json()
+    const existingTransaction = await EmployeeCylinderTransaction.findById(params.id)
 
     const transaction = await EmployeeCylinderTransaction.findByIdAndUpdate(
       params.id,
@@ -49,6 +52,16 @@ export async function PUT(request, { params }) {
 
     if (!transaction) {
       return NextResponse.json({ success: false, error: "Transaction not found" }, { status: 404 })
+    }
+
+    try {
+      const employeeId = String(transaction.employee || existingTransaction?.employee || "")
+      const affectedDate = getLocalDateStringFromDate(existingTransaction?.createdAt || transaction.createdAt || new Date())
+      if (employeeId) {
+        await recalculateEmployeeDailyStockReportsFrom(employeeId, affectedDate)
+      }
+    } catch (syncError) {
+      console.error("[employee-cylinders][PUT] Failed to rebuild employee DSR snapshots:", syncError)
     }
 
     return NextResponse.json({ success: true, data: transaction })
@@ -78,6 +91,16 @@ export async function DELETE(request, { params }) {
 
     if (!deletedTransaction) {
       return NextResponse.json({ success: false, error: "Transaction not found" }, { status: 404 })
+    }
+
+    try {
+      const employeeId = String(deletedTransaction.employee || "")
+      const affectedDate = getLocalDateStringFromDate(deletedTransaction.createdAt || new Date())
+      if (employeeId) {
+        await recalculateEmployeeDailyStockReportsFrom(employeeId, affectedDate)
+      }
+    } catch (syncError) {
+      console.error("[employee-cylinders][DELETE] Failed to rebuild employee DSR snapshots:", syncError)
     }
 
     return NextResponse.json({ success: true, data: {} })

@@ -3,7 +3,8 @@ import StockAssignment from "@/models/StockAssignment";
 import Notification from "@/models/Notification";
 import Product from "@/models/Product";
 import { NextResponse } from "next/server";
-import { getDateRange } from "@/lib/date-utils";
+import { addDaysToDate, getDateRange, getDubaiNowISOString, getLocalDateStringFromDate } from "@/lib/date-utils";
+import InventoryItem from "@/models/InventoryItem";
 
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -22,6 +23,68 @@ export async function GET(request) {
   }
 
   try {
+    // Auto-expire pending assignments at 23:55 Dubai time (lazy, runs on read)
+    try {
+      const nowDubai = new Date(getDubaiNowISOString())
+      const candidates = await StockAssignment.find({
+        status: 'assigned',
+        $or: [
+          { expiresAt: { $ne: null, $lte: nowDubai } },
+          { expiresAt: null }
+        ]
+      }).lean()
+
+      for (const a of candidates) {
+        const assignedAt = a?.assignedDate || a?.createdAt
+        const baseDate = getLocalDateStringFromDate(assignedAt || nowDubai)
+        let expiry = a?.expiresAt ? new Date(a.expiresAt) : new Date(`${baseDate}T23:55:00+04:00`)
+        // If created after cutoff, expire next day cutoff
+        if (!a?.expiresAt && assignedAt) {
+          const assignedDubai = new Date(new Date(assignedAt).toLocaleString('en-US', { timeZone: 'Asia/Dubai' }))
+          const cutoff = new Date(`${baseDate}T23:55:00+04:00`)
+          if (assignedDubai > cutoff) {
+            const next = addDaysToDate(baseDate, 1)
+            expiry = new Date(`${next}T23:55:00+04:00`)
+          }
+        }
+
+        if (expiry <= nowDubai) {
+          // Restore admin inventory if it was deducted at assignment time
+          if (a.inventoryDeducted) {
+            const qty = Number(a.quantity || 0)
+            const category = a.category
+            const cylinderStatus = a.cylinderStatus
+            const productId = a.product
+            const cylinderProductId = a.cylinderProductId
+            const gasProductId = a.gasProductId
+
+            if (category === 'gas' && cylinderProductId) {
+              await InventoryItem.findOneAndUpdate({ product: productId }, { $inc: { currentStock: qty } })
+              await InventoryItem.findOneAndUpdate({ product: cylinderProductId }, { $inc: { availableFull: qty, availableEmpty: -qty } })
+            } else if (category === 'cylinder' && cylinderStatus === 'empty') {
+              await InventoryItem.findOneAndUpdate({ product: productId }, { $inc: { availableEmpty: qty } })
+            } else if (category === 'cylinder' && cylinderStatus === 'full' && gasProductId) {
+              await InventoryItem.findOneAndUpdate({ product: productId }, { $inc: { availableFull: qty } })
+              await InventoryItem.findOneAndUpdate({ product: gasProductId }, { $inc: { currentStock: qty } })
+            } else if (category === 'cylinder' && cylinderStatus === 'full') {
+              await InventoryItem.findOneAndUpdate({ product: productId }, { $inc: { availableFull: qty } })
+            } else if (category === 'gas') {
+              await InventoryItem.findOneAndUpdate({ product: productId }, { $inc: { currentStock: qty } })
+            }
+          }
+
+          await StockAssignment.updateOne(
+            { _id: a._id, status: 'assigned' },
+            { $set: { status: 'rejected', rejectedDate: nowDubai, inventoryDeducted: false, expiresAt: expiry } }
+          )
+        } else if (!a.expiresAt) {
+          await StockAssignment.updateOne({ _id: a._id }, { $set: { expiresAt: expiry } })
+        }
+      }
+    } catch (e) {
+      console.warn('[stock-assignments] expiry check failed:', e?.message || e)
+    }
+
     // Support filtering by employeeId, status, and date
     const { searchParams } = new URL(request.url, `http://${request.headers.get("host") || "localhost"}`);
     const employeeId = searchParams.get("employeeId");

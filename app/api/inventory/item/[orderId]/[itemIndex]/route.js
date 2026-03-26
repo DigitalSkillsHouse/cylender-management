@@ -4,7 +4,8 @@ import PurchaseOrder from "@/models/PurchaseOrder"
 import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
 import Product from "@/models/Product"
 import { verifyToken } from "@/lib/auth"
-import { getLocalDateStringFromDate, getLocalDateString } from "@/lib/date-utils"
+import { getLocalDateStringFromDate } from "@/lib/date-utils"
+import { normalizeAdminEntryDate, recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync"
 
 // ENHANCED PRODUCT MATCHING FUNCTION
 async function findProductByEnhancedMatching(item) {
@@ -758,7 +759,8 @@ export async function PATCH(request, { params }) {
     if (status === "received" && !isEmployeePurchase) {
       try {
         const DailyRefill = (await import('@/models/DailyRefill')).default
-        const today = getLocalDateString() // YYYY-MM-DD format (Dubai timezone)
+        const trackedPurchaseDate = normalizeAdminEntryDate(getLocalDateStringFromDate(updatedOrder.purchaseDate || new Date()))
+        const today = trackedPurchaseDate
         
         console.log("🔄 Processing daily refill entries for item:", updatedItem.product?._id)
         
@@ -780,7 +782,7 @@ export async function PATCH(request, { params }) {
             // Create or update daily refill entry
             await DailyRefill.findOneAndUpdate(
               {
-                date: today,
+                date: trackedPurchaseDate,
                 cylinderProductId: cylinderProductId,
                 employeeId: null // Admin refills
               },
@@ -807,7 +809,7 @@ export async function PATCH(request, { params }) {
       // Use current date (when item is received) instead of order purchase date
       try {
         const DailyCylinderTransaction = (await import('@/models/DailyCylinderTransaction')).default
-        const purchaseDate = getLocalDateString() // Use today's date when item is marked as received
+        const purchaseDate = normalizeAdminEntryDate(getLocalDateStringFromDate(updatedOrder.purchaseDate || new Date()))
         
         console.log(`🔍 [PURCHASE TRACKING] Checking item for purchase tracking:`, {
           purchaseType: updatedItem.purchaseType,
@@ -890,6 +892,15 @@ export async function PATCH(request, { params }) {
       } catch (purchaseTrackingError) {
         console.error("❌ Failed to track cylinder purchases:", purchaseTrackingError.message)
         console.error("❌ Purchase tracking error stack:", purchaseTrackingError.stack)
+      }
+    }
+
+    if (status === "received" && !isEmployeePurchase) {
+      try {
+        const trackedPurchaseDate = normalizeAdminEntryDate(getLocalDateStringFromDate(updatedOrder.purchaseDate || new Date()))
+        await recalculateAdminDailyStockReportsFrom(trackedPurchaseDate)
+      } catch (syncError) {
+        console.error("Failed to recalculate admin DSR after item receive:", syncError)
       }
     }
 

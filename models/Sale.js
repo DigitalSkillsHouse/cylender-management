@@ -74,6 +74,10 @@ const SaleSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    saleDate: {
+      type: String,
+      index: true,
+    },
     paymentMethod: {
       type: String,
       enum: ["cash", "card", "bank_transfer", "credit", "debit", "delivery_note"],
@@ -93,9 +97,34 @@ const SaleSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    lpoNo: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     customerSignature: {
       type: String,
       default: "",
+    },
+    collectionSignature: {
+      type: String,
+      default: "",
+    },
+    collectionPaymentMethod: {
+      type: String,
+      default: "",
+    },
+    collectionBankName: {
+      type: String,
+      default: "",
+    },
+    collectionChequeNumber: {
+      type: String,
+      default: "",
+    },
+    collectionReceiptCreatedAt: {
+      type: Date,
+      default: null,
     },
     rcNo: {
       type: String,

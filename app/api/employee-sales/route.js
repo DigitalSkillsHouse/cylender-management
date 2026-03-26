@@ -7,6 +7,7 @@ import User from "@/models/User"
 import Counter from "@/models/Counter"
 import Sale from "@/models/Sale"
 import DailyEmployeeSalesAggregation from "@/models/DailyEmployeeSalesAggregation"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
 import { updateEmpGasSalesTracking } from "@/lib/emp-gas-sales-tracker"
 import { getLocalDateString, getLocalDateStringFromDate } from "@/lib/date-utils"
 
@@ -46,7 +47,7 @@ export async function POST(request) {
     await dbConnect()
     
     const body = await request.json()
-    const { employeeId, customer, items, totalAmount, deliveryCharges, paymentMethod, paymentStatus, notes, customerSignature, receivedAmount } = body
+    const { employeeId, customer, items, totalAmount, deliveryCharges, paymentMethod, paymentStatus, notes, customerSignature, receivedAmount, lpoNo } = body
 
     // Validate required fields
     if (!employeeId || !customer || !items || items.length === 0) {
@@ -241,6 +242,7 @@ export async function POST(request) {
       paymentStatus: paymentStatus || "cleared",
       receivedAmount: roundedReceivedAmount,
       notes: notes || "",
+      lpoNo: String(lpoNo || "").trim(),
       customerSignature: customerSignature || ""
     })
 
@@ -385,6 +387,14 @@ export async function POST(request) {
     } catch (trackingError) {
       console.error(`❌ [EMPLOYEE SALES] Failed to update daily sales tracking:`, trackingError.message)
       // Don't fail the entire sale if tracking fails
+    }
+
+    try {
+      const affectedDate = getLocalDateStringFromDate(savedSale.createdAt)
+      await recalculateEmployeeDailyStockReportsFrom(employeeId, affectedDate)
+      console.log(`âœ… [EMPLOYEE SALES] Employee DSR snapshots rebuilt from ${affectedDate}`)
+    } catch (syncError) {
+      console.error(`âŒ [EMPLOYEE SALES] Failed to rebuild employee DSR snapshots:`, syncError.message)
     }
 
     // Populate the created sale for response

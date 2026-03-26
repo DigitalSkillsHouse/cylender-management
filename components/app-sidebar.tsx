@@ -18,6 +18,7 @@ import {
   Receipt,
   BarChart3,
   FileDown,
+  RotateCcw,
 } from "lucide-react"
 
 import {
@@ -74,6 +75,11 @@ const adminMenuItems = [
     title: "Generate Quotation",
     url: "generate-quotation",
     icon: FileDown,
+  },
+  {
+    title: "Assign/Return",
+    url: "accept-return",
+    icon: RotateCcw,
   },
   {
     title: "Inventory",
@@ -152,6 +158,11 @@ const employeeMenuItems = [
     title: "My Inventory",
     url: "employee-inventory",
     icon: Warehouse,
+  },
+  {
+    title: "Assigned/Return",
+    url: "employee-stock",
+    icon: RotateCcw,
   },
   {
     title: "Purchase Management",

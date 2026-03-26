@@ -116,6 +116,11 @@ export async function GET(request) {
       paymentMethod: s.paymentMethod || 'Cash',
       bankName: s.bankName || '',
       chequeNumber: s.chequeNumber || '',
+      collectionSignature: s.collectionSignature || '',
+      collectionPaymentMethod: s.collectionPaymentMethod || '',
+      collectionBankName: s.collectionBankName || '',
+      collectionChequeNumber: s.collectionChequeNumber || '',
+      collectionReceiptCreatedAt: s.collectionReceiptCreatedAt || null,
       createdAt: s.createdAt,
     })
 
@@ -149,6 +154,11 @@ export async function GET(request) {
       paymentMethod: s.paymentMethod || 'Cash',
       bankName: s.bankName || '',
       chequeNumber: s.chequeNumber || '',
+      collectionSignature: s.collectionSignature || '',
+      collectionPaymentMethod: s.collectionPaymentMethod || '',
+      collectionBankName: s.collectionBankName || '',
+      collectionChequeNumber: s.collectionChequeNumber || '',
+      collectionReceiptCreatedAt: s.collectionReceiptCreatedAt || null,
       createdAt: s.createdAt,
     })
 
@@ -181,6 +191,11 @@ export async function POST(request) {
     await dbConnect()
     const body = await request.json()
     const payments = Array.isArray(body?.payments) ? body.payments : []
+    const signature = typeof body?.signature === "string" ? body.signature : ""
+    const collectionPaymentMethod = typeof body?.paymentMethod === "string" ? body.paymentMethod : ""
+    const collectionBankName = typeof body?.bankName === "string" ? body.bankName : ""
+    const collectionChequeNumber = typeof body?.chequeNumber === "string" ? body.chequeNumber : ""
+    const collectionReceiptCreatedAt = body?.receiptCreatedAt ? new Date(body.receiptCreatedAt) : new Date()
 
     if (!payments.length) {
       return NextResponse.json({ success: false, error: "No payments provided" }, { status: 400 })
@@ -218,6 +233,21 @@ export async function POST(request) {
         if (!sale.rcNo && apply > 0) {
           sale.rcNo = rcNo
         }
+        if (signature && !sale.collectionSignature) {
+          sale.collectionSignature = signature
+        }
+        if (collectionPaymentMethod && !sale.collectionPaymentMethod) {
+          sale.collectionPaymentMethod = collectionPaymentMethod
+        }
+        if (collectionBankName && !sale.collectionBankName) {
+          sale.collectionBankName = collectionBankName
+        }
+        if (collectionChequeNumber && !sale.collectionChequeNumber) {
+          sale.collectionChequeNumber = collectionChequeNumber
+        }
+        if (collectionReceiptCreatedAt && !sale.collectionReceiptCreatedAt) {
+          sale.collectionReceiptCreatedAt = collectionReceiptCreatedAt
+        }
         await sale.save()
         console.log(`[COLLECTION] Sale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${remainingBalance}, status=${sale.paymentStatus}`)
         results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
@@ -240,6 +270,21 @@ export async function POST(request) {
         if (!sale.rcNo && apply > 0) {
           sale.rcNo = rcNo
         }
+        if (signature && !sale.collectionSignature) {
+          sale.collectionSignature = signature
+        }
+        if (collectionPaymentMethod && !sale.collectionPaymentMethod) {
+          sale.collectionPaymentMethod = collectionPaymentMethod
+        }
+        if (collectionBankName && !sale.collectionBankName) {
+          sale.collectionBankName = collectionBankName
+        }
+        if (collectionChequeNumber && !sale.collectionChequeNumber) {
+          sale.collectionChequeNumber = collectionChequeNumber
+        }
+        if (collectionReceiptCreatedAt && !sale.collectionReceiptCreatedAt) {
+          sale.collectionReceiptCreatedAt = collectionReceiptCreatedAt
+        }
         await sale.save()
         console.log(`[COLLECTION] EmployeeSale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${remainingBalance}, status=${sale.paymentStatus}`)
         results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
@@ -251,5 +296,50 @@ export async function POST(request) {
   } catch (error) {
     console.error("Collections POST error:", error)
     return NextResponse.json({ success: false, error: error?.message || "Failed to apply collections" }, { status: 500 })
+  }
+}
+
+// PATCH: persist collection receipt signature/meta for already-collected invoices
+// Body: { invoices: [{ model: "Sale"|"EmployeeSale", id: string }], signature: string, paymentMethod?: string, bankName?: string, chequeNumber?: string, receiptCreatedAt?: string }
+export async function PATCH(request) {
+  try {
+    await dbConnect()
+    const body = await request.json()
+    const invoices = Array.isArray(body?.invoices) ? body.invoices : []
+    const signature = typeof body?.signature === "string" ? body.signature : ""
+    const collectionPaymentMethod = typeof body?.paymentMethod === "string" ? body.paymentMethod : ""
+    const collectionBankName = typeof body?.bankName === "string" ? body.bankName : ""
+    const collectionChequeNumber = typeof body?.chequeNumber === "string" ? body.chequeNumber : ""
+    const collectionReceiptCreatedAt = body?.receiptCreatedAt ? new Date(body.receiptCreatedAt) : null
+
+    if (!invoices.length || !signature) {
+      return NextResponse.json({ success: false, error: "Invoices and signature are required" }, { status: 400 })
+    }
+
+    const results = []
+
+    for (const invoice of invoices) {
+      const model = String(invoice?.model || "")
+      const id = String(invoice?.id || "")
+      if (!id) continue
+
+      const targetModel = model === "EmployeeSale" ? EmployeeSale : Sale
+      const doc = await targetModel.findById(id)
+      if (!doc) continue
+
+      doc.collectionSignature = signature
+      if (collectionPaymentMethod) doc.collectionPaymentMethod = collectionPaymentMethod
+      if (collectionBankName) doc.collectionBankName = collectionBankName
+      if (collectionChequeNumber) doc.collectionChequeNumber = collectionChequeNumber
+      if (collectionReceiptCreatedAt) doc.collectionReceiptCreatedAt = collectionReceiptCreatedAt
+
+      await doc.save()
+      results.push({ id, model })
+    }
+
+    return NextResponse.json({ success: true, data: { results } })
+  } catch (error) {
+    console.error("Collections PATCH error:", error)
+    return NextResponse.json({ success: false, error: error?.message || "Failed to save collection receipt signature" }, { status: 500 })
   }
 }

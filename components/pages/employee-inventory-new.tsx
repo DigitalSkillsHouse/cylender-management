@@ -1038,15 +1038,12 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
       )}
 
       <Tabs defaultValue="pending" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 h-auto">
+        <TabsList className="grid w-full grid-cols-2 h-auto">
           <TabsTrigger value="pending" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Pending ({filteredPendingOrders.length + pendingAssignments.length})
+            Pending Purchase ({filteredPendingOrders.length})
           </TabsTrigger>
           <TabsTrigger value="received" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
             My Stock ({receivedStock.length})
-          </TabsTrigger>
-          <TabsTrigger value="send-back" className="text-xs sm:text-sm font-medium py-2 sm:py-3">
-            Send back to Admin
           </TabsTrigger>
         </TabsList>
 
@@ -1055,7 +1052,7 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
             <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
               <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
                 <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold flex-1">
-                  Pending Items ({filteredPendingOrders.length + pendingAssignments.length})
+                  Pending Purchase ({filteredPendingOrders.length})
                 </CardTitle>
                 <div className="bg-white rounded-xl p-2 flex items-center gap-2 w-full lg:w-80">
                   <Input
@@ -1067,32 +1064,10 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
                 </div>
               </div>
             </CardHeader>
-            
-            {/* Pending Sub-tabs */}
-            <Tabs value={pendingSubTab} onValueChange={setPendingSubTab} className="w-full">
-              <div className="px-4 sm:px-6 pt-4">
-                <TabsList className="grid w-full grid-cols-2 h-auto">
-                  <TabsTrigger value="purchase-orders" className="text-xs sm:text-sm font-medium py-2">
-                    Pending Purchase
-                  </TabsTrigger>
-                  <TabsTrigger value="assignments" className="text-xs sm:text-sm font-medium py-2">
-                    Pending Assignments
-                  </TabsTrigger>
-                </TabsList>
-              </div>
 
-              <TabsContent value="purchase-orders">
-                <CardContent className="p-0">
-                  {renderPendingOrdersTable(filteredPendingOrders)}
-                </CardContent>
-              </TabsContent>
-
-              <TabsContent value="assignments">
-                <CardContent className="p-0">
-                  {renderPendingAssignmentsTable(pendingAssignments)}
-                </CardContent>
-              </TabsContent>
-            </Tabs>
+            <CardContent className="p-0">
+              {renderPendingOrdersTable(filteredPendingOrders)}
+            </CardContent>
           </Card>
         </TabsContent>
 
@@ -1174,55 +1149,6 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="send-back">
-          <Card className="border-0 shadow-xl rounded-xl sm:rounded-2xl overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] text-white p-4 sm:p-6">
-              <CardTitle className="text-lg sm:text-xl lg:text-2xl font-bold">
-                Send back to Admin
-              </CardTitle>
-              <p className="text-white/80 text-sm sm:text-base">
-                Return gas or empty cylinders to admin inventory
-              </p>
-            </CardHeader>
-            
-            <CardContent className="p-4 sm:p-6">
-              <Tabs defaultValue="send-gas" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 h-auto mb-6">
-                  <TabsTrigger value="send-gas" className="text-xs sm:text-sm font-medium py-2">
-                    Send Gas
-                  </TabsTrigger>
-                  <TabsTrigger value="send-empty" className="text-xs sm:text-sm font-medium py-2">
-                    Send Empty Cylinders
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="send-gas">
-                  <div className="space-y-4">
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <h3 className="font-medium text-blue-900 mb-2">Send Gas to Admin</h3>
-                      <p className="text-sm text-blue-700">
-                        Select gas items from your inventory to send back to admin
-                      </p>
-                    </div>
-                    {renderSendBackTable(getGasStock(), 'gas')}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="send-empty">
-                  <div className="space-y-4">
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                      <h3 className="font-medium text-green-900 mb-2">Send Empty Cylinders to Admin</h3>
-                      <p className="text-sm text-green-700">
-                        Select empty cylinders from your inventory to send back to admin
-                      </p>
-                    </div>
-                    {renderSendBackTable(getEmptyCylinderStock(), 'empty')}
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
 
       {/* Empty Cylinder Selection Dialog */}

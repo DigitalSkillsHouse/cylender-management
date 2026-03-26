@@ -21,7 +21,7 @@ import { CustomerDropdown } from "@/components/ui/customer-dropdown"
 import { ProductDropdown } from "@/components/ui/product-dropdown"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import jsPDF from "jspdf"
-import { getStartOfDate, getEndOfDate } from "@/lib/date-utils"
+import { getEndOfDate, getLocalDateString, getStartOfDate } from "@/lib/date-utils"
 import { cacheInvoiceSignature, getCachedInvoiceSignature, persistSaleCustomerSignature } from "@/lib/invoice-signature"
 
 interface Sale {
@@ -53,12 +53,14 @@ interface Sale {
   paymentStatus: string
   receivedAmount?: number
   notes?: string
+  lpoNo?: string
   customerSignature?: string
   employee?: {
     _id: string
     name: string
     email: string
   }
+  saleDate?: string
   createdAt: string
   updatedAt: string
 }
@@ -244,6 +246,7 @@ export const GasSales = () => {
   // Form state
   const [formData, setFormData] = useState<{
     customerId: string
+    saleDate: string
     category: "gas" | "cylinder"
     items: { productId: string; quantity: string; price: string; category: "gas" | "cylinder"; cylinderStatus?: "empty" | "full"; cylinderName?: string }[]
     paymentMethod: string
@@ -251,9 +254,11 @@ export const GasSales = () => {
     receivedAmount: string
     paymentOption: "debit" | "credit" | "delivery_note"
     notes: string
+    lpoNo: string
     deliveryCharges: string
   }>({
     customerId: "",
+    saleDate: getLocalDateString(),
     category: "gas", 
     items: [], 
     paymentMethod: "cash",
@@ -261,8 +266,11 @@ export const GasSales = () => {
     receivedAmount: "",
     paymentOption: "debit", // debit | credit | delivery_note
     notes: "",
+    lpoNo: "",
     deliveryCharges: "0",
   })
+
+  const getSaleDateValue = (sale: Sale) => sale.saleDate || sale.createdAt
 
   // CSV export for Sales History
   const exportSalesCSV = () => {
@@ -275,7 +283,7 @@ export const GasSales = () => {
         ? sourceArray.filter((s) => (s.customer?.name || "").toLowerCase().includes(term))
         : sourceArray
       const filtered = filteredByTerm.filter((s) => {
-        const d = s.createdAt ? new Date(s.createdAt) : null
+        const d = getSaleDateValue(s) ? new Date(getSaleDateValue(s)) : null
         if (!d) return false
         return (!start || d >= start) && (!end || d <= end)
       })
@@ -313,7 +321,7 @@ export const GasSales = () => {
           .join("; ")
 
         const addedBy = s.employee?.name ? `Employee: ${s.employee.name}` : "Admin"
-        const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleString() : ""
+        const dateStr = getSaleDateValue(s) ? new Date(getSaleDateValue(s)).toLocaleString() : ""
 
         return [
           escapeCSV(s.invoiceNumber || ""),
@@ -388,7 +396,7 @@ export const GasSales = () => {
         ? sourceArray.filter((s: Sale) => (s.customer?.name || "").toLowerCase().includes(term))
         : sourceArray
       const filtered = filteredByTerm.filter((s: Sale) => {
-        const d = s.createdAt ? new Date(s.createdAt) : null
+        const d = getSaleDateValue(s) ? new Date(getSaleDateValue(s)) : null
         if (!d) return false
         return (!start || d >= start) && (!end || d <= end)
       })
@@ -526,7 +534,7 @@ export const GasSales = () => {
           return `${name} x${qty} @ ${price}`
         }).join(' | ')
         const addedBy = s.employee?.name ? `Employee: ${s.employee.name}` : 'Admin'
-        const dateStr = s.createdAt ? new Date(s.createdAt).toLocaleString() : ''
+        const dateStr = getSaleDateValue(s) ? new Date(getSaleDateValue(s)).toLocaleString() : ''
         const totalAmount = Number((s as any).totalAmount || 0)
         const receivedAmount = Number((s as any).receivedAmount || 0)
         const paymentMethod = (s.paymentMethod || '').toLowerCase()
@@ -640,7 +648,7 @@ export const GasSales = () => {
                            Array.isArray(salesResponse.data) ? salesResponse.data : []
       const employeeSalesData = Array.isArray(employeeSalesResponse.data) ? employeeSalesResponse.data : []
       const combinedSales = [...adminSalesData, ...employeeSalesData].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        (a, b) => new Date(getSaleDateValue(b)).getTime() - new Date(getSaleDateValue(a)).getTime()
       )
       const salesData = combinedSales
 
@@ -862,6 +870,7 @@ export const GasSales = () => {
 
       const saleData = {
         customer: formData.customerId,
+        saleDate: formData.saleDate,
         items: saleItems,  // Send only main items - backend handles inventory conversion internally
         totalAmount,
         deliveryCharges: deliveryCharges,
@@ -869,6 +878,7 @@ export const GasSales = () => {
         paymentStatus: derivedPaymentStatus,
         receivedAmount: derivedReceivedAmount,
         notes: formData.notes,
+        lpoNo: formData.lpoNo.trim(),
       }
 
       console.log('🚀 GasSales - Submitting sale data:', saleData)
@@ -952,6 +962,7 @@ export const GasSales = () => {
             receivedAmount: derivedReceivedAmount,
             totalAmount: totalAmount,
             notes: formData.notes,
+            lpoNo: formData.lpoNo.trim(),
           }
           console.log('GasSales - PUT minimal payload:', minimalUpdatePayload)
           // Use employeeSalesAPI if it's an employee sale, otherwise use salesAPI
@@ -1069,7 +1080,9 @@ export const GasSales = () => {
           paymentStatus: saved?.paymentStatus || derivedPaymentStatus,
           receivedAmount: saved?.receivedAmount ?? derivedReceivedAmount,
           notes: saved?.notes || formData.notes,
-          createdAt: saved?.createdAt || new Date().toISOString(),
+          lpoNo: saved?.lpoNo || formData.lpoNo.trim(),
+          saleDate: saved?.saleDate || formData.saleDate,
+          createdAt: saved?.saleDate || saved?.createdAt || formData.saleDate || new Date().toISOString(),
         }
         setPendingSale(normalizedSale)
         setShowSignatureDialog(true)
@@ -1097,6 +1110,7 @@ export const GasSales = () => {
   const resetForm = () => {
     setFormData({
       customerId: "",
+      saleDate: getLocalDateString(),
       category: "gas",
       items: [],
       paymentMethod: "cash",
@@ -1104,6 +1118,7 @@ export const GasSales = () => {
       receivedAmount: "",
       paymentOption: "debit",
       notes: "",
+      lpoNo: "",
       deliveryCharges: "0",
     })
     setProductSearchTerms([])
@@ -1118,6 +1133,7 @@ export const GasSales = () => {
     setEditingSale(sale)
     setFormData({
       customerId: sale.customer?._id || "",
+      saleDate: sale.saleDate || (sale.createdAt ? new Date(sale.createdAt).toISOString().slice(0, 10) : getLocalDateString()),
       category: "gas", // Default to gas for existing sales
       items: (sale.items || []).map((item) => ({
         productId: item.product?._id || "",
@@ -1137,6 +1153,7 @@ export const GasSales = () => {
         return "debit"
       })(),
       notes: sale.notes || "",
+      lpoNo: sale.lpoNo || "",
       deliveryCharges: ((sale as any)?.deliveryCharges || 0).toString(),
     })
     // Initialize product search terms based on current products if available
@@ -1823,7 +1840,7 @@ export const GasSales = () => {
           key,
           invoice: s.invoiceNumber || 'N/A',
           customer: s.customer,
-          date: s.createdAt || s.updatedAt || '',
+          date: getSaleDateValue(s) || s.updatedAt || '',
           paymentStatus: s.paymentStatus,
           paymentMethod: s.paymentMethod,
           employee: s.employee,
@@ -2024,6 +2041,27 @@ export const GasSales = () => {
                       ))}
                     </div>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="saleDate">Sale Date *</Label>
+                  <Input
+                    id="saleDate"
+                    type="date"
+                    value={formData.saleDate}
+                    max={getLocalDateString()}
+                    onChange={(e) => setFormData({ ...formData, saleDate: e.target.value })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="lpoNo">LPO No</Label>
+                  <Input
+                    id="lpoNo"
+                    value={formData.lpoNo}
+                    onChange={(e) => setFormData({ ...formData, lpoNo: e.target.value })}
+                    placeholder="Enter LPO No"
+                  />
                 </div>
                 
                 {editingSale && (
