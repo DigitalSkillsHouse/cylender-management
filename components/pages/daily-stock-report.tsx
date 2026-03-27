@@ -1,5 +1,5 @@
 "use client"
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ListChecks, FileText, Loader2, Eye } from "lucide-react"
 import { getLocalDateString, getStartOfDate, getEndOfDate, getDateFromString, getPreviousDate, getNextDate, getLocalDateStringFromDate, isToday } from "@/lib/date-utils"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 interface DailyStockEntry {
   id: string
@@ -78,9 +79,14 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   const [saving, setSaving] = useState(false)
   const [employeeDsrData, setEmployeeDsrData] = useState<EmployeeDailyStockEntry[]>([])
   const [employeeLoading, setEmployeeLoading] = useState(false)
+  const isMobile = useIsMobile()
+  const employeeDsrRequestRef = useRef(0)
   const mobileItemHeaderClassName = "border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
   const mobileItemCellClassName = "font-medium border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
   const mobileItemTotalClassName = "font-bold border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
+  const selectedEmployee = employees.find((emp) => emp._id === selectedEmployeeId)
+  const selectedEmployeeLabel = selectedEmployee?.name || selectedEmployee?.email || "Selected Employee"
+  const shouldShowDsrView = user.role === 'admin' ? !isMobile || showDSRView : showDSRView
 
   // Products for DSR grid
   interface ProductLite { _id: string; name: string }
@@ -1356,15 +1362,19 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   void fetchEmployeeDsrDataLegacy
 
   const fetchEmployeeDsrData = async (employeeId: string, date: string) => {
+    const requestId = ++employeeDsrRequestRef.current
+
     if (!employeeId) {
       console.warn('[ADMIN DSR] Cannot fetch employee DSR: no employeeId provided')
       setEmployeeDsrData([])
+      setEmployeeLoading(false)
       return
     }
 
     if (!date) {
       console.warn('[ADMIN DSR] Cannot fetch employee DSR: no date provided')
       setEmployeeDsrData([])
+      setEmployeeLoading(false)
       return
     }
 
@@ -1387,6 +1397,10 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
       })
 
       const result = await response.json().catch(() => ({}))
+
+      if (requestId !== employeeDsrRequestRef.current) {
+        return
+      }
 
       if (!response.ok || !result?.success) {
         console.error('[ADMIN DSR] Employee preview API failed:', result)
@@ -1421,12 +1435,18 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         : []
 
       console.log('[ADMIN DSR] Employee preview rows fetched:', previewRows.length)
-      setEmployeeDsrData(previewRows)
+      if (requestId === employeeDsrRequestRef.current) {
+        setEmployeeDsrData(previewRows)
+      }
     } catch (error) {
       console.error('[ADMIN DSR] Failed to fetch employee preview snapshot:', error)
-      setEmployeeDsrData([])
+      if (requestId === employeeDsrRequestRef.current) {
+        setEmployeeDsrData([])
+      }
     } finally {
-      setEmployeeLoading(false)
+      if (requestId === employeeDsrRequestRef.current) {
+        setEmployeeLoading(false)
+      }
     }
   }
 
@@ -2203,9 +2223,14 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
     fetchInventoryData()
     if (user.role === 'admin') {
       fetchEmployees()
-      setShowDSRView(true)
     }
   }, [user.role])
+
+  useEffect(() => {
+    if (user.role === 'admin') {
+      setShowDSRView(!isMobile)
+    }
+  }, [user.role, isMobile])
 
   // Fetch employees when employee DSR dialog opens
   useEffect(() => {
@@ -2214,33 +2239,35 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
       fetchEmployees()
     } else {
       // Reset state when dialog closes
+      employeeDsrRequestRef.current += 1
       setSelectedEmployeeId("")
       setEmployeeDsrData([])
+      setEmployeeLoading(false)
     }
   }, [showEmployeeDSR])
 
   // Fetch DSR data when date changes
   useEffect(() => {
-    if (showDSRView) {
+    if (shouldShowDsrView) {
       // Reset state when date changes
       setIsInventoryFetched(false)
       setStoredDsrReports({})
       fetchDsrData(dsrViewDate)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dsrViewDate, showDSRView])
+  }, [dsrViewDate, shouldShowDsrView])
 
   // Ensure stored DSR reports are fetched after products are loaded
   // fetchStoredDsrReports is already called in fetchDsrData, but this ensures
   // it's called when products load after the initial fetch
   useEffect(() => {
-    if (showDSRView && dsrProducts.length > 0 && !isInventoryFetched) {
+    if (shouldShowDsrView && dsrProducts.length > 0 && !isInventoryFetched) {
       // For all dates (today and previous), fetch stored reports to get opening stock
       // fetchStoredDsrReports will handle fetching previous day's closing stock as opening stock
       fetchStoredDsrReports(dsrViewDate)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDSRView, dsrProducts.length, dsrViewDate, isInventoryFetched])
+  }, [shouldShowDsrView, dsrProducts.length, dsrViewDate, isInventoryFetched])
 
 
   // Fetch employee DSR data when employee or date changes
@@ -2507,13 +2534,36 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
               </Button>
             )}
             {user.role === 'admin' && (
-              <Button 
-                variant="secondary" 
-                onClick={() => setShowEmployeeDSR(true)} 
-                className="w-full"
-              >
-                View Employee Daily Stock Report
-              </Button>
+              <>
+                {isMobile && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowEmployeeDSR(false)
+                      setShowDSRView((prev) => !prev)
+                    }}
+                    className="w-full"
+                    style={{ backgroundColor: "#2B3068", color: "white" }}
+                  >
+                    <ListChecks className="h-4 w-4 mr-2" />
+                    {showDSRView ? 'Hide Daily Stock Report' : 'View Daily Stock Report'}
+                  </Button>
+                )}
+                <Button 
+                  variant="secondary" 
+                  onClick={() => {
+                    if (isMobile) {
+                      setShowDSRView(false)
+                    }
+                    setEmployeeLoading(true)
+                    setEmployeeDsrData([])
+                    setShowEmployeeDSR(true)
+                  }} 
+                  className="w-full"
+                >
+                  View Employee Daily Stock Report
+                </Button>
+              </>
             )}
           </div>
         </CardContent>
@@ -2525,7 +2575,9 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
           <DialogContent className="w-[95vw] max-w-[900px] h-[90vh] max-h-[90vh] p-3 sm:p-4 md:p-6 rounded-lg overflow-hidden flex flex-col">
             <DialogHeader className="flex-shrink-0">
               <DialogTitle className="text-base sm:text-lg">Employee Daily Stock Report – {employeeDsrDate}</DialogTitle>
-              <DialogDescription>View employee daily stock activities and inventory status</DialogDescription>
+              <DialogDescription>
+                {selectedEmployeeId ? `${selectedEmployeeLabel} - ${employeeDsrDate}` : 'View employee daily stock activities and inventory status'}
+              </DialogDescription>
             </DialogHeader>
             
             <div className="flex-1 overflow-auto space-y-4">
@@ -2688,7 +2740,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         </Dialog>
       )}
 
-      {user.role === 'admin' && (
+      {user.role === 'admin' && shouldShowDsrView && (
         <Card>
           <CardHeader>
             <CardTitle>Daily Stock Report - {dsrViewDate}</CardTitle>
