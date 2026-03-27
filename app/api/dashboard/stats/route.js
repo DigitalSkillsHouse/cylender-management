@@ -551,8 +551,9 @@ export async function GET(request) {
 
     const cylinderRevenue = cylinderRevenueResult[0] || { cylinderRevenue: 0, totalTransactions: 0 }
 
-    // Get customer count
-    const customerCount = await Customer.countDocuments()
+    // Get customer count with the same date-filter snapshot logic as dashboard cards
+    const customerCountQuery = dateFilter.createdAt ? { createdAt: dateFilter.createdAt } : {}
+    const customerCount = await Customer.countDocuments(customerCountQuery)
 
     // Get employee count
     const employeeCount = await User.countDocuments({ role: "employee" })
@@ -587,6 +588,132 @@ export async function GET(request) {
     const adminProductsSold = productsSoldResult[0]?.totalQuantity || 0
     const employeeProductsSold = employeeProductsSoldResult[0]?.totalQuantity || 0
     const totalProductsSold = adminProductsSold + employeeProductsSold
+
+    // Calculate sales quantities by category (admin + employee)
+    const adminSalesQuantityResult = await Sale.aggregate([
+      ...salesMatch,
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: null,
+          gasSalesQuantity: {
+            $sum: {
+              $cond: [
+                { $eq: ["$items.category", "gas"] },
+                { $ifNull: ["$items.quantity", 0] },
+                0
+              ]
+            }
+          },
+          cylinderSalesQuantity: {
+            $sum: {
+              $cond: [
+                { $eq: ["$items.category", "cylinder"] },
+                { $ifNull: ["$items.quantity", 0] },
+                0
+              ]
+            }
+          },
+          fullCylinderSalesQuantity: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$items.category", "cylinder"] },
+                    { $eq: ["$items.cylinderStatus", "full"] }
+                  ]
+                },
+                { $ifNull: ["$items.quantity", 0] },
+                0
+              ]
+            }
+          },
+          emptyCylinderSalesQuantity: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$items.category", "cylinder"] },
+                    { $eq: ["$items.cylinderStatus", "empty"] }
+                  ]
+                },
+                { $ifNull: ["$items.quantity", 0] },
+                0
+              ]
+            }
+          },
+        },
+      },
+    ])
+
+    const employeeSalesQuantityResult = await EmployeeSale.aggregate([
+      ...employeeSalesMatch,
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: null,
+          gasSalesQuantity: {
+            $sum: {
+              $cond: [
+                { $eq: ["$items.category", "gas"] },
+                { $ifNull: ["$items.quantity", 0] },
+                0
+              ]
+            }
+          },
+          cylinderSalesQuantity: {
+            $sum: {
+              $cond: [
+                { $eq: ["$items.category", "cylinder"] },
+                { $ifNull: ["$items.quantity", 0] },
+                0
+              ]
+            }
+          },
+          fullCylinderSalesQuantity: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$items.category", "cylinder"] },
+                    { $eq: ["$items.cylinderStatus", "full"] }
+                  ]
+                },
+                { $ifNull: ["$items.quantity", 0] },
+                0
+              ]
+            }
+          },
+          emptyCylinderSalesQuantity: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$items.category", "cylinder"] },
+                    { $eq: ["$items.cylinderStatus", "empty"] }
+                  ]
+                },
+                { $ifNull: ["$items.quantity", 0] },
+                0
+              ]
+            }
+          },
+        },
+      },
+    ])
+
+    const totalGasSalesQuantity =
+      Number(adminSalesQuantityResult[0]?.gasSalesQuantity || 0) +
+      Number(employeeSalesQuantityResult[0]?.gasSalesQuantity || 0)
+    const totalCylinderSalesQuantity =
+      Number(adminSalesQuantityResult[0]?.cylinderSalesQuantity || 0) +
+      Number(employeeSalesQuantityResult[0]?.cylinderSalesQuantity || 0)
+    const totalFullCylinderSalesQuantity =
+      Number(adminSalesQuantityResult[0]?.fullCylinderSalesQuantity || 0) +
+      Number(employeeSalesQuantityResult[0]?.fullCylinderSalesQuantity || 0)
+    const totalEmptyCylinderSalesQuantity =
+      Number(adminSalesQuantityResult[0]?.emptyCylinderSalesQuantity || 0) +
+      Number(employeeSalesQuantityResult[0]?.emptyCylinderSalesQuantity || 0)
 
     // Calculate total gas sales revenue (admin + employee) - ONLY from gas items
     // Don't round intermediate calculations to prevent cumulative errors
@@ -779,6 +906,12 @@ export async function GET(request) {
       totalSales: Number((gasSales.totalSales || 0) + (employeeGasSales.employeeTotalSales || 0)) || 0, // Total sales count
       totalCombinedRevenue: roundToTwo(totalCombinedRevenue),
       totalPaid: roundToTwo(totalPaid), // Amount actually received (admin + employee)
+      salesQuantity: {
+        gas: totalGasSalesQuantity,
+        cylinder: totalCylinderSalesQuantity,
+        fullCylinder: totalFullCylinderSalesQuantity,
+        emptyCylinder: totalEmptyCylinderSalesQuantity,
+      },
       inactiveCustomers: inactiveCustomers, // Customers with no transactions in last 30 days
       inactiveCustomersCount: inactiveCustomers.length, // Count of inactive customers
     }
@@ -814,6 +947,12 @@ export async function GET(request) {
       totalSales: 0,
       totalCombinedRevenue: 0,
       totalPaid: 0,
+      salesQuantity: {
+        gas: 0,
+        cylinder: 0,
+        fullCylinder: 0,
+        emptyCylinder: 0,
+      },
       inactiveCustomers: [],
       inactiveCustomersCount: 0,
       error: "Failed to fetch dashboard stats"

@@ -292,8 +292,8 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
             debitAmount={debitAmount} 
           />
         </div>
-        <main className="flex-1 overflow-auto">
-          <div className="pt-16 lg:pt-0 p-3 sm:p-4 lg:p-6 xl:p-8">{renderPage()}</div>
+        <main className="hide-scrollbar flex-1 overflow-auto">
+          <div className="pt-16 lg:pt-0 p-3 sm:p-4 lg:p-4 xl:p-5">{renderPage()}</div>
         </main>
         {/* Global notification popup for both admin and employees */}
         <NotificationPopup user={user} />
@@ -310,13 +310,8 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
         <AdminSignatureDialog 
           isOpen={showAdminSignatureDialog}
           onClose={() => setShowAdminSignatureDialog(false)}
-          onSave={(signature) => {
-            // Signature is already saved to database and localStorage by the dialog
-            // Just close the dialog
-            setShowAdminSignatureDialog(false)
-          }}
           onSave={() => {
-            // no-op; saved in component and localStorage
+            setShowAdminSignatureDialog(false)
           }}
         />
 

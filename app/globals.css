@@ -79,6 +79,39 @@ html {
   font-family: system-ui, -apple-system, sans-serif;
 }
 
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.premium-panel {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 255, 0.9));
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.premium-dark-panel {
+  background:
+    radial-gradient(circle at top, rgba(96, 165, 250, 0.18), transparent 36%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
+  backdrop-filter: blur(18px);
+}
+
+.premium-mesh {
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.2), transparent 24%),
+    radial-gradient(circle at 80% 20%, rgba(45, 212, 191, 0.18), transparent 20%),
+    linear-gradient(135deg, #0f172a 0%, #1e293b 52%, #172554 100%);
+}
+
+
 /* Remove browser extension attributes */
 body[cz-shortcut-listen],
 html[cz-shortcut-listen] {

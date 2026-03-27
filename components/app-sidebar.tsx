@@ -203,10 +203,8 @@ export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCo
 
   useEffect(() => {
     if (user?.id) {
-      // Only fetch once on mount - no continuous polling
       fetchNotifications()
 
-      // Listen for custom events to refresh notifications (event-driven)
       const handleNotificationEvent = () => {
         fetchNotifications()
       }
@@ -259,7 +257,7 @@ export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCo
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="flex-1 px-3 py-4 overflow-y-auto" style={{ backgroundColor: "#2B3068" }}>
+      <SidebarContent className="hide-scrollbar flex-1 px-3 py-4 overflow-y-auto" style={{ backgroundColor: "#2B3068" }}>
         <SidebarGroup>
           <SidebarGroupLabel className="text-white/80 font-semibold mb-4 text-xs uppercase tracking-wider px-2">
             {user?.role === "admin" ? "Management" : "My Dashboard"}
@@ -309,7 +307,6 @@ export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCo
 
   return (
     <>
-      {/* Mobile Header - Only visible on mobile */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-[#2B3068] border-b border-white/10 p-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div
@@ -338,10 +335,8 @@ export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCo
         </Sheet>
       </div>
 
-      {/* Spacer for mobile header */}
       <div className="h-16 lg:hidden" />
 
-      {/* Desktop Sidebar */}
       <Sidebar
         className="border-r-0 shadow-lg hidden lg:flex"
         style={{

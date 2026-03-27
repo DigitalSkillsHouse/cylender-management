@@ -101,12 +101,12 @@ export const InactiveCustomersNotification = ({
   return (
     <>
       {/* Notification Icon */}
-      <div className="relative flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+      <div className="relative flex w-full items-center gap-2 rounded-[20px] border border-white/10 bg-white/5 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:w-auto sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
         <Button
           onClick={() => setShowModal(true)}
           variant="outline"
           size="sm"
-          className="relative bg-orange-50 border-orange-200 hover:bg-orange-100 text-orange-700 transition-all duration-200 w-full sm:w-auto min-h-[44px] text-xs sm:text-sm"
+          className="relative min-h-[44px] flex-1 rounded-2xl border border-[#f8c6aa] bg-[linear-gradient(135deg,#fff7ed,#fff1e5)] text-xs text-orange-700 shadow-[0_10px_24px_rgba(249,115,22,0.12),inset_0_1px_0_rgba(255,255,255,0.85)] transition-all duration-200 hover:bg-[linear-gradient(135deg,#fff5e8,#ffe9d6)] sm:flex-none sm:rounded-xl sm:text-sm sm:shadow-none"
         >
           <Bell className="h-4 w-4 mr-1 sm:mr-2 flex-shrink-0" />
           <span className="hidden sm:inline">Inactive Customers</span>
@@ -131,7 +131,7 @@ export const InactiveCustomersNotification = ({
             variant="outline"
             size="sm"
             disabled={isMarkingAsViewed}
-            className="bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700 transition-all duration-200 p-2 min-h-[44px] w-full sm:w-auto"
+            className="min-h-[44px] w-[46px] shrink-0 rounded-2xl border border-[#bfd7ff] bg-[linear-gradient(135deg,#eff6ff,#dbeafe)] p-2 text-blue-700 shadow-[0_10px_22px_rgba(59,130,246,0.12),inset_0_1px_0_rgba(255,255,255,0.82)] transition-all duration-200 hover:bg-[linear-gradient(135deg,#e8f1ff,#d1e4ff)] sm:w-auto sm:rounded-xl sm:shadow-none"
             title="Mark as Read"
           >
             {isMarkingAsViewed ? (
