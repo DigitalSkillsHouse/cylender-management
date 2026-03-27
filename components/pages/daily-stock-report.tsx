@@ -78,6 +78,9 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   const [saving, setSaving] = useState(false)
   const [employeeDsrData, setEmployeeDsrData] = useState<EmployeeDailyStockEntry[]>([])
   const [employeeLoading, setEmployeeLoading] = useState(false)
+  const mobileItemHeaderClassName = "border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
+  const mobileItemCellClassName = "font-medium border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
+  const mobileItemTotalClassName = "font-bold border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
 
   // Products for DSR grid
   interface ProductLite { _id: string; name: string }
@@ -2200,6 +2203,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
     fetchInventoryData()
     if (user.role === 'admin') {
       fetchEmployees()
+      setShowDSRView(true)
     }
   }, [user.role])
 
@@ -2491,15 +2495,17 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-col gap-3">
-            <Button 
-              variant="outline" 
-              onClick={() => setShowDSRView(true)} 
-              className="w-full" 
-              style={{ backgroundColor: "#2B3068", color: "white" }}
-            >
-              <ListChecks className="h-4 w-4 mr-2" />
-              View Daily Stock Report
-            </Button>
+            {user.role !== 'admin' && (
+              <Button 
+                variant="outline" 
+                onClick={() => setShowDSRView(true)} 
+                className="w-full" 
+                style={{ backgroundColor: "#2B3068", color: "white" }}
+              >
+                <ListChecks className="h-4 w-4 mr-2" />
+                View Daily Stock Report
+              </Button>
+            )}
             {user.role === 'admin' && (
               <Button 
                 variant="secondary" 
@@ -2568,7 +2574,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
                     <Table className="text-xs sm:text-sm">
                       <TableHeader>
                         <TableRow>
-                          <TableHead rowSpan={2} className="border-r whitespace-nowrap">Items</TableHead>
+                          <TableHead rowSpan={2} className={mobileItemHeaderClassName}>Items</TableHead>
                           <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
                           <TableHead colSpan={12} className="text-center border-r">During the day</TableHead>
                           <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
@@ -2595,7 +2601,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
                       <TableBody>
                         {employeeDsrData.map((entry) => (
                           <TableRow key={entry._id}>
-                            <TableCell className="font-medium border-r whitespace-nowrap">{entry.itemName}</TableCell>
+                            <TableCell className={mobileItemCellClassName}>{entry.itemName}</TableCell>
                             <TableCell className="text-center">{entry.openingFull || 0}</TableCell>
                             <TableCell className="text-center border-r">{entry.openingEmpty || 0}</TableCell>
                             <TableCell className="text-center">{entry.emptyPurchase || 0}</TableCell>
@@ -2616,7 +2622,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
                         ))}
                         {/* Totals Row */}
                         <TableRow className="bg-gray-100 font-bold">
-                          <TableCell className="font-bold border-r">TOTAL</TableCell>
+                          <TableCell className={mobileItemTotalClassName}>TOTAL</TableCell>
                           <TableCell className="text-center">
                             {employeeDsrData.reduce((sum, entry) => sum + (entry.openingFull || 0), 0)}
                           </TableCell>
@@ -2682,7 +2688,156 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         </Dialog>
       )}
 
+      {user.role === 'admin' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Daily Stock Report - {dsrViewDate}</CardTitle>
+            <p className="text-sm text-gray-600">View daily stock activities and inventory status</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3 flex-shrink-0">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="dsr-date-inline" className="text-sm">Date:</Label>
+                  <Input
+                    id="dsr-date-inline"
+                    type="date"
+                    value={dsrViewDate}
+                    onChange={(e) => setDsrViewDate(e.target.value)}
+                    className="w-auto text-sm"
+                  />
+                </div>
+                <Button
+                  onClick={() => downloadDsrGridPdf(dsrViewDate)}
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto sm:ml-auto"
+                >
+                  <FileText className="h-4 w-4 mr-1" />
+                  PDF
+                </Button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {loading ? (
+                    <span className="text-xs text-gray-500 flex items-center">
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      Loading data and calculating results...
+                    </span>
+                  ) : isInventoryFetched ? (
+                    <span className="text-xs text-gray-500">
+                      Opening stock loaded from previous day
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-500">
+                      Loading previous day&apos;s closing stock as opening stock...
+                    </span>
+                  )}
+                  {(() => {
+                    const today = getLocalDateString()
+                    const viewingToday = dsrViewDate === today
+                    return !viewingToday && isInventoryFetched ? (
+                      <span className="text-xs text-blue-600 ml-2">
+                        Viewing historical data
+                      </span>
+                    ) : null
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-8 space-y-2">
+                <div className="flex items-center">
+                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                  <span>Loading DSR data for {dsrViewDate}...</span>
+                </div>
+                <span className="text-xs text-gray-500">Fetching transactions and calculating results...</span>
+              </div>
+            ) : (
+              <div className="overflow-auto">
+                <div className="min-w-[1000px]">
+                  <Table className="text-xs sm:text-sm">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead rowSpan={2} className={mobileItemHeaderClassName}>Items</TableHead>
+                        <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
+                        <TableHead colSpan={12} className="text-center border-r">During the day</TableHead>
+                        <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
+                      </TableRow>
+                      <TableRow>
+                        <TableHead className="text-center">Full</TableHead>
+                        <TableHead className="text-center border-r">Empty</TableHead>
+                        <TableHead className="text-center">Empty Pur</TableHead>
+                        <TableHead className="text-center">Full Pur</TableHead>
+                        <TableHead className="text-center">Refilled</TableHead>
+                        <TableHead className="text-center">Full Cyl Sales</TableHead>
+                        <TableHead className="text-center">Empty Cyl Sales</TableHead>
+                        <TableHead className="text-center">Gas Sales</TableHead>
+                        <TableHead className="text-center">Deposit Cylinder</TableHead>
+                        <TableHead className="text-center">Return Cylinder</TableHead>
+                        <TableHead className="text-center">Transfer Gas</TableHead>
+                        <TableHead className="text-center">Transfer Empty</TableHead>
+                        <TableHead className="text-center">Received Gas</TableHead>
+                        <TableHead className="text-center border-r">Received Empty</TableHead>
+                        <TableHead className="text-center">Full</TableHead>
+                        <TableHead className="text-center">Empty</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dsrProducts.map((product) => {
+                        const key = normalizeName(product.name)
+                        const openingFull = storedDsrReports[key]?.openingFull ?? 0
+                        const openingEmpty = storedDsrReports[key]?.openingEmpty ?? 0
+                        const refilled = dailyCylinderRefills[key] ?? 0
+                        const fullCylinderSales = dailyFullCylinderSales[key] ?? 0
+                        const emptyCylinderSales = dailyEmptyCylinderSales[key] ?? 0
+                        const gasSales = dailyGasSales[key] ?? 0
+                        const deposits = dailyAggDeposits[key] ?? 0
+                        const returns = dailyAggReturns[key] ?? 0
+                        const transferGasQuantity = dailyTransferGas[key] ?? 0
+                        const transferEmptyQuantity = dailyTransferEmpty[key] ?? 0
+                        const receivedGasQuantity = dailyReceivedGas[key] ?? 0
+                        const receivedEmptyQuantity = dailyReceivedEmpty[key] ?? 0
+                        const emptyPurchase = dailyEmptyPurchases[key] ?? 0
+                        const fullPurchase = dailyFullPurchases[key] ?? 0
+                        const closingFull = Math.max(0, openingFull + fullPurchase + refilled - fullCylinderSales - gasSales - transferGasQuantity + receivedGasQuantity)
+                        const closingEmpty = Math.max(0, openingFull + openingEmpty + fullPurchase + emptyPurchase - fullCylinderSales - emptyCylinderSales - deposits + returns - transferEmptyQuantity + receivedEmptyQuantity - closingFull)
+
+                        return (
+                          <TableRow key={product._id}>
+                            <TableCell className={mobileItemCellClassName}>{product.name}</TableCell>
+                            <TableCell className="text-center">{openingFull}</TableCell>
+                            <TableCell className="text-center border-r">{openingEmpty}</TableCell>
+                            <TableCell className="text-center">{emptyPurchase}</TableCell>
+                            <TableCell className="text-center">{fullPurchase}</TableCell>
+                            <TableCell className="text-center">{refilled}</TableCell>
+                            <TableCell className="text-center">{fullCylinderSales}</TableCell>
+                            <TableCell className="text-center">{emptyCylinderSales}</TableCell>
+                            <TableCell className="text-center">{gasSales}</TableCell>
+                            <TableCell className="text-center">{deposits}</TableCell>
+                            <TableCell className="text-center">{returns}</TableCell>
+                            <TableCell className="text-center">{transferGasQuantity}</TableCell>
+                            <TableCell className="text-center">{transferEmptyQuantity}</TableCell>
+                            <TableCell className="text-center">{receivedGasQuantity}</TableCell>
+                            <TableCell className="text-center border-r">{receivedEmptyQuantity}</TableCell>
+                            <TableCell className="text-center font-semibold bg-blue-50">{closingFull}</TableCell>
+                            <TableCell className="text-center font-semibold bg-blue-50">{closingEmpty}</TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Main DSR Dialog */}
+      {user.role !== 'admin' && (
       <Dialog open={showDSRView} onOpenChange={setShowDSRView}>
         <DialogContent className="w-[98vw] max-w-[1200px] h-[90vh] p-2 sm:p-4 md:p-6 rounded-lg overflow-hidden flex flex-col">
           <DialogHeader>
@@ -2759,7 +2914,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
                 <Table className="text-xs sm:text-sm">
                 <TableHeader>
                   <TableRow>
-                    <TableHead rowSpan={2} className="border-r">Items</TableHead>
+                    <TableHead rowSpan={2} className={mobileItemHeaderClassName}>Items</TableHead>
                     <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
                     <TableHead colSpan={12} className="text-center border-r">During the day</TableHead>
                     <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
@@ -2833,7 +2988,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
 
                     return (
                       <TableRow key={product._id}>
-                        <TableCell className="font-medium border-r">{product.name}</TableCell>
+                        <TableCell className={mobileItemCellClassName}>{product.name}</TableCell>
                         <TableCell className="text-center">{openingFull}</TableCell>
                         <TableCell className="text-center border-r">{openingEmpty}</TableCell>
                         <TableCell className="text-center">{emptyPurchase}</TableCell>
@@ -3056,6 +3211,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
           )}
         </DialogContent>
       </Dialog>
+      )}
     </div>
   )
 }

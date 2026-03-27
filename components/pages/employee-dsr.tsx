@@ -43,6 +43,9 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
   const [dsrData, setDsrData] = useState<DSRItem[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const mobileItemHeaderClassName = "border-r sticky left-0 bg-background z-10 whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:min-w-[120px] sm:px-4 sm:py-3 sm:text-sm"
+  const mobileItemCellClassName = "font-medium border-r sticky left-0 bg-background z-10 whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:min-w-[120px] sm:px-4 sm:py-3 sm:text-sm"
+  const mobileItemTotalClassName = "font-bold border-r sticky left-0 bg-gray-100 z-10 whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:min-w-[120px] sm:px-4 sm:py-3 sm:text-sm"
   
   // Stored DSR reports with locked opening values
   const [storedDsrReports, setStoredDsrReports] = useState<Record<string, { openingFull: number; openingEmpty: number }>>({})
@@ -1898,7 +1901,7 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
                 <Table className="text-xs sm:text-sm min-w-[1200px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead rowSpan={2} className="border-r sticky left-0 bg-background z-10 min-w-[120px]">Items</TableHead>
+                      <TableHead rowSpan={2} className={mobileItemHeaderClassName}>Items</TableHead>
                       <TableHead colSpan={2} className="text-center border-r">Opening</TableHead>
                       <TableHead colSpan={12} className="text-center border-r">During the day</TableHead>
                       <TableHead colSpan={2} className="text-center bg-blue-100 font-semibold">Closing</TableHead>
@@ -1940,7 +1943,7 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
                       
                       return (
                       <TableRow key={index}>
-                        <TableCell className="font-medium border-r sticky left-0 bg-background z-10 min-w-[120px]">{item.itemName}</TableCell>
+                        <TableCell className={mobileItemCellClassName}>{item.itemName}</TableCell>
                         <TableCell className="text-center min-w-[60px]">{openingFull}</TableCell>
                         <TableCell className="text-center border-r min-w-[60px]">{openingEmpty}</TableCell>
                         <TableCell className="text-center min-w-[70px]">{item.emptyPurchase || 0}</TableCell>
@@ -1961,7 +1964,7 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
                     )})}
                     {/* Totals Row */}
                     <TableRow className="bg-gray-100 font-bold">
-                      <TableCell className="font-bold border-r sticky left-0 bg-gray-100 z-10 min-w-[120px]">TOTAL</TableCell>
+                      <TableCell className={mobileItemTotalClassName}>TOTAL</TableCell>
                       <TableCell className="text-center min-w-[60px]">
                         {dsrData.reduce((sum, item) => sum + item.openingFull, 0)}
                       </TableCell>
