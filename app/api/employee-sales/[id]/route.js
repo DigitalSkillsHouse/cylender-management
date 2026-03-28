@@ -7,6 +7,36 @@ import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-syn
 import { verifyToken } from "@/lib/auth"
 import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
+// GET /api/employee-sales/[id]
+export async function GET(request, { params }) {
+  try {
+    await dbConnect()
+
+    const user = await verifyToken(request)
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const sale = await EmployeeSale.findById(params.id)
+      .populate("customer", "name email phone address trNumber")
+      .populate("items.product", "name category cylinderSize costPrice leastPrice")
+      .populate("employee", "name email")
+
+    if (!sale) {
+      return NextResponse.json({ error: "Employee sale not found" }, { status: 404 })
+    }
+
+    if (String(user.role || "").toLowerCase() === "employee" && String(sale.employee?._id || sale.employee) !== String(user.id)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+
+    return NextResponse.json({ success: true, data: sale })
+  } catch (error) {
+    console.error("Error fetching employee sale:", error)
+    return NextResponse.json({ error: "Failed to fetch employee sale" }, { status: 500 })
+  }
+}
+
 // PATCH /api/employee-sales/[id]
 // Allow saving customerSignature for the same invoice so re-download/print won't ask again.
 export async function PATCH(request, { params }) {

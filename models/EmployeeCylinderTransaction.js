@@ -93,6 +93,10 @@ const EmployeeCylinderTransactionSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    customerSignature: {
+      type: String,
+      default: "",
+    },
     // Optional link for return transactions to reference the deposit they clear
     linkedDeposit: {
       type: mongoose.Schema.Types.ObjectId,

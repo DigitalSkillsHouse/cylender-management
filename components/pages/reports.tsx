@@ -18,7 +18,7 @@ import { DialogDescription } from "@radix-ui/react-dialog"
 import CashPaperSection from "@/components/cash-paper-section"
 import { getDubaiDateTimeString } from "@/lib/date-utils"
 import { formatCurrencyAED } from "@/lib/utils"
-import { cacheInvoiceSignature, persistEmployeeSaleCustomerSignature, persistSaleCustomerSignature } from "@/lib/invoice-signature"
+import { cacheInvoiceSignature, getCachedInvoiceSignature, persistCylinderCustomerSignature, persistEmployeeCylinderCustomerSignature, persistEmployeeSaleCustomerSignature, persistSaleCustomerSignature } from "@/lib/invoice-signature"
 
 interface CustomerLedgerData {
   _id: string
@@ -81,8 +81,8 @@ export const Reports = () => {
   const [receiveDialog, setReceiveDialog] = useState<{
     open: boolean
     targetId: string | null
-    // kind: 'sale' (admin sale), 'employee_sale' (employee gas sale), or 'cylinder' (admin cylinder tx)
-    kind: 'sale' | 'employee_sale' | 'cylinder'
+    // kind: invoice source to update and re-open after payment
+    kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder'
     totalAmount: number
     currentReceived: number
     inputAmount: string
@@ -92,17 +92,97 @@ export const Reports = () => {
   }>({ open: false, targetId: null, kind: 'sale', totalAmount: 0, currentReceived: 0, inputAmount: '', method: 'cash', bankName: '', chequeNumber: '' })
 
   // Pending receipt context for signature-first flow after Receive Amount
-  const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'employee_sale' | 'cylinder'; targetId: string } | null>(null)
+  const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder'; targetId: string } | null>(null)
 
-  const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'employee_sale' | 'cylinder' }) => {
+  const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder' }) => {
     setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '', method: 'cash', bankName: '', chequeNumber: '' })
   }
 
   // Local record of last payment received per item (per kind)
-  type PaymentRecord = { kind: 'sale' | 'employee_sale' | 'cylinder'; id: string; amount: number; method: 'cash' | 'cheque'; bankName?: string; chequeNumber?: string; newTotalReceived: number; at: string }
+  type PaymentRecord = { kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder'; id: string; amount: number; method: 'cash' | 'cheque'; bankName?: string; chequeNumber?: string; newTotalReceived: number; at: string }
   const [paymentRecords, setPaymentRecords] = useState<Record<string, PaymentRecord>>({})
-  const paymentKey = (kind: 'sale' | 'employee_sale' | 'cylinder', id: string) => `${kind}:${id}`
+  const paymentKey = (kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder', id: string) => `${kind}:${id}`
   const [showPaymentDetail, setShowPaymentDetail] = useState<PaymentRecord | null>(null)
+
+  const getReceiptSourceUrl = (kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder', targetId: string) => {
+    if (kind === 'cylinder') return `/api/cylinders/${targetId}`
+    if (kind === 'employee_cylinder') return `/api/employee-cylinders/${targetId}`
+    if (kind === 'employee_sale') return `/api/employee-sales/${targetId}`
+    return `/api/sales/${targetId}`
+  }
+
+  const persistSignatureForKind = async (
+    kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder',
+    targetId: string,
+    signature: string
+  ) => {
+    if (kind === "sale") return await persistSaleCustomerSignature(targetId, signature)
+    if (kind === "employee_sale") return await persistEmployeeSaleCustomerSignature(targetId, signature)
+    if (kind === "employee_cylinder") return await persistEmployeeCylinderCustomerSignature(targetId, signature)
+    return await persistCylinderCustomerSignature(targetId, signature)
+  }
+
+  const buildReceiptFromSource = (
+    kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder',
+    targetId: string,
+    srcRaw: any,
+    fallbackSignature = ""
+  ) => {
+    const isCylinder = kind === 'cylinder' || kind === 'employee_cylinder'
+    const src = srcRaw?.data ?? srcRaw
+    const srcCustomer = src?.customer
+    const custId = typeof srcCustomer === 'string' ? srcCustomer : (srcCustomer?._id || src?.customerId || '')
+    const ledgerCust = customers.find((c) => c._id === custId) ||
+      customers.find((c) => (c.name || '').toLowerCase() === (src?.customerName || '').toLowerCase())
+    const customerName = (srcCustomer?.name) || src?.customerName || ledgerCust?.name || '-'
+    const customerPhone = (srcCustomer?.phone) || src?.customerPhone || ledgerCust?.phone || '-'
+    const customerAddress = (srcCustomer?.address) || src?.customerAddress || ledgerCust?.address || '-'
+    const createdAt = src?.createdAt || new Date().toISOString()
+    const invoiceNumber = src?.invoiceNumber || src?._id || String(targetId)
+    const amountTotal = Number(src?.totalAmount ?? src?.amount ?? receiveDialog.totalAmount ?? 0)
+    const paymentMethod = (src?.paymentMethod || src?.method || '-').toString()
+    const paymentStatus = (src?.paymentStatus || src?.status || '').toString()
+    const type = (src?.type || '').toString()
+
+    let items: any[] = []
+    if (Array.isArray(src?.items) && src.items.length > 0) {
+      items = src.items.map((it: any) => {
+        const qty = Number(it?.quantity || 1)
+        const unit = Number(((it?.price ?? it?.unitPrice ?? it?.costPrice ?? (Number(it?.total ?? 0) / (qty || 1))) ?? 0))
+        const lineTotal = Number(it?.total || (unit * (qty || 0)))
+        return {
+          product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: unit },
+          quantity: qty,
+          price: unit,
+          total: lineTotal,
+        }
+      })
+    } else {
+      const qty = Number(src?.quantity || 1)
+      const unit = qty > 0 ? (amountTotal / qty) : amountTotal
+      const label = isCylinder ? `${type || 'Cylinder'} - ${src?.cylinderSize || ''}` : 'Gas Sale'
+      items = [{
+        product: { name: label, price: unit },
+        quantity: qty,
+        price: unit,
+        total: amountTotal,
+      }]
+    }
+
+    return {
+      _id: String(src?._id || targetId),
+      invoiceNumber,
+      customer: { name: customerName, phone: customerPhone, address: customerAddress },
+      items,
+      totalAmount: items.reduce((s, it) => s + Number(it.total || (Number(it.price || 0) * Number(it.quantity || 0))), 0),
+      paymentMethod,
+      paymentStatus,
+      type,
+      lpoNo: src?.lpoNo || '',
+      createdAt,
+      customerSignature: src?.customerSignature || fallbackSignature,
+    }
+  }
 
   // Auto-calculate Closing Full/Empty for a given date (admin scope) and roll forward to next day openings
   const autoCalcAndSaveDsrForDate = async (date: string) => {
@@ -273,6 +353,9 @@ export const Reports = () => {
       if (receiveDialog.kind === 'cylinder') {
         url = `/api/cylinders/${receiveDialog.targetId}`
         body = { cashAmount: newReceived, status: newStatus }
+      } else if (receiveDialog.kind === 'employee_cylinder') {
+        url = `/api/employee-cylinders/${receiveDialog.targetId}`
+        body = { cashAmount: newReceived, status: newStatus }
       } else if (receiveDialog.kind === 'employee_sale') {
         url = `/api/employee-sales/${receiveDialog.targetId}`
         body = { receivedAmount: newReceived, paymentStatus: newStatus }
@@ -317,9 +400,43 @@ export const Reports = () => {
       }
 
       closeReceiveDialog()
-      // Signature-first: store pending receipt context and open signature dialog
-      setPendingReceiptData({ kind: receiveDialog.kind, targetId: String(receiveDialog.targetId) })
-      setShowSignatureDialog(true)
+      const targetId = String(receiveDialog.targetId)
+      const kind = receiveDialog.kind
+      let sourceData: any = null
+      let existingSignature = ""
+
+      try {
+        const getRes = await fetch(getReceiptSourceUrl(kind, targetId))
+        if (getRes.ok) {
+          sourceData = await getRes.json()
+          const src = sourceData?.data ?? sourceData
+          existingSignature = String(src?.customerSignature || "")
+        }
+      } catch {}
+
+      if (!existingSignature) {
+        const cached = getCachedInvoiceSignature(targetId)
+        if (cached) {
+          cacheInvoiceSignature(targetId, cached)
+          await persistSignatureForKind(kind, targetId, cached)
+          existingSignature = cached
+          if (!sourceData) {
+            try {
+              const getRes = await fetch(getReceiptSourceUrl(kind, targetId))
+              if (getRes.ok) sourceData = await getRes.json()
+            } catch {}
+          }
+        }
+      }
+
+      if (existingSignature) {
+        setReceiptDialogData(buildReceiptFromSource(kind, targetId, sourceData || {}, existingSignature))
+        setPendingReceiptData(null)
+      } else {
+        // Signature-first: store pending receipt context and open signature dialog
+        setPendingReceiptData({ kind, targetId })
+        setShowSignatureDialog(true)
+      }
       // Removed success alert to avoid interrupting receipt preview flow
     } catch (e: any) {
       alert(`Failed to update payment: ${e?.message || 'Unknown error'}`)
@@ -405,7 +522,7 @@ export const Reports = () => {
           // Cache in localStorage
           if (typeof window !== "undefined") {
             try {
-              localStorage.setItem("adminSignature", adminSignature);
+              localStorage.setItem("adminSignature", adminSignature || "");
             } catch (e) {
               console.warn("Failed to cache admin signature", e);
             }
@@ -1913,23 +2030,20 @@ export const Reports = () => {
 	      // Cache locally first (so re-download/print won't ask again even if network fails),
 	      // then persist on the invoice record.
 	      cacheInvoiceSignature(targetId, signature)
-	      if (kind === "sale") {
-	        const ok = await persistSaleCustomerSignature(targetId, signature)
-	        if (!ok) console.warn("Failed to persist customer signature for sale from reports")
-	      } else if (kind === "employee_sale") {
-	        const ok = await persistEmployeeSaleCustomerSignature(targetId, signature)
-	        if (!ok) console.warn("Failed to persist customer signature for employee sale from reports")
-	      }
+	      const ok = await persistSignatureForKind(kind, targetId, signature)
+	      if (!ok) console.warn(`Failed to persist customer signature for ${kind} from reports`)
 
       // Route to correct API to fetch updated record with populated customer
       const getUrl = kind === 'cylinder'
         ? `/api/cylinders/${targetId}`
-        : (kind === 'employee_sale'
+        : (kind === 'employee_cylinder'
+            ? `/api/employee-cylinders/${targetId}`
+            : (kind === 'employee_sale'
             ? `/api/employee-sales/${targetId}`
-            : `/api/sales/${targetId}`)
+            : `/api/sales/${targetId}`))
 
       const buildReceiptFromSource = (srcRaw: any) => {
-        const isCylinder = kind === 'cylinder'
+        const isCylinder = kind === 'cylinder' || kind === 'employee_cylinder'
         // Unwrap axios/fetch JSON shape: many APIs return { data: record }
         const src = srcRaw?.data ?? srcRaw
         // Attempt to resolve customer fields from API record, falling back to ledger customers
@@ -2731,7 +2845,7 @@ export const Reports = () => {
                                               const isGas = transaction.type === 'gas_sale'
                                               const kind = isGas
                                                 ? ((transaction.saleSource === 'employee') ? 'employee_sale' : 'sale')
-                                                : 'cylinder'
+                                                : ((transaction.transactionSource === 'employee') ? 'employee_cylinder' : 'cylinder')
                                               const id = String(transaction.srcId)
                                               const key = paymentKey(kind as any, id)
                                               const rec = paymentRecords[key]
@@ -2901,10 +3015,11 @@ export const Reports = () => {
                                             <TableCell>{formatCurrency(transaction.cashAmount || 0)}</TableCell>
                                             <TableCell>
                                               {(() => {
-                                                const key = paymentKey('cylinder', String(transaction._id))
+                                                const sourceKind = transaction.transactionSource === 'employee' ? 'employee_cylinder' : 'cylinder'
+                                                const key = paymentKey(sourceKind, String(transaction._id))
                                                 const rec = paymentRecords[key]
                                                 const minimalRec: PaymentRecord = {
-                                                  kind: 'cylinder',
+                                                  kind: sourceKind,
                                                   id: String(transaction._id),
                                                   amount: 0,
                                                   method: 'cash',
@@ -2918,7 +3033,7 @@ export const Reports = () => {
                                                 if (isPending && !isRefill) {
                                                   return (
                                                     <div className="flex items-center gap-2">
-                                                      <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: 'cylinder', totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
+                                                      <Button size="sm" variant="outline" onClick={() => openReceiveDialog({ id: String(transaction._id), kind: sourceKind, totalAmount: Number(transaction.amount || 0), currentReceived: Number(transaction.cashAmount || 0) })}>
                                                         Receive Amount
                                                       </Button>
                                                       <Button size="sm" variant="ghost" onClick={() => setShowPaymentDetail(rec || minimalRec)} className="text-blue-600 hover:bg-blue-50">

@@ -38,6 +38,39 @@ export async function GET(request, { params }) {
   }
 }
 
+export async function PATCH(request, { params }) {
+  try {
+    await dbConnect();
+    const { id } = params;
+    const body = await request.json().catch(() => ({}));
+    const customerSignature = body?.customerSignature;
+
+    if (!customerSignature) {
+      return NextResponse.json({ error: "customerSignature is required" }, { status: 400 });
+    }
+
+    const updated = await CylinderTransaction.findByIdAndUpdate(
+      id,
+      { $set: { customerSignature } },
+      { new: true }
+    )
+      .populate("customer", "name phone address email")
+      .populate("product", "name category cylinderType");
+
+    if (!updated) {
+      return NextResponse.json({ error: "Cylinder transaction not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error("Cylinder PATCH error:", error);
+    return NextResponse.json(
+      { error: "Failed to save customer signature", details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
 export async function PUT(request, { params }) {
   try {
     await dbConnect();

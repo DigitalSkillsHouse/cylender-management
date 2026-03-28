@@ -228,14 +228,32 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
             </div>
             {signature && (
               <div className="absolute bottom-4 right-8">
-                <img src={signature} alt="Customer Signature" className="max-h-12 object-contain opacity-90"
-                  style={{ backgroundColor: 'transparent', mixBlendMode: 'multiply', filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))' }} />
+                <img
+                  src={signature}
+                  alt="Customer Signature"
+                  className="object-contain opacity-90"
+                  style={{
+                    maxHeight: '6rem',
+                    backgroundColor: 'transparent',
+                    mixBlendMode: 'multiply',
+                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))',
+                  }}
+                />
               </div>
             )}
             {adminSignature && (
               <div className="absolute bottom-4 left-8">
-                <img src={adminSignature} alt="Admin Signature" className="max-h-12 object-contain opacity-90"
-                  style={{ backgroundColor: 'transparent', mixBlendMode: 'multiply', filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))' }} />
+                <img
+                  src={adminSignature}
+                  alt="Admin Signature"
+                  className="object-contain opacity-90"
+                  style={{
+                    maxHeight: '6rem',
+                    backgroundColor: 'transparent',
+                    mixBlendMode: 'multiply',
+                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))',
+                  }}
+                />
               </div>
             )}
           </div>

@@ -25,6 +25,46 @@ export async function GET(request, { params }) {
   }
 }
 
+export async function PATCH(request, { params }) {
+  try {
+    await dbConnect()
+
+    const user = await verifyToken(request)
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
+    const body = await request.json().catch(() => ({}))
+    const customerSignature = body?.customerSignature
+    if (!customerSignature) {
+      return NextResponse.json({ success: false, error: "customerSignature is required" }, { status: 400 })
+    }
+
+    const existing = await EmployeeCylinderTransaction.findById(params.id)
+    if (!existing) {
+      return NextResponse.json({ success: false, error: "Transaction not found" }, { status: 404 })
+    }
+
+    if (String(user.role || "").toLowerCase() === "employee" && String(existing.employee) !== String(user.id)) {
+      return NextResponse.json({ success: false, error: "Access denied" }, { status: 403 })
+    }
+
+    const updated = await EmployeeCylinderTransaction.findByIdAndUpdate(
+      params.id,
+      { $set: { customerSignature } },
+      { new: true }
+    )
+      .populate('customer', 'name phone address')
+      .populate('employee', 'name')
+      .populate('product')
+
+    return NextResponse.json({ success: true, data: updated })
+  } catch (error) {
+    console.error('Error patching employee cylinder transaction signature:', error)
+    return NextResponse.json({ success: false, error: 'Failed to save signature' }, { status: 500 })
+  }
+}
+
 // UPDATE a transaction by ID
 export async function PUT(request, { params }) {
   try {

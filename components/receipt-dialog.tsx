@@ -806,8 +806,9 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                 <img 
                   src={signatureToUse} 
                   alt="Customer Signature" 
-                  className="max-h-20 object-contain opacity-90"
+                  className="object-contain opacity-90"
                   style={{
+                    maxHeight: '6rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
                     filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))'
@@ -820,8 +821,9 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                 <img 
                   src={adminSignature} 
                   alt="Admin Signature" 
-                  className="max-h-20 object-contain opacity-90"
+                  className="object-contain opacity-90"
                   style={{
+                    maxHeight: '6rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
                     filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))'

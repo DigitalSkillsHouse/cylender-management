@@ -54,3 +54,30 @@ export const persistEmployeeSaleCustomerSignature = async (saleId: string, signa
   }
 }
 
+export const persistCylinderCustomerSignature = async (transactionId: string, signature: string) => {
+  if (!transactionId || !signature) return false
+  try {
+    const res = await fetch(`/api/cylinders/${transactionId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ customerSignature: signature }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export const persistEmployeeCylinderCustomerSignature = async (transactionId: string, signature: string) => {
+  if (!transactionId || !signature) return false
+  try {
+    const res = await fetch(`/api/employee-cylinders/${transactionId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ customerSignature: signature }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}

@@ -177,6 +177,7 @@ export async function GET(request) {
               // For UI convenience
               amountPaid: sale.receivedAmount,
               receivedAmount: sale.receivedAmount,
+              customerSignature: sale.customerSignature || "",
               paymentStatus: sale.paymentStatus, // Use the transaction's own status
               createdAt: sale.createdAt,
               items: sale.items,
@@ -195,10 +196,12 @@ export async function GET(request) {
               cylinderSize: transaction.cylinderSize,
               quantity: transaction.quantity,
               amount: transaction.amount,
+              customerSignature: transaction.customerSignature || "",
               status: transaction.status,
               createdAt: transaction.createdAt,
               invoiceNumber: transaction.invoiceNumber,
               transactionId: transaction.transactionId,
+              transactionSource: transaction.employee ? 'employee' : 'admin',
               // Include employee information for reference name in PDF
               employee: transaction.employee ? {
                 _id: transaction.employee._id,

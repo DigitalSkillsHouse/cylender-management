@@ -114,6 +114,10 @@ const CylinderTransactionSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    customerSignature: {
+      type: String,
+      default: "",
+    },
   },
   {
     timestamps: true,

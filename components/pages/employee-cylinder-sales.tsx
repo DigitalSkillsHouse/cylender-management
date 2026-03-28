@@ -23,6 +23,7 @@ import SecuritySelectDialog from "@/components/security-select-dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import jsPDF from "jspdf"
 import { getStartOfDate, getEndOfDate } from "@/lib/date-utils"
+import { cacheInvoiceSignature, getCachedInvoiceSignature, persistEmployeeCylinderCustomerSignature } from "@/lib/invoice-signature"
 
 interface CylinderTransaction {
   _id: string  
@@ -60,6 +61,7 @@ interface CylinderTransaction {
   checkNumber?: string
   status: "pending" | "cleared" | "overdue"
   notes?: string
+  customerSignature?: string
   createdAt: string
   updatedAt: string
   isEmployeeTransaction?: boolean
@@ -1725,7 +1727,14 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
 
   const handleReceiptClick = (transaction: CylinderTransaction) => {
     setPendingDialogType('receipt')
-    if (!customerSignature) {
+    const cachedSignature = !transaction.customerSignature ? getCachedInvoiceSignature(transaction._id) : ""
+    const signatureToUse = transaction.customerSignature || cachedSignature || customerSignature
+
+    if (!transaction.customerSignature && cachedSignature) {
+      void persistEmployeeCylinderCustomerSignature(transaction._id, cachedSignature)
+    }
+
+    if (!signatureToUse) {
       // No signature yet - show signature dialog first
       setPendingTransaction(transaction)
       setShowSignatureDialog(true)
@@ -1786,7 +1795,7 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
         // include type to support header selection logic in receipt
         type: transaction.type,
         createdAt: transaction.createdAt,
-        customerSignature: customerSignature,
+        customerSignature: signatureToUse,
         // Ensure employee ID is included for signature lookup
         employee: (transaction as any).employee?._id || (transaction as any).employee || user.id,
         employeeId: (transaction as any).employee?._id || (transaction as any).employee || user.id,
@@ -1797,13 +1806,20 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
 
   const handleDeliveryNoteClick = (transaction: CylinderTransaction) => {
     setPendingDialogType('deliveryNote')
-    if (!customerSignature) {
+    const cachedSignature = !transaction.customerSignature ? getCachedInvoiceSignature(transaction._id) : ""
+    const signatureToUse = transaction.customerSignature || cachedSignature || customerSignature
+
+    if (!transaction.customerSignature && cachedSignature) {
+      void persistEmployeeCylinderCustomerSignature(transaction._id, cachedSignature)
+    }
+
+    if (!signatureToUse) {
       // No signature yet - show signature dialog first
       setPendingTransaction(transaction)
       setShowSignatureDialog(true)
     } else {
       // Signature already exists - show delivery note directly with existing signature
-      const saleData = convertTransactionToSale(transaction, customerSignature)
+      const saleData = convertTransactionToSale(transaction, signatureToUse)
       setDeliveryNoteSale(saleData)
     }
   }
@@ -1867,7 +1883,7 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
     }
   }
 
-  const handleSignatureComplete = (signature: string) => {
+  const handleSignatureComplete = async (signature: string) => {
     console.log('CylinderManagement - Signature received:', signature)
     console.log('CylinderManagement - Signature length:', signature?.length)
     console.log('CylinderManagement - Pending transaction:', pendingTransaction?._id)
@@ -1879,6 +1895,9 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
     
     // Open the appropriate dialog based on pendingDialogType
     if (pendingTransaction) {
+      cacheInvoiceSignature(pendingTransaction._id, signature)
+      await persistEmployeeCylinderCustomerSignature(pendingTransaction._id, signature)
+
       const saleData = convertTransactionToSale(pendingTransaction, signature)
       
       if (pendingDialogType === 'deliveryNote') {
@@ -2920,7 +2939,7 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
           useReceivingHeader
           disableVAT={receiptDialogData?.type === 'deposit' || receiptDialogData?.type === 'return' || receiptDialogData?.type === 'refill'}
           onClose={() => setReceiptDialogData(null)}
-          user={user}
+          user={{ id: user.id, role: user.role as "admin" | "employee" }}
         />
       )}
 

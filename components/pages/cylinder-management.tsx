@@ -23,6 +23,7 @@ import SecuritySelectDialog from "@/components/security-select-dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import jsPDF from "jspdf"
 import { getStartOfDate, getEndOfDate } from "@/lib/date-utils"
+import { cacheInvoiceSignature, getCachedInvoiceSignature, persistCylinderCustomerSignature } from "@/lib/invoice-signature"
 
 interface CylinderTransaction {
   _id: string  
@@ -60,6 +61,7 @@ interface CylinderTransaction {
   checkNumber?: string
   status: "pending" | "cleared" | "overdue"
   notes?: string
+  customerSignature?: string
   transactionDate?: string
   createdAt: string
   updatedAt: string
@@ -1631,7 +1633,14 @@ export const CylinderManagement = () => {
 
   const handleReceiptClick = async (transaction: CylinderTransaction) => {
     setPendingDialogType('receipt')
-    if (!customerSignature) {
+    const cachedSignature = !transaction.customerSignature ? getCachedInvoiceSignature(transaction._id) : ""
+    const signatureToUse = transaction.customerSignature || cachedSignature || customerSignature
+
+    if (!transaction.customerSignature && cachedSignature) {
+      void persistCylinderCustomerSignature(transaction._id, cachedSignature)
+    }
+
+    if (!signatureToUse) {
       // No signature yet - show signature dialog first
       setPendingTransaction(transaction)
       setShowSignatureDialog(true)
@@ -1709,7 +1718,7 @@ export const CylinderManagement = () => {
         // include type to support header selection logic in receipt
         type: transactionWithInvoice.type,
         createdAt: transactionWithInvoice.transactionDate || transactionWithInvoice.createdAt,
-        customerSignature: customerSignature,
+        customerSignature: signatureToUse,
       }
       setReceiptDialogData(saleData)
     }
@@ -1717,13 +1726,20 @@ export const CylinderManagement = () => {
 
   const handleDeliveryNoteClick = (transaction: CylinderTransaction) => {
     setPendingDialogType('deliveryNote')
-    if (!customerSignature) {
+    const cachedSignature = !transaction.customerSignature ? getCachedInvoiceSignature(transaction._id) : ""
+    const signatureToUse = transaction.customerSignature || cachedSignature || customerSignature
+
+    if (!transaction.customerSignature && cachedSignature) {
+      void persistCylinderCustomerSignature(transaction._id, cachedSignature)
+    }
+
+    if (!signatureToUse) {
       // No signature yet - show signature dialog first
       setPendingTransaction(transaction)
       setShowSignatureDialog(true)
     } else {
       // Signature already exists - show delivery note directly with existing signature
-      const saleData = convertTransactionToSale(transaction, customerSignature)
+      const saleData = convertTransactionToSale(transaction, signatureToUse)
       setDeliveryNoteSale(saleData)
     }
   }
@@ -1797,6 +1813,9 @@ export const CylinderManagement = () => {
     
     // Open the appropriate dialog based on pendingDialogType
     if (pendingTransaction) {
+      cacheInvoiceSignature(pendingTransaction._id, signature)
+      await persistCylinderCustomerSignature(pendingTransaction._id, signature)
+
       // Fetch the transaction fresh from the API to ensure we have the correct invoice number
       let transactionWithInvoice = pendingTransaction
       if (!pendingTransaction.invoiceNumber && pendingTransaction._id) {

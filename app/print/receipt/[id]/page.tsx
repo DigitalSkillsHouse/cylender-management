@@ -519,8 +519,11 @@ const ReceiptPrintPage = () => {
                         <img
                           src={sale.customerSignature}
                           alt="Customer Signature"
-                          className="receipt-signature max-h-12 object-contain opacity-90 mix-blend-multiply"
-                          style={{ filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))' }}
+                          className="receipt-signature object-contain opacity-90 mix-blend-multiply"
+                          style={{
+                            maxHeight: '6rem',
+                            filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))',
+                          }}
                         />
                       </div>
                     )}
@@ -529,8 +532,11 @@ const ReceiptPrintPage = () => {
                         <img
                           src={adminSignature}
                           alt="Admin Signature"
-                          className="receipt-signature max-h-12 object-contain opacity-90 mix-blend-multiply"
-                          style={{ filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))' }}
+                          className="receipt-signature object-contain opacity-90 mix-blend-multiply"
+                          style={{
+                            maxHeight: '6rem',
+                            filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))',
+                          }}
                         />
                       </div>
                     )}
@@ -585,7 +591,7 @@ const ReceiptPrintPage = () => {
             object-fit: contain !important;
           }
           .receipt-signature {
-            max-height: 16mm !important;
+            max-height: 22mm !important;
           }
           /* Restore original look for Sales (Tax) invoice header/footer only */
           .receipt-page-tax .receipt-header-img {
@@ -595,7 +601,7 @@ const ReceiptPrintPage = () => {
             max-height: none !important;
           }
           .receipt-page-tax .receipt-signature {
-            max-height: 20mm !important;
+            max-height: 24mm !important;
           }
           .receipt-page-tax .receipt-footer {
             padding-top: 2rem !important;
@@ -654,7 +660,7 @@ const ReceiptPrintPage = () => {
             padding-top: 2mm !important;
           }
           .receipt-page-collection .receipt-signature {
-            max-height: 14mm !important;
+            max-height: 20mm !important;
           }
           .receipt-page-collection .receipt-customer-signature {
             bottom: 22px !important;

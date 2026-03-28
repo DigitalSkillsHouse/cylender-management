@@ -32,7 +32,7 @@ export async function POST(request) {
     await dbConnect()
 
     const body = await request.json()
-    const { customer, items, totalAmount, deliveryCharges, paymentMethod, paymentStatus, receivedAmount, notes, saleDate, lpoNo } = body
+    const { customer, items, totalAmount, deliveryCharges, paymentMethod, paymentStatus, receivedAmount, notes, saleDate, lpoNo, customerSignature } = body
     const selectedSaleDate = normalizeAdminEntryDate(saleDate)
 
     // Validate required fields
@@ -252,6 +252,7 @@ export async function POST(request) {
       receivedAmount: roundedReceivedAmount,
       notes: notes || "",
       lpoNo: String(lpoNo || "").trim(),
+      customerSignature: customerSignature || "",
     })
 
     // Try to save with retry logic for duplicate key errors
