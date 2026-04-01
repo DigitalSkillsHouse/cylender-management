@@ -17,6 +17,7 @@ import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
 import { buildPdfFileName } from "@/lib/pdf-filename"
 import jsPDF from "jspdf"
+import { compressImageToWebpDataUrl } from "@/lib/client-image-compression"
 
 interface PurchaseOrder {
   _id: string
@@ -32,6 +33,7 @@ interface PurchaseOrder {
   notes: string
   status: "pending" | "completed" | "cancelled"
   poNumber: string
+  purchasePaperImage?: string
 }
 
 interface Product {
@@ -599,12 +601,14 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   const [emptyCylinders, setEmptyCylinders] = useState<any[]>([])
   const [cylinderSearchTerm, setCylinderSearchTerm] = useState("")
   const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
-  const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string }>(() => ({
+  const [compressingImage, setCompressingImage] = useState(false)
+  const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string; purchasePaperImage: string }>(() => ({
     supplierId: "",
     purchaseDate: getLocalDateString(),
     invoiceNumber: "",
     items: [],
     notes: "",
+    purchasePaperImage: "",
   }))
 
   useEffect(() => {
@@ -732,6 +736,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     setError("")
 
     try {
+      const hasGasPurchase = formData.items.some((item) => item.purchaseType === 'gas')
       const selectedSupplier = suppliers.find((s) => s._id === formData.supplierId)
       
       if (!selectedSupplier) {
@@ -742,6 +747,11 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
       // Validate required fields
       if (!formData.invoiceNumber?.trim()) {
         setError("Please enter an invoice number")
+        return
+      }
+
+      if (hasGasPurchase && !formData.purchasePaperImage) {
+        setError("Please upload refilling / gas purchase paper for gas purchases")
         return
       }
 
@@ -772,6 +782,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
           invoiceNumber: formData.invoiceNumber,
           emptyCylinderId: item.emptyCylinderId,
           emptyCylinderName: item.emptyCylinderName,
+          purchasePaperImage: formData.purchasePaperImage,
         }
         await employeePurchaseOrdersAPI.update(editingOrder._id, purchaseData)
       } else {
@@ -790,6 +801,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
             invoiceNumber: formData.invoiceNumber.trim(),
             emptyCylinderId: item.emptyCylinderId,
             emptyCylinderName: item.emptyCylinderName,
+            purchasePaperImage: formData.purchasePaperImage,
             status: 'approved', // Auto-approve so it goes directly to pending inventory
             autoApproved: true, // Flag to indicate this was auto-approved
           }
@@ -821,6 +833,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
       invoiceNumber: "",
       items: [],
       notes: "",
+      purchasePaperImage: "",
     })
     setEditingOrder(null)
     setError("")
@@ -846,6 +859,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
         cylinderSize: '',
       }],
       notes: order.notes || "",
+      purchasePaperImage: order.purchasePaperImage || "",
     })
     // Initialize current item inputs for edit mode of single existing order
     const pName = products.find(p => p._id === order.product._id)?.name || ""
@@ -860,6 +874,27 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     setShowProductSuggestions(false)
     setEditingItemIndex(0)
     setIsDialogOpen(true)
+  }
+
+  const handlePurchasePaperUpload = async (file?: File | null) => {
+    if (!file) {
+      setFormData((prev) => ({ ...prev, purchasePaperImage: "" }))
+      return
+    }
+
+    try {
+      setCompressingImage(true)
+      setError("")
+      const compressed = await compressImageToWebpDataUrl(file)
+      setFormData((prev) => ({
+        ...prev,
+        purchasePaperImage: compressed.dataUrl,
+      }))
+    } catch (uploadError: any) {
+      setError(uploadError?.message || "Failed to process purchase paper image")
+    } finally {
+      setCompressingImage(false)
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -1219,6 +1254,28 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                       className="h-10 sm:h-12 border-2 border-gray-200 rounded-lg sm:rounded-xl focus:border-[#2B3068] transition-colors"
                       required
                     />
+                  </div>
+
+                  <div className="space-y-2 sm:space-y-3 sm:col-span-2">
+                    <Label htmlFor="purchasePaperImage" className="text-sm font-semibold text-gray-700">
+                      Refilling / Gas Purchase Paper {formData.items.some((item) => item.purchaseType === 'gas') ? '*' : '(optional)'}
+                    </Label>
+                    <Input
+                      id="purchasePaperImage"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => handlePurchasePaperUpload(e.target.files?.[0] || null)}
+                      className="h-10 sm:h-12 border-2 border-gray-200 rounded-lg sm:rounded-xl focus:border-[#2B3068] transition-colors"
+                    />
+                    <p className="text-xs text-gray-500">
+                      The image is automatically compressed and converted to `WEBP` before saving.
+                    </p>
+                    {compressingImage ? (
+                      <p className="text-xs text-blue-600">Compressing image...</p>
+                    ) : formData.purchasePaperImage ? (
+                      <p className="text-xs text-green-600">Purchase paper attached successfully.</p>
+                    ) : null}
                   </div>
                 </div>
 

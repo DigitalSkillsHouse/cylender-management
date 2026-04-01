@@ -11,6 +11,7 @@ import { GenerateQuotation } from "@/components/pages/generate-quotation"
 import { AcceptReturn } from "@/components/pages/accept-return"
 import { Inventory } from "@/components/pages/inventory"
 import { CustomerManagement } from "@/components/pages/customer-management"
+import { CustomerItemRates } from "@/components/pages/customer-item-rates"
 import { GasSales } from "@/components/pages/gas-sales"
 import { EmployeeManagement } from "@/components/pages/employee-management"
 import { CylinderManagement } from "@/components/pages/cylinder-management"
@@ -248,6 +249,8 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
         return <Inventory />
       case "customers":
         return <CustomerManagement />
+      case "customer-item-rates":
+        return <CustomerItemRates />
       case "sales":
         return <GasSales />
       case "employees":

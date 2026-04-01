@@ -86,6 +86,7 @@ export async function POST(request) {
       autoApproved = false, // Extract autoApproved flag
       invoiceNumber,
       emptyCylinderId,
+      purchasePaperImage,
     } = body
 
     // Validate required fields (supplier can be null for admin assignments)
@@ -100,6 +101,13 @@ export async function POST(request) {
       })
       return NextResponse.json(
         { error: "Missing required fields" },
+        { status: 400 }
+      )
+    }
+
+    if (purchaseType === "gas" && !String(purchasePaperImage || "").trim()) {
+      return NextResponse.json(
+        { error: "Purchase paper image is required for gas purchases" },
         { status: 400 }
       )
     }
@@ -178,6 +186,7 @@ export async function POST(request) {
       status: status || "pending", // Use provided status or default to pending
       inventoryStatus: status === "approved" ? "approved" : (inventoryStatus || "pending"), // Auto-approved orders should have approved inventory status
       poNumber,
+      purchasePaperImage: purchasePaperImage || "",
       ...(emptyCylinderId ? { emptyCylinderId } : {}),
       ...(emptyCylinderName ? { emptyCylinderName } : {}),
       ...(autoApproved ? { autoApproved: true } : {}) // Add autoApproved flag if provided

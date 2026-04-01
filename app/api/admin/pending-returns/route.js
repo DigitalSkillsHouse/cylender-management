@@ -3,6 +3,7 @@ import dbConnect from "@/lib/mongodb"
 import ReturnTransaction from "@/models/ReturnTransaction"
 import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import mongoose from "mongoose"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
 import { addDaysToDate, getDubaiNowISOString, getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // Disable caching for this route - force dynamic rendering
@@ -21,6 +22,7 @@ export async function GET(request) {
     // Auto-expire pending returns at 23:55 Dubai time (lazy, runs on read)
     try {
       const nowDubai = new Date(getDubaiNowISOString())
+      const rebuildDatesByEmployee = new Map()
       const candidates = await ReturnTransaction.find({
         status: 'pending',
         $or: [
@@ -42,6 +44,13 @@ export async function GET(request) {
         }
 
         if (expiry <= nowDubai) {
+          const affectedDate = getLocalDateStringFromDate(r.returnDate || r.createdAt || nowDubai)
+          const employeeKey = String(r.employee || "")
+          const previousDate = rebuildDatesByEmployee.get(employeeKey)
+          if (!previousDate || previousDate > affectedDate) {
+            rebuildDatesByEmployee.set(employeeKey, affectedDate)
+          }
+
           // Restore employee inventory if it was deducted on send-back
           if (r.inventoryDeducted) {
             const qty = Number(r.quantity || 0)
@@ -71,6 +80,16 @@ export async function GET(request) {
         } else if (!r.expiresAt) {
           await ReturnTransaction.updateOne({ _id: r._id }, { $set: { expiresAt: expiry } })
         }
+      }
+
+      if (rebuildDatesByEmployee.size > 0) {
+        await Promise.all(
+          Array.from(rebuildDatesByEmployee.entries()).map(([employeeId, affectedDate]) =>
+            recalculateEmployeeDailyStockReportsFrom(employeeId, affectedDate).catch((syncError) => {
+              console.error(`[pending-returns] Failed to rebuild employee DSR for ${employeeId}:`, syncError)
+            })
+          )
+        )
       }
     } catch (e) {
       console.warn('[pending-returns] expiry check failed:', e?.message || e)

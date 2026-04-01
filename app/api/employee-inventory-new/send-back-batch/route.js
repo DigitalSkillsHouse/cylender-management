@@ -5,6 +5,7 @@ import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import ReturnTransaction from "@/models/ReturnTransaction"
 import Notification from "@/models/Notification"
 import User from "@/models/User"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
 import { addDaysToDate, getDubaiNowISOString, getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // Disable caching for this route - force dynamic rendering
@@ -153,6 +154,20 @@ export async function POST(request) {
       })
     } finally {
       session.endSession()
+    }
+
+    try {
+      const affectedDate = created.reduce((earliest, item) => {
+        const itemDate = getLocalDateStringFromDate(item?.returnDate || item?.createdAt || new Date())
+        return !earliest || itemDate < earliest ? itemDate : earliest
+      }, "")
+
+      if (affectedDate) {
+        await recalculateEmployeeDailyStockReportsFrom(String(employeeId), affectedDate)
+        console.log(`[send-back-batch] Rebuilt employee DSR from ${affectedDate}`)
+      }
+    } catch (syncError) {
+      console.error("[send-back-batch] Failed to rebuild employee DSR:", syncError)
     }
 
     return NextResponse.json({ success: true, batchId, expiresAt, data: created }, { status: 201 })

@@ -2,6 +2,9 @@ import dbConnect from "@/lib/mongodb";
 import StockAssignment from "@/models/StockAssignment";
 import Notification from "@/models/Notification";
 import Product from "@/models/Product";
+import { recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync";
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync";
+import { getLocalDateStringFromDate } from "@/lib/date-utils";
 import { NextResponse } from "next/server";
 
 export async function PUT(request, { params }) {
@@ -55,6 +58,17 @@ export async function PUT(request, { params }) {
       message: `${updatedAssignment.employee.name} has returned the assigned stock.`,
       relatedId: updatedAssignment._id,
     });
+
+    try {
+      const affectedDate = getLocalDateStringFromDate(updatedAssignment.returnedDate || updatedAssignment.updatedAt || new Date())
+      await Promise.all([
+        recalculateAdminDailyStockReportsFrom(affectedDate),
+        recalculateEmployeeDailyStockReportsFrom(String(updatedAssignment.employee._id || updatedAssignment.employee), affectedDate),
+      ])
+      console.log(`[stock-assignment-return] Rebuilt admin and employee DSR from ${affectedDate}`)
+    } catch (syncError) {
+      console.error("[stock-assignment-return] Failed to rebuild DSR snapshots:", syncError)
+    }
 
     return NextResponse.json(updatedAssignment);
   } catch (error) {

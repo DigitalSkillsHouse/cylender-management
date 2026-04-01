@@ -2030,6 +2030,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         // Get dates - handle both Date objects and ISO strings
         let assignedDate = assignment.assignedDate || assignment.createdAt || ''
         let receivedDate = assignment.receivedDate || ''
+        let returnedDate = assignment.returnedDate || ''
         
         // Convert Date objects to ISO strings if needed
         if (assignedDate && typeof assignedDate === 'object' && assignedDate.toISOString) {
@@ -2037,6 +2038,9 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         }
         if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
           receivedDate = receivedDate.toISOString()
+        }
+        if (returnedDate && typeof returnedDate === 'object' && returnedDate.toISOString) {
+          returnedDate = returnedDate.toISOString()
         }
         
         console.log(`[DSR] StockAssignment record:`, {
@@ -2047,6 +2051,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
           status,
           assignedDate,
           receivedDate,
+          returnedDate,
           assignmentId: assignment._id
         })
         
@@ -2063,11 +2068,14 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
           (status === 'received' || status === 'active') &&
           ((receivedDate && inSelectedDay(receivedDate)) || (!receivedDate && assignedDate && inSelectedDay(assignedDate)))
 
-        const isReceivedDate = receivedDate && inSelectedDay(receivedDate)
+        const isReceivedDate =
+          status === 'returned' &&
+          ((returnedDate && inSelectedDay(returnedDate)) || (!returnedDate && receivedDate && inSelectedDay(receivedDate)))
         
         console.log(`[DSR] Date matching for ${productName}:`, {
           assignedDate,
           receivedDate,
+          returnedDate,
           selectedDate: date,
           isTransferDate,
           isReceivedDate
@@ -2123,10 +2131,10 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
         if (isReceivedDate && status === 'returned') {
           if (category === 'gas') {
             inc(receivedGas, dsrKey, quantity)
-            console.log(`[DSR] StockAssignment Received Gas: ${productName} = ${quantity} (returned by employee, date: ${receivedDate})`)
+            console.log(`[DSR] StockAssignment Received Gas: ${productName} = ${quantity} (returned by employee, date: ${returnedDate || receivedDate})`)
           } else if (category === 'cylinder' && (cylinderStatus === 'empty' || !cylinderStatus)) {
             inc(receivedEmpty, dsrKey, quantity)
-            console.log(`[DSR] StockAssignment Received Empty: ${productName} = ${quantity} (returned by employee, date: ${receivedDate})`)
+            console.log(`[DSR] StockAssignment Received Empty: ${productName} = ${quantity} (returned by employee, date: ${returnedDate || receivedDate})`)
           }
         }
       }

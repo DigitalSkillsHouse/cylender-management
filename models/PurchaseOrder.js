@@ -72,6 +72,10 @@ const purchaseOrderSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  purchasePaperImage: {
+    type: String,
+    default: "",
+  },
   status: {
     type: String,
     enum: ['pending', 'completed', 'cancelled'],

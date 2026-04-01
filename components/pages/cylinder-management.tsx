@@ -24,6 +24,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import jsPDF from "jspdf"
 import { getStartOfDate, getEndOfDate } from "@/lib/date-utils"
 import { buildPdfFileName } from "@/lib/pdf-filename"
+import { getEffectiveProductRate } from "@/lib/customer-item-rates"
 import { cacheInvoiceSignature, getCachedInvoiceSignature, persistCylinderCustomerSignature } from "@/lib/invoice-signature"
 
 interface CylinderTransaction {
@@ -90,6 +91,10 @@ interface Customer {
   address: string
   email?: string
   trNumber?: string
+  itemRates?: Array<{
+    product?: string | { _id?: string }
+    rate?: number
+  }>
 }
 
 interface Product {
@@ -954,6 +959,12 @@ export const CylinderManagement = () => {
 
   // Helpers for items
   const getProductById = (id: string) => allProducts.find(p => p._id === id)
+  const getSelectedRate = (productId?: string, defaultRate?: number) =>
+    getEffectiveProductRate({
+      customer: customers.find((customer) => customer._id === formData.customerId),
+      productId,
+      defaultRate,
+    })
 
   const addItem = () => {
     // Add current draft item to items list (or save edit), then reset draft
@@ -993,7 +1004,7 @@ export const CylinderManagement = () => {
         if (p) {
           item.productName = p.name
           // Remove cylinder size dependency
-          item.amount = Number((p.leastPrice).toFixed(2))
+          item.amount = Number(getSelectedRate(p._id, p.leastPrice).toFixed(2))
         }
       }
       items[index] = item
@@ -2330,7 +2341,7 @@ export const CylinderManagement = () => {
                                     productId: p._id, 
                                     productName: p.name, 
                                     cylinderSize: p.cylinderSize || 'small', // Use product's cylinder size or default to small
-                                    amount: Number((p.leastPrice).toFixed(2)) 
+                                    amount: Number(getSelectedRate(p._id, p.leastPrice).toFixed(2)) 
                                   }))
                                   setDraftProductSearchTerm(p.name)
                                   setShowDraftProductSuggestions(false)
@@ -2339,7 +2350,7 @@ export const CylinderManagement = () => {
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <div className="font-medium">{p.name}</div>
-                                    <div className="text-xs text-gray-500">Min Price: AED {p.leastPrice.toFixed(2)}</div>
+                                    <div className="text-xs text-gray-500">Min Price: AED {getSelectedRate(p._id, p.leastPrice).toFixed(2)}</div>
                                   </div>
                                   <div className="text-right">
                                     <div className="text-xs font-medium text-green-600">

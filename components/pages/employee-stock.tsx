@@ -265,6 +265,7 @@ export function EmployeeStock({ user }: { user: User }) {
       await fetchData()
       window.dispatchEvent(new Event("notification-refresh"))
       window.dispatchEvent(new Event("pendingReturnsRefresh"))
+      window.dispatchEvent(new Event("employee-dsr-refresh"))
     } catch (e: any) {
       setError(e?.message || "Failed to send return")
     } finally {

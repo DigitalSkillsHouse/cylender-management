@@ -991,6 +991,21 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
         const purchaseResult = await purchaseResponse.json()
         purchaseData = purchaseResult.data || []
       }
+
+      // Step 1.75: Fetch employee return transactions to track stock sent back to admin
+      const returnTransactionsResponse = await fetch(
+        `/api/return-transactions?employeeId=${user.id}&date=${dsrDate}&statuses=pending,received`
+      )
+      let returnTransactionsData = []
+
+      if (returnTransactionsResponse.ok) {
+        const returnTransactionsResult = await returnTransactionsResponse.json()
+        returnTransactionsData = Array.isArray(returnTransactionsResult?.data)
+          ? returnTransactionsResult.data
+          : Array.isArray(returnTransactionsResult)
+            ? returnTransactionsResult
+            : []
+      }
       
       // Step 1.8: Fetch stock assignments to track received stock (when employee accepts stock)
       const stockAssignmentsResponse = await fetch(`/api/stock-assignments?employeeId=${user.id}`)
@@ -1246,6 +1261,86 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
         const dateOnly = dateObj.toISOString().slice(0, 10)
         return dateOnly === dsrDate
       }
+
+      const findMatchingCylinderName = (productName: string, preferredCylinderName?: string): string => {
+        if (preferredCylinderName) return preferredCylinderName
+
+        const normalizedProductName = normalizeName(productName)
+        if (!normalizedProductName) return productName
+
+        for (const invItem of inventoryData) {
+          if (invItem.category !== 'cylinder') continue
+
+          const cylinderName = invItem.productName || ''
+          const normalizedCylinderName = normalizeName(cylinderName)
+          if (!normalizedCylinderName) continue
+
+          if (
+            normalizedCylinderName === normalizedProductName ||
+            normalizedCylinderName.includes(normalizedProductName) ||
+            normalizedProductName.includes(normalizedCylinderName)
+          ) {
+            return cylinderName
+          }
+        }
+
+        return productName
+      }
+
+      const getOrCreateDsrEntry = (itemName: string): DSRItem => {
+        if (dsrMap.has(itemName)) {
+          return dsrMap.get(itemName)!
+        }
+
+        const normalizedItemName = normalizeName(itemName)
+        for (const [key, value] of dsrMap.entries()) {
+          if (normalizeName(key) === normalizedItemName) {
+            return value
+          }
+        }
+
+        const newEntry: DSRItem = {
+          itemName,
+          openingFull: 0,
+          openingEmpty: 0,
+          emptyPurchase: 0,
+          fullPurchase: 0,
+          refilled: 0,
+          fullCylinderSales: 0,
+          emptyCylinderSales: 0,
+          gasSales: 0,
+          deposits: 0,
+          returns: 0,
+          transferGas: 0,
+          transferEmpty: 0,
+          receivedGas: 0,
+          receivedEmpty: 0,
+          closingFull: 0,
+          closingEmpty: 0,
+          category: 'cylinder'
+        }
+
+        dsrMap.set(itemName, newEntry)
+        return newEntry
+      }
+
+      returnTransactionsData.forEach((transaction: any) => {
+        const quantity = Number(transaction.quantity || 0)
+        const stockType = String(transaction.stockType || '').toLowerCase()
+        const productName = transaction.product?.name || transaction.productName || ''
+        const targetItemName = stockType === 'gas'
+          ? findMatchingCylinderName(productName, transaction.cylinderProductId?.name || '')
+          : productName
+
+        if (!targetItemName || quantity <= 0) return
+
+        const entry = getOrCreateDsrEntry(targetItemName)
+        if (stockType === 'gas') {
+          entry.transferGas += quantity
+        } else {
+          entry.transferEmpty += quantity
+        }
+      })
       
       stockAssignmentsData.forEach((assignment: any) => {
         const productName = assignment.product?.name || assignment.productName || ''
@@ -1257,33 +1352,31 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
         }
         const cylinderStatus = assignment.cylinderStatus || ''
         const quantity = Number(assignment.quantity || assignment.remainingQuantity || 0)
-        const status = assignment.status || ''
+        const status = String(assignment.status || '').toLowerCase()
         
-        // CRITICAL FIX: Only process assignments that have been ACCEPTED by employee
-        // Status must be 'received' - do NOT include 'assigned' (pending) or 'active' status
-        if (status !== 'received') {
-          // Skip assignments that haven't been accepted yet
+        // Only received or returned assignments should affect employee DSR
+        if (!['received', 'returned'].includes(status)) {
           return
         }
         
-        // Get received date - check multiple possible fields
-        let receivedDate = assignment.receivedDate || assignment.updatedAt || assignment.createdAt || ''
-        if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
-          receivedDate = receivedDate.toISOString()
+        let eventDate =
+          status === 'returned'
+            ? assignment.returnedDate || assignment.updatedAt || assignment.createdAt || ''
+            : assignment.receivedDate || assignment.updatedAt || assignment.createdAt || ''
+
+        if (eventDate && typeof eventDate === 'object' && eventDate.toISOString) {
+          eventDate = eventDate.toISOString()
         }
-        
-        // Also check if status is 'received' and use assignedDate if receivedDate is not available
-        // (some assignments might be marked as received immediately)
-        if (status === 'received' && !receivedDate) {
-          receivedDate = assignment.assignedDate || assignment.createdAt || ''
-          if (receivedDate && typeof receivedDate === 'object' && receivedDate.toISOString) {
-            receivedDate = receivedDate.toISOString()
+
+        if (status === 'received' && !eventDate) {
+          eventDate = assignment.assignedDate || assignment.createdAt || ''
+          if (eventDate && typeof eventDate === 'object' && eventDate.toISOString) {
+            eventDate = eventDate.toISOString()
           }
         }
         
-        // Only process assignments that were received on the selected date
-        const dateMatches = receivedDate && inSelectedDay(receivedDate)
-        const isTodayCheck = !receivedDate && isToday(dsrDate) // If no receivedDate but status is received and it's today
+        const dateMatches = eventDate && inSelectedDay(eventDate)
+        const isTodayCheck = !eventDate && isToday(dsrDate)
         
         if (dateMatches || isTodayCheck) {
           // Determine which cylinder row this should be added to
@@ -1346,12 +1439,15 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
           }
           
           if (foundItem && foundKey) {
-            // Merge with existing entry - add to the correct cylinder row
-            if (category === 'gas') {
+            if (status === 'returned') {
+              if (category === 'gas') {
+                foundItem.transferGas += quantity
+              } else {
+                foundItem.transferEmpty += quantity
+              }
+            } else if (category === 'gas') {
               foundItem.receivedGas += quantity
             } else if (category === 'cylinder' || !category) {
-              // For cylinders or if category is not set, track as received empty
-              // Full cylinders transferred become empty at employee location
               foundItem.receivedEmpty += quantity
             } else {
               foundItem.receivedEmpty += quantity
@@ -1369,10 +1465,10 @@ const EmployeeDSR = ({ user }: EmployeeDSRProps) => {
               gasSales: 0,
               deposits: 0,
               returns: 0,
-              transferGas: 0,
-              transferEmpty: 0,
-              receivedGas: category === 'gas' ? quantity : 0,
-              receivedEmpty: category === 'gas' ? 0 : quantity,
+              transferGas: status === 'returned' && category === 'gas' ? quantity : 0,
+              transferEmpty: status === 'returned' && category !== 'gas' ? quantity : 0,
+              receivedGas: status !== 'returned' && category === 'gas' ? quantity : 0,
+              receivedEmpty: status !== 'returned' && category === 'gas' ? 0 : status !== 'returned' ? quantity : 0,
               closingFull: 0,
               closingEmpty: 0,
               category: 'cylinder'

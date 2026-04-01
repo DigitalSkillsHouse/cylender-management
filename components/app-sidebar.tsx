@@ -102,6 +102,11 @@ const adminMenuItems = [
     icon: Users,
   },
   {
+    title: "Customer Item Rate",
+    url: "customer-item-rates",
+    icon: FileText,
+  },
+  {
     title: "Employee Management",
     url: "employees",
     icon: UserCheck,

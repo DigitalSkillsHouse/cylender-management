@@ -59,6 +59,10 @@ const employeePurchaseOrderSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  purchasePaperImage: {
+    type: String,
+    default: "",
+  },
   status: {
     type: String,
     enum: ['pending', 'assigned', 'approved', 'completed', 'cancelled'],

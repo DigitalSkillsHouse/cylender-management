@@ -3,6 +3,8 @@ import dbConnect from "@/lib/mongodb"
 import ReturnTransaction from "@/models/ReturnTransaction"
 import EmployeeInventoryItem from "@/models/EmployeeInventoryItem"
 import Notification from "@/models/Notification"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
+import { getLocalDateStringFromDate } from "@/lib/date-utils"
 
 // Disable caching for this route - force dynamic rendering
 export const dynamic = "force-dynamic"
@@ -67,6 +69,14 @@ export async function POST(request) {
     tx.inventoryDeducted = false
     await tx.save()
 
+    try {
+      const affectedDate = getLocalDateStringFromDate(tx.returnDate || tx.processedAt || tx.createdAt || new Date())
+      await recalculateEmployeeDailyStockReportsFrom(String(tx.employee?._id || tx.employee), affectedDate)
+      console.log(`[reject-return] Rebuilt employee DSR from ${affectedDate}`)
+    } catch (syncError) {
+      console.error("[reject-return] Failed to rebuild employee DSR:", syncError)
+    }
+
     // Notify employee (best-effort)
     try {
       await Notification.create({
@@ -87,4 +97,3 @@ export async function POST(request) {
     return NextResponse.json({ error: "Failed to reject return", details: error.message }, { status: 500 })
   }
 }
-

@@ -65,12 +65,21 @@ export async function POST(request) {
       notes,
       status = "pending",
       invoiceNumber,
+      purchasePaperImage,
     } = body
 
     // Validate required fields
     if (!supplier || !purchaseDate || !items || !Array.isArray(items) || items.length === 0 || !invoiceNumber) {
       return NextResponse.json(
         { error: "Missing required fields. Supplier, purchase date, items array, and invoice number are required." },
+        { status: 400 }
+      )
+    }
+
+    const hasGasPurchase = items.some((item) => item?.purchaseType === "gas")
+    if (hasGasPurchase && !String(purchasePaperImage || "").trim()) {
+      return NextResponse.json(
+        { error: "Purchase paper image is required for gas purchases." },
         { status: 400 }
       )
     }
@@ -238,6 +247,7 @@ export async function POST(request) {
       notes: notes || "",
       status,
       poNumber,
+      purchasePaperImage: purchasePaperImage || "",
       createdBy: user.id
     })
 

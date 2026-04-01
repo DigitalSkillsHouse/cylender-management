@@ -54,7 +54,8 @@ export async function PUT(request, { params }) {
       purchaseDate,
       items,
       notes,
-      status
+      status,
+      purchasePaperImage,
     } = body
 
     // Validate required fields
@@ -62,6 +63,14 @@ export async function PUT(request, { params }) {
       console.log("Missing required fields:", { supplier, purchaseDate, items: items?.length })
       return NextResponse.json(
         { error: "Missing required fields. Supplier, purchase date, and items array are required." },
+        { status: 400 }
+      )
+    }
+
+    const hasGasPurchase = items.some((item) => item?.purchaseType === "gas")
+    if (hasGasPurchase && !String(purchasePaperImage || "").trim()) {
+      return NextResponse.json(
+        { error: "Purchase paper image is required for gas purchases." },
         { status: 400 }
       )
     }
@@ -192,7 +201,8 @@ export async function PUT(request, { params }) {
         items: processedItems,
         totalAmount: totalOrderAmount,
         notes: notes || "",
-        status: status || "pending"
+        status: status || "pending",
+        purchasePaperImage: purchasePaperImage || "",
       },
       { new: true }
     ).populate('supplier', 'companyName')

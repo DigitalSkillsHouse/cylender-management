@@ -489,6 +489,7 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
         window.dispatchEvent(new Event('notification-refresh'))
         // Trigger specific pending returns refresh for admin pages
         window.dispatchEvent(new Event('pendingReturnsRefresh'))
+        window.dispatchEvent(new Event('employee-dsr-refresh'))
         
         // Refresh inventory data
         await fetchEmployeeInventoryData()

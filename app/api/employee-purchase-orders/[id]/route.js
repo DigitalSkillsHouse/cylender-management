@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import dbConnect from "@/lib/mongodb"
 import EmployeePurchaseOrder from "@/models/EmployeePurchaseOrder"
+import Product from "@/models/Product"
 import { verifyToken } from "@/lib/auth"
 
 // GET - Fetch single employee purchase order
@@ -65,8 +66,16 @@ export async function PUT(request, { params }) {
       unitPrice,
       totalAmount,
       notes,
-      status
+      status,
+      purchasePaperImage,
     } = body
+
+    if (purchaseType === "gas" && !String(purchasePaperImage || "").trim()) {
+      return NextResponse.json(
+        { error: "Purchase paper image is required for gas purchases" },
+        { status: 400 }
+      )
+    }
 
     // Handle cylinder size validation
     let effectiveCylinderSize = cylinderSize
@@ -99,7 +108,8 @@ export async function PUT(request, { params }) {
       unitPrice: unitPriceNum,
       totalAmount: computedTotal,
       notes: notes || "",
-      status
+      status,
+      purchasePaperImage: purchasePaperImage || "",
     }
 
     const updatedOrder = await EmployeePurchaseOrder.findByIdAndUpdate(

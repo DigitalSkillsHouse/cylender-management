@@ -23,6 +23,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import jsPDF from "jspdf"
 import { getEndOfDate, getLocalDateString, getStartOfDate } from "@/lib/date-utils"
 import { buildPdfFileName } from "@/lib/pdf-filename"
+import { getEffectiveProductRate } from "@/lib/customer-item-rates"
 import { cacheInvoiceSignature, getCachedInvoiceSignature, persistSaleCustomerSignature } from "@/lib/invoice-signature"
 
 interface Sale {
@@ -74,6 +75,10 @@ interface Customer {
   address: string
   email?: string
   trNumber?: string
+  itemRates?: Array<{
+    product?: string | { _id?: string }
+    rate?: number
+  }>
 }
 
 interface Product {
@@ -270,6 +275,18 @@ export const GasSales = () => {
     lpoNo: "",
     deliveryCharges: "0",
   })
+
+  const selectedCustomer = useMemo(
+    () => customers.find((customer) => customer._id === formData.customerId),
+    [customers, formData.customerId]
+  )
+
+  const getSelectedRate = (productId?: string, defaultRate?: number) =>
+    getEffectiveProductRate({
+      customer: selectedCustomer,
+      productId,
+      defaultRate,
+    })
 
   const getSaleDateValue = (sale: Sale) => sale.saleDate || sale.createdAt
 
@@ -1247,7 +1264,7 @@ export const GasSales = () => {
         ...newItems[index],
         productId: value,
         quantity: '1', // Reset quantity to a string '1'
-        price: product ? product.leastPrice.toString() : '', // Set price
+        price: product ? getSelectedRate(product._id, product.leastPrice).toString() : '',
       };
       // Update search term to chosen product name and hide suggestions
       setProductSearchTerms((prev) => {
@@ -1281,10 +1298,11 @@ export const GasSales = () => {
       const item = newItems[index]
       const product = allProducts.find((p: Product) => p._id === item.productId)
       const enteredPrice = parseFloat(value)
+      const minimumPrice = product ? getSelectedRate(product._id, product.leastPrice) : 0
       
-      if (product && value && !isNaN(enteredPrice) && enteredPrice < product.leastPrice) {
+      if (product && value && !isNaN(enteredPrice) && enteredPrice < minimumPrice) {
         // Show warning but allow typing - will be corrected on blur or submit
-        setPriceAlert({ message: `Price below minimum (AED ${product.leastPrice.toFixed(2)}). Will be corrected.`, index })
+        setPriceAlert({ message: `Price below minimum (AED ${minimumPrice.toFixed(2)}). Will be corrected.`, index })
         setTimeout(() => setPriceAlert({ message: '', index: null }), 2000)
       }
     }
@@ -1369,7 +1387,7 @@ export const GasSales = () => {
       category: product.category as "gas" | "cylinder",
       productId: product._id,
       quantity: "1",
-      price: (Number(product.leastPrice) || 0).toString(),
+      price: getSelectedRate(product._id, Number(product.leastPrice) || 0).toString(),
       cylinderStatus: currentItem.cylinderStatus || "empty" as "empty" | "full",
       gasProductId: "",
       cylinderProductId: "",
@@ -1503,13 +1521,14 @@ export const GasSales = () => {
     // Validate on blur (when user leaves the field)
     const product = allProducts.find((p: Product) => p._id === currentItem.productId)
     const enteredPrice = parseFloat(currentItem.price)
+    const minimumPrice = product ? getSelectedRate(product._id, product.leastPrice) : 0
     
     if (product && currentItem.price && !isNaN(enteredPrice)) {
-      if (enteredPrice < product.leastPrice) {
-        setPriceAlert({ message: `You cannot enter below the least amount. Minimum price is AED ${product.leastPrice.toFixed(2)}.`, index: -1 })
+      if (enteredPrice < minimumPrice) {
+        setPriceAlert({ message: `You cannot enter below the least amount. Minimum price is AED ${minimumPrice.toFixed(2)}.`, index: -1 })
         setTimeout(() => setPriceAlert({ message: '', index: null }), 3000)
         // Auto-correct to least price so user can see the correct value
-        setCurrentItem((prev) => ({ ...prev, price: product.leastPrice.toString() }))
+        setCurrentItem((prev) => ({ ...prev, price: minimumPrice.toString() }))
       }
     }
   }
@@ -1522,10 +1541,11 @@ export const GasSales = () => {
     // Validate price before adding/updating item - must be at least least price
     const product = allProducts.find((p: Product) => p._id === currentItem.productId)
     const enteredPrice = parseFloat(currentItem.price)
+    const minimumPrice = product ? getSelectedRate(product._id, product.leastPrice) : 0
     
     if (product && currentItem.price && !isNaN(enteredPrice)) {
-      if (enteredPrice < product.leastPrice) {
-        setPriceAlert({ message: `You cannot enter below the least amount. Minimum price is AED ${product.leastPrice.toFixed(2)}.`, index: -1 })
+      if (enteredPrice < minimumPrice) {
+        setPriceAlert({ message: `You cannot enter below the least amount. Minimum price is AED ${minimumPrice.toFixed(2)}.`, index: -1 })
         setTimeout(() => setPriceAlert({ message: '', index: null }), 3000)
         // Don't add item - user must correct the price first
         return
@@ -2213,7 +2233,7 @@ export const GasSales = () => {
                                         {currentItem.cylinderStatus === 'empty' ? 'Empty' : 'Full'}: {currentItem.cylinderStatus === 'empty' ? (inventoryAvailability[product._id]?.availableEmpty || 0) : (inventoryAvailability[product._id]?.availableFull || 0)}
                                       </span>
                                     )}
-                                    <span className="text-xs text-gray-500">Min AED {product.leastPrice.toFixed(2)}</span>
+                                    <span className="text-xs text-gray-500">Min AED {getSelectedRate(product._id, product.leastPrice).toFixed(2)}</span>
                                   </div>
                                 </div>
                               </div>
@@ -2358,7 +2378,7 @@ export const GasSales = () => {
                       onBlur={handleEntryPriceBlur}
                       placeholder={(() => {
                         const p = allProducts.find((ap) => ap._id === currentItem.productId)
-                        return p?.leastPrice ? `Min: AED ${p.leastPrice.toFixed(2)}` : 'Select product first'
+                        return p ? `Min: AED ${getSelectedRate(p._id, p.leastPrice).toFixed(2)}` : 'Select product first'
                       })()}
                     />
                   </div>

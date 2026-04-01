@@ -40,6 +40,20 @@ const CustomerSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    itemRates: [
+      {
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Product",
+          required: true,
+        },
+        rate: {
+          type: Number,
+          required: true,
+          min: 0,
+        },
+      },
+    ],
   },
   {
     timestamps: true,

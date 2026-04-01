@@ -7,6 +7,7 @@ import DailyCylinderTransaction from "@/models/DailyCylinderTransaction"
 import DailyEmployeeCylinderAggregation from "@/models/DailyEmployeeCylinderAggregation"
 import Notification from "@/models/Notification"
 import User from "@/models/User"
+import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-sync"
 import { addDaysToDate, getDubaiNowISOString, getLocalDateStringFromDate } from "@/lib/date-utils"
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -179,7 +180,14 @@ export async function POST(request) {
     }
 
     // NOTE: Do NOT update daily stock report here.
-    // DSR must only reflect returns after admin Accepts (not while pending).
+    // Pending employee returns should still appear in employee transfer columns.
+    try {
+      const affectedDate = getLocalDateStringFromDate(returnTransaction.returnDate || returnTransaction.createdAt || new Date())
+      await recalculateEmployeeDailyStockReportsFrom(String(employeeId), affectedDate)
+      console.log(`✅ [SEND BACK] Rebuilt employee DSR from ${affectedDate}`)
+    } catch (syncError) {
+      console.error("❌ [SEND BACK] Failed to rebuild employee DSR:", syncError)
+    }
 
     // Send notification to admin about the stock return
     try {
