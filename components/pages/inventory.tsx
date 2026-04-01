@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, Loader2, Edit, ChevronDown, RefreshCw } from "lucide-react"
+import { Package, Loader2, Edit, ChevronDown, RefreshCw, Eye } from "lucide-react"
 import { purchaseOrdersAPI, inventoryAPI, productsAPI, suppliersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 
@@ -32,6 +32,7 @@ interface InventoryItem {
   isEmployeePurchase?: boolean
   employeeName?: string
   employeeId?: string
+  purchasePaperImage?: string
   groupedItems?: InventoryItem[]
   originalOrderId?: string
   itemIndex?: number
@@ -287,6 +288,7 @@ export const Inventory = () => {
                 isEmployeePurchase: order.isEmployeePurchase || false,
                 employeeName: employeeName,
                 employeeId: order.isEmployeePurchase ? (order.employee?._id || order.employee) : null,
+                purchasePaperImage: order.purchasePaperImage || "",
                 originalOrderId: order._id,
                 itemIndex: itemIndex
               } as InventoryItem
@@ -983,6 +985,17 @@ export const Inventory = () => {
                 {showActions && (
                   <TableCell className="p-4">
                     <div className="flex justify-end gap-2">
+                      {item.isEmployeePurchase && item.purchasePaperImage && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => window.open(item.purchasePaperImage, "_blank", "noopener,noreferrer")}
+                          className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                          title="View purchase paper"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      )}
                       {item.status === "pending" && !processingItems.has(item.id) && (
                         <Button
                           size="sm"

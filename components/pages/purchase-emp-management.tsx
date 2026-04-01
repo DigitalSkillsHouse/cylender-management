@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown, Download, Calendar } from "lucide-react"
+import { Plus, Edit, Trash2, Loader2, ShoppingCart, AlertCircle, Package as PackageIcon, ChevronRight, ChevronDown, Download, Calendar, Eye } from "lucide-react"
 import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
@@ -894,6 +894,11 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     } finally {
       setCompressingImage(false)
     }
+  }
+
+  const handleViewPurchasePaper = (purchasePaperImage?: string) => {
+    if (!purchasePaperImage) return
+    window.open(purchasePaperImage, "_blank", "noopener,noreferrer")
   }
 
   const handleDelete = async (id: string) => {
@@ -1838,6 +1843,17 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                                       </TableCell>
                                       <TableCell>
                                         <div className="flex space-x-1 sm:space-x-2">
+                                          {order.purchasePaperImage && (
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => handleViewPurchasePaper(order.purchasePaperImage)}
+                                              className="border-blue-500 text-blue-600 hover:bg-blue-50 transition-colors p-1 sm:p-2"
+                                              title="View purchase paper"
+                                            >
+                                              <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
+                                            </Button>
+                                          )}
                                           <Button
                                             variant="outline"
                                             size="sm"

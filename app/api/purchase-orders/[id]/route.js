@@ -67,13 +67,6 @@ export async function PUT(request, { params }) {
       )
     }
 
-    if (!String(purchasePaperImage || "").trim()) {
-      return NextResponse.json(
-        { error: "Purchase paper image is required." },
-        { status: 400 }
-      )
-    }
-
     // Validate and process each item
     const processedItems = []
     let totalOrderAmount = 0
@@ -201,7 +194,9 @@ export async function PUT(request, { params }) {
         totalAmount: totalOrderAmount,
         notes: notes || "",
         status: status || "pending",
-        purchasePaperImage: purchasePaperImage || "",
+        ...(purchasePaperImage !== undefined
+          ? { purchasePaperImage: String(purchasePaperImage || "").trim() }
+          : {}),
       },
       { new: true }
     ).populate('supplier', 'companyName')

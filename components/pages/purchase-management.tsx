@@ -17,7 +17,6 @@ import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 import jsPDF from "jspdf"
 import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
 import { buildPdfFileName } from "@/lib/pdf-filename"
-import { compressImageToWebpDataUrl } from "@/lib/client-image-compression"
 
 interface PurchaseOrder {
   _id: string
@@ -38,7 +37,6 @@ interface PurchaseOrder {
   notes: string
   status: "pending" | "completed" | "cancelled"
   poNumber: string
-  purchasePaperImage?: string
 }
 
 interface InventoryItemLite {
@@ -116,14 +114,12 @@ export const PurchaseManagement = () => {
   const [gasSearchTerm, setGasSearchTerm] = useState("")
   const [showGasSuggestions, setShowGasSuggestions] = useState(false)
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null)
-  const [compressingImage, setCompressingImage] = useState(false)
-  const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string; purchasePaperImage: string }>(() => ({
+  const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string }>(() => ({
     supplierId: "",
     purchaseDate: getLocalDateString(),
     invoiceNumber: "",
     items: [],
     notes: "",
-    purchasePaperImage: "",
   }))
   const [inventoryItems, setInventoryItems] = useState<InventoryItemLite[]>([])
 
@@ -284,11 +280,6 @@ export const PurchaseManagement = () => {
         return
       }
 
-      if (!formData.purchasePaperImage) {
-        setError("Please upload refilling / gas purchase paper")
-        return
-      }
-
       // Validate all items (unit price optional)
       for (const item of formData.items) {
         const selectedProduct = products.find((p) => p._id === item.productId)
@@ -341,7 +332,6 @@ export const PurchaseManagement = () => {
           })),
           notes: formData.notes,
           invoiceNumber: formData.invoiceNumber.trim(),
-          purchasePaperImage: formData.purchasePaperImage,
         }
         await purchaseOrdersAPI.update(editingOrder._id, purchaseData)
       } else {
@@ -362,7 +352,6 @@ export const PurchaseManagement = () => {
           })),
           notes: formData.notes,
           invoiceNumber: formData.invoiceNumber.trim(),
-          purchasePaperImage: formData.purchasePaperImage,
         }
         await purchaseOrdersAPI.create(purchaseData)
       }
@@ -386,7 +375,6 @@ export const PurchaseManagement = () => {
       invoiceNumber: "",
       items: [],
       notes: "",
-      purchasePaperImage: "",
     })
     setEditingOrder(null)
     setError("")
@@ -416,7 +404,6 @@ export const PurchaseManagement = () => {
         emptyCylinderId: item.purchaseType === 'gas' ? (item.emptyCylinderId || '') : undefined,
       })),
       notes: order.notes || "",
-      purchasePaperImage: order.purchasePaperImage || "",
     })
     // Initialize current item inputs for edit mode - use first item
     const firstItem = order.items[0]
@@ -443,27 +430,6 @@ export const PurchaseManagement = () => {
     setShowCylinderSuggestions(false)
     setEditingItemIndex(null)
     setIsDialogOpen(true)
-  }
-
-  const handlePurchasePaperUpload = async (file?: File | null) => {
-    if (!file) {
-      setFormData((prev) => ({ ...prev, purchasePaperImage: "" }))
-      return
-    }
-
-    try {
-      setCompressingImage(true)
-      setError("")
-      const compressed = await compressImageToWebpDataUrl(file)
-      setFormData((prev) => ({
-        ...prev,
-        purchasePaperImage: compressed.dataUrl,
-      }))
-    } catch (uploadError: any) {
-      setError(uploadError?.message || "Failed to process purchase paper image")
-    } finally {
-      setCompressingImage(false)
-    }
   }
 
   const handleDelete = async (id: string) => {
@@ -1275,28 +1241,6 @@ export const PurchaseManagement = () => {
                     />
                   </div>
 
-                  <div className="space-y-2 sm:space-y-3 sm:col-span-2">
-                    <Label htmlFor="purchasePaperImage" className="text-sm font-semibold text-gray-700">
-                      Refilling / Gas Purchase Paper *
-                    </Label>
-                    <Input
-                      id="purchasePaperImage"
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      required={!formData.purchasePaperImage}
-                      onChange={(e) => handlePurchasePaperUpload(e.target.files?.[0] || null)}
-                      className="h-10 sm:h-12 border-2 border-gray-200 rounded-lg sm:rounded-xl focus:border-[#2B3068] transition-colors"
-                    />
-                    <p className="text-xs text-gray-500">
-                      The image is automatically compressed and converted to `WEBP` before saving.
-                    </p>
-                    {compressingImage ? (
-                      <p className="text-xs text-blue-600">Compressing image...</p>
-                    ) : formData.purchasePaperImage ? (
-                      <p className="text-xs text-green-600">Purchase paper attached successfully.</p>
-                    ) : null}
-                  </div>
                 </div>
 
                 {/* Items Section: Single entry form (2x2) and items table below */}

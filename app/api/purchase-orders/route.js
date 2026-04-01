@@ -76,12 +76,6 @@ export async function POST(request) {
       )
     }
 
-    if (!String(purchasePaperImage || "").trim()) {
-      return NextResponse.json(
-        { error: "Purchase paper image is required." },
-        { status: 400 }
-      )
-    }
     // Validate and process each item
     const processedItems = []
     let totalOrderAmount = 0
@@ -246,7 +240,7 @@ export async function POST(request) {
       notes: notes || "",
       status,
       poNumber,
-      purchasePaperImage: purchasePaperImage || "",
+      ...(String(purchasePaperImage || "").trim() ? { purchasePaperImage: purchasePaperImage.trim() } : {}),
       createdBy: user.id
     })
 
