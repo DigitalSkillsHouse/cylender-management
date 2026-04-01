@@ -1935,52 +1935,20 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                     </p>
                   </div>
                   <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Employee</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.employee?.name || "N/A"}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Supplier</p>
                     <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.supplier?.companyName || "N/A"}</p>
                   </div>
                   <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Product</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.product?.name || "Unknown Product"}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Type</p>
-                    <p className="mt-1 text-sm font-semibold capitalize text-gray-900">{verificationOrder.purchaseType || "N/A"}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Cylinder Size</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.cylinderSize || "-"}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quantity</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.quantity || 0}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Unit Price</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900">AED {(verificationOrder.unitPrice || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subtotal</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900">AED {(verificationOrder.totalAmount || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">VAT 5%</p>
-                    <p className="mt-1 text-sm font-semibold text-green-700">
-                      AED {(Math.trunc((((verificationOrder.quantity || 0) * (verificationOrder.unitPrice || 0)) * 0.05) * 100) / 100).toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
-                    <p className="mt-1 text-sm font-semibold capitalize text-gray-900">{verificationOrder.status || "N/A"}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</p>
-                    <p className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">
-                      {verificationOrder.notes?.trim() || "No notes added"}
-                    </p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Item Name</p>
+                        <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.product?.name || "Unknown Product"}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quantity</p>
+                        <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.quantity || 0}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
