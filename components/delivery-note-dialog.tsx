@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 
 interface DeliveryNoteDialogProps {
   sale: {
@@ -309,7 +310,21 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
                         
                         if (sigCtx) {
                           sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height)
-                          sigCtx.drawImage(sigImg, 0, 0, sigCanvas.width, sigCanvas.height)
+                          // Draw signature (slightly "bold" by overdrawing with small offsets)
+                          const offsets: Array<[number, number]> = [
+                            [0, 0],
+                            [0.6, 0],
+                            [-0.6, 0],
+                            [0, 0.6],
+                            [0, -0.6],
+                            [0.6, 0.6],
+                            [-0.6, 0.6],
+                            [0.6, -0.6],
+                            [-0.6, -0.6],
+                          ]
+                          offsets.forEach(([dx, dy]) => {
+                            sigCtx.drawImage(sigImg, dx, dy, sigCanvas.width, sigCanvas.height)
+                          })
                           
                           const imageData = sigCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height)
                           const data = imageData.data
@@ -365,7 +380,21 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
                         
                         if (sigCtx) {
                           sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height)
-                          sigCtx.drawImage(sigImg, 0, 0, sigCanvas.width, sigCanvas.height)
+                          // Draw signature (slightly "bold" by overdrawing with small offsets)
+                          const offsets: Array<[number, number]> = [
+                            [0, 0],
+                            [0.6, 0],
+                            [-0.6, 0],
+                            [0, 0.6],
+                            [0, -0.6],
+                            [0.6, 0.6],
+                            [-0.6, 0.6],
+                            [0.6, -0.6],
+                            [-0.6, -0.6],
+                          ]
+                          offsets.forEach(([dx, dy]) => {
+                            sigCtx.drawImage(sigImg, dx, dy, sigCanvas.width, sigCanvas.height)
+                          })
                           
                           const imageData = sigCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height)
                           const data = imageData.data
@@ -418,7 +447,11 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
         console.warn('Failed to load footer image:', error)
       }
 
-      const fileName = `delivery-note-DN-${sale.invoiceNumber}.pdf`
+      const fileName = buildPdfFileName({
+        subjectName: sale?.customer?.name,
+        label: sale?.invoiceNumber ? `Delivery Note DN-${sale.invoiceNumber}` : "Delivery Note",
+        fallbackName: sale?.invoiceNumber ? `Delivery Note DN-${sale.invoiceNumber}` : "Delivery Note",
+      })
       pdf.save(fileName)
       toast.success("Delivery Note PDF downloaded successfully", {
         description: `File: ${fileName}`,
@@ -540,7 +573,7 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
                     style={{
                       backgroundColor: 'transparent',
                       mixBlendMode: 'multiply',
-                      filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))'
+                      filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))'
                     }}
                   />
                 </div>
@@ -554,7 +587,7 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
                     style={{
                       backgroundColor: 'transparent',
                       mixBlendMode: 'multiply',
-                      filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))'
+                      filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))'
                     }}
                   />
                 </div>

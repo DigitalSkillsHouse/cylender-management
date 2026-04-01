@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 import {
   Dialog,
   DialogContent,
@@ -442,7 +443,11 @@ export default function ProfitLoss() {
       pdf.text("SYED TAYYAB INDUSTRIAL - Business Expenses Report", pageWidth / 2, footerY, { align: "center" })
 
       // Save PDF
-      const fileName = `Business_Expenses_${getLocalDateString()}.pdf`
+      const fileName = buildPdfFileName({
+        subjectName: "Business Expenses",
+        label: `Report ${getLocalDateString()}`,
+        fallbackName: `Business Expenses Report ${getLocalDateString()}`,
+      })
       pdf.save(fileName)
       
       toast.success("Expenses PDF downloaded successfully")

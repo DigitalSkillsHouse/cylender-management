@@ -8,6 +8,7 @@ import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
 import { fetchAdminSignature } from "@/lib/admin-signature"
 import { fetchEmployeeSignature } from "@/lib/employee-signature"
+import { buildPdfFileName, getInvoicePdfLabel } from "@/lib/pdf-filename"
 
 const formatPaymentMethodLabel = (paymentMethod: unknown) => {
   const raw = (paymentMethod ?? "").toString().trim()
@@ -398,7 +399,11 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
           pdf.addImage(imgData, 'PNG', x, y, imgWidth, imgHeight, undefined, 'FAST')
         }
 
-        const fileName = `receipt-${sale.invoiceNumber}.pdf`
+        const fileName = buildPdfFileName({
+          subjectName: sale?.customer?.name,
+          label: getInvoicePdfLabel(sale as any),
+          fallbackName: sale?.invoiceNumber ? `Invoice ${sale.invoiceNumber}` : "Receipt",
+        })
         pdf.save(fileName)
 
         toast.dismiss(loadingToast)
@@ -811,7 +816,7 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                     maxHeight: '6rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
-                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))'
+                    filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))'
                   }}
                 />
               </div>
@@ -826,7 +831,7 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                     maxHeight: '6rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
-                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))'
+                    filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))'
                   }}
                 />
               </div>

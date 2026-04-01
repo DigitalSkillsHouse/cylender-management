@@ -522,7 +522,8 @@ const ReceiptPrintPage = () => {
                           className="receipt-signature object-contain opacity-90 mix-blend-multiply"
                           style={{
                             maxHeight: '6rem',
-                            filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))',
+                            filter:
+                              'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 1px rgba(255,255,255,0.7))',
                           }}
                         />
                       </div>
@@ -535,7 +536,8 @@ const ReceiptPrintPage = () => {
                           className="receipt-signature object-contain opacity-90 mix-blend-multiply"
                           style={{
                             maxHeight: '6rem',
-                            filter: 'drop-shadow(0 0 1px rgba(255,255,255,0.7))',
+                            filter:
+                              'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 1px rgba(255,255,255,0.7))',
                           }}
                         />
                       </div>
@@ -568,9 +570,12 @@ const ReceiptPrintPage = () => {
           }
           .receipt-page {
             width: 210mm !important;
-            min-height: 297mm !important;
+            height: 297mm !important;
+            min-height: 0 !important;
+            max-height: 297mm !important;
             padding: 8mm !important;
             box-sizing: border-box !important;
+            overflow: hidden !important;
             page-break-after: always !important;
             break-after: page !important;
             margin: 0 !important;
@@ -592,6 +597,7 @@ const ReceiptPrintPage = () => {
           }
           .receipt-signature {
             max-height: 22mm !important;
+            filter: contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) !important;
           }
           /* Restore original look for Sales (Tax) invoice header/footer only */
           .receipt-page-tax .receipt-header-img {

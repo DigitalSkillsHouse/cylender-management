@@ -22,6 +22,7 @@ import { ProductDropdown } from "@/components/ui/product-dropdown"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import jsPDF from "jspdf"
 import { getStartOfDate, getEndOfDate } from "@/lib/date-utils"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 import { cacheInvoiceSignature, getCachedInvoiceSignature, persistEmployeeSaleCustomerSignature } from "@/lib/invoice-signature"
 
 interface Sale {
@@ -554,11 +555,15 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       })
 
       const ts = new Date().toISOString().replace(/[:.]/g, '-')
-      const namePart = term ? `-cust-${term.replace(/\s+/g, '_')}` : ''
-      const datePart = (exportStartDate || exportEndDate)
-        ? `-date-${(exportStartDate||'start').replace(/[^0-9-]/g,'')}_to_${(exportEndDate||'end').replace(/[^0-9-]/g,'')}`
-        : ''
-      doc.save(`sales-export${namePart}${datePart}-${ts}.pdf`)
+      const dateLabel = (exportStartDate || exportEndDate)
+        ? `Date ${(exportStartDate || "start").replace(/[^0-9-]/g, "")} to ${(exportEndDate || "end").replace(/[^0-9-]/g, "")}`
+        : ""
+      const fileName = buildPdfFileName({
+        subjectName: term?.trim() ? term.trim() : "Sales Export",
+        label: `Sales Export${dateLabel ? ` ${dateLabel}` : ""} ${ts}`,
+        fallbackName: `Sales Export ${ts}`,
+      })
+      doc.save(fileName)
     } catch (err) {
       console.error('Failed to export sales PDF:', err)
       alert('Failed to export PDF')

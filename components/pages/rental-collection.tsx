@@ -12,6 +12,7 @@ import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
 import jsPDF from "jspdf"
 import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 
 interface Customer {
   _id: string
@@ -773,7 +774,21 @@ export const RentalCollection = ({ user }: RentalCollectionProps = {}) => {
                           
                           if (sigCtx) {
                             sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height)
-                            sigCtx.drawImage(signatureImg, 0, 0, sigCanvas.width, sigCanvas.height)
+                            // Draw signature (slightly "bold" by overdrawing with small offsets)
+                            const offsets: Array<[number, number]> = [
+                              [0, 0],
+                              [0.6, 0],
+                              [-0.6, 0],
+                              [0, 0.6],
+                              [0, -0.6],
+                              [0.6, 0.6],
+                              [-0.6, 0.6],
+                              [0.6, -0.6],
+                              [-0.6, -0.6],
+                            ]
+                            offsets.forEach(([dx, dy]) => {
+                              sigCtx.drawImage(signatureImg, dx, dy, sigCanvas.width, sigCanvas.height)
+                            })
                             
                             const imageData = sigCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height)
                             const data = imageData.data
@@ -851,7 +866,11 @@ export const RentalCollection = ({ user }: RentalCollectionProps = {}) => {
 
       // Generate filename with date range
       const dateRange = pdfFromDate && pdfToDate ? `_${pdfFromDate}_to_${pdfToDate}` : `_${getLocalDateString()}`
-      const filename = `Rental_Collection_Report${dateRange}.pdf`
+      const filename = buildPdfFileName({
+        subjectName: "Rental Collection",
+        label: `Report${dateRange.replace(/_/g, " ")}`,
+        fallbackName: `Rental Collection Report${dateRange.replace(/_/g, " ")}`,
+      })
       
       pdf.save(filename)
       setShowPDFDatePopup(false)

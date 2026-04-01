@@ -16,6 +16,7 @@ import { suppliersAPI, productsAPI, purchaseOrdersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 import jsPDF from "jspdf"
 import { getLocalDateString, getDubaiDateDisplayString } from "@/lib/date-utils"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 
 interface PurchaseOrder {
   _id: string
@@ -994,8 +995,21 @@ export const PurchaseManagement = () => {
                             // Clear canvas with transparent background
                             sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height)
                             
-                            // Draw signature first
-                            sigCtx.drawImage(signatureImg, 0, 0, sigCanvas.width, sigCanvas.height)
+                            // Draw signature (slightly "bold" by overdrawing with small offsets)
+                            const offsets: Array<[number, number]> = [
+                              [0, 0],
+                              [0.6, 0],
+                              [-0.6, 0],
+                              [0, 0.6],
+                              [0, -0.6],
+                              [0.6, 0.6],
+                              [-0.6, 0.6],
+                              [0.6, -0.6],
+                              [-0.6, -0.6],
+                            ]
+                            offsets.forEach(([dx, dy]) => {
+                              sigCtx.drawImage(signatureImg, dx, dy, sigCanvas.width, sigCanvas.height)
+                            })
                             
                             // Get image data to process pixels
                             const imageData = sigCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height)
@@ -1085,7 +1099,11 @@ export const PurchaseManagement = () => {
 
       // Generate filename with date range
       const dateRange = pdfFromDate && pdfToDate ? `_${pdfFromDate}_to_${pdfToDate}` : `_${getLocalDateString()}`
-      const filename = `Purchase_Orders_Report${dateRange}.pdf`
+      const filename = buildPdfFileName({
+        subjectName: "Purchase Orders",
+        label: `Report${dateRange.replace(/_/g, " ")}`,
+        fallbackName: `Purchase Orders Report${dateRange.replace(/_/g, " ")}`,
+      })
       
       pdf.save(filename)
       setShowPDFDatePopup(false) // Close popup after generating PDF

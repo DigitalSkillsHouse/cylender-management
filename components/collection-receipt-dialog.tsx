@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
 import { getDubaiDateDisplayString, getDubaiDateTimeString } from "@/lib/date-utils"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 
 export interface CollectionPaymentItem {
   model: string // "Sale" | "EmployeeSale"
@@ -115,17 +116,21 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
       const margin = 10
       const imgWidth = pageWidth - margin * 2
       const imgHeight = (canvas.height * imgWidth) / canvas.width
-      let heightLeft = imgHeight
-      let position = 0
-      pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
-      heightLeft -= pageHeight
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight
-        pdf.addPage()
-        pdf.addImage(imgData, 'PNG', margin, margin + position, imgWidth, imgHeight, undefined, 'SLOW')
-        heightLeft -= pageHeight
+      const printableHeight = pageHeight - margin * 2
+      // Use a deterministic page count (with epsilon) to avoid trailing blank pages caused by float rounding.
+      const totalPages = Math.max(1, Math.ceil((imgHeight - 1e-6) / printableHeight))
+      for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+        if (pageIndex > 0) pdf.addPage()
+        const y = margin - pageIndex * printableHeight
+        pdf.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight, undefined, 'SLOW')
       }
-      const fileName = `collection-receipt.pdf`
+      const dt = new Date()
+      const stamp = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`
+      const fileName = buildPdfFileName({
+        subjectName: customerName || "Customer",
+        label: `Collection Receipt ${stamp}`,
+        fallbackName: `Collection Receipt ${stamp}`,
+      })
       pdf.save(fileName)
       toast.success("Collection Receipt PDF downloaded successfully", {
         description: `File: ${fileName}`,
@@ -236,7 +241,7 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
                     maxHeight: '6rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
-                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))',
+                    filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))',
                   }}
                 />
               </div>
@@ -251,7 +256,7 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
                     maxHeight: '6rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
-                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.8))',
+                    filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))',
                   }}
                 />
               </div>

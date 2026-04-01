@@ -23,6 +23,7 @@ import SecuritySelectDialog from "@/components/security-select-dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import jsPDF from "jspdf"
 import { getStartOfDate, getEndOfDate } from "@/lib/date-utils"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 import { cacheInvoiceSignature, getCachedInvoiceSignature, persistEmployeeCylinderCustomerSignature } from "@/lib/invoice-signature"
 
 interface CylinderTransaction {
@@ -890,14 +891,15 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
       })
 
       const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')
-      let customerName = 'all-customers'
-      if (term) {
-        customerName = term.replace(/[^a-z0-9\s]+/gi,'').replace(/\s+/g,'_')
-      }
-      const datePart = (exportStartDate || exportEndDate)
-        ? `_${(exportStartDate||'start').replace(/[^0-9-]/g,'')}_to_${(exportEndDate||'end').replace(/[^0-9-]/g,'')}`
-        : ''
-      const filename = `${customerName}_cylinder_transactions${datePart}_${ts}.pdf`
+      const customerLabel = term?.trim() ? term.trim() : "All Customers"
+      const dateLabel = (exportStartDate || exportEndDate)
+        ? `Date ${(exportStartDate || "start").replace(/[^0-9-]/g, "")} to ${(exportEndDate || "end").replace(/[^0-9-]/g, "")}`
+        : ""
+      const filename = buildPdfFileName({
+        subjectName: customerLabel,
+        label: `Cylinder Transactions${dateLabel ? ` ${dateLabel}` : ""} ${ts}`,
+        fallbackName: `Cylinder Transactions ${ts}`,
+      })
       doc.save(filename)
     } catch (e) {
       console.error('[CylinderManagement] PDF export failed:', e)

@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 import { customersAPI } from "@/lib/api"
 import { toast } from "sonner"
 import { getDubaiDateDisplayString } from "@/lib/date-utils"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 
 export interface ProductQuoteItem {
   _id: string
@@ -850,8 +851,21 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
                               // Clear canvas with transparent background
                               sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height)
                               
-                              // Draw signature first
-                              sigCtx.drawImage(signatureImg, 0, 0, sigCanvas.width, sigCanvas.height)
+                              // Draw signature (slightly "bold" by overdrawing with small offsets)
+                              const offsets: Array<[number, number]> = [
+                                [0, 0],
+                                [0.6, 0],
+                                [-0.6, 0],
+                                [0, 0.6],
+                                [0, -0.6],
+                                [0.6, 0.6],
+                                [-0.6, 0.6],
+                                [0.6, -0.6],
+                                [-0.6, -0.6],
+                              ]
+                              offsets.forEach(([dx, dy]) => {
+                                sigCtx.drawImage(signatureImg, dx, dy, sigCanvas.width, sigCanvas.height)
+                              })
                               
                               // Get image data to process pixels
                               const imageData = sigCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height)
@@ -943,7 +957,11 @@ export default function ProductQuoteDialog({ products, totalCount, onClose, onSa
       pdf.text(`Page ${pageNum + 1} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: "center" })
     }
 
-      const fileName = `quotation-${saved.quotationNumber}.pdf`
+      const fileName = buildPdfFileName({
+        subjectName: (saved as any)?.customerName || customerName,
+        label: saved?.quotationNumber ? `Quotation ${saved.quotationNumber}` : "Quotation",
+        fallbackName: saved?.quotationNumber ? `Quotation ${saved.quotationNumber}` : "Quotation",
+      })
       pdf.save(fileName)
       toast.success("Quotation PDF downloaded successfully", {
         description: `File: ${fileName}`,

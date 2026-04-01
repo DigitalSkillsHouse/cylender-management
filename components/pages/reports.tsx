@@ -19,6 +19,7 @@ import CashPaperSection from "@/components/cash-paper-section"
 import { getDubaiDateTimeString } from "@/lib/date-utils"
 import { formatCurrencyAED } from "@/lib/utils"
 import { cacheInvoiceSignature, getCachedInvoiceSignature, persistCylinderCustomerSignature, persistEmployeeCylinderCustomerSignature, persistEmployeeSaleCustomerSignature, persistSaleCustomerSignature } from "@/lib/invoice-signature"
+import { buildPdfFileName } from "@/lib/pdf-filename"
 
 interface CustomerLedgerData {
   _id: string
@@ -589,7 +590,21 @@ export const Reports = () => {
                         
                         if (sigCtx) {
                           sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
-                          sigCtx.drawImage(signatureImg, 0, 0, sigCanvas.width, sigCanvas.height);
+                          // Slightly "bold" the signature by overdrawing with small offsets.
+                          const offsets: Array<[number, number]> = [
+                            [0, 0],
+                            [0.6, 0],
+                            [-0.6, 0],
+                            [0, 0.6],
+                            [0, -0.6],
+                            [0.6, 0.6],
+                            [-0.6, 0.6],
+                            [0.6, -0.6],
+                            [-0.6, -0.6],
+                          ]
+                          offsets.forEach(([dx, dy]) => {
+                            sigCtx.drawImage(signatureImg, dx, dy, sigCanvas.width, sigCanvas.height)
+                          })
                           
                           // Process signature to remove background
                           const imageData = sigCtx.getImageData(0, 0, sigCanvas.width, sigCanvas.height);
@@ -887,7 +902,12 @@ export const Reports = () => {
       // Save the PDF
       const dt = new Date();
       const stamp = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-      pdf.save(`pending-transactions-${stamp}.pdf`);
+      const fileName = buildPdfFileName({
+        subjectName: filters.customerName?.trim() ? filters.customerName.trim() : "All Customers",
+        label: `Pending Transactions ${stamp}`,
+        fallbackName: `Pending Transactions ${stamp}`,
+      })
+      pdf.save(fileName);
 
     } catch (error) {
       console.error("Error generating PDF:", error);
