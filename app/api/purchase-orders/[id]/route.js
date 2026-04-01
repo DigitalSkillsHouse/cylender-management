@@ -67,10 +67,9 @@ export async function PUT(request, { params }) {
       )
     }
 
-    const hasGasPurchase = items.some((item) => item?.purchaseType === "gas")
-    if (hasGasPurchase && !String(purchasePaperImage || "").trim()) {
+    if (!String(purchasePaperImage || "").trim()) {
       return NextResponse.json(
-        { error: "Purchase paper image is required for gas purchases." },
+        { error: "Purchase paper image is required." },
         { status: 400 }
       )
     }

@@ -70,9 +70,9 @@ export async function PUT(request, { params }) {
       purchasePaperImage,
     } = body
 
-    if (purchaseType === "gas" && !String(purchasePaperImage || "").trim()) {
+    if (!String(purchasePaperImage || "").trim()) {
       return NextResponse.json(
-        { error: "Purchase paper image is required for gas purchases" },
+        { error: "Purchase paper image is required" },
         { status: 400 }
       )
     }

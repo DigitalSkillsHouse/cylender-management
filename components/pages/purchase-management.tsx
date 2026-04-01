@@ -271,7 +271,6 @@ export const PurchaseManagement = () => {
     setError("")
 
     try {
-      const hasGasPurchase = formData.items.some((item) => item.purchaseType === 'gas')
       const selectedSupplier = suppliers.find((s) => s._id === formData.supplierId)
       
       if (!selectedSupplier) {
@@ -285,8 +284,8 @@ export const PurchaseManagement = () => {
         return
       }
 
-      if (hasGasPurchase && !formData.purchasePaperImage) {
-        setError("Please upload refilling / gas purchase paper for gas purchases")
+      if (!formData.purchasePaperImage) {
+        setError("Please upload refilling / gas purchase paper")
         return
       }
 
@@ -1278,13 +1277,14 @@ export const PurchaseManagement = () => {
 
                   <div className="space-y-2 sm:space-y-3 sm:col-span-2">
                     <Label htmlFor="purchasePaperImage" className="text-sm font-semibold text-gray-700">
-                      Refilling / Gas Purchase Paper {formData.items.some((item) => item.purchaseType === 'gas') ? '*' : '(optional)'}
+                      Refilling / Gas Purchase Paper *
                     </Label>
                     <Input
                       id="purchasePaperImage"
                       type="file"
                       accept="image/*"
                       capture="environment"
+                      required={!formData.purchasePaperImage}
                       onChange={(e) => handlePurchasePaperUpload(e.target.files?.[0] || null)}
                       className="h-10 sm:h-12 border-2 border-gray-200 rounded-lg sm:rounded-xl focus:border-[#2B3068] transition-colors"
                     />
