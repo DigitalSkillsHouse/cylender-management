@@ -118,6 +118,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   const [submitting, setSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
+  const [verificationOrder, setVerificationOrder] = useState<PurchaseOrder | null>(null)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -896,9 +897,8 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     }
   }
 
-  const handleViewPurchasePaper = (purchasePaperImage?: string) => {
-    if (!purchasePaperImage) return
-    window.open(purchasePaperImage, "_blank", "noopener,noreferrer")
+  const handleViewPurchasePaper = (order: PurchaseOrder) => {
+    setVerificationOrder(order)
   }
 
   const handleDelete = async (id: string) => {
@@ -1843,17 +1843,15 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                                       </TableCell>
                                       <TableCell>
                                         <div className="flex space-x-1 sm:space-x-2">
-                                          {order.purchasePaperImage && (
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              onClick={() => handleViewPurchasePaper(order.purchasePaperImage)}
-                                              className="border-blue-500 text-blue-600 hover:bg-blue-50 transition-colors p-1 sm:p-2"
-                                              title="View purchase paper"
-                                            >
-                                              <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
-                                            </Button>
-                                          )}
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleViewPurchasePaper(order)}
+                                            className="border-blue-500 text-blue-600 hover:bg-blue-50 transition-colors p-1 sm:p-2"
+                                            title="Verify purchase paper and item data"
+                                          >
+                                            <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
+                                          </Button>
                                           <Button
                                             variant="outline"
                                             size="sm"
@@ -1899,6 +1897,120 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={!!verificationOrder}
+        onOpenChange={(open) => {
+          if (!open) {
+            setVerificationOrder(null)
+          }
+        }}
+      >
+        <DialogContent className="w-[95vw] max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#2B3068]">
+              Purchase Verification
+            </DialogTitle>
+          </DialogHeader>
+
+          {verificationOrder && (
+            <div className="grid gap-4 lg:grid-cols-[0.95fr_1.25fr]">
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
+                <div className="mb-4">
+                  <h3 className="text-base font-semibold text-[#2B3068]">Entered Purchase Data</h3>
+                  <p className="text-sm text-gray-500">
+                    Employee ne form mein jo item details save ki thin.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Invoice / PO</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.poNumber || "N/A"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Purchase Date</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                      {verificationOrder.purchaseDate ? new Date(verificationOrder.purchaseDate).toLocaleDateString() : "N/A"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Employee</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.employee?.name || "N/A"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Supplier</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.supplier?.companyName || "N/A"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Product</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.product?.name || "Unknown Product"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Type</p>
+                    <p className="mt-1 text-sm font-semibold capitalize text-gray-900">{verificationOrder.purchaseType || "N/A"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Cylinder Size</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.cylinderSize || "-"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quantity</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.quantity || 0}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Unit Price</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">AED {(verificationOrder.unitPrice || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Subtotal</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">AED {(verificationOrder.totalAmount || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">VAT 5%</p>
+                    <p className="mt-1 text-sm font-semibold text-green-700">
+                      AED {(Math.trunc((((verificationOrder.quantity || 0) * (verificationOrder.unitPrice || 0)) * 0.05) * 100) / 100).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
+                    <p className="mt-1 text-sm font-semibold capitalize text-gray-900">{verificationOrder.status || "N/A"}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</p>
+                    <p className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">
+                      {verificationOrder.notes?.trim() || "No notes added"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
+                <div className="mb-4">
+                  <h3 className="text-base font-semibold text-[#2B3068]">Uploaded Purchase Paper</h3>
+                  <p className="text-sm text-gray-500">
+                    Yahan se entered data ko purchase paper ke against verify kiya ja sakta hai.
+                  </p>
+                </div>
+
+                {verificationOrder.purchasePaperImage ? (
+                  <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                    <img
+                      src={verificationOrder.purchasePaperImage}
+                      alt={`Purchase paper for ${verificationOrder.poNumber}`}
+                      className="h-auto max-h-[70vh] w-full object-contain bg-white"
+                    />
+                  </div>
+                ) : (
+                  <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
+                    No purchase paper uploaded for this purchase order.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
