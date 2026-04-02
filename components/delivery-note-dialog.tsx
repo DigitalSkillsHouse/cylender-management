@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
 import { buildPdfFileName } from "@/lib/pdf-filename"
+import { processSignatureForPrint } from "@/lib/client-signature-processing"
 
 interface DeliveryNoteDialogProps {
   sale: {
@@ -38,6 +39,8 @@ interface DeliveryNoteDialogProps {
 
 export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: DeliveryNoteDialogProps) => {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
+  const [customerFooterSignature, setCustomerFooterSignature] = useState<string | null>(null)
+  const [adminFooterSignature, setAdminFooterSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -82,6 +85,48 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
 
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
+
+  useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      if (!signatureToUse) {
+        setCustomerFooterSignature(null)
+        return
+      }
+      const processed = await processSignatureForPrint(signatureToUse)
+      if (!cancelled) setCustomerFooterSignature(processed || signatureToUse)
+    }
+
+    run().catch(() => {
+      if (!cancelled) setCustomerFooterSignature(signatureToUse || null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [signatureToUse])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      if (!adminSignature) {
+        setAdminFooterSignature(null)
+        return
+      }
+      const processed = await processSignatureForPrint(adminSignature)
+      if (!cancelled) setAdminFooterSignature(processed || adminSignature)
+    }
+
+    run().catch(() => {
+      if (!cancelled) setAdminFooterSignature(adminSignature || null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [adminSignature])
 
   // Calculate total quantity
   const totalQuantity = sale.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
@@ -565,29 +610,29 @@ export const DeliveryNoteDialog = ({ sale, signature, onClose, open = true }: De
               
               {/* Signatures overlaid on Footer */}
               {signatureToUse && (
-                <div className="absolute bottom-4 right-8">
+                <div className="absolute bottom-2 right-8">
                   <img 
-                    src={signatureToUse} 
+                    src={customerFooterSignature || signatureToUse} 
                     alt="Customer Signature" 
-                    className="max-h-20 object-contain opacity-90"
+                    className="max-h-32 object-contain"
                     style={{
                       backgroundColor: 'transparent',
                       mixBlendMode: 'multiply',
-                      filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))'
+                      filter: 'contrast(1.15) brightness(0.9) drop-shadow(0 0 0.9px rgba(0,0,0,0.55))'
                     }}
                   />
                 </div>
               )}
               {adminSignature && (
-                <div className="absolute bottom-4 left-8">
+                <div className="absolute bottom-2 left-8">
                   <img 
-                    src={adminSignature} 
+                    src={adminFooterSignature || adminSignature} 
                     alt="Admin Signature" 
-                    className="max-h-20 object-contain opacity-90"
+                    className="max-h-32 object-contain"
                     style={{
                       backgroundColor: 'transparent',
                       mixBlendMode: 'multiply',
-                      filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))'
+                      filter: 'contrast(1.15) brightness(0.9) drop-shadow(0 0 0.9px rgba(0,0,0,0.55))'
                     }}
                   />
                 </div>

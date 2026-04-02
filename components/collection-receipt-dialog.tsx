@@ -8,6 +8,7 @@ import { Printer, Download } from "lucide-react"
 import { toast } from "sonner"
 import { getDubaiDateDisplayString, getDubaiDateTimeString } from "@/lib/date-utils"
 import { buildPdfFileName } from "@/lib/pdf-filename"
+import { processSignatureForPrint } from "@/lib/client-signature-processing"
 
 export interface CollectionPaymentItem {
   model: string // "Sale" | "EmployeeSale"
@@ -29,7 +30,51 @@ interface CollectionReceiptDialogProps {
 
 export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName, collectorRole, customerName, signature }: CollectionReceiptDialogProps) => {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
+  const [customerFooterSignature, setCustomerFooterSignature] = useState<string | null>(null)
+  const [adminFooterSignature, setAdminFooterSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      if (!signature) {
+        setCustomerFooterSignature(null)
+        return
+      }
+      const processed = await processSignatureForPrint(signature)
+      if (!cancelled) setCustomerFooterSignature(processed || signature)
+    }
+
+    run().catch(() => {
+      if (!cancelled) setCustomerFooterSignature(signature || null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [signature])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      if (!adminSignature) {
+        setAdminFooterSignature(null)
+        return
+      }
+      const processed = await processSignatureForPrint(adminSignature)
+      if (!cancelled) setAdminFooterSignature(processed || adminSignature)
+    }
+
+    run().catch(() => {
+      if (!cancelled) setAdminFooterSignature(adminSignature || null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [adminSignature])
 
   useEffect(() => {
     // Fetch from database first, fallback to localStorage
@@ -232,31 +277,31 @@ export const CollectionReceiptDialog = ({ open, onClose, payments, collectorName
               <img src="/images/footer.png" alt="Footer" className="mx-auto max-w-full h-auto" />
             </div>
             {signature && (
-              <div className="absolute bottom-4 right-8">
+              <div className="absolute bottom-2 right-8">
                 <img
-                  src={signature}
+                  src={customerFooterSignature || signature}
                   alt="Customer Signature"
-                  className="object-contain opacity-90"
+                  className="object-contain"
                   style={{
-                    maxHeight: '6rem',
+                    maxHeight: '8rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
-                    filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))',
+                    filter: 'contrast(1.15) brightness(0.9) drop-shadow(0 0 0.9px rgba(0,0,0,0.55))',
                   }}
                 />
               </div>
             )}
             {adminSignature && (
-              <div className="absolute bottom-4 left-8">
+              <div className="absolute bottom-2 left-8">
                 <img
-                  src={adminSignature}
+                  src={adminFooterSignature || adminSignature}
                   alt="Admin Signature"
-                  className="object-contain opacity-90"
+                  className="object-contain"
                   style={{
-                    maxHeight: '6rem',
+                    maxHeight: '8rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
-                    filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))',
+                    filter: 'contrast(1.15) brightness(0.9) drop-shadow(0 0 0.9px rgba(0,0,0,0.55))',
                   }}
                 />
               </div>

@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { fetchAdminSignature } from "@/lib/admin-signature"
 import { fetchEmployeeSignature } from "@/lib/employee-signature"
 import { buildPdfFileName, getInvoicePdfLabel } from "@/lib/pdf-filename"
+import { processSignatureForPrint } from "@/lib/client-signature-processing"
 
 const formatPaymentMethodLabel = (paymentMethod: unknown) => {
   const raw = (paymentMethod ?? "").toString().trim()
@@ -84,6 +85,8 @@ interface ReceiptDialogProps {
 
 export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, open = true, disableVAT = false, user, employeeId }: ReceiptDialogProps) => {
   const [adminSignature, setAdminSignature] = useState<string | null>(null)
+  const [customerFooterSignature, setCustomerFooterSignature] = useState<string | null>(null)
+  const [adminFooterSignature, setAdminFooterSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -202,6 +205,49 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
   }
   // Use signature from sale object if available, otherwise use signature prop
   const signatureToUse = sale.customerSignature || signature
+
+  useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      if (!signatureToUse) {
+        setCustomerFooterSignature(null)
+        return
+      }
+      const processed = await processSignatureForPrint(signatureToUse)
+      if (!cancelled) setCustomerFooterSignature(processed || signatureToUse)
+    }
+
+    run().catch(() => {
+      if (!cancelled) setCustomerFooterSignature(signatureToUse || null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [signatureToUse])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const run = async () => {
+      if (!adminSignature) {
+        setAdminFooterSignature(null)
+        return
+      }
+      const processed = await processSignatureForPrint(adminSignature)
+      if (!cancelled) setAdminFooterSignature(processed || adminSignature)
+    }
+
+    run().catch(() => {
+      if (!cancelled) setAdminFooterSignature(adminSignature || null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [adminSignature])
+
   const isCollectionReceipt = sale?.type === "collection"
   const saleType = (sale?.type || "").toString().toLowerCase()
   const isStandardSaleInvoice =
@@ -807,31 +853,31 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
             
             {/* Signatures overlaid on Footer */}
             {signatureToUse && (
-              <div className="absolute bottom-4 right-8">
+              <div className="absolute bottom-2 right-8">
                 <img 
-                  src={signatureToUse} 
+                  src={customerFooterSignature || signatureToUse} 
                   alt="Customer Signature" 
-                  className="object-contain opacity-90"
+                  className="object-contain"
                   style={{
-                    maxHeight: '6rem',
+                    maxHeight: '8rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
-                    filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))'
+                    filter: 'contrast(1.15) brightness(0.9) drop-shadow(0 0 0.9px rgba(0,0,0,0.55))'
                   }}
                 />
               </div>
             )}
             {adminSignature && (
-              <div className="absolute bottom-4 left-8">
+              <div className="absolute bottom-2 left-8">
                 <img 
-                  src={adminSignature} 
+                  src={adminFooterSignature || adminSignature} 
                   alt="Admin Signature" 
-                  className="object-contain opacity-90"
+                  className="object-contain"
                   style={{
-                    maxHeight: '6rem',
+                    maxHeight: '8rem',
                     backgroundColor: 'transparent',
                     mixBlendMode: 'multiply',
-                    filter: 'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 2px rgba(255,255,255,0.8))'
+                    filter: 'contrast(1.15) brightness(0.9) drop-shadow(0 0 0.9px rgba(0,0,0,0.55))'
                   }}
                 />
               </div>

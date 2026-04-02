@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
+import { processSignatureForPrint } from '@/lib/client-signature-processing';
 
 const chunkArray = <T,>(arr: T[], size: number) => {
   const safe = Array.isArray(arr) ? arr : [];
@@ -67,7 +68,52 @@ const ReceiptPrintPage = () => {
   const [sale, setSale] = useState<Sale | null>(null);
   const [loading, setLoading] = useState(true);
   const [adminSignature, setAdminSignature] = useState<string | null>(null);
+  const [customerFooterSignature, setCustomerFooterSignature] = useState<string | null>(null);
+  const [adminFooterSignature, setAdminFooterSignature] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      const src = sale?.customerSignature || '';
+      if (!src) {
+        setCustomerFooterSignature(null);
+        return;
+      }
+      const processed = await processSignatureForPrint(src);
+      if (!cancelled) setCustomerFooterSignature(processed || src);
+    };
+
+    run().catch(() => {
+      if (!cancelled) setCustomerFooterSignature(sale?.customerSignature || null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sale?.customerSignature]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      if (!adminSignature) {
+        setAdminFooterSignature(null);
+        return;
+      }
+      const processed = await processSignatureForPrint(adminSignature);
+      if (!cancelled) setAdminFooterSignature(processed || adminSignature);
+    };
+
+    run().catch(() => {
+      if (!cancelled) setAdminFooterSignature(adminSignature || null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [adminSignature]);
 
   useEffect(() => {
     // Set page title to minimal value to reduce browser print header text
@@ -515,29 +561,29 @@ const ReceiptPrintPage = () => {
                       className="receipt-footer-img mx-auto max-w-full h-auto"
                     />
                     {sale.customerSignature && (
-                      <div className="receipt-customer-signature absolute bottom-3 right-10">
+                      <div className="receipt-customer-signature absolute bottom-2 right-10">
                         <img
-                          src={sale.customerSignature}
+                          src={customerFooterSignature || sale.customerSignature}
                           alt="Customer Signature"
-                          className="receipt-signature object-contain opacity-90 mix-blend-multiply"
+                          className="receipt-signature object-contain mix-blend-multiply"
                           style={{
-                            maxHeight: '6rem',
+                            maxHeight: '8rem',
                             filter:
-                              'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 1px rgba(255,255,255,0.7))',
+                              'contrast(1.15) brightness(0.9) drop-shadow(0 0 0.9px rgba(0,0,0,0.55))',
                           }}
                         />
                       </div>
                     )}
                     {adminSignature && (
-                      <div className="receipt-admin-signature absolute bottom-4 left-10">
+                      <div className="receipt-admin-signature absolute bottom-2 left-10">
                         <img
-                          src={adminSignature}
+                          src={adminFooterSignature || adminSignature}
                           alt="Admin Signature"
-                          className="receipt-signature object-contain opacity-90 mix-blend-multiply"
+                          className="receipt-signature object-contain mix-blend-multiply"
                           style={{
-                            maxHeight: '6rem',
+                            maxHeight: '8rem',
                             filter:
-                              'contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) drop-shadow(0 0 1px rgba(255,255,255,0.7))',
+                              'contrast(1.15) brightness(0.9) drop-shadow(0 0 0.9px rgba(0,0,0,0.55))',
                           }}
                         />
                       </div>

@@ -1,7 +1,7 @@
 "use client"
 
 import React, { Fragment } from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -603,6 +603,8 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   const [cylinderSearchTerm, setCylinderSearchTerm] = useState("")
   const [showCylinderSuggestions, setShowCylinderSuggestions] = useState(false)
   const [compressingImage, setCompressingImage] = useState(false)
+  const purchasePaperCameraInputRef = useRef<HTMLInputElement>(null)
+  const purchasePaperGalleryInputRef = useRef<HTMLInputElement>(null)
   const [formData, setFormData] = useState<{ supplierId: string; purchaseDate: string; invoiceNumber: string; items: PurchaseItem[]; notes: string; purchasePaperImage: string }>(() => ({
     supplierId: "",
     purchaseDate: getLocalDateString(),
@@ -1261,18 +1263,54 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                   </div>
 
                   <div className="space-y-2 sm:space-y-3 sm:col-span-2">
-                    <Label htmlFor="purchasePaperImage" className="text-sm font-semibold text-gray-700">
+                    <Label htmlFor="purchasePaperImageGallery" className="text-sm font-semibold text-gray-700">
                       Refilling / Gas Purchase Paper *
                     </Label>
-                    <Input
-                      id="purchasePaperImage"
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      required={!formData.purchasePaperImage}
-                      onChange={(e) => handlePurchasePaperUpload(e.target.files?.[0] || null)}
-                      className="h-10 sm:h-12 border-2 border-gray-200 rounded-lg sm:rounded-xl focus:border-[#2B3068] transition-colors"
-                    />
+                    {/* Two options: take photo (camera) OR upload from gallery */}
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Input
+                        ref={purchasePaperCameraInputRef}
+                        id="purchasePaperImageCamera"
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        required={!formData.purchasePaperImage}
+                        onChange={(e) => {
+                          handlePurchasePaperUpload(e.target.files?.[0] || null)
+                          e.currentTarget.value = ""
+                        }}
+                        className="hidden"
+                      />
+                      <Input
+                        ref={purchasePaperGalleryInputRef}
+                        id="purchasePaperImageGallery"
+                        type="file"
+                        accept="image/*"
+                        required={!formData.purchasePaperImage}
+                        onChange={(e) => {
+                          handlePurchasePaperUpload(e.target.files?.[0] || null)
+                          e.currentTarget.value = ""
+                        }}
+                        className="hidden"
+                      />
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => purchasePaperCameraInputRef.current?.click()}
+                        className="h-10 sm:h-12 border-2 border-gray-200 rounded-lg sm:rounded-xl"
+                      >
+                        Take Photo
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => purchasePaperGalleryInputRef.current?.click()}
+                        className="h-10 sm:h-12 border-2 border-gray-200 rounded-lg sm:rounded-xl"
+                      >
+                        Upload from Gallery
+                      </Button>
+                    </div>
                     <p className="text-xs text-gray-500">
                       The image is automatically compressed and converted to `WEBP` before saving.
                     </p>
