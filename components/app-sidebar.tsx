@@ -19,6 +19,8 @@ import {
   BarChart3,
   FileDown,
   RotateCcw,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react"
 
 import {
@@ -32,11 +34,14 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet"
-import { useState, useEffect } from "react"
+import { useState, useEffect, Fragment } from "react"
 import { notificationsAPI } from "@/lib/api"
 
 interface AppSidebarProps {
@@ -55,21 +60,6 @@ const adminMenuItems = [
     title: "Dashboard",
     url: "dashboard",
     icon: Home,
-  },
-  {
-    title: "Product Management",
-    url: "products",
-    icon: Package,
-  },
-  {
-    title: "Supplier Management",
-    url: "suppliers",
-    icon: Truck,
-  },
-  {
-    title: "Purchase Management",
-    url: "purchases",
-    icon: ShoppingCart,
   },
   {
     title: "Generate Quotation",
@@ -97,19 +87,9 @@ const adminMenuItems = [
     icon: Cylinder,
   },
   {
-    title: "Customer Management",
-    url: "customers",
-    icon: Users,
-  },
-  {
     title: "Customer Item Rate",
     url: "customer-item-rates",
     icon: FileText,
-  },
-  {
-    title: "Employee Management",
-    url: "employees",
-    icon: UserCheck,
   },
   {
     title: "Daily Stock Report",
@@ -140,6 +120,34 @@ const adminMenuItems = [
     title: "Notifications",
     url: "notifications",
     icon: Bell,
+  },
+]
+
+const adminRegistrationMenuItems = [
+  {
+    title: "Product Management",
+    url: "products",
+    icon: Package,
+  },
+  {
+    title: "Supplier Management",
+    url: "suppliers",
+    icon: Truck,
+  },
+  {
+    title: "Purchase Management",
+    url: "purchases",
+    icon: ShoppingCart,
+  },
+  {
+    title: "Customer Management",
+    url: "customers",
+    icon: Users,
+  },
+  {
+    title: "Employee Management",
+    url: "employees",
+    icon: UserCheck,
   },
 ]
 
@@ -205,6 +213,7 @@ export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCo
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setLocalUnreadCount] = useState(0)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [registrationOpen, setRegistrationOpen] = useState(false)
 
   useEffect(() => {
     if (user?.id) {
@@ -242,6 +251,12 @@ export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCo
   }
 
   const menuItems = user?.role === "admin" ? adminMenuItems : employeeMenuItems
+  const registrationActive =
+    user?.role === "admin" && adminRegistrationMenuItems.some((item) => item.url === currentPage)
+
+  useEffect(() => {
+    if (registrationActive) setRegistrationOpen(true)
+  }, [registrationActive])
 
   const effectiveUnreadCount = externalUnreadCount !== undefined ? externalUnreadCount : unreadCount
 
@@ -269,22 +284,61 @@ export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCo
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="space-y-1">
-              {menuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    isActive={currentPage === item.url}
-                    onClick={() => handlePageChange(item.url)}
-                    className="text-white hover:bg-white/10 hover:text-white data-[active=true]:bg-white/20 data-[active=true]:text-white rounded-lg transition-all duration-200 py-2 text-sm"
-                  >
-                    <item.icon className="w-4 h-4" />
-                    <span className="font-medium truncate">{item.title}</span>
-                    {item.url === "notifications" && effectiveUnreadCount > 0 && (
-                      <Badge variant="secondary" className="ml-auto bg-red-500 text-white text-xs px-2 py-1">
-                        {effectiveUnreadCount}
-                      </Badge>
-                    )}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+              {menuItems.map((item, idx) => (
+                <Fragment key={item.title}>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={currentPage === item.url}
+                      onClick={() => handlePageChange(item.url)}
+                      className="text-white hover:bg-white/10 hover:text-white data-[active=true]:bg-white/20 data-[active=true]:text-white rounded-lg transition-all duration-200 py-2 text-sm"
+                    >
+                      <item.icon className="w-4 h-4" />
+                      <span className="font-medium truncate">{item.title}</span>
+                      {item.url === "notifications" && effectiveUnreadCount > 0 && (
+                        <Badge variant="secondary" className="ml-auto bg-red-500 text-white text-xs px-2 py-1">
+                          {effectiveUnreadCount}
+                        </Badge>
+                      )}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+
+                  {user?.role === "admin" && idx === 0 && (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        isActive={registrationActive}
+                        onClick={() => setRegistrationOpen((prev) => !prev)}
+                        className="text-white hover:bg-white/10 hover:text-white data-[active=true]:bg-white/20 data-[active=true]:text-white rounded-lg transition-all duration-200 py-2 text-sm"
+                      >
+                        <Users className="w-4 h-4" />
+                        <span className="font-medium truncate">Registration</span>
+                        {registrationOpen ? (
+                          <ChevronDown className="ml-auto w-4 h-4 opacity-80" />
+                        ) : (
+                          <ChevronRight className="ml-auto w-4 h-4 opacity-80" />
+                        )}
+                      </SidebarMenuButton>
+
+                      {registrationOpen && (
+                        <SidebarMenuSub className="border-white/20">
+                          {adminRegistrationMenuItems.map((sub) => (
+                            <SidebarMenuSubItem key={sub.url}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={currentPage === sub.url}
+                                className="w-full text-white hover:bg-white/10 hover:text-white data-[active=true]:bg-white/20 data-[active=true]:text-white"
+                              >
+                                <button type="button" onClick={() => handlePageChange(sub.url)}>
+                                  <sub.icon className="w-4 h-4" />
+                                  <span className="font-medium truncate">{sub.title}</span>
+                                </button>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      )}
+                    </SidebarMenuItem>
+                  )}
+                </Fragment>
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
