@@ -1821,7 +1821,20 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                         </Badge>
                       </TableCell>
                       <TableCell className="p-2 sm:p-4">
-                        {/* Intentionally left actions at item level within expanded rows */}
+                        <div className="flex justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const first = group.items?.[0]
+                              if (first) handleViewPurchasePaper(first)
+                            }}
+                            className="border-blue-500 text-blue-600 hover:bg-blue-50 transition-colors p-1 sm:p-2"
+                            title="Verify purchase paper"
+                          >
+                            <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                     {expandedGroups[group.key] && (
@@ -1881,15 +1894,6 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                                       </TableCell>
                                       <TableCell>
                                         <div className="flex space-x-1 sm:space-x-2">
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => handleViewPurchasePaper(order)}
-                                            className="border-blue-500 text-blue-600 hover:bg-blue-50 transition-colors p-1 sm:p-2"
-                                            title="Verify purchase paper and item data"
-                                          >
-                                            <Eye className="w-3 h-3 sm:w-4 sm:h-4" />
-                                          </Button>
                                           <Button
                                             variant="outline"
                                             size="sm"
