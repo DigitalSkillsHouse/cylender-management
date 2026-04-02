@@ -557,6 +557,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     // Truncate to 2 decimal places (exact calculation, no rounding)
     const totalAmount = Math.trunc(selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) * 100) / 100
     const currentReceived = Math.trunc(selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0) * 100) / 100
+    const remaining = Math.max(0, Math.trunc((totalAmount - currentReceived) * 100) / 100)
     
     console.log('Opening payment dialog with:', {
       totalAmount,
@@ -573,7 +574,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       method: 'cash',
       bankName: '',
       chequeNumber: '',
-      inputAmount: '',
+      inputAmount: remaining > 0 ? remaining.toFixed(2) : '',
       selectedInvoices,
       selectedItems
     })
@@ -1377,7 +1378,20 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
           <div className="space-y-3 mt-3">
             <div className="space-y-1">
               <Label>Payment Method</Label>
-              <Select value={paymentDialog.method} onValueChange={(v: any) => setPaymentDialog(prev => ({ ...prev, method: v }))}>
+              <Select
+                value={paymentDialog.method}
+                onValueChange={(v: any) =>
+                  setPaymentDialog((prev) => {
+                    const method = v as "cash" | "cheque"
+                    const next = { ...prev, method }
+                    if (method === "cash" && !String(prev.inputAmount || "").trim()) {
+                      const remaining = Math.max(0, Math.trunc((prev.totalAmount - prev.currentReceived) * 100) / 100)
+                      next.inputAmount = remaining > 0 ? remaining.toFixed(2) : ""
+                    }
+                    return next
+                  })
+                }
+              >
                 <SelectTrigger className="bg-white text-black">
                   <SelectValue placeholder="Select method" />
                 </SelectTrigger>

@@ -11,6 +11,9 @@ const roundToTwo = (value) => {
   }
   return Math.trunc(Number(value) * 100) / 100;
 };
+
+// If balance is only a few fils, treat it as cleared to avoid lingering "pending" invoices.
+const TINY_BALANCE_THRESHOLD = 0.05
 // Cylinder transaction imports removed - collections only handle gas sales
 
 // Disable caching for this route - force dynamic rendering
@@ -86,7 +89,20 @@ export async function GET(request) {
         .lean(),
     ])
 
-    const mapSale = (s) => ({
+    const mapSale = (s) => {
+      const totalAmount = roundToTwo(s.totalAmount || 0)
+      const receivedAmountRaw = roundToTwo(s.receivedAmount || 0)
+      let balance = roundToTwo(Math.max(0, totalAmount - receivedAmountRaw))
+      let paymentStatus = s.paymentStatus
+      let receivedAmount = receivedAmountRaw
+
+      if (totalAmount > 0 && balance <= TINY_BALANCE_THRESHOLD) {
+        balance = 0
+        receivedAmount = totalAmount
+        paymentStatus = "cleared"
+      }
+
+      return ({
       _id: s._id,
       model: "Sale",
       source: "admin",
@@ -109,10 +125,10 @@ export async function GET(request) {
         price: item.price,
         total: item.total
       })) || [],
-      totalAmount: Number(s.totalAmount || 0),
-      receivedAmount: Number(s.receivedAmount || 0),
-      balance: Math.max(0, Number(s.totalAmount || 0) - Number(s.receivedAmount || 0)),
-      paymentStatus: s.paymentStatus,
+      totalAmount,
+      receivedAmount,
+      balance,
+      paymentStatus,
       paymentMethod: s.paymentMethod || 'Cash',
       bankName: s.bankName || '',
       chequeNumber: s.chequeNumber || '',
@@ -123,8 +139,22 @@ export async function GET(request) {
       collectionReceiptCreatedAt: s.collectionReceiptCreatedAt || null,
       createdAt: s.createdAt,
     })
+    }
 
-    const mapEmpSale = (s) => ({
+    const mapEmpSale = (s) => {
+      const totalAmount = roundToTwo(s.totalAmount || 0)
+      const receivedAmountRaw = roundToTwo(s.receivedAmount || 0)
+      let balance = roundToTwo(Math.max(0, totalAmount - receivedAmountRaw))
+      let paymentStatus = s.paymentStatus
+      let receivedAmount = receivedAmountRaw
+
+      if (totalAmount > 0 && balance <= TINY_BALANCE_THRESHOLD) {
+        balance = 0
+        receivedAmount = totalAmount
+        paymentStatus = "cleared"
+      }
+
+      return ({
       _id: s._id,
       model: "EmployeeSale",
       source: "employee",
@@ -147,10 +177,10 @@ export async function GET(request) {
         price: item.price,
         total: item.total
       })) || [],
-      totalAmount: Number(s.totalAmount || 0),
-      receivedAmount: Number(s.receivedAmount || 0),
-      balance: Math.max(0, Number(s.totalAmount || 0) - Number(s.receivedAmount || 0)),
-      paymentStatus: s.paymentStatus,
+      totalAmount,
+      receivedAmount,
+      balance,
+      paymentStatus,
       paymentMethod: s.paymentMethod || 'Cash',
       bankName: s.bankName || '',
       chequeNumber: s.chequeNumber || '',
@@ -161,12 +191,13 @@ export async function GET(request) {
       collectionReceiptCreatedAt: s.collectionReceiptCreatedAt || null,
       createdAt: s.createdAt,
     })
+    }
 
     // Cylinder mapping functions removed - collections only handle gas sales
 
     // Only include gas sales data, exclude cylinder transactions
     // Filter out debit invoices (totalAmount <= 0) - only show credit invoices (totalAmount > 0)
-    const data = [
+    let data = [
       ...adminSales.map(mapSale),
       ...employeeSales.map(mapEmpSale),
     ]
@@ -176,6 +207,11 @@ export async function GET(request) {
         return Number(invoice.totalAmount || 0) > 0
       })
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+
+    // Ensure the response matches the requested type even after tolerance normalization above.
+    if (type === "pending") {
+      data = data.filter((inv) => Number(inv.balance || 0) > TINY_BALANCE_THRESHOLD && inv.paymentStatus !== "cleared")
+    }
 
     return NextResponse.json({ success: true, data })
   } catch (error) {

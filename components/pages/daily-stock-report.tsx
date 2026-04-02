@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ListChecks, FileText, Loader2, Eye } from "lucide-react"
+import { ListChecks, FileText, Loader2, Eye, RefreshCcw } from "lucide-react"
 import { getLocalDateString, getStartOfDate, getEndOfDate, getDateFromString, getPreviousDate, getNextDate, getLocalDateStringFromDate, isToday } from "@/lib/date-utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 
@@ -2768,10 +2768,19 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
                   />
                 </div>
                 <Button
-                  onClick={() => downloadDsrGridPdf(dsrViewDate)}
+                  onClick={() => fetchDsrData(dsrViewDate)}
                   variant="outline"
                   size="sm"
                   className="w-full sm:w-auto sm:ml-auto"
+                >
+                  <RefreshCcw className="h-4 w-4 mr-1" />
+                  Refresh
+                </Button>
+                <Button
+                  onClick={() => downloadDsrGridPdf(dsrViewDate)}
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
                 >
                   <FileText className="h-4 w-4 mr-1" />
                   PDF
