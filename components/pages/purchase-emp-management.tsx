@@ -36,6 +36,17 @@ interface PurchaseOrder {
   purchasePaperImage?: string
 }
 
+type InvoiceGroup = {
+  key: string
+  invoice: string
+  supplierName: string
+  date: string
+  status: PurchaseOrder["status"]
+  totalAmount: number
+  vatAmount: number
+  items: PurchaseOrder[]
+}
+
 interface Product {
   _id: string
   name: string
@@ -118,7 +129,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   const [submitting, setSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
-  const [verificationOrder, setVerificationOrder] = useState<PurchaseOrder | null>(null)
+  const [verificationGroup, setVerificationGroup] = useState<InvoiceGroup | null>(null)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -887,7 +898,13 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     try {
       setCompressingImage(true)
       setError("")
-      const compressed = await compressImageToWebpDataUrl(file)
+      const compressed = await compressImageToWebpDataUrl(file, {
+        // Keep paper readable while still saving as WEBP and reasonably small.
+        maxBytes: 220 * 1024,
+        maxDimension: 1600,
+        minDimension: 600,
+        minQuality: 0.42,
+      })
       setFormData((prev) => ({
         ...prev,
         purchasePaperImage: compressed.dataUrl,
@@ -899,8 +916,8 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     }
   }
 
-  const handleViewPurchasePaper = (order: PurchaseOrder) => {
-    setVerificationOrder(order)
+  const handleViewPurchasePaper = (group: InvoiceGroup) => {
+    setVerificationGroup(group)
   }
 
   const handleDelete = async (id: string) => {
@@ -1031,18 +1048,6 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     )
   })
 
-  // Group filtered orders by invoice number (poNumber)
-  type InvoiceGroup = {
-    key: string
-    invoice: string
-    supplierName: string
-    date: string
-    status: PurchaseOrder["status"]
-    totalAmount: number
-    vatAmount: number
-    items: PurchaseOrder[]
-  }
-
   const groupedByInvoice: InvoiceGroup[] = (() => {
     const map: Record<string, InvoiceGroup & { vatAmount?: number }> = {}
     for (const o of filteredOrders) {
@@ -1085,6 +1090,8 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   }
 
   // Read-only status display in child rows (no inline updates)
+  const verificationPaperImage =
+    verificationGroup?.items.find((i) => String(i.purchasePaperImage || "").trim())?.purchasePaperImage || ""
 
   return (
     <div className="pt-16 lg:pt-0 space-y-6 sm:space-y-8">
@@ -1826,8 +1833,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                             variant="outline"
                             size="sm"
                             onClick={() => {
-                              const first = group.items?.[0]
-                              if (first) handleViewPurchasePaper(first)
+                              handleViewPurchasePaper(group)
                             }}
                             className="border-blue-500 text-blue-600 hover:bg-blue-50 transition-colors p-1 sm:p-2"
                             title="Verify purchase paper"
@@ -1941,10 +1947,10 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
       </Card>
 
       <Dialog
-        open={!!verificationOrder}
+        open={!!verificationGroup}
         onOpenChange={(open) => {
           if (!open) {
-            setVerificationOrder(null)
+            setVerificationGroup(null)
           }
         }}
       >
@@ -1955,7 +1961,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
             </DialogTitle>
           </DialogHeader>
 
-          {verificationOrder && (
+          {verificationGroup && (
             <div className="grid gap-4 lg:grid-cols-[0.95fr_1.25fr]">
               <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-5">
                 <div className="mb-4">
@@ -1968,30 +1974,44 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-lg border border-gray-200 bg-white p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Invoice / PO</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.poNumber || "N/A"}</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationGroup.invoice || "N/A"}</p>
                   </div>
                   <div className="rounded-lg border border-gray-200 bg-white p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Purchase Date</p>
                     <p className="mt-1 text-sm font-semibold text-gray-900">
-                      {verificationOrder.purchaseDate ? new Date(verificationOrder.purchaseDate).toLocaleDateString() : "N/A"}
+                      {verificationGroup.date ? new Date(verificationGroup.date).toLocaleDateString() : "N/A"}
                     </p>
                   </div>
                   <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Supplier</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.supplier?.companyName || "N/A"}</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{verificationGroup.supplierName || "N/A"}</p>
                   </div>
-                  <div className="rounded-lg border border-gray-200 bg-white p-3 sm:col-span-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Item Name</p>
-                        <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.product?.name || "Unknown Product"}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quantity</p>
-                        <p className="mt-1 text-sm font-semibold text-gray-900">{verificationOrder.quantity || 0}</p>
-                      </div>
-                    </div>
-                  </div>
+                </div>
+
+                <div className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Item</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Qty</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Unit</th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {verificationGroup.items.map((item) => {
+                        const subtotal = (item.quantity || 0) * (item.unitPrice || 0)
+                        return (
+                          <tr key={item._id} className="border-t border-gray-100">
+                            <td className="px-3 py-2 text-gray-900">{item.product?.name || "Unknown Product"}</td>
+                            <td className="px-3 py-2 text-right text-gray-900">{item.quantity || 0}</td>
+                            <td className="px-3 py-2 text-right text-gray-900">AED {(item.unitPrice || 0).toFixed(2)}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-gray-900">AED {subtotal.toFixed(2)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
@@ -2003,11 +2023,11 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
                   </p>
                 </div>
 
-                {verificationOrder.purchasePaperImage ? (
+                {verificationPaperImage ? (
                   <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
                     <img
-                      src={verificationOrder.purchasePaperImage}
-                      alt={`Purchase paper for ${verificationOrder.poNumber}`}
+                      src={verificationPaperImage}
+                      alt={`Purchase paper for ${verificationGroup.invoice}`}
                       className="h-auto max-h-[70vh] w-full object-contain bg-white"
                     />
                   </div>
