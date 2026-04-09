@@ -6,6 +6,7 @@ import { recalculateEmployeeDailyStockReportsFrom } from "@/lib/employee-dsr-syn
 
 import { verifyToken } from "@/lib/auth"
 import { getLocalDateStringFromDate } from "@/lib/date-utils"
+import { normalizeSalePaymentState } from "@/lib/payment-status"
 
 // GET /api/employee-sales/[id]
 export async function GET(request, { params }) {
@@ -131,7 +132,6 @@ export async function PUT(request, { params }) {
       updateData.totalAmount = ta
     }
     if (paymentMethod !== undefined) updateData.paymentMethod = paymentMethod
-    if (paymentStatus !== undefined) updateData.paymentStatus = paymentStatus
     if (receivedAmount !== undefined) {
       const ra = Number(receivedAmount)
       if (Number.isNaN(ra) || ra < 0) {
@@ -142,6 +142,15 @@ export async function PUT(request, { params }) {
     if (notes !== undefined) updateData.notes = notes
     if (customerSignature !== undefined) updateData.customerSignature = customerSignature
     if (lpoNo !== undefined) updateData.lpoNo = String(lpoNo || "").trim()
+
+    const normalizedPayment = normalizeSalePaymentState({
+      totalAmount: updateData.totalAmount ?? existing.totalAmount,
+      receivedAmount: updateData.receivedAmount ?? existing.receivedAmount,
+      paymentStatus: paymentStatus ?? updateData.paymentStatus ?? existing.paymentStatus,
+    })
+
+    updateData.receivedAmount = normalizedPayment.receivedAmount
+    updateData.paymentStatus = normalizedPayment.paymentStatus
 
     const updated = await EmployeeSale.findByIdAndUpdate(id, updateData, { new: true })
       .populate("customer", "name email phone")

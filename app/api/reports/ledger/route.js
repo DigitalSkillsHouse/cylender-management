@@ -5,6 +5,7 @@ import CylinderTransaction from "@/models/Cylinder";
 import EmployeeSale from "@/models/EmployeeSale";
 import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
 import { NextResponse } from "next/server";
+import { normalizeSalePaymentState } from "@/lib/payment-status";
 
 export async function GET(request) {
   try {
@@ -33,22 +34,24 @@ export async function GET(request) {
     const customers = await Customer.find(customerQuery).lean();
 
     // Get comprehensive data for each customer
+    const buildDateFilter = () => {
+      if (!startDate && !endDate) return undefined;
+
+      const createdAt = {};
+      if (startDate) createdAt.$gte = new Date(startDate);
+      if (endDate) createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
+      return createdAt;
+    };
+
+    const createdAtFilter = buildDateFilter();
+
     const customerLedgerData = await Promise.all(
       customers.map(async (customer) => {
         try {
-          // Get sales data for this customer
-          let salesQuery = {
+          const salesQuery = {
             customer: customer._id,
-            $or: [
-              { employee: { $exists: true } },
-              { employee: { $exists: false } }
-            ]
+            ...(createdAtFilter ? { createdAt: createdAtFilter } : {}),
           };
-          if (startDate || endDate) {
-            salesQuery.createdAt = {};
-            if (startDate) salesQuery.createdAt.$gte = new Date(startDate);
-            if (endDate) salesQuery.createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
-          }
 
           const adminSales = await Sale.find(salesQuery)
             .populate('items.product', 'name category')
@@ -59,13 +62,28 @@ export async function GET(request) {
             .populate('employee', 'name')
             .lean();
 
-          // Merge admin and employee sales; preserve a flag to identify the origin
+          const normalizeLedgerSale = (sale, source) => {
+            const normalizedPayment = normalizeSalePaymentState({
+              totalAmount: sale.totalAmount,
+              receivedAmount: sale.receivedAmount,
+              paymentStatus: sale.paymentStatus,
+            });
+
+            return {
+              ...sale,
+              _saleSource: source,
+              totalAmount: normalizedPayment.totalAmount,
+              receivedAmount: normalizedPayment.receivedAmount,
+              paymentStatus: normalizedPayment.paymentStatus,
+              outstandingAmount: normalizedPayment.balance,
+            };
+          };
+
           const sales = [
-            ...adminSales.map(s => ({ ...s, _saleSource: 'admin' })),
-            ...employeeSales.map(s => ({ ...s, _saleSource: 'employee' })),
+            ...adminSales.map((sale) => normalizeLedgerSale(sale, 'admin')),
+            ...employeeSales.map((sale) => normalizeLedgerSale(sale, 'employee')),
           ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-          // Get cylinder transactions for this customer
           let cylinderQuery = {
             customer: customer._id,
             $or: [
@@ -73,10 +91,8 @@ export async function GET(request) {
               { employee: { $exists: false } }
             ]
           };
-          if (startDate || endDate) {
-            cylinderQuery.createdAt = {};
-            if (startDate) cylinderQuery.createdAt.$gte = new Date(startDate);
-            if (endDate) cylinderQuery.createdAt.$lte = new Date(endDate + 'T23:59:59.999Z');
+          if (createdAtFilter) {
+            cylinderQuery.createdAt = createdAtFilter;
           }
 
           const adminCylinderTransactions = await CylinderTransaction.find(cylinderQuery).lean();
@@ -86,9 +102,9 @@ export async function GET(request) {
 
           const cylinderTransactions = [...adminCylinderTransactions, ...employeeCylinderTransactions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-          // Calculate totals
           const totalSalesAmount = sales.reduce((sum, sale) => sum + (sale.totalAmount || 0), 0);
           const totalPaidAmount = sales.reduce((sum, sale) => sum + (sale.receivedAmount || 0), 0);
+          const totalSalesOutstanding = sales.reduce((sum, sale) => sum + (sale.outstandingAmount || 0), 0);
           const totalCylinderAmount = cylinderTransactions.reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
 
           // Calculate transaction counts
@@ -97,8 +113,7 @@ export async function GET(request) {
           const totalRefills = cylinderTransactions.filter(t => t.type === 'refill').length;
           const totalReturns = cylinderTransactions.filter(t => t.type === 'return').length;
 
-          // Calculate balance as total of all paid amounts from transactions
-          const balance = totalPaidAmount + totalCylinderAmount;
+          const balance = totalSalesOutstanding + totalCylinderAmount;
           const hasRecentTransactions = [...sales, ...cylinderTransactions].some(
             t => new Date(t.createdAt) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) // 30 days
           );
@@ -108,16 +123,13 @@ export async function GET(request) {
           const clearedCylinderTransactions = cylinderTransactions.filter(t => t.status === 'cleared').length;
           const overdueCylinderTransactions = cylinderTransactions.filter(t => t.status === 'overdue').length;
           
-          // Check gas sales payment statuses
-          const pendingSales = sales.filter(s => s.paymentStatus === 'pending' || (s.totalAmount > (s.receivedAmount || 0))).length;
-          const clearedSales = sales.filter(s => s.paymentStatus === 'cleared' || (s.totalAmount <= (s.receivedAmount || 0))).length;
+          const pendingSales = sales.filter(s => s.paymentStatus !== 'cleared' && Number(s.outstandingAmount || 0) > 0).length;
+          const clearedSales = sales.filter(s => s.paymentStatus === 'cleared').length;
           const overdueSales = sales.filter(s => s.paymentStatus === 'overdue').length;
           
-          // Determine overall status with improved logic considering both sales and cylinder transactions
           let overallStatus = 'cleared';
           
-          // Priority: overdue > pending > cleared
-          if (overdueCylinderTransactions > 0 || overdueSales > 0 || balance < -100) { // Significant negative balance
+          if (overdueCylinderTransactions > 0 || overdueSales > 0) {
             overallStatus = 'overdue';
           } else if (pendingCylinderTransactions > 0 || pendingSales > 0) {
             overallStatus = 'pending';
@@ -125,15 +137,12 @@ export async function GET(request) {
             overallStatus = 'cleared';
           }
 
-          // Improved status filtering - check if customer has any matching transactions
           let shouldInclude = true;
           if (status && status !== 'all') {
-            // Check if customer matches the status filter in multiple ways:
-            // 1. Overall customer status matches
-            // 2. Has cylinder transactions with the requested status
-            // 3. Has gas sales with the requested status
             const hasMatchingCylinderStatus = cylinderTransactions.some(t => t.status === status);
-            const hasMatchingSalesStatus = sales.some(s => s.paymentStatus === status);
+            const hasMatchingSalesStatus = status === 'pending'
+              ? sales.some(s => s.paymentStatus !== 'cleared' && Number(s.outstandingAmount || 0) > 0)
+              : sales.some(s => s.paymentStatus === status);
             const matchesOverallStatus = overallStatus === status;
             
             shouldInclude = matchesOverallStatus || hasMatchingCylinderStatus || hasMatchingSalesStatus;
@@ -155,7 +164,6 @@ export async function GET(request) {
             totalCredit: customer.totalCredit || 0,
             status: overallStatus,
             
-            // Transaction summaries
             totalSales,
             totalSalesAmount,
             totalPaidAmount,
@@ -164,26 +172,21 @@ export async function GET(request) {
             totalRefills,
             totalReturns,
             
-            // Recent activity
             hasRecentActivity: hasRecentTransactions,
             lastTransactionDate: [...sales, ...cylinderTransactions]
               .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]?.createdAt || null,
             
-            // Detailed transactions for drill-down
             recentSales: sales.map(sale => ({
               _id: sale._id,
               invoiceNumber: sale.invoiceNumber,
               totalAmount: sale.totalAmount,
-              // For UI convenience
               amountPaid: sale.receivedAmount,
               receivedAmount: sale.receivedAmount,
               customerSignature: sale.customerSignature || "",
-              paymentStatus: sale.paymentStatus, // Use the transaction's own status
+              paymentStatus: sale.paymentStatus,
               createdAt: sale.createdAt,
               items: sale.items,
-              // Flag to distinguish which API to call when updating payment
               saleSource: sale._saleSource === 'employee' ? 'employee' : 'admin',
-              // Include employee information for reference name in PDF
               employee: sale.employee ? {
                 _id: sale.employee._id,
                 name: sale.employee.name
@@ -202,7 +205,6 @@ export async function GET(request) {
               invoiceNumber: transaction.invoiceNumber,
               transactionId: transaction.transactionId,
               transactionSource: transaction.employee ? 'employee' : 'admin',
-              // Include employee information for reference name in PDF
               employee: transaction.employee ? {
                 _id: transaction.employee._id,
                 name: transaction.employee.name

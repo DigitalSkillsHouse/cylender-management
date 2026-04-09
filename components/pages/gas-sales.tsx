@@ -1105,6 +1105,7 @@ export const GasSales = () => {
           lpoNo: saved?.lpoNo || formData.lpoNo.trim(),
           saleDate: saved?.saleDate || formData.saleDate,
           createdAt: saved?.saleDate || saved?.createdAt || formData.saleDate || new Date().toISOString(),
+          employee: saved?.employee || (editingSale as any)?.employee || null,
         }
         setPendingSale(normalizedSale)
         setShowSignatureDialog(true)

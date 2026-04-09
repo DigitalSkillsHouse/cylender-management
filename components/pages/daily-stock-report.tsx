@@ -81,6 +81,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   const [employeeLoading, setEmployeeLoading] = useState(false)
   const isMobile = useIsMobile()
   const employeeDsrRequestRef = useRef(0)
+  const adminDsrRebuildStartedRef = useRef(false)
   const mobileItemHeaderClassName = "border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
   const mobileItemCellClassName = "font-medium border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
   const mobileItemTotalClassName = "font-bold border-r whitespace-nowrap w-[1%] min-w-max px-2 py-2 text-[11px] sm:px-4 sm:py-3 sm:text-sm"
@@ -191,6 +192,52 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
 
     return { previousDateStr, previousClosings }
   }
+
+  const mapStoredReportToEntry = (report: any): DailyStockEntry => ({
+    id: String(report?._id || `${report?.itemName || "item"}-${report?.date || "date"}`),
+    date: String(report?.date || ""),
+    itemName: String(report?.itemName || ""),
+    openingFull: Number(report?.openingFull || 0),
+    openingEmpty: Number(report?.openingEmpty || 0),
+    refilled: Number(report?.refilled || 0),
+    cylinderSales: Number(
+      report?.cylinderSales ??
+      ((Number(report?.fullCylinderSales || 0) + Number(report?.emptyCylinderSales || 0)) || 0)
+    ),
+    gasSales: Number(report?.gasSales || 0),
+    depositCylinder: Number(report?.deposits || 0),
+    returnCylinder: Number(report?.returns || 0),
+    closingFull: typeof report?.closingFull === "number" ? report.closingFull : undefined,
+    closingEmpty: typeof report?.closingEmpty === "number" ? report.closingEmpty : undefined,
+    createdAt: String(report?.createdAt || new Date().toISOString()),
+  })
+
+  const triggerAdminDsrRebuild = async () => {
+    if (adminDsrRebuildStartedRef.current) return true
+
+    adminDsrRebuildStartedRef.current = true
+
+    try {
+      const response = await fetch('/api/admin/dsr-rebuild', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'admin' }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data?.success) {
+        console.error('[ADMIN DSR] Rebuild failed:', data)
+        adminDsrRebuildStartedRef.current = false
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error('[ADMIN DSR] Failed to trigger rebuild:', error)
+      adminDsrRebuildStartedRef.current = false
+      return false
+    }
+  }
   
   // Aggregated daily totals
   const [dailyAggGasSales, setDailyAggGasSales] = useState<Record<string, number>>({})
@@ -222,7 +269,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
   const [storedDsrReports, setStoredDsrReports] = useState<Record<string, { openingFull: number; openingEmpty: number }>>({})
   const [isInventoryFetched, setIsInventoryFetched] = useState(false)
 
-  const API_BASE = '/api/daily-stock-entries'
+  const API_BASE = '/api/daily-stock-reports'
 
   // Local storage helpers
   const saveDsrLocal = (entries: DailyStockEntry[]) => {
@@ -1537,112 +1584,82 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
     try {
       console.log(`[DIAGNOSTIC] fetchStoredDsrReports called for date: ${date}`)
 
-      const response = await fetch(`/api/daily-stock-reports?date=${date}`, { cache: 'no-store' })
-      const data = await response.json()
-      const storedReports = data.success && Array.isArray(data.data) ? data.data : []
-      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
-
-      console.log(`[DIAGNOSTIC] API response for ${date}:`, {
-        success: data.success,
-        dataCount: storedReports.length,
-        itemNames: storedReports.map((report: any) => report.itemName),
-      })
-
-      const hasValidOpeningStock = storedReports.some((report: any) =>
-        (report.openingFull && report.openingFull > 0) || (report.openingEmpty && report.openingEmpty > 0)
-      )
-
-      if (storedReports.length > 0 && hasValidOpeningStock) {
-        const { previousDateStr, previousClosings } = await fetchLatestPreviousAdminClosings(
-          date,
-          dsrProducts.map((product) => product.name)
-        )
-
-        if (dsrProducts.length > 0) {
-          for (const product of dsrProducts) {
-            const key = normalizeName(product.name)
-            const prevClosing = previousClosings[key]
-            const storedOpening = storedReports.find((report: any) => normalizeName(report.itemName) === key)
-
-            reports[key] = prevClosing
-              ? {
-                  openingFull: prevClosing.closingFull,
-                  openingEmpty: prevClosing.closingEmpty,
-                }
-              : {
-                  openingFull: Number(storedOpening?.openingFull) || 0,
-                  openingEmpty: Number(storedOpening?.openingEmpty) || 0,
-                }
-
-            if (prevClosing?.sourceDate && prevClosing.sourceDate !== previousDateStr) {
-              console.log(`[DIAGNOSTIC] ${product.name}: using latest previous closing from ${prevClosing.sourceDate} instead of exact previous day ${previousDateStr}`)
-            }
-          }
-        } else {
-          storedReports.forEach((report: any) => {
-            const key = normalizeName(report.itemName)
-            reports[key] = {
-              openingFull: Number(report.openingFull) || 0,
-              openingEmpty: Number(report.openingEmpty) || 0,
-            }
-          })
-        }
-
-        setStoredDsrReports(reports)
-        setIsInventoryFetched(true)
-        return
+      const fetchReports = async () => {
+        const response = await fetch(`/api/daily-stock-reports?date=${date}`, { cache: 'no-store' })
+        const data = await response.json()
+        return data.success && Array.isArray(data.data) ? data.data : []
       }
 
-      setIsInventoryFetched(false)
+      let storedReports = await fetchReports()
+      const expectedProductKeys = dsrProducts.map((product) => normalizeName(product.name)).filter(Boolean)
+      const storedProductKeys = new Set(storedReports.map((report: any) => normalizeName(report.itemName)))
+      const hasMissingProducts = expectedProductKeys.length > 0 && expectedProductKeys.some((key) => !storedProductKeys.has(key))
+      const hasIncompleteRows = storedReports.some((report: any) =>
+        report?.openingFull === undefined ||
+        report?.openingEmpty === undefined ||
+        report?.openingFull === null ||
+        report?.openingEmpty === null
+      )
 
+      if ((storedReports.length === 0 || hasMissingProducts || hasIncompleteRows) && expectedProductKeys.length > 0) {
+        const rebuildSucceeded = await triggerAdminDsrRebuild()
+        if (rebuildSucceeded) {
+          storedReports = await fetchReports()
+        }
+      }
+
+      const reports: Record<string, { openingFull: number; openingEmpty: number }> = {}
       const { previousDateStr, previousClosings } = await fetchLatestPreviousAdminClosings(
         date,
         dsrProducts.map((product) => product.name)
       )
-      const openingReports: Record<string, { openingFull: number; openingEmpty: number }> = {}
 
-      for (const product of dsrProducts) {
-        const key = normalizeName(product.name)
-        const prevClosing = previousClosings[key]
+      if (dsrProducts.length > 0) {
+        for (const product of dsrProducts) {
+          const key = normalizeName(product.name)
+          const prevClosing = previousClosings[key]
+          const storedOpening = storedReports.find((report: any) => normalizeName(report.itemName) === key)
 
-        openingReports[key] = {
-          openingFull: prevClosing?.closingFull ?? 0,
-          openingEmpty: prevClosing?.closingEmpty ?? 0,
+          reports[key] = prevClosing
+            ? {
+                openingFull: prevClosing.closingFull,
+                openingEmpty: prevClosing.closingEmpty,
+              }
+            : {
+                openingFull: Number(storedOpening?.openingFull) || 0,
+                openingEmpty: Number(storedOpening?.openingEmpty) || 0,
+              }
+
+          if (!storedOpening) {
+            await fetch('/api/daily-stock-reports', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                date,
+                itemName: product.name,
+                openingFull: reports[key].openingFull,
+                openingEmpty: reports[key].openingEmpty,
+              })
+            })
+          }
+
+          if (prevClosing?.sourceDate && prevClosing.sourceDate !== previousDateStr) {
+            console.log(`[DIAGNOSTIC] ${product.name}: using latest previous closing from ${prevClosing.sourceDate} instead of exact previous day ${previousDateStr}`)
+          }
         }
-
-        if (prevClosing?.sourceDate && prevClosing.sourceDate !== previousDateStr) {
-          console.log(`[DIAGNOSTIC] ${product.name}: filling opening from latest previous closing ${prevClosing.sourceDate} instead of exact previous day ${previousDateStr}`)
-        }
-
-        await fetch('/api/daily-stock-reports', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date,
-            itemName: product.name,
-            openingFull: openingReports[key].openingFull,
-            openingEmpty: openingReports[key].openingEmpty,
-          })
-        })
-      }
-
-      if (!dsrProducts.length) {
+      } else {
         storedReports.forEach((report: any) => {
           const key = normalizeName(report.itemName)
-          openingReports[key] = {
+          reports[key] = {
             openingFull: Number(report.openingFull) || 0,
             openingEmpty: Number(report.openingEmpty) || 0,
           }
         })
       }
 
-      setStoredDsrReports(openingReports)
+      setDsrEntries(storedReports.map(mapStoredReportToEntry))
+      setStoredDsrReports(reports)
       setIsInventoryFetched(true)
-
-      if (dsrProducts.length > 0) {
-        await autoFetchInventoryForNewDay(date)
-        setStoredDsrReports(openingReports)
-      }
     } catch (error) {
       console.error(`[DIAGNOSTIC] Error fetching stored DSR reports for ${date}:`, error)
       setIsInventoryFetched(false)
@@ -2227,7 +2244,7 @@ export const DailyStockReport = ({ user }: DailyStockReportProps) => {
 
   // Initialize data on mount
   useEffect(() => {
-    setDsrEntries(loadDsrLocal())
+    setDsrEntries([])
     fetchInventoryData()
     if (user.role === 'admin') {
       fetchEmployees()

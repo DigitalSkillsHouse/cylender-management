@@ -7,6 +7,7 @@ import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
 import User from "@/models/User";
 import Product from "@/models/Product";
 import { NextResponse } from "next/server";
+import { normalizeSalePaymentState } from "@/lib/payment-status";
 
 // Disable caching for this route - force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -44,8 +45,24 @@ export async function GET() {
       EmployeeCylinderTransaction.find({}).lean()
     ]);
 
+    const normalizeStatsSale = (sale) => {
+      const normalizedPayment = normalizeSalePaymentState({
+        totalAmount: sale.totalAmount,
+        receivedAmount: sale.receivedAmount,
+        paymentStatus: sale.paymentStatus,
+      })
+
+      return {
+        ...sale,
+        totalAmount: normalizedPayment.totalAmount,
+        receivedAmount: normalizedPayment.receivedAmount,
+        paymentStatus: normalizedPayment.paymentStatus,
+        outstandingAmount: normalizedPayment.balance,
+      }
+    }
+
     // Combine all sales for calculations
-    const allSales = [...adminSales, ...employeeSales];
+    const allSales = [...adminSales, ...employeeSales].map(normalizeStatsSale);
     const allCylinderTransactions = [...adminCylinderTransactions, ...employeeCylinderTransactions];
 
     // Calculate revenue from all sales (admin + employee)
@@ -208,8 +225,8 @@ export async function GET() {
 
     for (const customer of allCustomers) {
       // Get all transactions for this customer
-      const customerAdminSales = adminSales.filter(sale => sale.customer?.toString() === customer._id.toString());
-      const customerEmployeeSales = employeeSales.filter(sale => sale.customer?.toString() === customer._id.toString());
+      const customerAdminSales = allSales.filter(sale => !sale.employee && sale.customer?.toString() === customer._id.toString());
+      const customerEmployeeSales = allSales.filter(sale => sale.employee && sale.customer?.toString() === customer._id.toString());
       const customerAdminCylinders = adminCylinderTransactions.filter(txn => txn.customer?.toString() === customer._id.toString());
       const customerEmployeeCylinders = employeeCylinderTransactions.filter(txn => txn.customer?.toString() === customer._id.toString());
 
@@ -228,15 +245,12 @@ export async function GET() {
 
       // Check if customer has any pending transactions
       const hasPendingTransactions = allCustomerTransactions.some(txn => {
-        // For sales, check paymentStatus
         if (txn.paymentStatus) {
-          return txn.paymentStatus === 'pending' || txn.paymentStatus === 'overdue';
+          return txn.paymentStatus !== 'cleared';
         }
-        // For cylinder transactions, check status
         if (txn.status) {
           return txn.status === 'pending' || txn.status === 'overdue';
         }
-        // Default to pending if no status field
         return true;
       });
 

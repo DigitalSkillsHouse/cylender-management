@@ -3,6 +3,7 @@ import dbConnect from "@/lib/mongodb"
 import Sale from "@/models/Sale"
 import Product from "@/models/Product"
 import { normalizeAdminEntryDate, recalculateAdminDailyStockReportsFrom } from "@/lib/admin-backdated-sync"
+import { normalizeSalePaymentState } from "@/lib/payment-status"
 
 // Align PUT with POST schema: items[], totalAmount, paymentMethod, paymentStatus, receivedAmount, notes, customer, invoiceNumber
 export async function PUT(request, { params }) {
@@ -47,7 +48,6 @@ export async function PUT(request, { params }) {
       updateData.totalAmount = ta
     }
     if (paymentMethod !== undefined) updateData.paymentMethod = paymentMethod
-    if (paymentStatus !== undefined) updateData.paymentStatus = paymentStatus
     if (receivedAmount !== undefined) {
       const ra = Number(receivedAmount)
       if (Number.isNaN(ra) || ra < 0) {
@@ -59,6 +59,15 @@ export async function PUT(request, { params }) {
     if (customerSignature !== undefined) updateData.customerSignature = customerSignature
     if (saleDate !== undefined) updateData.saleDate = normalizeAdminEntryDate(saleDate)
     if (lpoNo !== undefined) updateData.lpoNo = String(lpoNo || "").trim()
+
+    const normalizedPayment = normalizeSalePaymentState({
+      totalAmount: updateData.totalAmount ?? existingSale.totalAmount,
+      receivedAmount: updateData.receivedAmount ?? existingSale.receivedAmount,
+      paymentStatus: paymentStatus ?? updateData.paymentStatus ?? existingSale.paymentStatus,
+    })
+
+    updateData.receivedAmount = normalizedPayment.receivedAmount
+    updateData.paymentStatus = normalizedPayment.paymentStatus
 
     const sale = await Sale.findByIdAndUpdate(id, updateData, { new: true })
       .populate("customer", "name phone address email trNumber")

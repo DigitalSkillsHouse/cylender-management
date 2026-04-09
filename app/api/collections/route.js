@@ -1,8 +1,12 @@
 import dbConnect from "@/lib/mongodb"
 import { NextResponse } from "next/server"
+import "@/models/Customer"
 import Sale from "@/models/Sale"
 import EmployeeSale from "@/models/EmployeeSale"
+import "@/models/User"
+import "@/models/Product"
 import { getNextRcNo } from "@/lib/invoice-generator"
+import { normalizeSalePaymentState } from "@/lib/payment-status"
 
 // Helper function to truncate to 2 decimal places (exact calculation, no rounding)
 const roundToTwo = (value) => {
@@ -12,8 +16,6 @@ const roundToTwo = (value) => {
   return Math.trunc(Number(value) * 100) / 100;
 };
 
-// If balance is only a few fils, treat it as cleared to avoid lingering "pending" invoices.
-const TINY_BALANCE_THRESHOLD = 0.05
 // Cylinder transaction imports removed - collections only handle gas sales
 
 // Disable caching for this route - force dynamic rendering
@@ -32,49 +34,14 @@ export async function GET(request) {
     const employeeId = searchParams.get("employeeId") // optional filter
     const type = searchParams.get("type") || "pending" // pending, collected, or all
 
-    // Build queries: pending means receivedAmount < totalAmount AND paymentStatus !== "cleared"
-    // Also exclude debit invoices (totalAmount <= 0) - only show credit invoices (totalAmount > 0)
-    const pendingQuery = {
-      $and: [
-        { $expr: { $lt: [ { $ifNull: ["$receivedAmount", 0] }, { $ifNull: ["$totalAmount", 0] } ] } },
-        { paymentStatus: { $ne: "cleared" } },
-        { $expr: { $gt: [ { $ifNull: ["$totalAmount", 0] }, 0 ] } } // Only credit invoices (exclude debit invoices)
-      ]
+    const baseQuery = {
+      ...(customerId ? { customer: customerId } : {}),
+      $expr: { $gt: [{ $ifNull: ["$totalAmount", 0] }, 0] },
     }
-
-    // Build query for collected invoices: receivedAmount > 0 AND totalAmount > 0 AND has rcNo
-    // Only show invoices that were collected through the collection page (have rcNo)
-    // Exclude invoices that were directly cleared in gas sales (no rcNo)
-    // Credit invoices = normal sales where customer owes money (positive totalAmount)
-    // Debit invoices = refunds/adjustments where company owes customer (negative or zero totalAmount)
-    const collectedQuery = {
-      $and: [
-        { $expr: { $gt: [ { $ifNull: ["$receivedAmount", 0] }, 0 ] } },
-        { $expr: { $gt: [ { $ifNull: ["$totalAmount", 0] }, 0 ] } },
-        { rcNo: { $exists: true, $ne: null, $ne: "" } } // Only invoices collected through collection page
-      ]
-    }
-
-    // Determine which query to use based on type parameter
-    let queryToUse = pendingQuery
-    if (type === "collected") {
-      queryToUse = collectedQuery
-    } else if (type === "all") {
-      // For "all", we'll fetch both and combine, but still exclude debit invoices
-      // Only show credit invoices (totalAmount > 0)
-      queryToUse = {
-        $expr: { $gt: [ { $ifNull: ["$totalAmount", 0] }, 0 ] }
-      }
-    }
-
-    // Only handle gas sales - cylinder queries removed
-
-    // Only fetch gas sales data, exclude cylinder transactions
-    const baseQuery = customerId ? { ...queryToUse, customer: customerId } : queryToUse
     const employeeBaseQuery = {
       ...(customerId ? { customer: customerId } : {}),
       ...(employeeId ? { employee: employeeId } : {}),
-      ...queryToUse,
+      $expr: { $gt: [{ $ifNull: ["$totalAmount", 0] }, 0] },
     }
 
     const [adminSales, employeeSales] = await Promise.all([
@@ -90,17 +57,11 @@ export async function GET(request) {
     ])
 
     const mapSale = (s) => {
-      const totalAmount = roundToTwo(s.totalAmount || 0)
-      const receivedAmountRaw = roundToTwo(s.receivedAmount || 0)
-      let balance = roundToTwo(Math.max(0, totalAmount - receivedAmountRaw))
-      let paymentStatus = s.paymentStatus
-      let receivedAmount = receivedAmountRaw
-
-      if (totalAmount > 0 && balance <= TINY_BALANCE_THRESHOLD) {
-        balance = 0
-        receivedAmount = totalAmount
-        paymentStatus = "cleared"
-      }
+      const normalizedPayment = normalizeSalePaymentState({
+        totalAmount: s.totalAmount,
+        receivedAmount: s.receivedAmount,
+        paymentStatus: s.paymentStatus,
+      })
 
       return ({
       _id: s._id,
@@ -125,10 +86,10 @@ export async function GET(request) {
         price: item.price,
         total: item.total
       })) || [],
-      totalAmount,
-      receivedAmount,
-      balance,
-      paymentStatus,
+      totalAmount: normalizedPayment.totalAmount,
+      receivedAmount: normalizedPayment.receivedAmount,
+      balance: normalizedPayment.balance,
+      paymentStatus: normalizedPayment.paymentStatus,
       paymentMethod: s.paymentMethod || 'Cash',
       bankName: s.bankName || '',
       chequeNumber: s.chequeNumber || '',
@@ -142,17 +103,11 @@ export async function GET(request) {
     }
 
     const mapEmpSale = (s) => {
-      const totalAmount = roundToTwo(s.totalAmount || 0)
-      const receivedAmountRaw = roundToTwo(s.receivedAmount || 0)
-      let balance = roundToTwo(Math.max(0, totalAmount - receivedAmountRaw))
-      let paymentStatus = s.paymentStatus
-      let receivedAmount = receivedAmountRaw
-
-      if (totalAmount > 0 && balance <= TINY_BALANCE_THRESHOLD) {
-        balance = 0
-        receivedAmount = totalAmount
-        paymentStatus = "cleared"
-      }
+      const normalizedPayment = normalizeSalePaymentState({
+        totalAmount: s.totalAmount,
+        receivedAmount: s.receivedAmount,
+        paymentStatus: s.paymentStatus,
+      })
 
       return ({
       _id: s._id,
@@ -177,10 +132,10 @@ export async function GET(request) {
         price: item.price,
         total: item.total
       })) || [],
-      totalAmount,
-      receivedAmount,
-      balance,
-      paymentStatus,
+      totalAmount: normalizedPayment.totalAmount,
+      receivedAmount: normalizedPayment.receivedAmount,
+      balance: normalizedPayment.balance,
+      paymentStatus: normalizedPayment.paymentStatus,
       paymentMethod: s.paymentMethod || 'Cash',
       bankName: s.bankName || '',
       chequeNumber: s.chequeNumber || '',
@@ -210,7 +165,9 @@ export async function GET(request) {
 
     // Ensure the response matches the requested type even after tolerance normalization above.
     if (type === "pending") {
-      data = data.filter((inv) => Number(inv.balance || 0) > TINY_BALANCE_THRESHOLD && inv.paymentStatus !== "cleared")
+      data = data.filter((inv) => inv.paymentStatus !== "cleared" && Number(inv.balance || 0) > 0)
+    } else if (type === "collected") {
+      data = data.filter((inv) => inv.rcNo && Number(inv.receivedAmount || 0) > 0)
     }
 
     return NextResponse.json({ success: true, data })
@@ -261,10 +218,13 @@ export async function POST(request) {
           results.push({ id, model, applied: 0, status: sale.paymentStatus })
           continue
         }
-        sale.receivedAmount = roundToTwo(currentReceived + apply)
-        // Update payment status: cleared if received amount equals or exceeds total (with small tolerance for floating point)
-        const remainingBalance = roundToTwo(total - sale.receivedAmount)
-        sale.paymentStatus = remainingBalance <= 0.01 ? "cleared" : "pending"
+        const normalizedPayment = normalizeSalePaymentState({
+          totalAmount: total,
+          receivedAmount: roundToTwo(currentReceived + apply),
+          paymentStatus: sale.paymentStatus,
+        })
+        sale.receivedAmount = normalizedPayment.receivedAmount
+        sale.paymentStatus = normalizedPayment.paymentStatus
         // Store RC-NO on the sale record if this is the first payment received
         if (!sale.rcNo && apply > 0) {
           sale.rcNo = rcNo
@@ -285,7 +245,7 @@ export async function POST(request) {
           sale.collectionReceiptCreatedAt = collectionReceiptCreatedAt
         }
         await sale.save()
-        console.log(`[COLLECTION] Sale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${remainingBalance}, status=${sale.paymentStatus}`)
+        console.log(`[COLLECTION] Sale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${normalizedPayment.balance}, status=${sale.paymentStatus}`)
         results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
       } else if (model === "EmployeeSale") {
         const sale = await EmployeeSale.findById(id)
@@ -298,10 +258,13 @@ export async function POST(request) {
           results.push({ id, model, applied: 0, status: sale.paymentStatus })
           continue
         }
-        sale.receivedAmount = roundToTwo(currentReceived + apply)
-        // Update payment status: cleared if received amount equals or exceeds total (with small tolerance for floating point)
-        const remainingBalance = roundToTwo(total - sale.receivedAmount)
-        sale.paymentStatus = remainingBalance <= 0.01 ? "cleared" : "pending"
+        const normalizedPayment = normalizeSalePaymentState({
+          totalAmount: total,
+          receivedAmount: roundToTwo(currentReceived + apply),
+          paymentStatus: sale.paymentStatus,
+        })
+        sale.receivedAmount = normalizedPayment.receivedAmount
+        sale.paymentStatus = normalizedPayment.paymentStatus
         // Store RC-NO on the employee sale record if this is the first payment received
         if (!sale.rcNo && apply > 0) {
           sale.rcNo = rcNo
@@ -322,7 +285,7 @@ export async function POST(request) {
           sale.collectionReceiptCreatedAt = collectionReceiptCreatedAt
         }
         await sale.save()
-        console.log(`[COLLECTION] EmployeeSale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${remainingBalance}, status=${sale.paymentStatus}`)
+        console.log(`[COLLECTION] EmployeeSale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${normalizedPayment.balance}, status=${sale.paymentStatus}`)
         results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
       }
       // Cylinder transactions are no longer handled in collections
