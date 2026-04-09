@@ -123,6 +123,139 @@ export const Reports = () => {
     return await persistCylinderCustomerSignature(targetId, signature)
   }
 
+  const truncateMoney = (value: unknown) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric)) return 0
+    return Math.trunc(numeric * 100) / 100
+  }
+
+  const getSaleOutstandingAmount = (sale: any) => {
+    const explicitOutstanding = Number(sale?.outstandingAmount)
+    if (Number.isFinite(explicitOutstanding) && explicitOutstanding >= 0) {
+      return truncateMoney(explicitOutstanding)
+    }
+
+    const totalAmount = truncateMoney(sale?.totalAmount || 0)
+    const receivedAmount = truncateMoney(sale?.receivedAmount ?? sale?.amountPaid ?? 0)
+    return truncateMoney(Math.max(0, totalAmount - receivedAmount))
+  }
+
+  const hasPendingSaleBalance = (sale: any) => {
+    if (getSaleOutstandingAmount(sale) > 0) return true
+    return String(sale?.paymentStatus || '').toLowerCase() === 'pending'
+  }
+
+  const getCylinderOutstandingAmount = (transaction: any) => {
+    const totalAmount = truncateMoney(transaction?.amount || 0)
+    const receivedAmount = truncateMoney(transaction?.cashAmount || 0)
+    return truncateMoney(Math.max(0, totalAmount - receivedAmount))
+  }
+
+  const buildStatementSaleItems = (sales: any[] = []) =>
+    sales.flatMap((entry: any) => {
+      if (filters.status !== 'all' && entry.paymentStatus !== filters.status) return []
+
+      const totalAmount = truncateMoney(entry?.totalAmount || 0)
+      const receivedAmount = truncateMoney(entry?.receivedAmount ?? entry?.amountPaid ?? 0)
+      const remainingAmount = getSaleOutstandingAmount(entry)
+      const shouldScaleToOutstanding = remainingAmount > 0 && totalAmount > 0 && remainingAmount < totalAmount
+      const safeItems = Array.isArray(entry?.items) ? entry.items : []
+
+      if (safeItems.length === 0) {
+        const lineTotal = shouldScaleToOutstanding ? remainingAmount : totalAmount
+        return [{
+          product: { name: `Invoice #${entry?.invoiceNumber || 'N/A'}`, price: lineTotal },
+          quantity: 1,
+          price: lineTotal,
+          total: lineTotal,
+          category: 'gas' as "gas" | "cylinder",
+          invoiceNumber: entry?.invoiceNumber,
+          invoiceDate: entry?.createdAt,
+          paymentStatus: entry?.paymentStatus,
+          totalAmount,
+          receivedAmount,
+          remainingAmount,
+        }]
+      }
+
+      let allocatedTotal = 0
+
+      return safeItems.map((it: any, index: number) => {
+        const quantity = Number(it?.quantity || 1)
+        const basePrice = truncateMoney(it?.price || 0)
+        const baseTotal = truncateMoney(it?.total ?? (basePrice * quantity))
+        const isLastItem = index === safeItems.length - 1
+        const scaledTotal = shouldScaleToOutstanding
+          ? (isLastItem
+              ? truncateMoney(Math.max(0, remainingAmount - allocatedTotal))
+              : truncateMoney(baseTotal * (remainingAmount / totalAmount)))
+          : baseTotal
+
+        allocatedTotal = truncateMoney(allocatedTotal + scaledTotal)
+
+        return {
+          product: {
+            name: it?.product?.name || it?.productName || it?.name || 'Item',
+            price: quantity > 0 ? truncateMoney(scaledTotal / quantity) : scaledTotal,
+          },
+          quantity,
+          price: quantity > 0 ? truncateMoney(scaledTotal / quantity) : scaledTotal,
+          total: scaledTotal,
+          category: (it?.category || it?.product?.category || 'gas') as "gas" | "cylinder",
+          cylinderStatus: it?.cylinderStatus || it?.product?.cylinderStatus,
+          invoiceNumber: entry?.invoiceNumber,
+          invoiceDate: entry?.createdAt,
+          paymentStatus: entry?.paymentStatus,
+          totalAmount,
+          receivedAmount,
+          remainingAmount,
+        }
+      })
+    })
+
+  const buildStatementCylinderItems = (transactions: any[] = []) =>
+    transactions
+      .filter((transaction: any) => {
+        if (filters.status === 'all') return true
+        return transaction?.status === filters.status
+      })
+      .map((transaction: any) => {
+        const quantity = Number(transaction?.quantity || 1)
+        const totalAmount = truncateMoney(transaction?.amount || 0)
+        const receivedAmount = truncateMoney(transaction?.cashAmount || 0)
+        const remainingAmount = getCylinderOutstandingAmount(transaction)
+        const displayAmount =
+          String(transaction?.status || '').toLowerCase() === 'pending' && remainingAmount > 0
+            ? remainingAmount
+            : totalAmount
+
+        let cylinderStatus = 'empty'
+        if (transaction?.type === 'refill') {
+          cylinderStatus = 'full'
+        } else if (transaction?.cylinderStatus) {
+          cylinderStatus = transaction.cylinderStatus
+        }
+
+        const typeCapitalized = (transaction?.type || 'Cylinder').charAt(0).toUpperCase() + (transaction?.type || 'Cylinder').slice(1)
+        const sizeText = transaction?.cylinderSize ? ` ${transaction.cylinderSize.charAt(0).toUpperCase() + transaction.cylinderSize.slice(1)}` : ''
+        const unitPrice = quantity > 0 ? truncateMoney(displayAmount / quantity) : displayAmount
+
+        return {
+          product: { name: `Cylinder ${typeCapitalized}${sizeText}`, price: unitPrice },
+          quantity,
+          price: unitPrice,
+          total: displayAmount,
+          category: 'cylinder' as "gas" | "cylinder",
+          cylinderStatus: cylinderStatus as "empty" | "full",
+          invoiceNumber: transaction?.invoiceNumber || transaction?.transactionId,
+          invoiceDate: transaction?.createdAt,
+          paymentStatus: transaction?.status,
+          totalAmount,
+          receivedAmount,
+          remainingAmount,
+        }
+      })
+
   const buildReceiptFromSource = (
     kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder',
     targetId: string,
@@ -487,7 +620,7 @@ export const Reports = () => {
       // Check if customer has any pending transactions
       // Pending = paymentStatus === 'pending' OR has outstanding balance (totalAmount > receivedAmount)
       const hasPendingGasSales = customer.recentSales?.some((sale: any) => 
-        sale.paymentStatus === 'pending' || (Number(sale.totalAmount || 0) > Number(sale.receivedAmount || 0))
+        hasPendingSaleBalance(sale)
       ) || false;
       const hasPendingCylinders = customer.recentCylinderTransactions?.some((transaction: any) => transaction.status === 'pending') || false;
       return hasPendingGasSales || hasPendingCylinders;
@@ -725,15 +858,15 @@ export const Reports = () => {
       for (const customer of pendingCustomers) {
         // Get pending gas sales - paymentStatus === 'pending' OR has outstanding balance
         const pendingGasSales = customer.recentSales?.filter((sale: any) => 
-          sale.paymentStatus === 'pending' || (Number(sale.totalAmount || 0) > Number(sale.receivedAmount || 0))
+          hasPendingSaleBalance(sale)
         ) || [];
         
         // Get pending cylinder transactions
         const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
 
         // Calculate customer total
-        const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0);
-        const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + (Number(transaction.amount) || 0), 0);
+        const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + getSaleOutstandingAmount(sale), 0);
+        const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + getCylinderOutstandingAmount(transaction), 0);
         const customerTotal = gasSalesTotal + cylindersTotal;
         grandTotal += customerTotal;
 
@@ -783,17 +916,6 @@ export const Reports = () => {
 		            if (currentY + 5 > pageHeight - pageBottomPadding) {
 		              pdf.addPage();
 		              currentY = margin + 2;
-		              // Re-add table header on new page
-		              pdf.setFillColor(241, 243, 244);
-		              pdf.rect(margin, currentY, pageWidth - margin * 2, 5, 'F');
-	              pdf.setFontSize(7.5);
-	              pdf.setTextColor(0, 0, 0);
-	              pdf.setFont(undefined, 'bold');
-	              pdf.text('Date', margin + 2, currentY + 3.5);
-	              pdf.text('Invoice Number', margin + 35, currentY + 3.5);
-	              pdf.text('Reference Name', margin + 80, currentY + 3.5);
-	              pdf.text('Amount (AED)', pageWidth - margin - 2, currentY + 3.5, { align: 'right' });
-	              currentY += 6.5;
 	            }
             
             const date = new Date(sale.createdAt).toLocaleDateString();
@@ -806,7 +928,7 @@ export const Reports = () => {
               // Employee sale but name not available
               createdBy = 'Employee';
             }
-            const amount = Number(sale.totalAmount) || 0;
+            const amount = getSaleOutstandingAmount(sale);
 
             pdf.setFont(undefined, 'normal');
 	            pdf.setFontSize(7);
@@ -824,17 +946,6 @@ export const Reports = () => {
 		            if (currentY + 5 > pageHeight - pageBottomPadding) {
 		              pdf.addPage();
 		              currentY = margin + 2;
-		              // Re-add table header on new page
-		              pdf.setFillColor(241, 243, 244);
-		              pdf.rect(margin, currentY, pageWidth - margin * 2, 5, 'F');
-	              pdf.setFontSize(7.5);
-	              pdf.setTextColor(0, 0, 0);
-	              pdf.setFont(undefined, 'bold');
-	              pdf.text('Date', margin + 2, currentY + 3.5);
-	              pdf.text('Invoice Number', margin + 35, currentY + 3.5);
-	              pdf.text('Reference Name', margin + 80, currentY + 3.5);
-	              pdf.text('Amount (AED)', pageWidth - margin - 2, currentY + 3.5, { align: 'right' });
-	              currentY += 6.5;
 	            }
             
             const date = new Date(transaction.createdAt).toLocaleDateString();
@@ -844,7 +955,7 @@ export const Reports = () => {
             if (transaction.employee && transaction.employee.name) {
               createdBy = transaction.employee.name;
             }
-            const amount = Number(transaction.amount) || 0;
+            const amount = getCylinderOutstandingAmount(transaction);
 
             pdf.setFont(undefined, 'normal');
 	            pdf.setFontSize(7);
@@ -2146,49 +2257,11 @@ export const Reports = () => {
 
     // Otherwise, this is the customer statement flow
     if (pendingCustomer) {
-      const filteredSales = (pendingCustomer.recentSales || []).filter((entry: any) => {
-        if (filters.status === 'all') return true
-        return entry.paymentStatus === filters.status
-      })
-
-      const gasItems = filteredSales.flatMap((entry: any) =>
-        (entry.items || []).map((it: any) => ({
-          product: { name: it?.product?.name || it?.productName || it?.name || 'Item', price: Number(it?.price || 0) },
-          quantity: Number(it?.quantity || 1),
-          price: Number(it?.price || 0),
-          total: Number(it?.total || ((Number(it?.price || 0)) * Number(it?.quantity || 1))),
-          category: (it?.category || it?.product?.category || 'gas') as "gas" | "cylinder",
-          cylinderStatus: it?.cylinderStatus || it?.product?.cylinderStatus
-        }))
-      )
-
-      const cylinderItems = (pendingCustomer.recentCylinderTransactions || [])
-        .filter((t: any) => (filters.status === 'all') ? true : (t?.status === filters.status))
-        .map((t: any) => {
-          // Determine cylinder status based on transaction type
-          // For deposits and returns, typically empty cylinders
-          // For refills, they're full cylinders
-          let cylinderStatus = 'empty'
-          if (t?.type === 'refill') {
-            cylinderStatus = 'full'
-          } else if (t?.cylinderStatus) {
-            cylinderStatus = t.cylinderStatus
-          }
-          // Format product name: capitalize type and include size if available
-          const typeCapitalized = (t?.type || 'Cylinder').charAt(0).toUpperCase() + (t?.type || 'Cylinder').slice(1)
-          const sizeText = t?.cylinderSize ? ` ${t.cylinderSize.charAt(0).toUpperCase() + t.cylinderSize.slice(1)}` : ''
-          return {
-            product: { name: `Cylinder ${typeCapitalized}${sizeText}`, price: Number(t?.amount || 0) },
-            quantity: Number(t?.quantity || 1),
-            price: Number(t?.amount || 0),
-            total: Number(t?.amount || 0),
-            category: 'cylinder' as "gas" | "cylinder",
-            cylinderStatus: cylinderStatus as "empty" | "full"
-          }
-        })
+      const gasItems = buildStatementSaleItems(pendingCustomer.recentSales || [])
+      const cylinderItems = buildStatementCylinderItems(pendingCustomer.recentCylinderTransactions || [])
 
       const items = [...gasItems, ...cylinderItems]
-      const totalAmount = items.reduce((sum, x) => sum + Number(x.total || 0), 0)
+      const totalAmount = truncateMoney(items.reduce((sum, x) => sum + Number(x.total || 0), 0))
 
       const mockSale = {
         _id: pendingCustomer._id,
@@ -2370,63 +2443,13 @@ export const Reports = () => {
       setShowSignatureDialog(true)
     } else {
       // Build receipt items as separate rows per product for gas sales, plus cylinder transactions
-      const filteredSales = (customer.recentSales || []).filter((entry: any) => {
-        if (filters.status === 'all') return true
-        return entry.paymentStatus === filters.status
-      })
-
-      const gasItems = filteredSales.flatMap((entry: any) =>
-        (entry.items || []).map((it: any) => ({
-          product: {
-            name: it?.product?.name || 'Unknown Product',
-            price: Number(it?.price || 0),
-          },
-          quantity: Number(it?.quantity || 1),
-          price: Number(it?.price || 0),
-          total: Number(it?.total ?? ((Number(it?.price || 0)) * Number(it?.quantity || 1))),
-          category: (it?.category || it?.product?.category || 'gas') as "gas" | "cylinder",
-          cylinderStatus: it?.cylinderStatus || it?.product?.cylinderStatus
-        }))
-      )
-
-      // Cylinder transactions (deposit/return have amount; refills treated as 0 amount in receipt)
-      const filteredCyl = (customer.recentCylinderTransactions || []).filter((t: any) => {
-        if (filters.status === 'all') return true
-        return t.status === filters.status
-      })
-      const cylItems = filteredCyl.map((t: any) => {
-        const qty = Number(t?.quantity || 1)
-        const total = t?.type === 'refill' ? 0 : Number(t?.amount || 0)
-        const unit = qty > 0 ? (total / qty) : total
-        // Determine cylinder status based on transaction type
-        // For deposits and returns, typically empty cylinders
-        // For refills, they're full cylinders
-        let cylinderStatus = 'empty'
-        if (t?.type === 'refill') {
-          cylinderStatus = 'full'
-        } else if (t?.cylinderStatus) {
-          cylinderStatus = t.cylinderStatus
-        }
-        // Format product name: capitalize type and include size if available
-        const typeCapitalized = (t?.type || 'Cylinder').charAt(0).toUpperCase() + (t?.type || 'Cylinder').slice(1)
-        const sizeText = t?.cylinderSize ? ` ${t.cylinderSize.charAt(0).toUpperCase() + t.cylinderSize.slice(1)}` : ''
-        return {
-          product: {
-            name: `Cylinder ${typeCapitalized}${sizeText}`,
-            price: unit,
-          },
-          quantity: qty,
-          price: unit,
-          total: total,
-          category: 'cylinder' as "gas" | "cylinder",
-          cylinderStatus: cylinderStatus as "empty" | "full"
-        }
-      })
+      const gasItems = buildStatementSaleItems(customer.recentSales || [])
+      const cylItems = buildStatementCylinderItems(customer.recentCylinderTransactions || [])
 
       const items = [...gasItems, ...cylItems]
 
       // Calculate total amount as sum of item totals
-      const totalAmount = items.reduce((sum, it) => sum + (Number(it.total) || 0), 0)
+      const totalAmount = truncateMoney(items.reduce((sum, it) => sum + (Number(it.total) || 0), 0))
       
       // If no items, add a placeholder
       if (items.length === 0) {
@@ -3215,6 +3238,10 @@ export const Reports = () => {
         <ReceiptDialog
           sale={receiptDialogData}
           useReceivingHeader
+          disableVAT={
+            String(receiptDialogData?.paymentMethod || '').toLowerCase() === 'account statement' ||
+            String(receiptDialogData?.invoiceNumber || '').startsWith('STATEMENT-')
+          }
           onClose={() => setReceiptDialogData(null)}
         />
       )}

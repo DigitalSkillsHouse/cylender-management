@@ -5,11 +5,22 @@ import { Button } from '@/components/ui/button';
 import { Printer } from 'lucide-react';
 import { processSignatureForPrint } from '@/lib/client-signature-processing';
 
-const chunkArray = <T,>(arr: T[], size: number) => {
+const paginateRows = <T,>(arr: T[], firstPageSize: number, continuationPageSize: number) => {
   const safe = Array.isArray(arr) ? arr : [];
-  const chunkSize = Math.max(1, Math.floor(size || 1));
+  const firstChunkSize = Math.max(1, Math.floor(firstPageSize || 1));
+  const nextChunkSize = Math.max(1, Math.floor(continuationPageSize || firstChunkSize));
   const out: T[][] = [];
-  for (let i = 0; i < safe.length; i += chunkSize) out.push(safe.slice(i, i + chunkSize));
+
+  if (safe.length <= firstChunkSize) {
+    out.push(safe);
+    return out.length ? out : [[]];
+  }
+
+  out.push(safe.slice(0, firstChunkSize));
+  for (let i = firstChunkSize; i < safe.length; i += nextChunkSize) {
+    out.push(safe.slice(i, i + nextChunkSize));
+  }
+
   return out.length ? out : [[]];
 };
 
@@ -212,6 +223,9 @@ const ReceiptPrintPage = () => {
 
   const transactionType = (sale?.type || '').toString().toLowerCase()
   const isCollectionReceipt = transactionType === 'collection'
+  const isStatementReceipt =
+    String(sale?.paymentMethod || '').toLowerCase() === 'account statement' ||
+    String(sale?.invoiceNumber || '').startsWith('STATEMENT-')
   const isStandardSaleInvoice =
     !['collection', 'deposit', 'return', 'refill', 'rental'].includes(transactionType) &&
     !String(sale?.invoiceNumber || '').startsWith('STATEMENT-') &&
@@ -222,11 +236,10 @@ const ReceiptPrintPage = () => {
   const footerSrc = '/images/footer.png'
   const pageVariantClass = isTaxInvoice ? 'receipt-page-tax' : isCollectionReceipt ? 'receipt-page-collection' : ''
 
-  // Page row limits (layout only):
-  // - Collection "Receiving Invoice": denser single-page layout to fit more invoice rows
-  // - Gas sales invoice: 10 lines per page
-  // - Others: keep 15 as default
-  const itemsPerPage = isCollectionReceipt ? 22 : hasGasItems ? 10 : 15
+  // Keep a minimum 15 rows on the first page, then allow more rows on continuation pages
+  // because those pages intentionally continue the table without repeating the page header.
+  const firstPageItems = Math.max(15, isCollectionReceipt || isStatementReceipt ? 18 : 15)
+  const continuationPageItems = Math.max(15, isCollectionReceipt || isStatementReceipt ? 24 : hasGasItems ? 22 : 24)
 
   const collectionRows = (() => {
     if (transactionType !== 'collection') return null
@@ -292,7 +305,7 @@ const ReceiptPrintPage = () => {
   })()
 
   const rowsToRender: any[] = transactionType === 'collection' ? (collectionRows || []) : (sale.items || [])
-  const itemPages = chunkArray(rowsToRender, itemsPerPage)
+  const itemPages = paginateRows(rowsToRender, firstPageItems, continuationPageItems)
 
   return (
     <div className="bg-gray-100 min-h-screen print:bg-white">
@@ -309,6 +322,7 @@ const ReceiptPrintPage = () => {
       <main className="w-full">
         <div className="mx-auto w-full max-w-[210mm]">
           {itemPages.map((pageItems, pageIndex) => {
+            const isFirstPage = pageIndex === 0
             const isLast = pageIndex === itemPages.length - 1
 
             return (
@@ -317,15 +331,17 @@ const ReceiptPrintPage = () => {
                 className={`receipt-page bg-white shadow-sm border border-gray-200 my-4 print:my-0 print:shadow-none print:border-0 flex flex-col ${pageVariantClass}`}
               >
                 <div className="flex flex-col flex-1">
-                  <div className="text-center">
-                    <img
-                      src={headerSrc}
-                      alt="Company Header"
-                      className="receipt-header-img mx-auto max-w-full h-auto"
-                    />
-                  </div>
+                  {isFirstPage && (
+                    <div className="text-center">
+                      <img
+                        src={headerSrc}
+                        alt="Company Header"
+                        className="receipt-header-img mx-auto max-w-full h-auto"
+                      />
+                    </div>
+                  )}
 
-                  {pageIndex === 0 ? (
+                  {isFirstPage ? (
                     <section className="receipt-meta-grid grid grid-cols-2 gap-4 mt-3 mb-3">
                       <div>
                         <div className="space-y-0.5 text-[11px] leading-snug text-gray-700">
@@ -367,43 +383,37 @@ const ReceiptPrintPage = () => {
                         </div>
                       </div>
                     </section>
-                  ) : (
-                    <section className="receipt-meta-compact flex items-center justify-between mt-2 mb-2 text-[10px] text-gray-600">
-                      <div className="font-medium">{sale.customer.name}</div>
-                      <div className="font-mono">
-                        {sale?.type === 'collection' ? `RC-NO-${sale?.invoiceNumber || '-'}` : `Invoice: ${sale.invoiceNumber}`}
-                      </div>
-                      <div>{new Date(sale.createdAt).toLocaleDateString()}</div>
-                    </section>
-                  )}
+                  ) : null}
 
                   <section>
                     <table className={`w-full border-collapse text-[10px] leading-tight receipt-table ${isCollectionReceipt ? 'receipt-table-collection' : ''}`}>
-                      <thead>
-                        <tr className="bg-[#2B3068] text-white">
-                          {sale?.type === 'collection' ? (
-                            <>
-                              <th className="text-left p-1 font-semibold border">Invoice</th>
-                              <th className="text-center p-1 font-semibold border">Date</th>
-                              <th className="text-right p-1 font-semibold border">Type</th>
-                              <th className="text-right p-1 font-semibold border">Total</th>
-                              <th className="text-right p-1 font-semibold border">Received</th>
-                              <th className="text-right p-1 font-semibold border">Remaining</th>
-                            </>
-                          ) : (
-                            <>
-                              <th className="text-left p-1 font-semibold border">Item</th>
-                              <th className="text-center p-1 font-semibold border">Category</th>
-                              <th className="text-center p-1 font-semibold border">Qty</th>
-                              <th className="text-right p-1 font-semibold border">Price</th>
-                              {!shouldDisableVAT && (
-                                <th className="text-right p-1 font-semibold border">VAT (5%)</th>
-                              )}
-                              <th className="text-right p-1 font-semibold border">Total</th>
-                            </>
-                          )}
-                        </tr>
-                      </thead>
+                      {isFirstPage && (
+                        <thead>
+                          <tr className="bg-[#2B3068] text-white">
+                            {sale?.type === 'collection' ? (
+                              <>
+                                <th className="text-left p-1 font-semibold border">Invoice</th>
+                                <th className="text-center p-1 font-semibold border">Date</th>
+                                <th className="text-right p-1 font-semibold border">Type</th>
+                                <th className="text-right p-1 font-semibold border">Total</th>
+                                <th className="text-right p-1 font-semibold border">Received</th>
+                                <th className="text-right p-1 font-semibold border">Remaining</th>
+                              </>
+                            ) : (
+                              <>
+                                <th className="text-left p-1 font-semibold border">Item</th>
+                                <th className="text-center p-1 font-semibold border">Category</th>
+                                <th className="text-center p-1 font-semibold border">Qty</th>
+                                <th className="text-right p-1 font-semibold border">Price</th>
+                                {!shouldDisableVAT && (
+                                  <th className="text-right p-1 font-semibold border">VAT (5%)</th>
+                                )}
+                                <th className="text-right p-1 font-semibold border">Total</th>
+                              </>
+                            )}
+                          </tr>
+                        </thead>
+                      )}
                       <tbody>
                         {pageItems.map((item, index) => {
                           if (sale?.type === 'collection') {
