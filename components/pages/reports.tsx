@@ -123,37 +123,67 @@ export const Reports = () => {
     return await persistCylinderCustomerSignature(targetId, signature)
   }
 
+  const PAYMENT_CLEAR_TOLERANCE = 0.05
+
   const truncateMoney = (value: unknown) => {
     const numeric = Number(value)
     if (!Number.isFinite(numeric)) return 0
     return Math.trunc(numeric * 100) / 100
   }
 
+  const clampOutstandingAmount = (value: unknown) => {
+    const normalized = truncateMoney(value)
+    return normalized <= PAYMENT_CLEAR_TOLERANCE ? 0 : normalized
+  }
+
   const getSaleOutstandingAmount = (sale: any) => {
     const explicitOutstanding = Number(sale?.outstandingAmount)
     if (Number.isFinite(explicitOutstanding) && explicitOutstanding >= 0) {
-      return truncateMoney(explicitOutstanding)
+      return clampOutstandingAmount(explicitOutstanding)
     }
 
     const totalAmount = truncateMoney(sale?.totalAmount || 0)
     const receivedAmount = truncateMoney(sale?.receivedAmount ?? sale?.amountPaid ?? 0)
-    return truncateMoney(Math.max(0, totalAmount - receivedAmount))
+    return clampOutstandingAmount(Math.max(0, totalAmount - receivedAmount))
   }
 
-  const hasPendingSaleBalance = (sale: any) => {
-    if (getSaleOutstandingAmount(sale) > 0) return true
-    return String(sale?.paymentStatus || '').toLowerCase() === 'pending'
-  }
+  const hasPendingSaleBalance = (sale: any) => getSaleOutstandingAmount(sale) > 0
 
   const getCylinderOutstandingAmount = (transaction: any) => {
     const totalAmount = truncateMoney(transaction?.amount || 0)
     const receivedAmount = truncateMoney(transaction?.cashAmount || 0)
-    return truncateMoney(Math.max(0, totalAmount - receivedAmount))
+    return clampOutstandingAmount(Math.max(0, totalAmount - receivedAmount))
   }
 
-  const buildStatementSaleItems = (sales: any[] = []) =>
+  const hasPendingCylinderBalance = (transaction: any) => {
+    const outstanding = getCylinderOutstandingAmount(transaction)
+    if (outstanding > 0) return true
+
+    const totalAmount = truncateMoney(transaction?.amount || 0)
+    return totalAmount > PAYMENT_CLEAR_TOLERANCE && String(transaction?.status || '').toLowerCase() === 'pending'
+  }
+
+  const shouldUsePendingOnlyStatement = (sales: any[] = [], cylinders: any[] = []) =>
+    filters.status === 'all' &&
+    (sales.some((sale) => hasPendingSaleBalance(sale)) || cylinders.some((transaction) => hasPendingCylinderBalance(transaction)))
+
+  const shouldIncludeStatementSale = (sale: any, pendingOnly = false) => {
+    if (filters.status === 'pending') return hasPendingSaleBalance(sale)
+    if (filters.status === 'cleared') return String(sale?.paymentStatus || '').toLowerCase() === 'cleared'
+    if (filters.status === 'overdue') return String(sale?.paymentStatus || '').toLowerCase() === 'overdue' && getSaleOutstandingAmount(sale) > 0
+    return pendingOnly ? hasPendingSaleBalance(sale) : true
+  }
+
+  const shouldIncludeStatementCylinder = (transaction: any, pendingOnly = false) => {
+    if (filters.status === 'pending') return hasPendingCylinderBalance(transaction)
+    if (filters.status === 'cleared') return String(transaction?.status || '').toLowerCase() === 'cleared'
+    if (filters.status === 'overdue') return String(transaction?.status || '').toLowerCase() === 'overdue' && getCylinderOutstandingAmount(transaction) > 0
+    return pendingOnly ? hasPendingCylinderBalance(transaction) : true
+  }
+
+  const buildStatementSaleItems = (sales: any[] = [], pendingOnly = false) =>
     sales.flatMap((entry: any) => {
-      if (filters.status !== 'all' && entry.paymentStatus !== filters.status) return []
+      if (!shouldIncludeStatementSale(entry, pendingOnly)) return []
 
       const totalAmount = truncateMoney(entry?.totalAmount || 0)
       const receivedAmount = truncateMoney(entry?.receivedAmount ?? entry?.amountPaid ?? 0)
@@ -213,12 +243,9 @@ export const Reports = () => {
       })
     })
 
-  const buildStatementCylinderItems = (transactions: any[] = []) =>
+  const buildStatementCylinderItems = (transactions: any[] = [], pendingOnly = false) =>
     transactions
-      .filter((transaction: any) => {
-        if (filters.status === 'all') return true
-        return transaction?.status === filters.status
-      })
+      .filter((transaction: any) => shouldIncludeStatementCylinder(transaction, pendingOnly))
       .map((transaction: any) => {
         const quantity = Number(transaction?.quantity || 1)
         const totalAmount = truncateMoney(transaction?.amount || 0)
@@ -585,8 +612,7 @@ export const Reports = () => {
       const cyl = Array.isArray(c.recentCylinderTransactions) ? c.recentCylinderTransactions : []
       const hasOverdue = sales.some((s: any) => s?.paymentStatus === 'overdue') || cyl.some((t: any) => t?.status === 'overdue')
       if (hasOverdue) return 'overdue'
-      // Check for pending: paymentStatus === 'pending' OR has outstanding balance (totalAmount > receivedAmount)
-      const hasPending = sales.some((s: any) => s?.paymentStatus === 'pending' || (Number(s?.totalAmount || 0) > Number(s?.receivedAmount || 0))) || cyl.some((t: any) => t?.status === 'pending')
+      const hasPending = sales.some((s: any) => hasPendingSaleBalance(s)) || cyl.some((t: any) => hasPendingCylinderBalance(t))
       if (hasPending) return 'pending'
       if ((c.balance ?? 0) <= 0) return 'cleared'
       return (c.status || 'cleared') as any
@@ -618,11 +644,10 @@ export const Reports = () => {
     // Filter customers with pending transactions
     let pendingCustomers = customers.filter(customer => {
       // Check if customer has any pending transactions
-      // Pending = paymentStatus === 'pending' OR has outstanding balance (totalAmount > receivedAmount)
       const hasPendingGasSales = customer.recentSales?.some((sale: any) => 
         hasPendingSaleBalance(sale)
       ) || false;
-      const hasPendingCylinders = customer.recentCylinderTransactions?.some((transaction: any) => transaction.status === 'pending') || false;
+      const hasPendingCylinders = customer.recentCylinderTransactions?.some((transaction: any) => hasPendingCylinderBalance(transaction)) || false;
       return hasPendingGasSales || hasPendingCylinders;
     });
 
@@ -856,13 +881,12 @@ export const Reports = () => {
 
       // Process each customer
       for (const customer of pendingCustomers) {
-        // Get pending gas sales - paymentStatus === 'pending' OR has outstanding balance
         const pendingGasSales = customer.recentSales?.filter((sale: any) => 
           hasPendingSaleBalance(sale)
         ) || [];
         
         // Get pending cylinder transactions
-        const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
+        const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => hasPendingCylinderBalance(transaction)) || [];
 
         // Calculate customer total
         const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + getSaleOutstandingAmount(sale), 0);
@@ -2257,8 +2281,11 @@ export const Reports = () => {
 
     // Otherwise, this is the customer statement flow
     if (pendingCustomer) {
-      const gasItems = buildStatementSaleItems(pendingCustomer.recentSales || [])
-      const cylinderItems = buildStatementCylinderItems(pendingCustomer.recentCylinderTransactions || [])
+      const recentSales = pendingCustomer.recentSales || []
+      const recentCylinderTransactions = pendingCustomer.recentCylinderTransactions || []
+      const pendingOnly = shouldUsePendingOnlyStatement(recentSales, recentCylinderTransactions)
+      const gasItems = buildStatementSaleItems(recentSales, pendingOnly)
+      const cylinderItems = buildStatementCylinderItems(recentCylinderTransactions, pendingOnly)
 
       const items = [...gasItems, ...cylinderItems]
       const totalAmount = truncateMoney(items.reduce((sum, x) => sum + Number(x.total || 0), 0))
@@ -2443,8 +2470,11 @@ export const Reports = () => {
       setShowSignatureDialog(true)
     } else {
       // Build receipt items as separate rows per product for gas sales, plus cylinder transactions
-      const gasItems = buildStatementSaleItems(customer.recentSales || [])
-      const cylItems = buildStatementCylinderItems(customer.recentCylinderTransactions || [])
+      const recentSales = customer.recentSales || []
+      const recentCylinderTransactions = customer.recentCylinderTransactions || []
+      const pendingOnly = shouldUsePendingOnlyStatement(recentSales, recentCylinderTransactions)
+      const gasItems = buildStatementSaleItems(recentSales, pendingOnly)
+      const cylItems = buildStatementCylinderItems(recentCylinderTransactions, pendingOnly)
 
       const items = [...gasItems, ...cylItems]
 
