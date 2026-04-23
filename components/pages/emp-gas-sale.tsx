@@ -164,6 +164,14 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   // Live availability from inventory-items (authoritative for cylinder availability)
   const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
 
+  const getSaleCreationTime = (sale: { _id?: string; createdAt?: string }) => {
+    const id = typeof sale?._id === "string" ? sale._id : ""
+    if (/^[a-f\d]{24}$/i.test(id)) {
+      return parseInt(id.slice(0, 8), 16) * 1000
+    }
+    return new Date(sale?.createdAt || 0).getTime()
+  }
+
   // Gas product handlers
   const handleEntryGasSearchChange = (value: string) => {
     setEntryGasSearch(value)
@@ -670,9 +678,9 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       // Normalize sales and customers - only show employee sales
       const employeeSalesData = Array.isArray(employeeSalesResponse.data) ? employeeSalesResponse.data : []
       // Filter to show only this employee's sales
-      const salesData = employeeSalesData.filter((sale: any) => 
-        sale.employee?._id === employeeId || sale.employee === employeeId
-      ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      const salesData = employeeSalesData
+        .filter((sale: any) => sale.employee?._id === employeeId || sale.employee === employeeId)
+        .sort((a, b) => getSaleCreationTime(b) - getSaleCreationTime(a))
 
       const customersData = Array.isArray(customersResponse.data?.data)
         ? customersResponse.data.data

@@ -64,7 +64,9 @@ interface Sale {
   }>;
   totalAmount: number;
   paymentMethod: string;
+  cashAmount?: number;
   bankName?: string;
+  checkNumber?: string;
   chequeNumber?: string;
   lpoNo?: string;
   paymentStatus: string;
@@ -82,6 +84,11 @@ const ReceiptPrintPage = () => {
   const [customerFooterSignature, setCustomerFooterSignature] = useState<string | null>(null);
   const [adminFooterSignature, setAdminFooterSignature] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pageRefs = useRef<Array<HTMLElement | null>>([]);
+  const normalizedPaymentMethod = String(sale?.paymentMethod || '').toLowerCase();
+  const isSecurityReceipt = ['deposit', 'return', 'refill'].includes(String(sale?.type || '').toLowerCase());
+  const securityCashAmount = Number(sale?.cashAmount || 0);
+  const securityCheckNumber = sale?.checkNumber || sale?.chequeNumber || '';
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +162,141 @@ const ReceiptPrintPage = () => {
     window.print();
   };
 
+  const transactionType = (sale?.type || '').toString().toLowerCase()
+  const isCollectionReceipt = transactionType === 'collection'
+  const isCylinderReceipt = transactionType === 'deposit' || transactionType === 'return' || transactionType === 'refill'
+  const isStatementReceipt =
+    String(sale?.paymentMethod || '').toLowerCase() === 'account statement' ||
+    String(sale?.invoiceNumber || '').startsWith('STATEMENT-')
+  const safeItems = Array.isArray(sale?.items) ? sale.items : []
+  const hasGasItems =
+    safeItems.some((it: any) => (it?.category || (it?.product as any)?.category || '').toString().toLowerCase() === 'gas')
+  const collectionPageMaxItems = 36
+  const defaultFirstPageItems = Math.max(15, isCollectionReceipt ? 15 : isStatementReceipt ? 18 : 15)
+  const continuationPageItems = Math.max(15, isCollectionReceipt ? collectionPageMaxItems : isStatementReceipt ? 24 : hasGasItems ? 22 : 24)
+
+  const collectionRows = (() => {
+    if (transactionType !== 'collection') return null
+
+    const groups: Record<string, any[]> = {}
+
+    safeItems.forEach((item: any) => {
+      const name = String(item?.product?.name || '')
+      let invoiceNumber = item?.invoiceNumber
+
+      if (!invoiceNumber && name.includes('Invoice #')) {
+        const parts = name.split('Invoice #')
+        if (parts.length > 1) {
+          invoiceNumber = parts[1].split(' ')[0].trim()
+        }
+      }
+
+      if (!invoiceNumber && sale?.invoiceNumber) invoiceNumber = sale.invoiceNumber
+
+      const key = String(invoiceNumber || 'no-invoice')
+      if (!groups[key]) groups[key] = []
+      groups[key].push(item)
+    })
+
+    return Object.entries(groups).map(([invoiceNumber, groupItems]) => {
+      let totalAmount = 0
+      let receivedAmount = 0
+      let remainingAmount = 0
+      let invoiceDate = ''
+      let paymentStatus = 'pending'
+
+      groupItems.forEach((item: any) => {
+        const itemTotal = Number(item?.total || 0)
+        const itemTotalAmount = Number(item?.totalAmount ?? itemTotal)
+        const itemReceivedAmount = Number(item?.receivedAmount ?? itemTotal)
+        const itemRemainingAmount =
+          item?.remainingAmount !== undefined ? Number(item?.remainingAmount) : itemTotalAmount - itemReceivedAmount
+
+        totalAmount += isFinite(itemTotalAmount) ? itemTotalAmount : 0
+        receivedAmount += isFinite(itemReceivedAmount) ? itemReceivedAmount : 0
+        remainingAmount += isFinite(itemRemainingAmount) ? itemRemainingAmount : 0
+
+        if (!invoiceDate && item?.invoiceDate) invoiceDate = String(item.invoiceDate)
+        if (paymentStatus === 'pending' && item?.paymentStatus) paymentStatus = String(item.paymentStatus)
+      })
+
+      const dateToShow = invoiceDate
+        ? new Date(invoiceDate).toLocaleDateString()
+        : sale?.createdAt
+          ? new Date(sale.createdAt).toLocaleDateString()
+          : '-'
+
+      return {
+        invoiceNumber: String(invoiceNumber || '-'),
+        date: dateToShow,
+        paymentStatus: paymentStatus || 'pending',
+        totalAmount,
+        receivedAmount,
+        remainingAmount,
+      }
+    })
+  })()
+
+  const rowsToRender: any[] = transactionType === 'collection' ? (collectionRows || []) : safeItems
+  const [collectionFirstPageItems, setCollectionFirstPageItems] = useState(defaultFirstPageItems)
+
+  useEffect(() => {
+    setCollectionFirstPageItems(defaultFirstPageItems)
+  }, [defaultFirstPageItems, sale?._id, rowsToRender.length])
+
+  useEffect(() => {
+    if (!isCollectionReceipt) return
+
+    const rafId = window.requestAnimationFrame(() => {
+      const firstPage = pageRefs.current[0]
+      if (!firstPage) return
+
+      const content = firstPage.querySelector('.receipt-page-content') as HTMLElement | null
+      const footer = firstPage.querySelector('.receipt-footer') as HTMLElement | null
+      const firstRow = firstPage.querySelector('tbody tr') as HTMLElement | null
+
+      if (!content || !firstRow) return
+
+      const rowHeight = firstRow.getBoundingClientRect().height
+      if (!rowHeight) return
+
+      const pageRect = firstPage.getBoundingClientRect()
+      const contentRect = content.getBoundingClientRect()
+      const footerRect = footer?.getBoundingClientRect()
+      const computedStyle = window.getComputedStyle(firstPage)
+      const paddingBottom = Number.parseFloat(computedStyle.paddingBottom || '0') || 0
+      const boundaryTop = footerRect?.top ?? (pageRect.bottom - paddingBottom)
+      const freeSpace = boundaryTop - contentRect.bottom
+      const remainingRows = Math.max(0, rowsToRender.length - collectionFirstPageItems)
+      const roomUntilCap = Math.max(0, collectionPageMaxItems - collectionFirstPageItems)
+
+      if (remainingRows > 0 && freeSpace > rowHeight * 0.85 && roomUntilCap > 0) {
+        const extraRows = Math.min(
+          remainingRows,
+          roomUntilCap,
+          Math.floor((freeSpace + rowHeight * 0.15) / rowHeight)
+        )
+        if (extraRows > 0) {
+          setCollectionFirstPageItems((current) => current + extraRows)
+        }
+        return
+      }
+
+      if (freeSpace < -2 && collectionFirstPageItems > 15) {
+        const rowsToRemove = Math.min(
+          collectionFirstPageItems - 15,
+          Math.ceil(Math.abs(freeSpace) / rowHeight)
+        )
+
+        if (rowsToRemove > 0) {
+          setCollectionFirstPageItems((current) => Math.max(15, current - rowsToRemove))
+        }
+      }
+    })
+
+    return () => window.cancelAnimationFrame(rafId)
+  }, [collectionFirstPageItems, isCollectionReceipt, rowsToRender.length])
+
   if (loading) {
     return <div className="flex justify-center items-center h-screen font-semibold">Loading Receipt...</div>;
   }
@@ -220,91 +362,20 @@ const ReceiptPrintPage = () => {
   })()
 
   const isTaxInvoice = headerSrc === '/images/Header-Tax-invoice.jpg'
-
-  const transactionType = (sale?.type || '').toString().toLowerCase()
-  const isCollectionReceipt = transactionType === 'collection'
-  const isStatementReceipt =
-    String(sale?.paymentMethod || '').toLowerCase() === 'account statement' ||
-    String(sale?.invoiceNumber || '').startsWith('STATEMENT-')
   const isStandardSaleInvoice =
     !['collection', 'deposit', 'return', 'refill', 'rental'].includes(transactionType) &&
     !String(sale?.invoiceNumber || '').startsWith('STATEMENT-') &&
     String(sale?.paymentMethod || '').toLowerCase() !== 'account statement'
-  const hasGasItems =
-    Array.isArray(sale?.items) &&
-    sale.items.some((it: any) => (it?.category || (it?.product as any)?.category || '').toString().toLowerCase() === 'gas')
   const footerSrc = '/images/footer.png'
-  const pageVariantClass = isTaxInvoice ? 'receipt-page-tax' : isCollectionReceipt ? 'receipt-page-collection' : ''
+  const pageVariantClass = isTaxInvoice
+    ? 'receipt-page-tax'
+    : isCollectionReceipt
+      ? 'receipt-page-collection'
+      : isCylinderReceipt
+        ? 'receipt-page-cylinder'
+        : ''
 
-  // Keep a minimum 15 rows on the first page, then allow more rows on continuation pages
-  // because those pages intentionally continue the table without repeating the page header.
-  const firstPageItems = Math.max(15, isCollectionReceipt || isStatementReceipt ? 18 : 15)
-  const continuationPageItems = Math.max(15, isCollectionReceipt || isStatementReceipt ? 24 : hasGasItems ? 22 : 24)
-
-  const collectionRows = (() => {
-    if (transactionType !== 'collection') return null
-
-    const groups: Record<string, any[]> = {}
-    const safeItems = Array.isArray(sale.items) ? sale.items : []
-
-    safeItems.forEach((item: any) => {
-      const name = String(item?.product?.name || '')
-      let invoiceNumber = item?.invoiceNumber
-
-      if (!invoiceNumber && name.includes('Invoice #')) {
-        const parts = name.split('Invoice #')
-        if (parts.length > 1) {
-          invoiceNumber = parts[1].split(' ')[0].trim()
-        }
-      }
-
-      if (!invoiceNumber && sale?.invoiceNumber) invoiceNumber = sale.invoiceNumber
-
-      const key = String(invoiceNumber || 'no-invoice')
-      if (!groups[key]) groups[key] = []
-      groups[key].push(item)
-    })
-
-    return Object.entries(groups).map(([invoiceNumber, groupItems]) => {
-      let totalAmount = 0
-      let receivedAmount = 0
-      let remainingAmount = 0
-      let invoiceDate = ''
-      let paymentStatus = 'pending'
-
-      groupItems.forEach((item: any) => {
-        const itemTotal = Number(item?.total || 0)
-        const itemTotalAmount = Number(item?.totalAmount ?? itemTotal)
-        const itemReceivedAmount = Number(item?.receivedAmount ?? itemTotal)
-        const itemRemainingAmount =
-          item?.remainingAmount !== undefined ? Number(item?.remainingAmount) : itemTotalAmount - itemReceivedAmount
-
-        totalAmount += isFinite(itemTotalAmount) ? itemTotalAmount : 0
-        receivedAmount += isFinite(itemReceivedAmount) ? itemReceivedAmount : 0
-        remainingAmount += isFinite(itemRemainingAmount) ? itemRemainingAmount : 0
-
-        if (!invoiceDate && item?.invoiceDate) invoiceDate = String(item.invoiceDate)
-        if (paymentStatus === 'pending' && item?.paymentStatus) paymentStatus = String(item.paymentStatus)
-      })
-
-      const dateToShow = invoiceDate
-        ? new Date(invoiceDate).toLocaleDateString()
-        : sale?.createdAt
-          ? new Date(sale.createdAt).toLocaleDateString()
-          : '-'
-
-      return {
-        invoiceNumber: String(invoiceNumber || '-'),
-        date: dateToShow,
-        paymentStatus: paymentStatus || 'pending',
-        totalAmount,
-        receivedAmount,
-        remainingAmount,
-      }
-    })
-  })()
-
-  const rowsToRender: any[] = transactionType === 'collection' ? (collectionRows || []) : (sale.items || [])
+  const firstPageItems = isCollectionReceipt ? collectionFirstPageItems : defaultFirstPageItems
   const itemPages = paginateRows(rowsToRender, firstPageItems, continuationPageItems)
 
   return (
@@ -328,9 +399,12 @@ const ReceiptPrintPage = () => {
             return (
               <section
                 key={pageIndex}
+                ref={(el) => {
+                  pageRefs.current[pageIndex] = el
+                }}
                 className={`receipt-page bg-white shadow-sm border border-gray-200 my-4 print:my-0 print:shadow-none print:border-0 flex flex-col ${pageVariantClass}`}
               >
-                <div className="flex flex-col flex-1">
+                <div className="receipt-page-content flex flex-col">
                   {isFirstPage && (
                     <div className="text-center">
                       <img
@@ -363,16 +437,21 @@ const ReceiptPrintPage = () => {
                               <strong>Payment Method:</strong> {formatPaymentMethodLabel(sale?.paymentMethod)}
                             </div>
                           )}
-                          {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
+                          {isSecurityReceipt && normalizedPaymentMethod === 'cash' && securityCashAmount > 0 && (
+                            <div>
+                              <strong>Security Cash:</strong> AED {securityCashAmount.toFixed(2)}
+                            </div>
+                          )}
+                          {normalizedPaymentMethod === 'cheque' && (
                             <>
                               {sale?.bankName && (
                                 <div>
                                   <strong>Bank Name:</strong> {sale.bankName}
                                 </div>
                               )}
-                              {sale?.chequeNumber && (
+                              {securityCheckNumber && (
                                 <div>
-                                  <strong>Cheque Number:</strong> {sale.chequeNumber}
+                                  <strong>{isSecurityReceipt ? 'Security Check No:' : 'Cheque Number:'}</strong> {securityCheckNumber}
                                 </div>
                               )}
                             </>
@@ -611,6 +690,131 @@ const ReceiptPrintPage = () => {
           margin: 0;
           size: A4;
         }
+        .receipt-page {
+          width: 210mm;
+          height: 297mm;
+          min-height: 297mm;
+          max-height: 297mm;
+          padding: 8mm;
+          box-sizing: border-box;
+          overflow: hidden;
+          margin: 0 auto;
+          background: #fff;
+        }
+        .receipt-header-img {
+          max-height: 42mm;
+          object-fit: contain;
+        }
+        .receipt-footer-img {
+          max-height: 26mm;
+          object-fit: contain;
+        }
+        .receipt-signature {
+          max-height: 22mm;
+          filter: contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6));
+        }
+        .receipt-page-tax .receipt-header-img,
+        .receipt-page-cylinder .receipt-header-img {
+          max-height: none;
+        }
+        .receipt-page-tax .receipt-footer-img,
+        .receipt-page-cylinder .receipt-footer-img {
+          max-height: none;
+        }
+        .receipt-page-tax .receipt-signature,
+        .receipt-page-cylinder .receipt-signature {
+          max-height: 24mm;
+        }
+        .receipt-page-tax .receipt-footer,
+        .receipt-page-cylinder .receipt-footer {
+          padding-top: 2rem;
+        }
+        .receipt-page-tax .receipt-customer-signature,
+        .receipt-page-cylinder .receipt-customer-signature {
+          bottom: 28px;
+          right: 64px;
+        }
+        .receipt-page-tax .receipt-admin-signature,
+        .receipt-page-cylinder .receipt-admin-signature {
+          bottom: 36px;
+          left: 64px;
+        }
+        .receipt-page-cylinder {
+          padding: 5.5mm 6mm 5mm;
+        }
+        .receipt-page-cylinder .receipt-meta-grid {
+          margin-top: 2mm;
+          margin-bottom: 2mm;
+        }
+        .receipt-page-cylinder .receipt-total-section {
+          margin-top: 2mm;
+        }
+        .receipt-page-cylinder .receipt-footer {
+          padding-top: 2mm;
+        }
+        .receipt-page-collection {
+          padding: 3.75mm 4.25mm 3.25mm;
+        }
+        .receipt-page-collection .receipt-header-img,
+        .receipt-page-collection .receipt-footer-img {
+          max-height: none;
+        }
+        .receipt-page-collection .receipt-meta-grid {
+          gap: 2.25mm;
+          margin-top: 1.5mm;
+          margin-bottom: 1.5mm;
+        }
+        .receipt-page-collection .receipt-meta-grid > div > div,
+        .receipt-page-collection .receipt-meta-compact {
+          font-size: 9px;
+          line-height: 1.1;
+        }
+        .receipt-page-collection .receipt-meta-compact {
+          margin-top: 1mm;
+          margin-bottom: 1mm;
+        }
+        .receipt-page-collection .receipt-table {
+          font-size: 8.35px;
+          line-height: 1.02;
+        }
+        .receipt-page-collection .receipt-table th,
+        .receipt-page-collection .receipt-table td {
+          padding: 0.45mm 0.8mm;
+        }
+        .receipt-page-collection .receipt-total-section {
+          margin-top: 1.5mm;
+          max-width: 72mm;
+          font-size: 9px;
+        }
+        .receipt-page-collection .receipt-total-table td {
+          padding-top: 0.2mm;
+          padding-bottom: 0.2mm;
+        }
+        .receipt-page-collection .receipt-grand-total-label,
+        .receipt-page-collection .receipt-grand-total-value {
+          font-size: 11px;
+        }
+        .receipt-page-collection .receipt-grand-total-value {
+          width: 28mm;
+        }
+        .receipt-page-collection .receipt-footer {
+          padding-top: 0.75mm;
+        }
+        .receipt-page-collection .receipt-signature {
+          max-height: 18mm;
+        }
+        .receipt-page-collection .receipt-customer-signature {
+          bottom: 20px;
+          right: 54px;
+        }
+        .receipt-page-collection .receipt-admin-signature {
+          bottom: 24px;
+          left: 54px;
+        }
+        table, tr, td, th {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
         @media print {
           .no-print {
             display: none !important;
@@ -627,7 +831,7 @@ const ReceiptPrintPage = () => {
           .receipt-page {
             width: 210mm !important;
             height: 297mm !important;
-            min-height: 0 !important;
+            min-height: 297mm !important;
             max-height: 297mm !important;
             padding: 8mm !important;
             box-sizing: border-box !important;
@@ -639,98 +843,6 @@ const ReceiptPrintPage = () => {
           .receipt-page:last-child {
             page-break-after: auto !important;
             break-after: auto !important;
-          }
-          .receipt-page-collection {
-            padding: 4.5mm 5mm 4mm !important;
-          }
-          .receipt-header-img {
-            max-height: 42mm !important;
-            object-fit: contain !important;
-          }
-          .receipt-footer-img {
-            max-height: 26mm !important;
-            object-fit: contain !important;
-          }
-          .receipt-signature {
-            max-height: 22mm !important;
-            filter: contrast(1.35) brightness(0.85) drop-shadow(0 0 0.7px rgba(0,0,0,0.6)) !important;
-          }
-          /* Restore original look for Sales (Tax) invoice header/footer only */
-          .receipt-page-tax .receipt-header-img {
-            max-height: none !important;
-          }
-          .receipt-page-tax .receipt-footer-img {
-            max-height: none !important;
-          }
-          .receipt-page-tax .receipt-signature {
-            max-height: 24mm !important;
-          }
-          .receipt-page-tax .receipt-footer {
-            padding-top: 2rem !important;
-          }
-          .receipt-page-tax .receipt-customer-signature {
-            bottom: 28px !important;
-            right: 64px !important;
-          }
-          .receipt-page-tax .receipt-admin-signature {
-            bottom: 36px !important;
-            left: 64px !important;
-          }
-          .receipt-page-collection .receipt-header-img,
-          .receipt-page-collection .receipt-footer-img {
-            max-height: none !important;
-          }
-          .receipt-page-collection .receipt-meta-grid {
-            gap: 3mm !important;
-            margin-top: 2.5mm !important;
-            margin-bottom: 2.5mm !important;
-          }
-          .receipt-page-collection .receipt-meta-grid > div > div,
-          .receipt-page-collection .receipt-meta-compact {
-            font-size: 10px !important;
-            line-height: 1.2 !important;
-          }
-          .receipt-page-collection .receipt-meta-compact {
-            margin-top: 1.5mm !important;
-            margin-bottom: 1.5mm !important;
-          }
-          .receipt-page-collection .receipt-table {
-            font-size: 9px !important;
-            line-height: 1.1 !important;
-          }
-          .receipt-page-collection .receipt-table th,
-          .receipt-page-collection .receipt-table td {
-            padding: 0.75mm 1mm !important;
-          }
-          .receipt-page-collection .receipt-total-section {
-            margin-top: 2.5mm !important;
-            max-width: 74mm !important;
-            font-size: 10px !important;
-          }
-          .receipt-page-collection .receipt-total-table td {
-            padding-top: 0.4mm !important;
-            padding-bottom: 0.4mm !important;
-          }
-          .receipt-page-collection .receipt-grand-total-label,
-          .receipt-page-collection .receipt-grand-total-value {
-            font-size: 12px !important;
-          }
-          .receipt-page-collection .receipt-grand-total-value {
-            width: 30mm !important;
-          }
-          .receipt-page-collection .receipt-footer {
-            padding-top: 2mm !important;
-          }
-          .receipt-page-collection .receipt-signature {
-            max-height: 20mm !important;
-          }
-          .receipt-page-collection .receipt-customer-signature {
-            bottom: 22px !important;
-            right: 56px !important;
-          }
-          .receipt-page-collection .receipt-admin-signature {
-            bottom: 26px !important;
-            left: 56px !important;
           }
           table, tr, td, th {
             break-inside: avoid !important;

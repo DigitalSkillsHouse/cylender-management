@@ -56,7 +56,9 @@ interface ReceiptDialogProps {
     }>
     totalAmount: number
     paymentMethod: string
+    cashAmount?: number
     bankName?: string
+    checkNumber?: string
     chequeNumber?: string
     lpoNo?: string
     paymentStatus: string
@@ -88,6 +90,10 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
   const [customerFooterSignature, setCustomerFooterSignature] = useState<string | null>(null)
   const [adminFooterSignature, setAdminFooterSignature] = useState<string | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
+  const normalizedPaymentMethod = String(sale?.paymentMethod || "").toLowerCase()
+  const isSecurityReceipt = ["deposit", "return", "refill"].includes(String(sale?.type || "").toLowerCase())
+  const securityCashAmount = Number(sale?.cashAmount || 0)
+  const securityCheckNumber = sale?.checkNumber || sale?.chequeNumber || ""
 
   useEffect(() => {
     // Determine which employee ID to use for signature
@@ -364,9 +370,12 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
       iframe.style.position = 'fixed'
       iframe.style.left = '-10000px'
       iframe.style.top = '0'
-      iframe.style.width = '1px'
-      iframe.style.height = '1px'
-      iframe.style.opacity = '0'
+      iframe.style.width = '210mm'
+      iframe.style.height = '297mm'
+      iframe.style.opacity = '1'
+      iframe.style.visibility = 'hidden'
+      iframe.style.background = '#ffffff'
+      iframe.style.border = '0'
       iframe.style.pointerEvents = 'none'
       document.body.appendChild(iframe)
 
@@ -382,10 +391,13 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
 
         const doc = iframe.contentDocument
         if (!doc) throw new Error('Unable to access print document')
+        const win = iframe.contentWindow
+        if (!win) throw new Error('Unable to access print window')
 
         // Ensure clean capture (no shadows/borders/margins in download)
         const injected = doc.createElement('style')
         injected.textContent = `
+          html, body { background: #ffffff !important; }
           .receipt-page { box-shadow: none !important; border: 0 !important; margin: 0 !important; }
           .no-print { display: none !important; }
         `
@@ -418,6 +430,11 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
         const pageEls = await waitForPages()
         if (!pageEls.length) throw new Error('Printable pages not found')
         await waitForImages()
+        await new Promise<void>((resolve) => {
+          win.requestAnimationFrame(() => {
+            win.requestAnimationFrame(() => resolve())
+          })
+        })
 
         // Create PDF (A4 portrait)
         const pdf = new (jsPDFModule as any).jsPDF('p', 'mm', 'a4')
@@ -450,7 +467,41 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
           label: getInvoicePdfLabel(sale as any),
           fallbackName: sale?.invoiceNumber ? `Invoice ${sale.invoiceNumber}` : "Receipt",
         })
-        pdf.save(fileName)
+        const pdfBlob = pdf.output('blob')
+        if (!(pdfBlob instanceof Blob) || pdfBlob.size === 0) {
+          throw new Error('Generated PDF is empty')
+        }
+
+        const downloadUrl = URL.createObjectURL(pdfBlob)
+        const link = document.createElement('a')
+        link.href = downloadUrl
+        link.download = fileName
+        link.rel = 'noopener'
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000)
+
+        const shareApi = navigator as Navigator & {
+          canShare?: (data?: ShareData) => boolean
+        }
+        const shareFile = new File([pdfBlob], fileName, { type: 'application/pdf' })
+        const shareData: ShareData = {
+          title: fileName.replace(/\.pdf$/i, ''),
+          text: fileName,
+          files: [shareFile],
+        }
+
+        if (typeof shareApi.share === 'function' && (!shareApi.canShare || shareApi.canShare(shareData))) {
+          try {
+            await shareApi.share(shareData)
+          } catch (shareError) {
+            const shareMessage = shareError instanceof Error ? shareError.message.toLowerCase() : ''
+            if (!shareMessage.includes('cancel')) {
+              console.warn('Receipt PDF share skipped:', shareError)
+            }
+          }
+        }
 
         toast.dismiss(loadingToast)
         toast.success("Receipt PDF downloaded successfully", {
@@ -532,16 +583,21 @@ export const ReceiptDialog = ({ sale, signature, onClose, useReceivingHeader, op
                     <strong>Payment Method:</strong> {formatPaymentMethodLabel(sale?.paymentMethod)}
                   </div>
                 )}
-                {sale?.paymentMethod?.toLowerCase() === 'cheque' && (
+                {isSecurityReceipt && normalizedPaymentMethod === 'cash' && securityCashAmount > 0 && (
+                  <div>
+                    <strong>Security Cash:</strong> AED {securityCashAmount.toFixed(2)}
+                  </div>
+                )}
+                {normalizedPaymentMethod === 'cheque' && (
                   <>
                     {sale?.bankName && (
                       <div>
                         <strong>Bank Name:</strong> {sale.bankName}
                       </div>
                     )}
-                    {sale?.chequeNumber && (
+                    {securityCheckNumber && (
                       <div>
-                        <strong>Cheque Number:</strong> {sale.chequeNumber}
+                        <strong>{isSecurityReceipt ? "Security Check No:" : "Cheque Number:"}</strong> {securityCheckNumber}
                       </div>
                     )}
                   </>

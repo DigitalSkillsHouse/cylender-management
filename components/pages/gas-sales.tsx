@@ -65,6 +65,7 @@ interface Sale {
   saleDate?: string
   createdAt: string
   updatedAt: string
+  isEmployeeSale?: boolean
 }
 
 interface Customer {
@@ -287,6 +288,14 @@ export const GasSales = () => {
       productId,
       defaultRate,
     })
+
+  const getSaleCreationTime = (sale: Partial<Sale> & { _id?: string }) => {
+    const id = typeof sale?._id === "string" ? sale._id : ""
+    if (/^[a-f\d]{24}$/i.test(id)) {
+      return parseInt(id.slice(0, 8), 16) * 1000
+    }
+    return new Date(sale?.createdAt || 0).getTime()
+  }
 
   const getSaleDateValue = (sale: Sale) => sale.saleDate || sale.createdAt
 
@@ -668,10 +677,11 @@ export const GasSales = () => {
       // Normalize sales and customers
       const adminSalesData = Array.isArray(salesResponse.data?.data) ? salesResponse.data.data :
                            Array.isArray(salesResponse.data) ? salesResponse.data : []
-      const employeeSalesData = Array.isArray(employeeSalesResponse.data) ? employeeSalesResponse.data : []
-      const combinedSales = [...adminSalesData, ...employeeSalesData].sort(
-        (a, b) => new Date(getSaleDateValue(b)).getTime() - new Date(getSaleDateValue(a)).getTime()
-      )
+      const employeeSalesData = (Array.isArray(employeeSalesResponse.data) ? employeeSalesResponse.data : []).map((sale: any) => ({
+        ...sale,
+        isEmployeeSale: true,
+      }))
+      const combinedSales = [...adminSalesData, ...employeeSalesData].sort((a, b) => getSaleCreationTime(b) - getSaleCreationTime(a))
       const salesData = combinedSales
 
       const customersData = Array.isArray(customersResponse.data?.data)
@@ -953,7 +963,7 @@ export const GasSales = () => {
         console.log('GasSales - Updating existing sale:', editingSale._id)
         // Check if this is an employee sale by checking for employee field
         // Employee sales have an employee field (either as object with _id or as _id string)
-        const isEmployeeSale = !!(editingSale as any).employee
+        const isEmployeeSale = Boolean((editingSale as any).isEmployeeSale || (editingSale as any).employee)
         console.log('GasSales - Is employee sale:', isEmployeeSale, 'Employee field:', (editingSale as any).employee)
         
         // Some backends treat PUT as full replace; include required fields like invoiceNumber
@@ -1197,7 +1207,7 @@ export const GasSales = () => {
       try {
         // Find the sale to check if it's an employee sale
         const saleToDelete = sales.find(s => s._id === id)
-        const isEmployeeSale = !!(saleToDelete as any)?.employee
+        const isEmployeeSale = Boolean((saleToDelete as any)?.isEmployeeSale || (saleToDelete as any)?.employee)
         
         // Use employeeSalesAPI if it's an employee sale, otherwise use salesAPI
         if (isEmployeeSale) {

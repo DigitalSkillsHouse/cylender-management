@@ -20,6 +20,7 @@ import { getDubaiDateTimeString } from "@/lib/date-utils"
 import { formatCurrencyAED } from "@/lib/utils"
 import { cacheInvoiceSignature, getCachedInvoiceSignature, persistCylinderCustomerSignature, persistEmployeeCylinderCustomerSignature, persistEmployeeSaleCustomerSignature, persistSaleCustomerSignature } from "@/lib/invoice-signature"
 import { buildPdfFileName } from "@/lib/pdf-filename"
+import { buildCollectionReceiptDialogPayload, CollectionReceiptRecord } from "@/lib/collection-receipt-client"
 
 interface CustomerLedgerData {
   _id: string
@@ -94,6 +95,7 @@ export const Reports = () => {
 
   // Pending receipt context for signature-first flow after Receive Amount
   const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder'; targetId: string } | null>(null)
+  const [pendingCollectionReceipt, setPendingCollectionReceipt] = useState<CollectionReceiptRecord | null>(null)
 
   const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder' }) => {
     setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '', method: 'cash', bankName: '', chequeNumber: '' })
@@ -487,6 +489,8 @@ export const Reports = () => {
 
   const submitReceiveAmount = async () => {
     if (!receiveDialog.targetId) return
+    const targetId = String(receiveDialog.targetId)
+    const kind = receiveDialog.kind
     const add = Number.parseFloat(receiveDialog.inputAmount || '0')
     if (!Number.isFinite(add) || add <= 0) {
       alert('Enter a valid amount > 0')
@@ -509,19 +513,82 @@ export const Reports = () => {
     const newReceived = Number(receiveDialog.currentReceived || 0) + add
     const newStatus = newReceived >= Number(receiveDialog.totalAmount || 0) ? 'cleared' : 'pending'
     try {
+      const isGasCollection = kind === 'sale' || kind === 'employee_sale'
+
+      if (isGasCollection) {
+        const collectionRes = await fetch('/api/collections', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            payments: [{
+              model: kind === 'employee_sale' ? 'EmployeeSale' : 'Sale',
+              id: targetId,
+              amount: add,
+            }],
+            paymentMethod: receiveDialog.method === 'cheque' ? 'Cheque' : 'Cash',
+            bankName: receiveDialog.method === 'cheque' ? (receiveDialog.bankName || '') : '',
+            chequeNumber: receiveDialog.method === 'cheque' ? (receiveDialog.chequeNumber || '') : '',
+            receiptCreatedAt: new Date().toISOString(),
+          }),
+        })
+        const collectionData = await collectionRes.json().catch(() => ({}))
+        if (!collectionRes.ok || !collectionData?.success) {
+          throw new Error(collectionData?.error || 'Failed to create collection receipt')
+        }
+
+        const savedReceipt = collectionData?.data?.receipt as CollectionReceiptRecord | undefined
+
+        try {
+          const gd = (globalThis as any)?.fetchDashboard
+          if (typeof gd === 'function') await gd()
+          const gc = (globalThis as any)?.fetchCustomers
+          if (typeof gc === 'function') await gc()
+        } catch {}
+
+        try { await fetchReportsData() } catch {}
+
+        setPaymentRecords(prev => ({
+          ...prev,
+          [paymentKey(kind, targetId)]: {
+            kind,
+            id: targetId,
+            amount: add,
+            method: receiveDialog.method,
+            bankName: receiveDialog.method === 'cheque' ? (receiveDialog.bankName || '') : undefined,
+            chequeNumber: receiveDialog.method === 'cheque' ? (receiveDialog.chequeNumber || '') : undefined,
+            newTotalReceived: Number(savedReceipt?.lines?.[0]?.newReceived ?? newReceived),
+            at: String(savedReceipt?.createdAt || new Date().toISOString()),
+          }
+        }))
+
+        closeReceiveDialog()
+
+        if (savedReceipt?.signature) {
+          setPendingCollectionReceipt(null)
+          setPendingReceiptData(null)
+          setReceiptDialogData(buildCollectionReceiptDialogPayload(savedReceipt))
+        } else if (savedReceipt) {
+          setPendingReceiptData(null)
+          setPendingCollectionReceipt(savedReceipt)
+          setShowSignatureDialog(true)
+        }
+
+        return
+      }
+
       let url = ''
       let body: any = {}
-      if (receiveDialog.kind === 'cylinder') {
-        url = `/api/cylinders/${receiveDialog.targetId}`
+      if (kind === 'cylinder') {
+        url = `/api/cylinders/${targetId}`
         body = { cashAmount: newReceived, status: newStatus }
-      } else if (receiveDialog.kind === 'employee_cylinder') {
-        url = `/api/employee-cylinders/${receiveDialog.targetId}`
+      } else if (kind === 'employee_cylinder') {
+        url = `/api/employee-cylinders/${targetId}`
         body = { cashAmount: newReceived, status: newStatus }
-      } else if (receiveDialog.kind === 'employee_sale') {
-        url = `/api/employee-sales/${receiveDialog.targetId}`
+      } else if (kind === 'employee_sale') {
+        url = `/api/employee-sales/${targetId}`
         body = { receivedAmount: newReceived, paymentStatus: newStatus }
       } else {
-        url = `/api/sales/${receiveDialog.targetId}`
+        url = `/api/sales/${targetId}`
         body = { receivedAmount: newReceived, paymentStatus: newStatus }
       }
       const res = await fetch(url, {
@@ -546,10 +613,10 @@ export const Reports = () => {
 
       // Close receive dialog first to avoid overlay conflicts
       // Record last payment details locally
-      if (receiveDialog.targetId) {
+      if (targetId) {
         const rec: PaymentRecord = {
-          kind: receiveDialog.kind,
-          id: String(receiveDialog.targetId),
+          kind,
+          id: targetId,
           amount: add,
           method: receiveDialog.method,
           bankName: receiveDialog.method === 'cheque' ? (receiveDialog.bankName || '') : undefined,
@@ -561,8 +628,6 @@ export const Reports = () => {
       }
 
       closeReceiveDialog()
-      const targetId = String(receiveDialog.targetId)
-      const kind = receiveDialog.kind
       let sourceData: any = null
       let existingSignature = ""
 
@@ -978,6 +1043,8 @@ export const Reports = () => {
             let createdBy = 'Admin';
             if (transaction.employee && transaction.employee.name) {
               createdBy = transaction.employee.name;
+            } else if (transaction.transactionSource === 'employee') {
+              createdBy = 'Employee';
             }
             const amount = getCylinderOutstandingAmount(transaction);
 
@@ -2169,6 +2236,8 @@ export const Reports = () => {
   const handleSignatureCancel = () => {
     setShowSignatureDialog(false)
     setPendingCustomer(null)
+    setPendingReceiptData(null)
+    setPendingCollectionReceipt(null)
     setCustomerSignature("")
   }
 
@@ -2176,6 +2245,34 @@ export const Reports = () => {
     // Save signature and close dialog
     setCustomerSignature(signature)
     setShowSignatureDialog(false)
+
+    if (pendingCollectionReceipt) {
+      let updatedReceipt = pendingCollectionReceipt
+
+      try {
+        const patchRes = await fetch('/api/collections', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            receiptId: pendingCollectionReceipt._id,
+            signature,
+          }),
+        })
+        const patchData = await patchRes.json().catch(() => ({}))
+        if (patchRes.ok && patchData?.success && patchData?.data?.receipt) {
+          updatedReceipt = patchData.data.receipt
+        } else {
+          updatedReceipt = { ...pendingCollectionReceipt, signature }
+        }
+      } catch {
+        updatedReceipt = { ...pendingCollectionReceipt, signature }
+      }
+
+      setPendingCollectionReceipt(null)
+      setPendingReceiptData(null)
+      setReceiptDialogData(buildCollectionReceiptDialogPayload(updatedReceipt))
+      return
+    }
 
     // If invoked from Receive Amount flow, save signature on the same invoice (so re-download/print won't ask again),
     // then fetch record and open receipt with signature.

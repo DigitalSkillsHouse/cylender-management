@@ -20,6 +20,7 @@ import { getStartOfDate, getEndOfDate, getDubaiDateDisplayString, getDubaiDateTi
 import { formatCurrencyAED } from "@/lib/utils"
 import { cacheInvoiceSignature, persistEmployeeSaleCustomerSignature } from "@/lib/invoice-signature"
 import { buildPdfFileName } from "@/lib/pdf-filename"
+import { buildCollectionReceiptDialogPayload, CollectionReceiptRecord } from "@/lib/collection-receipt-client"
 
 interface CustomerLedgerData {
   _id: string
@@ -47,6 +48,24 @@ interface CustomerLedgerData {
 }
 
 export default function EmployeeReports({ user }: { user: { id: string; name: string; email: string; role: "admin" | "employee" } }) {
+  const truncateMoney = (value: unknown) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric)) return 0
+    return Math.trunc(numeric * 100) / 100
+  }
+
+  const getSaleOutstandingAmount = (sale: any) => {
+    const totalAmount = truncateMoney(sale?.totalAmount || 0)
+    const receivedAmount = truncateMoney(sale?.receivedAmount ?? sale?.amountPaid ?? 0)
+    return truncateMoney(Math.max(0, totalAmount - receivedAmount))
+  }
+
+  const getCylinderOutstandingAmount = (transaction: any) => {
+    const totalAmount = truncateMoney(transaction?.amount || 0)
+    const receivedAmount = truncateMoney(transaction?.cashAmount || 0)
+    return truncateMoney(Math.max(0, totalAmount - receivedAmount))
+  }
+
   const [stats, setStats] = useState({
     totalRevenue: 0,
     totalEmployees: 0,
@@ -133,6 +152,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 
   // Pending receipt context so we can capture signature before opening receipt
   const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'cylinder'; targetId: string } | null>(null)
+  const [pendingCollectionReceipt, setPendingCollectionReceipt] = useState<CollectionReceiptRecord | null>(null)
 
   const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'admin_sale' | 'cylinder' }) => {
     setReceiveDialog({ 
@@ -166,6 +186,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 
   const submitReceiveAmount = async () => {
     if (!receiveDialog.targetId) return
+    const targetId = String(receiveDialog.targetId)
     const add = Number.parseFloat(receiveDialog.inputAmount || '0')
     if (!Number.isFinite(add) || add <= 0) {
       alert('Enter a valid amount > 0')
@@ -187,58 +208,63 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
     const newStatus = newReceived >= Number(receiveDialog.totalAmount || 0) ? 'cleared' : 'pending'
     
     try {
-      // Prepare payment details
-      const paymentDetails = {
-        paymentMethod: receiveDialog.paymentMethod || 'cash',
-        ...(receiveDialog.paymentMethod === 'cheque' ? {
-          bankName: receiveDialog.bankName,
-          checkNumber: receiveDialog.checkNumber
-        } : {})
+      if (receiveDialog.kind !== 'cylinder') {
+        const collectionRes = await fetch('/api/collections', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            payments: [{
+              model: 'EmployeeSale',
+              id: targetId,
+              amount: add,
+            }],
+            paymentMethod: receiveDialog.paymentMethod === 'cheque' ? 'Cheque' : 'Cash',
+            bankName: receiveDialog.paymentMethod === 'cheque' ? (receiveDialog.bankName || '') : '',
+            chequeNumber: receiveDialog.paymentMethod === 'cheque' ? (receiveDialog.checkNumber || '') : '',
+            receiptCreatedAt: new Date().toISOString(),
+          }),
+        })
+        const collectionData = await collectionRes.json().catch(() => ({}))
+        if (!collectionRes.ok || !collectionData?.success) {
+          throw new Error(collectionData?.error || 'Failed to create collection receipt')
+        }
+
+        const savedReceipt = collectionData?.data?.receipt as CollectionReceiptRecord | undefined
+
+        toast.success('Payment recorded successfully')
+        closeReceiveDialog()
+        await fetchReportsData(true)
+
+        if (savedReceipt?.signature) {
+          setPendingCollectionReceipt(null)
+          setPendingReceiptData(null)
+          setReceiptDialogData(buildCollectionReceiptDialogPayload(savedReceipt))
+        } else if (savedReceipt) {
+          setPendingReceiptData(null)
+          setPendingCollectionReceipt(savedReceipt)
+          setShowSignatureDialog(true)
+        }
+
+        return
       }
-      
-      // Determine endpoint and payload based on kind
-      let url = ''
-      let body: any = {}
-      if (receiveDialog.kind === 'cylinder') {
-        url = `/api/employee-cylinders/${receiveDialog.targetId}`
-        body = {
+
+      const res = await fetch(`/api/employee-cylinders/${targetId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           cashAmount: newReceived,
           status: newStatus,
           ...(receiveDialog.paymentMethod === 'cheque' ? {
             bankName: receiveDialog.bankName,
             checkNumber: receiveDialog.checkNumber
           } : {})
-        }
-      // REMOVED: Admin sale payment processing - Employee should not process admin sales
-      // Employee reports are isolated to employee-specific transactions only else {
-        // default: employee sale
-        url = `/api/employee-sales/${receiveDialog.targetId}`
-        body = {
-          receivedAmount: newReceived,
-          paymentStatus: newStatus,
-          paymentMethod: receiveDialog.paymentMethod || 'cash',
-          ...(receiveDialog.paymentMethod === 'cheque' ? {
-            bankName: receiveDialog.bankName,
-            checkNumber: receiveDialog.checkNumber
-          } : {})
-        }
-      }
-          
-      const res = await fetch(url, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        }),
       })
       if (!res.ok) throw new Error('Failed to update payment')
-      
-      // Show success message
+
       toast.success('Payment recorded successfully')
-      
-      // Close the dialog
       closeReceiveDialog()
-      
-      // Refresh the page to show updated data
-      window.location.reload()
+      await fetchReportsData(true)
     } catch (e: any) {
       console.error('Error updating payment:', e)
       toast.error(e?.message || 'Failed to update payment')
@@ -350,9 +376,9 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
         const pendingGasSales = customer.recentSales?.filter((sale: any) => sale.paymentStatus === 'pending') || [];
         const pendingCylinders = customer.recentCylinderTransactions?.filter((transaction: any) => transaction.status === 'pending') || [];
 
-        const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0);
-        const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + (Number(transaction.amount) || 0), 0);
-        const customerTotal = gasSalesTotal + cylindersTotal;
+        const gasSalesTotal = pendingGasSales.reduce((sum: number, sale: any) => sum + getSaleOutstandingAmount(sale), 0);
+        const cylindersTotal = pendingCylinders.reduce((sum: number, transaction: any) => sum + getCylinderOutstandingAmount(transaction), 0);
+        const customerTotal = truncateMoney(gasSalesTotal + cylindersTotal);
         grandTotal += customerTotal;
 
 	        const hasAnyRows = pendingGasSales.length > 0 || pendingCylinders.length > 0;
@@ -398,7 +424,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 	            const date = new Date(sale.createdAt).toLocaleDateString();
 	            const invoiceNumber = sale.invoiceNumber || 'N/A';
 	            const createdBy = user?.name || 'Employee';
-	            const amount = Number(sale.totalAmount) || 0;
+	            const amount = getSaleOutstandingAmount(sale);
 
 	            pdf.setFont(undefined, 'normal');
 	            pdf.setFontSize(7);
@@ -415,7 +441,7 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
 	            const date = new Date(transaction.createdAt).toLocaleDateString();
 	            const invoiceNumber = transaction.invoiceNumber || transaction.transactionId || 'N/A';
 	            const createdBy = user?.name || 'Employee';
-	            const amount = Number(transaction.amount) || 0;
+	            const amount = getCylinderOutstandingAmount(transaction);
 
 	            pdf.setFont(undefined, 'normal');
 	            pdf.setFontSize(7);
@@ -1840,12 +1866,42 @@ export default function EmployeeReports({ user }: { user: { id: string; name: st
   const handleSignatureCancel = () => {
     setShowSignatureDialog(false)
     setPendingCustomer(null)
+    setPendingReceiptData(null)
+    setPendingCollectionReceipt(null)
   }
 
   const handleSignatureComplete = async (signature: string) => {
     // Save signature and close dialog
     setCustomerSignature(signature)
     setShowSignatureDialog(false)
+
+    if (pendingCollectionReceipt) {
+      let updatedReceipt = pendingCollectionReceipt
+
+      try {
+        const patchRes = await fetch('/api/collections', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            receiptId: pendingCollectionReceipt._id,
+            signature,
+          }),
+        })
+        const patchData = await patchRes.json().catch(() => ({}))
+        if (patchRes.ok && patchData?.success && patchData?.data?.receipt) {
+          updatedReceipt = patchData.data.receipt
+        } else {
+          updatedReceipt = { ...pendingCollectionReceipt, signature }
+        }
+      } catch {
+        updatedReceipt = { ...pendingCollectionReceipt, signature }
+      }
+
+      setPendingCollectionReceipt(null)
+      setPendingReceiptData(null)
+      setReceiptDialogData(buildCollectionReceiptDialogPayload(updatedReceipt))
+      return
+    }
 
     // If invoked from Receive Amount flow, save signature on the same invoice (so re-download/print won't ask again),
     // then fetch updated record and open receipt.

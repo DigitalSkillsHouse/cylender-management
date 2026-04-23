@@ -3,18 +3,18 @@ import { NextResponse } from "next/server"
 import "@/models/Customer"
 import Sale from "@/models/Sale"
 import EmployeeSale from "@/models/EmployeeSale"
+import CollectionReceipt from "@/models/CollectionReceipt"
 import "@/models/User"
 import "@/models/Product"
 import { getNextRcNo } from "@/lib/invoice-generator"
 import { normalizeSalePaymentState } from "@/lib/payment-status"
-
-// Helper function to truncate to 2 decimal places (exact calculation, no rounding)
-const roundToTwo = (value) => {
-  if (value === null || value === undefined || isNaN(value)) {
-    return 0;
-  }
-  return Math.trunc(Number(value) * 100) / 100;
-};
+import {
+  buildCollectionReceiptLineSnapshot,
+  buildLegacyCollectionReceiptDrafts,
+  buildLegacyCollectionReceiptFallbacks,
+  mapCollectionReceiptRecord,
+  roundToTwo,
+} from "@/lib/collection-receipt-history"
 
 // Cylinder transaction imports removed - collections only handle gas sales
 
@@ -22,6 +22,143 @@ const roundToTwo = (value) => {
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 export const fetchCache = 'force-no-store'
+
+const mapAdminSaleForHistory = (sale) => ({
+  _id: sale?._id,
+  model: "Sale",
+  source: "admin",
+  invoiceNumber: sale?.invoiceNumber || "",
+  rcNo: sale?.rcNo || "",
+  customer: sale?.customer
+    ? {
+        _id: sale.customer?._id || sale.customer,
+        name: sale.customer?.name || "",
+        phone: sale.customer?.phone || "",
+        address: sale.customer?.address || "",
+        trNumber: sale.customer?.trNumber || "",
+      }
+    : null,
+  employee: null,
+  items: Array.isArray(sale?.items)
+    ? sale.items.map((item) => ({
+        product: {
+          name: item?.product?.name || "Unknown Product",
+          price: item?.product?.price || item?.price || 0,
+        },
+        quantity: item?.quantity,
+        price: item?.price,
+        total: item?.total,
+      }))
+    : [],
+  totalAmount: sale?.totalAmount || 0,
+  receivedAmount: sale?.receivedAmount || 0,
+  paymentStatus: sale?.paymentStatus || "pending",
+  paymentMethod: sale?.paymentMethod || "Cash",
+  collectionSignature: sale?.collectionSignature || "",
+  collectionPaymentMethod: sale?.collectionPaymentMethod || "",
+  collectionBankName: sale?.collectionBankName || "",
+  collectionChequeNumber: sale?.collectionChequeNumber || "",
+  collectionReceiptCreatedAt: sale?.collectionReceiptCreatedAt || null,
+  createdAt: sale?.createdAt,
+  updatedAt: sale?.updatedAt,
+})
+
+const mapEmployeeSaleForHistory = (sale) => ({
+  _id: sale?._id,
+  model: "EmployeeSale",
+  source: "employee",
+  invoiceNumber: sale?.invoiceNumber || "",
+  rcNo: sale?.rcNo || "",
+  customer: sale?.customer
+    ? {
+        _id: sale.customer?._id || sale.customer,
+        name: sale.customer?.name || "",
+        phone: sale.customer?.phone || "",
+        address: sale.customer?.address || "",
+        trNumber: sale.customer?.trNumber || "",
+      }
+    : null,
+  employee: sale?.employee
+    ? {
+        _id: sale.employee?._id || sale.employee,
+        name: sale.employee?.name || "",
+        email: sale.employee?.email || "",
+      }
+    : null,
+  items: Array.isArray(sale?.items)
+    ? sale.items.map((item) => ({
+        product: {
+          name: item?.product?.name || "Unknown Product",
+          price: item?.product?.price || item?.price || 0,
+        },
+        quantity: item?.quantity,
+        price: item?.price,
+        total: item?.total,
+      }))
+    : [],
+  totalAmount: sale?.totalAmount || 0,
+  receivedAmount: sale?.receivedAmount || 0,
+  paymentStatus: sale?.paymentStatus || "pending",
+  paymentMethod: sale?.paymentMethod || "Cash",
+  collectionSignature: sale?.collectionSignature || "",
+  collectionPaymentMethod: sale?.collectionPaymentMethod || "",
+  collectionBankName: sale?.collectionBankName || "",
+  collectionChequeNumber: sale?.collectionChequeNumber || "",
+  collectionReceiptCreatedAt: sale?.collectionReceiptCreatedAt || null,
+  createdAt: sale?.createdAt,
+  updatedAt: sale?.updatedAt,
+})
+
+const persistLegacyReceiptDrafts = async (drafts) => {
+  const persistable = (Array.isArray(drafts) ? drafts : []).filter((draft) => draft?.canPersist && draft?.rcNo)
+  if (!persistable.length) return
+
+  try {
+    await CollectionReceipt.insertMany(
+      persistable.map(({ groupKey, canPersist, ...receiptDoc }) => receiptDoc),
+      { ordered: false }
+    )
+  } catch (error) {
+    const writeErrors = Array.isArray(error?.writeErrors) ? error.writeErrors : []
+    const onlyDuplicates =
+      writeErrors.length > 0 &&
+      writeErrors.every((writeError) => Number(writeError?.code) === 11000)
+
+    if (!onlyDuplicates && error?.code !== 11000) {
+      throw error
+    }
+  }
+}
+
+const materializeLegacyReceiptGroup = async (customerId, rcNo) => {
+  if (!customerId || !rcNo) return
+
+  const existingReceipt = await CollectionReceipt.findOne({ rcNo }).select("_id").lean()
+  if (existingReceipt) return
+
+  const [adminSales, employeeSales] = await Promise.all([
+    Sale.find({ customer: customerId, rcNo })
+      .populate("customer", "name phone address trNumber")
+      .populate("items.product", "name price")
+      .lean(),
+    EmployeeSale.find({ customer: customerId, rcNo })
+      .populate("customer", "name phone address trNumber")
+      .populate("employee", "name email")
+      .populate("items.product", "name price")
+      .lean(),
+  ])
+
+  const drafts = buildLegacyCollectionReceiptDrafts(
+    [
+      ...adminSales.map(mapAdminSaleForHistory),
+      ...employeeSales.map(mapEmployeeSaleForHistory),
+    ],
+    new Set(),
+    { includeWithoutRcNo: false }
+  )
+
+  await persistLegacyReceiptDrafts(drafts.filter((draft) => String(draft.rcNo || "") === String(rcNo)))
+}
 
 // GET: list all pending gas sales invoices (admin and employee sales only, excludes cylinder transactions)
 // Query params: customerId, employeeId, type (pending|collected|all)
@@ -152,7 +289,7 @@ export async function GET(request) {
 
     // Only include gas sales data, exclude cylinder transactions
     // Filter out debit invoices (totalAmount <= 0) - only show credit invoices (totalAmount > 0)
-    let data = [
+    const salesData = [
       ...adminSales.map(mapSale),
       ...employeeSales.map(mapEmpSale),
     ]
@@ -163,11 +300,53 @@ export async function GET(request) {
       })
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 
+    if (type === "collected") {
+      let savedReceipts = await CollectionReceipt.find({
+        ...(customerId ? { customer: customerId } : {}),
+      })
+        .sort({ receiptCreatedAt: -1, createdAt: -1 })
+        .lean()
+
+      const existingRcNos = new Set(
+        savedReceipts
+          .map((receipt) => String(receipt.rcNo || "").trim())
+          .filter(Boolean)
+      )
+
+      const legacyDrafts = buildLegacyCollectionReceiptDrafts(salesData, existingRcNos)
+      const persistableLegacyDrafts = legacyDrafts.filter((draft) => draft.canPersist)
+      if (persistableLegacyDrafts.length) {
+        await persistLegacyReceiptDrafts(persistableLegacyDrafts)
+        savedReceipts = await CollectionReceipt.find({
+          ...(customerId ? { customer: customerId } : {}),
+        })
+          .sort({ receiptCreatedAt: -1, createdAt: -1 })
+          .lean()
+      }
+
+      const savedReceiptData = savedReceipts
+        .map((receipt) => mapCollectionReceiptRecord(receipt))
+        .filter((receipt) => {
+          if (!employeeId) return true
+          return receipt.lines.some((line) => line.employee?._id === employeeId)
+        })
+
+      const nonPersistableFallbackReceipts = buildLegacyCollectionReceiptFallbacks(
+        salesData.filter((sale) => !sale?.rcNo),
+        new Set()
+      )
+      const data = [...savedReceiptData, ...nonPersistableFallbackReceipts].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )
+
+      return NextResponse.json({ success: true, data })
+    }
+
+    let data = salesData
+
     // Ensure the response matches the requested type even after tolerance normalization above.
     if (type === "pending") {
       data = data.filter((inv) => inv.paymentStatus !== "cleared" && Number(inv.balance || 0) > 0)
-    } else if (type === "collected") {
-      data = data.filter((inv) => inv.rcNo && Number(inv.receivedAmount || 0) > 0)
     }
 
     return NextResponse.json({ success: true, data })
@@ -194,8 +373,9 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "No payments provided" }, { status: 400 })
     }
 
-    const updates = []
     const results = []
+    const receiptLines = []
+    let receiptCustomer = null
 
     // Generate RC-NO for this collection receipt (one RC-NO per collection batch)
     const rcNo = await getNextRcNo()
@@ -209,7 +389,12 @@ export async function POST(request) {
       // Only handle gas sales payments, exclude cylinder transactions
       if (model === "Sale") {
         const sale = await Sale.findById(id)
+          .populate("customer", "name phone address trNumber")
+          .populate("items.product", "name")
         if (!sale) continue
+        if (sale.rcNo) {
+          await materializeLegacyReceiptGroup(sale.customer?._id || sale.customer, sale.rcNo)
+        }
         const currentReceived = roundToTwo(sale.receivedAmount || 0)
         const total = roundToTwo(sale.totalAmount || 0)
         const balance = roundToTwo(Math.max(0, total - currentReceived))
@@ -218,6 +403,25 @@ export async function POST(request) {
           results.push({ id, model, applied: 0, status: sale.paymentStatus })
           continue
         }
+        if (receiptCustomer && String(receiptCustomer._id || "") !== String(sale.customer?._id || "")) {
+          return NextResponse.json(
+            { success: false, error: "All collection payments in one receipt must belong to the same customer" },
+            { status: 400 }
+          )
+        }
+        receiptCustomer = receiptCustomer || {
+          _id: sale.customer?._id || null,
+          name: sale.customer?.name || "",
+          phone: sale.customer?.phone || "",
+          address: sale.customer?.address || "",
+          trNumber: sale.customer?.trNumber || "",
+        }
+        const receiptLine = buildCollectionReceiptLineSnapshot({
+          sale,
+          model: "Sale",
+          source: "admin",
+          appliedAmount: apply,
+        })
         const normalizedPayment = normalizeSalePaymentState({
           totalAmount: total,
           receivedAmount: roundToTwo(currentReceived + apply),
@@ -229,27 +433,30 @@ export async function POST(request) {
         if (!sale.rcNo && apply > 0) {
           sale.rcNo = rcNo
         }
-        if (signature && !sale.collectionSignature) {
-          sale.collectionSignature = signature
-        }
-        if (collectionPaymentMethod && !sale.collectionPaymentMethod) {
-          sale.collectionPaymentMethod = collectionPaymentMethod
-        }
-        if (collectionBankName && !sale.collectionBankName) {
-          sale.collectionBankName = collectionBankName
-        }
-        if (collectionChequeNumber && !sale.collectionChequeNumber) {
-          sale.collectionChequeNumber = collectionChequeNumber
-        }
         if (collectionReceiptCreatedAt && !sale.collectionReceiptCreatedAt) {
           sale.collectionReceiptCreatedAt = collectionReceiptCreatedAt
         }
         await sale.save()
+        receiptLines.push(receiptLine)
         console.log(`[COLLECTION] Sale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${normalizedPayment.balance}, status=${sale.paymentStatus}`)
-        results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
+        results.push({
+          id,
+          model,
+          applied: apply,
+          previousReceived: receiptLine.previousReceived,
+          newReceivedAmount: sale.receivedAmount,
+          newStatus: sale.paymentStatus,
+          remainingAmount: receiptLine.remainingAmount,
+        })
       } else if (model === "EmployeeSale") {
         const sale = await EmployeeSale.findById(id)
+          .populate("customer", "name phone address trNumber")
+          .populate("employee", "name email")
+          .populate("items.product", "name")
         if (!sale) continue
+        if (sale.rcNo) {
+          await materializeLegacyReceiptGroup(sale.customer?._id || sale.customer, sale.rcNo)
+        }
         const currentReceived = roundToTwo(sale.receivedAmount || 0)
         const total = roundToTwo(sale.totalAmount || 0)
         const balance = roundToTwo(Math.max(0, total - currentReceived))
@@ -258,6 +465,25 @@ export async function POST(request) {
           results.push({ id, model, applied: 0, status: sale.paymentStatus })
           continue
         }
+        if (receiptCustomer && String(receiptCustomer._id || "") !== String(sale.customer?._id || "")) {
+          return NextResponse.json(
+            { success: false, error: "All collection payments in one receipt must belong to the same customer" },
+            { status: 400 }
+          )
+        }
+        receiptCustomer = receiptCustomer || {
+          _id: sale.customer?._id || null,
+          name: sale.customer?.name || "",
+          phone: sale.customer?.phone || "",
+          address: sale.customer?.address || "",
+          trNumber: sale.customer?.trNumber || "",
+        }
+        const receiptLine = buildCollectionReceiptLineSnapshot({
+          sale,
+          model: "EmployeeSale",
+          source: "employee",
+          appliedAmount: apply,
+        })
         const normalizedPayment = normalizeSalePaymentState({
           totalAmount: total,
           receivedAmount: roundToTwo(currentReceived + apply),
@@ -269,29 +495,57 @@ export async function POST(request) {
         if (!sale.rcNo && apply > 0) {
           sale.rcNo = rcNo
         }
-        if (signature && !sale.collectionSignature) {
-          sale.collectionSignature = signature
-        }
-        if (collectionPaymentMethod && !sale.collectionPaymentMethod) {
-          sale.collectionPaymentMethod = collectionPaymentMethod
-        }
-        if (collectionBankName && !sale.collectionBankName) {
-          sale.collectionBankName = collectionBankName
-        }
-        if (collectionChequeNumber && !sale.collectionChequeNumber) {
-          sale.collectionChequeNumber = collectionChequeNumber
-        }
         if (collectionReceiptCreatedAt && !sale.collectionReceiptCreatedAt) {
           sale.collectionReceiptCreatedAt = collectionReceiptCreatedAt
         }
         await sale.save()
+        receiptLines.push(receiptLine)
         console.log(`[COLLECTION] EmployeeSale ${id}: receivedAmount=${sale.receivedAmount}, total=${total}, remaining=${normalizedPayment.balance}, status=${sale.paymentStatus}`)
-        results.push({ id, model, applied: apply, newReceivedAmount: sale.receivedAmount, newStatus: sale.paymentStatus })
+        results.push({
+          id,
+          model,
+          applied: apply,
+          previousReceived: receiptLine.previousReceived,
+          newReceivedAmount: sale.receivedAmount,
+          newStatus: sale.paymentStatus,
+          remainingAmount: receiptLine.remainingAmount,
+        })
       }
       // Cylinder transactions are no longer handled in collections
     }
 
-    return NextResponse.json({ success: true, data: { results, rcNo } })
+    if (!receiptLines.length) {
+      return NextResponse.json({ success: false, error: "No valid collection amounts were applied" }, { status: 400 })
+    }
+
+    const savedReceipt = await CollectionReceipt.create({
+      rcNo,
+      customer: receiptCustomer?._id || null,
+      customerSnapshot: {
+        _id: receiptCustomer?._id || null,
+        name: receiptCustomer?.name || "",
+        phone: receiptCustomer?.phone || "",
+        address: receiptCustomer?.address || "",
+        trNumber: receiptCustomer?.trNumber || "",
+      },
+      signature,
+      paymentMethod: collectionPaymentMethod || "Cash",
+      bankName: collectionBankName,
+      chequeNumber: collectionChequeNumber,
+      receiptCreatedAt: collectionReceiptCreatedAt || new Date(),
+      totalAppliedAmount: receiptLines.reduce((sum, line) => sum + Number(line.appliedAmount || 0), 0),
+      lines: receiptLines,
+    })
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        results,
+        rcNo,
+        receiptId: String(savedReceipt._id),
+        receipt: mapCollectionReceiptRecord(savedReceipt.toObject()),
+      },
+    })
   } catch (error) {
     console.error("Collections POST error:", error)
     return NextResponse.json({ success: false, error: error?.message || "Failed to apply collections" }, { status: 500 })
@@ -304,6 +558,8 @@ export async function PATCH(request) {
   try {
     await dbConnect()
     const body = await request.json()
+    const receiptId = typeof body?.receiptId === "string" ? body.receiptId : ""
+    const rcNo = typeof body?.rcNo === "string" ? body.rcNo : ""
     const invoices = Array.isArray(body?.invoices) ? body.invoices : []
     const signature = typeof body?.signature === "string" ? body.signature : ""
     const collectionPaymentMethod = typeof body?.paymentMethod === "string" ? body.paymentMethod : ""
@@ -311,8 +567,31 @@ export async function PATCH(request) {
     const collectionChequeNumber = typeof body?.chequeNumber === "string" ? body.chequeNumber : ""
     const collectionReceiptCreatedAt = body?.receiptCreatedAt ? new Date(body.receiptCreatedAt) : null
 
+    if ((receiptId || rcNo) && (signature || collectionPaymentMethod || collectionBankName || collectionChequeNumber || collectionReceiptCreatedAt)) {
+      const receipt = await CollectionReceipt.findOne(receiptId ? { _id: receiptId } : { rcNo })
+      if (!receipt) {
+        return NextResponse.json({ success: false, error: "Collection receipt not found" }, { status: 404 })
+      }
+
+      if (signature) receipt.signature = signature
+      if (collectionPaymentMethod) receipt.paymentMethod = collectionPaymentMethod
+      if (collectionBankName) receipt.bankName = collectionBankName
+      if (collectionChequeNumber) receipt.chequeNumber = collectionChequeNumber
+      if (collectionReceiptCreatedAt) receipt.receiptCreatedAt = collectionReceiptCreatedAt
+
+      await receipt.save()
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          receiptId: String(receipt._id),
+          receipt: mapCollectionReceiptRecord(receipt.toObject()),
+        },
+      })
+    }
+
     if (!invoices.length || !signature) {
-      return NextResponse.json({ success: false, error: "Invoices and signature are required" }, { status: 400 })
+      return NextResponse.json({ success: false, error: "Receipt or legacy invoices and signature are required" }, { status: 400 })
     }
 
     const results = []

@@ -76,6 +76,34 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
   // Track which pending sub-tab is active (purchase-orders or assignments)
   const [pendingSubTab, setPendingSubTab] = useState<string>("purchase-orders")
 
+  const normalizeLinkedStockName = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/\b(gas|cylinder|cylinders|empty|full)\b/g, " ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " ")
+
+  const findBestCylinderMatch = (cylinders: EmployeeInventoryStock[], gasProductName?: string) => {
+    const normalizedGasName = normalizeLinkedStockName(gasProductName || "")
+    if (!normalizedGasName) return null
+
+    const exactMatch = cylinders.find(
+      (item) => normalizeLinkedStockName(item.productName) === normalizedGasName
+    )
+    if (exactMatch) return exactMatch
+
+    return (
+      cylinders.find((item) => {
+        const normalizedCylinderName = normalizeLinkedStockName(item.productName)
+        return (
+          !!normalizedCylinderName &&
+          (normalizedCylinderName.includes(normalizedGasName) || normalizedGasName.includes(normalizedCylinderName))
+        )
+      }) || null
+    )
+  }
+
   useEffect(() => {
     fetchEmployeeInventoryData()
   }, [])
@@ -219,6 +247,8 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
       if (order && order.purchaseType === 'gas' && !order.emptyCylinderId) {
         console.log('🔄 [GAS ORDER] Gas order without cylinder detected, showing cylinder selection popup')
         setSelectedGasOrder(order)
+        setSelectedCylinderId("")
+        setCylinderSearch("")
         
         // Fetch employee's empty cylinders filtered by gas product name (matching admin behavior)
         await fetchEmptyCylinders(order.productName)
@@ -340,6 +370,10 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
       if (emptyCylinderStock.length > 0) {
         console.log('✅ [EMPTY CYLINDERS] Using already loaded data:', emptyCylinderStock)
         setEmptyCylinders(emptyCylinderStock)
+        const matchedCylinder = findBestCylinderMatch(emptyCylinderStock, gasProductName)
+        setSelectedCylinderId(matchedCylinder?._id || "")
+        setCylinderSearch(matchedCylinder?.productName || "")
+        setShowCylinderSuggestions(!matchedCylinder)
         return
       }
       
@@ -365,6 +399,10 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
         }
         
         setEmptyCylinders(freshEmptyCylinderStock)
+        const matchedCylinder = findBestCylinderMatch(freshEmptyCylinderStock, gasProductName)
+        setSelectedCylinderId(matchedCylinder?._id || "")
+        setCylinderSearch(matchedCylinder?.productName || "")
+        setShowCylinderSuggestions(!matchedCylinder)
         console.log('✅ [EMPTY CYLINDERS] Fresh empty cylinders:', freshEmptyCylinderStock)
         console.log('🔍 [EMPTY CYLINDERS] Available empty cylinders count:', freshEmptyCylinderStock.length)
       } else {
@@ -372,10 +410,14 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
         const errorData = await response.json()
         console.error('❌ [EMPTY CYLINDERS] Error data:', errorData)
         setEmptyCylinders([])
+        setSelectedCylinderId("")
+        setCylinderSearch("")
       }
     } catch (error) {
       console.error('❌ [EMPTY CYLINDERS] Error fetching empty cylinders:', error)
       setEmptyCylinders([])
+      setSelectedCylinderId("")
+      setCylinderSearch("")
     }
   }
 
@@ -537,6 +579,8 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
         }
         
         setSelectedGasOrder(gasOrder)
+        setSelectedCylinderId("")
+        setCylinderSearch("")
         
         // Fetch employee's empty cylinders filtered by gas product name (matching admin behavior)
         await fetchEmptyCylinders(assignment.productName)

@@ -187,6 +187,13 @@ export const CylinderManagement = () => {
   const [securityPrompted, setSecurityPrompted] = useState(false)
 
   const getTransactionDateValue = (transaction: CylinderTransaction) => transaction.transactionDate || transaction.createdAt
+  const getTransactionCreationTime = (transaction: { _id?: string; createdAt?: string }) => {
+    const id = typeof transaction?._id === "string" ? transaction._id : ""
+    if (/^[a-f\d]{24}$/i.test(id)) {
+      return parseInt(id.slice(0, 8), 16) * 1000
+    }
+    return new Date(transaction?.createdAt || 0).getTime()
+  }
   
   // Customer autocomplete functionality for form
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
@@ -229,7 +236,7 @@ export const CylinderManagement = () => {
 
   // Dynamic column visibility based on active tab
   const getVisibleColumns = () => {
-    const baseColumns = ['type', 'customer', 'product', 'cylinderSize', 'quantity', 'amount']
+    const baseColumns = ['type', 'customer', 'reference', 'product', 'cylinderSize', 'quantity', 'amount']
     // Removed invoiceNumber from commonColumns; we'll prefix it explicitly to be first
     const commonColumns = ['paymentMethod', 'cashAmount', 'bankName', 'checkNumber', 'notes', 'status', 'date', 'actions']
 
@@ -241,7 +248,7 @@ export const CylinderManagement = () => {
         return ['invoiceNumber', ...baseColumns, 'returnAmount', ...commonColumns]
       case 'all':
       default:
-        return ['invoiceNumber', ...baseColumns, 'depositAmount', 'refillAmount', 'returnAmount', ...commonColumns]
+        return ['invoiceNumber', ...baseColumns, 'depositAmount', 'returnAmount', ...commonColumns]
     }
   }
 
@@ -251,12 +258,12 @@ export const CylinderManagement = () => {
     const columnHeaders = {
       type: 'Type',
       customer: 'Customer',
+      reference: 'Reference',
       product: 'Product',
       cylinderSize: 'Items / Cylinder Size',
       quantity: 'Quantity',
       amount: 'Amount',
       depositAmount: 'Deposit Amount',
-      refillAmount: 'Refill Amount',
       returnAmount: 'Return Amount',
       paymentMethod: 'Payment Method',
       cashAmount: 'Security Cash',
@@ -319,6 +326,17 @@ export const CylinderManagement = () => {
               </div>
             )}
           </div>
+        </TableCell>
+      ),
+      reference: () => (
+        <TableCell className="p-4">
+          {transaction.isEmployeeTransaction ? (
+            <span className="font-medium text-blue-700">
+              {transaction.employee?.name || "Unknown Employee"}
+            </span>
+          ) : (
+            '-'
+          )}
         </TableCell>
       ),
       product: () => {
@@ -1248,7 +1266,9 @@ export const CylinderManagement = () => {
         }))
         
         // Combine both transaction types
-        transactionsData = [...adminTransactions, ...employeeTransactions]
+        transactionsData = [...adminTransactions, ...employeeTransactions].sort(
+          (a, b) => getTransactionCreationTime(b) - getTransactionCreationTime(a)
+        )
         
       } catch (error) {
         console.error("Failed to fetch transactions:", error)
@@ -1480,7 +1500,9 @@ export const CylinderManagement = () => {
 
       let savedResponse: any = null
       if (editingTransaction) {
-        savedResponse = await cylindersAPI.update(editingTransaction._id, transactionData)
+        savedResponse = editingTransaction.isEmployeeTransaction
+          ? await employeeCylindersAPI.update(editingTransaction._id, transactionData)
+          : await cylindersAPI.update(editingTransaction._id, transactionData)
       } else {
         // Use specific endpoints and include inventory data for proper stock deduction
         const payloadWithInventory = {
@@ -1727,6 +1749,10 @@ export const CylinderManagement = () => {
         items,
         totalAmount,
         paymentMethod: (transactionWithInvoice as any).paymentMethod || "cash",
+        cashAmount: Number((transactionWithInvoice as any).cashAmount || 0),
+        bankName: (transactionWithInvoice as any).bankName || "",
+        checkNumber: (transactionWithInvoice as any).checkNumber || "",
+        chequeNumber: (transactionWithInvoice as any).checkNumber || "",
         paymentStatus: transactionWithInvoice.status || "pending",
         // include type to support header selection logic in receipt
         type: transactionWithInvoice.type,
@@ -1807,6 +1833,10 @@ export const CylinderManagement = () => {
       items,
       totalAmount,
       paymentMethod: (transaction as any).paymentMethod || "cash",
+      cashAmount: Number((transaction as any).cashAmount || 0),
+      bankName: (transaction as any).bankName || "",
+      checkNumber: (transaction as any).checkNumber || "",
+      chequeNumber: (transaction as any).checkNumber || "",
       paymentStatus: transaction.status || "pending",
       type: transaction.type,
       createdAt: transaction.transactionDate || transaction.createdAt,

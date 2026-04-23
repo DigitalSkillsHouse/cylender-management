@@ -188,6 +188,13 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
   const [showSecurityDialog, setShowSecurityDialog] = useState(false)
   const [securityRecords, setSecurityRecords] = useState<any[]>([])
   const [securityPrompted, setSecurityPrompted] = useState(false)
+  const getTransactionCreationTime = (transaction: { _id?: string; createdAt?: string }) => {
+    const id = typeof transaction?._id === "string" ? transaction._id : ""
+    if (/^[a-f\d]{24}$/i.test(id)) {
+      return parseInt(id.slice(0, 8), 16) * 1000
+    }
+    return new Date(transaction?.createdAt || 0).getTime()
+  }
   
   // Customer autocomplete functionality for form
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false)
@@ -242,7 +249,7 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
         return ['invoiceNumber', ...baseColumns, 'returnAmount', ...commonColumns]
       case 'all':
       default:
-        return ['invoiceNumber', ...baseColumns, 'depositAmount', 'refillAmount', 'returnAmount', ...commonColumns]
+        return ['invoiceNumber', ...baseColumns, 'depositAmount', 'returnAmount', ...commonColumns]
     }
   }
 
@@ -257,7 +264,6 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
       quantity: 'Quantity',
       amount: 'Amount',
       depositAmount: 'Deposit Amount',
-      refillAmount: 'Refill Amount',
       returnAmount: 'Return Amount',
       paymentMethod: 'Payment Method',
       cashAmount: 'Security Cash',
@@ -1254,7 +1260,9 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
         }))
         
         // Only show employee transactions
-        transactionsData = employeeTransactions
+        transactionsData = employeeTransactions.sort(
+          (a: CylinderTransaction, b: CylinderTransaction) => getTransactionCreationTime(b) - getTransactionCreationTime(a)
+        )
         
       } catch (error) {
         console.error("Failed to fetch transactions:", error)
@@ -1804,6 +1812,10 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
         items,
         totalAmount,
         paymentMethod: (transaction as any).paymentMethod || "cash",
+        cashAmount: Number((transaction as any).cashAmount || 0),
+        bankName: (transaction as any).bankName || "",
+        checkNumber: (transaction as any).checkNumber || "",
+        chequeNumber: (transaction as any).checkNumber || "",
         paymentStatus: transaction.status || "pending",
         // include type to support header selection logic in receipt
         type: transaction.type,
@@ -1886,6 +1898,10 @@ export const EmployeeCylinderSales = ({ user }: EmployeeCylinderSalesProps) => {
       items,
       totalAmount,
       paymentMethod: (transaction as any).paymentMethod || "cash",
+      cashAmount: Number((transaction as any).cashAmount || 0),
+      bankName: (transaction as any).bankName || "",
+      checkNumber: (transaction as any).checkNumber || "",
+      chequeNumber: (transaction as any).checkNumber || "",
       paymentStatus: transaction.status || "pending",
       type: transaction.type,
       createdAt: transaction.createdAt,

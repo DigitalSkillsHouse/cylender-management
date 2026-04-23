@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SearchableSelect } from "@/components/ui/searchable-select"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Loader2, PackagePlus, Pencil, RefreshCw, RotateCcw, Trash2 } from "lucide-react"
@@ -42,6 +43,14 @@ type PendingReturn = {
   returnDate: string
   notes?: string
 }
+
+const normalizeLinkedStockName = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/\b(gas|cylinder|cylinders|empty|full)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
 
 export function AcceptReturn({ user }: { user: AdminUser }) {
   const createEmptyDraftItem = (): DraftAssignItem => ({
@@ -174,6 +183,68 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
     return { gas, cylinder: cyl }
   }, [products])
 
+  const employeeOptions = useMemo(
+    () =>
+      employees.map((employee) => ({
+        value: employee._id,
+        label: `${employee.name} (${employee.email})`,
+        keywords: `${employee.name} ${employee.email}`,
+      })),
+    [employees]
+  )
+
+  const assignProductOptions = useMemo(
+    () =>
+      (draftItem.category === "gas" ? productsByCategory.gas : productsByCategory.cylinder).map((product) => ({
+        value: product._id,
+        label: product.name,
+        keywords: `${product.name} ${product.category}`,
+      })),
+    [draftItem.category, productsByCategory]
+  )
+
+  const gasProductOptions = useMemo(
+    () =>
+      productsByCategory.gas.map((product) => ({
+        value: product._id,
+        label: product.name,
+        keywords: `${product.name} gas`,
+      })),
+    [productsByCategory]
+  )
+
+  const linkedCylinderOptions = useMemo(
+    () =>
+      productsByCategory.cylinder.map((product) => ({
+        value: product._id,
+        label: product.name,
+        keywords: `${product.name} cylinder`,
+      })),
+    [productsByCategory]
+  )
+
+  const findBestCylinderProductIdForGas = (gasProductId?: string) => {
+    if (!gasProductId) return ""
+    const gasProduct = products.find((product) => product._id === gasProductId)
+    const normalizedGasName = normalizeLinkedStockName(gasProduct?.name || "")
+    if (!normalizedGasName) return ""
+
+    const exactMatch = productsByCategory.cylinder.find(
+      (product) => normalizeLinkedStockName(product.name) === normalizedGasName
+    )
+    if (exactMatch?._id) return exactMatch._id
+
+    const partialMatch = productsByCategory.cylinder.find((product) => {
+      const normalizedCylinderName = normalizeLinkedStockName(product.name)
+      return (
+        !!normalizedCylinderName &&
+        (normalizedCylinderName.includes(normalizedGasName) || normalizedGasName.includes(normalizedCylinderName))
+      )
+    })
+
+    return partialMatch?._id || ""
+  }
+
   const groupedPendingReturns = useMemo(() => {
     const groups: Record<string, PendingReturn[]> = {}
     for (const item of pendingReturns) {
@@ -183,6 +254,18 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
     }
     return Object.entries(groups).map(([groupKey, rows]) => ({ groupKey, rows }))
   }, [pendingReturns])
+
+  useEffect(() => {
+    if (draftItem.category !== "gas" || !draftItem.productId) return
+
+    const matchedCylinderProductId = findBestCylinderProductIdForGas(draftItem.productId)
+    setDraftItem((prev) => {
+      if (prev.category !== "gas" || prev.productId !== draftItem.productId) return prev
+      const nextCylinderProductId = matchedCylinderProductId || undefined
+      if ((prev.cylinderProductId || undefined) === nextCylinderProductId) return prev
+      return { ...prev, cylinderProductId: nextCylinderProductId }
+    })
+  }, [draftItem.category, draftItem.productId, products, productsByCategory.cylinder])
 
   const submitBatch = async () => {
     setSubmitting(true)
@@ -227,6 +310,7 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
       resetDraftItem()
       setSelectedEmployeeId("")
       await fetchInventoryAvailability()
+      await fetchAdminEmptyCylinderInventory()
     } catch (e: any) {
       setError(e?.message || "Failed to assign stock")
     } finally {
@@ -254,6 +338,7 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
         if (!res.ok) throw new Error(json?.error || "Failed to accept return")
       }
       await fetchInventoryAvailability()
+      await fetchAdminEmptyCylinderInventory()
       await fetchPendingReturns()
     } catch (e: any) {
       setError(e?.message || "Failed to accept return")
@@ -294,6 +379,49 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
         .map((it: any) => ({ _id: it._id, productName: it.productName, availableEmpty: Number(it.availableEmpty || 0) }))
     )
   }
+
+  useEffect(() => {
+    if (!pendingReturns.length || !emptyCylinderInventoryList.length) return
+
+    setSelectedEmptyCylinderByReturnId((prev) => {
+      let changed = false
+      const next = { ...prev }
+
+      for (const row of pendingReturns) {
+        if (row.stockType !== "gas") continue
+
+        const currentValue = next[row.id]
+        const stillValid = currentValue
+          ? emptyCylinderInventoryList.some((item) => item._id === currentValue && item.availableEmpty > 0)
+          : false
+
+        if (stillValid) continue
+
+        const normalizedGasName = normalizeLinkedStockName(row.productName || "")
+        if (!normalizedGasName) continue
+
+        const exactMatch = emptyCylinderInventoryList.find(
+          (item) => normalizeLinkedStockName(item.productName) === normalizedGasName
+        )
+        const partialMatch =
+          exactMatch ||
+          emptyCylinderInventoryList.find((item) => {
+            const normalizedCylinderName = normalizeLinkedStockName(item.productName)
+            return (
+              !!normalizedCylinderName &&
+              (normalizedCylinderName.includes(normalizedGasName) || normalizedGasName.includes(normalizedCylinderName))
+            )
+          })
+
+        if (partialMatch?._id && partialMatch._id !== currentValue) {
+          next[row.id] = partialMatch._id
+          changed = true
+        }
+      }
+
+      return changed ? next : prev
+    })
+  }, [pendingReturns, emptyCylinderInventoryList])
 
   useEffect(() => {
     // load cylinders for gas returns selection
@@ -350,18 +478,15 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
             <CardContent className="p-4 sm:p-6 space-y-4">
               <div className="space-y-2">
                 <Label>Employee *</Label>
-                <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select employee" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {employees.map((e) => (
-                      <SelectItem key={e._id} value={e._id}>
-                        {e.name} ({e.email})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={selectedEmployeeId}
+                  onValueChange={setSelectedEmployeeId}
+                  options={employeeOptions}
+                  placeholder="Select employee"
+                  searchPlaceholder="Search employee..."
+                  emptyText="No employee found."
+                  triggerClassName="w-full justify-between"
+                />
               </div>
 
               <div className="flex justify-between items-center gap-3">
@@ -444,57 +569,42 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Select value={draftItem.productId} onValueChange={(v) => updateDraftItem({ productId: v })}>
-                          <SelectTrigger className="w-[240px]">
-                            <SelectValue placeholder="Select product" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(draftItem.category === "gas" ? productsByCategory.gas : productsByCategory.cylinder).map((p) => (
-                              <SelectItem key={p._id} value={p._id}>
-                                {p.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <SearchableSelect
+                          value={draftItem.productId}
+                          onValueChange={(v) => updateDraftItem({ productId: v })}
+                          options={assignProductOptions}
+                          placeholder="Select product"
+                          searchPlaceholder="Search product..."
+                          emptyText="No product found."
+                          triggerClassName="w-[320px] min-h-12 justify-between py-2 [&>span:first-child]:text-xs [&>span:first-child]:leading-snug [&>span:first-child]:text-left [&>span:first-child]:whitespace-normal [&>span:first-child]:break-words"
+                        />
                       </TableCell>
                       <TableCell>
                         {draftItem.category === "cylinder" && draftItem.cylinderStatus === "full" ? (
-                          <Select
+                          <SearchableSelect
                             value={draftItem.gasProductId || ""}
                             onValueChange={(v) => updateDraftItem({ gasProductId: v })}
-                          >
-                            <SelectTrigger className="w-[220px]">
-                              <SelectValue placeholder="Select gas" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {productsByCategory.gas.map((p) => (
-                                <SelectItem key={p._id} value={p._id}>
-                                  {p.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            options={gasProductOptions}
+                            placeholder="Select gas"
+                            searchPlaceholder="Search gas..."
+                            emptyText="No gas found."
+                            triggerClassName="w-[300px] min-h-12 justify-between py-2 [&>span:first-child]:text-xs [&>span:first-child]:leading-snug [&>span:first-child]:text-left [&>span:first-child]:whitespace-normal [&>span:first-child]:break-words"
+                          />
                         ) : (
                           <span className="text-sm text-gray-500">-</span>
                         )}
                       </TableCell>
                       <TableCell>
                         {draftItem.category === "gas" ? (
-                          <Select
+                          <SearchableSelect
                             value={draftItem.cylinderProductId || ""}
                             onValueChange={(v) => updateDraftItem({ cylinderProductId: v })}
-                          >
-                            <SelectTrigger className="w-[220px]">
-                              <SelectValue placeholder="(Optional) Cylinder" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {productsByCategory.cylinder.map((p) => (
-                                <SelectItem key={p._id} value={p._id}>
-                                  {p.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            options={linkedCylinderOptions}
+                            placeholder="Select cylinder"
+                            searchPlaceholder="Search cylinder..."
+                            emptyText="No cylinder found."
+                            triggerClassName="w-[300px] min-h-12 justify-between py-2 [&>span:first-child]:text-xs [&>span:first-child]:leading-snug [&>span:first-child]:text-left [&>span:first-child]:whitespace-normal [&>span:first-child]:break-words"
+                          />
                         ) : (
                           <span className="text-sm text-gray-500">-</span>
                         )}
@@ -650,7 +760,7 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
                                       setSelectedEmptyCylinderByReturnId((p) => ({ ...p, [r.id]: v }))
                                     }
                                   >
-                                    <SelectTrigger className="w-[260px]">
+                                    <SelectTrigger className="w-[320px] min-h-12 py-2 [&>span]:text-xs [&>span]:leading-snug [&>span]:whitespace-normal [&>span]:break-words [&>span]:line-clamp-none">
                                       <SelectValue placeholder="Select empty cylinder" />
                                     </SelectTrigger>
                                     <SelectContent>

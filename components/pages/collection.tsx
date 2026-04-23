@@ -15,6 +15,7 @@ import { format } from "date-fns"
 import { Printer, RefreshCcw, FileText, Download, ChevronDown, ChevronRight } from "lucide-react"
 import { SignatureDialog } from "@/components/signature-dialog"
 import { ReceiptDialog } from "@/components/receipt-dialog"
+import { buildCollectionReceiptDialogPayload, CollectionReceiptRecord } from "@/lib/collection-receipt-client"
 
 interface User {
   id: string
@@ -28,35 +29,6 @@ interface PendingInvoiceItem {
   quantity: number
   price: number
   total: number
-}
-
-interface CollectionReceiptItem {
-  product: { name: string; price: number }
-  quantity: number
-  price: number
-  total: number
-  invoiceNumber?: string
-  invoiceDate?: string
-  paymentStatus?: string
-  totalAmount?: number
-  receivedAmount?: number
-  previousReceived?: number
-  remainingAmount?: number
-}
-
-interface CollectionReceiptPayload {
-  _id: string
-  invoiceNumber: string
-  customer: { name: string; phone: string; address: string; trNumber?: string }
-  items: CollectionReceiptItem[]
-  totalAmount: number
-  paymentMethod: string
-  bankName?: string
-  chequeNumber?: string
-  paymentStatus: string
-  type: string
-  createdAt: string
-  customerSignature?: string
 }
 
 interface PendingInvoice {
@@ -90,7 +62,7 @@ interface CollectionPageProps {
 export const CollectionPage = ({ user }: CollectionPageProps) => {
   const [loading, setLoading] = useState(false)
   const [invoices, setInvoices] = useState<PendingInvoice[]>([])
-  const [collectedInvoices, setCollectedInvoices] = useState<PendingInvoice[]>([])
+  const [collectedInvoices, setCollectedInvoices] = useState<CollectionReceiptRecord[]>([])
   const [loadingCollected, setLoadingCollected] = useState(false)
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [amounts, setAmounts] = useState<Record<string, string>>({})
@@ -98,11 +70,11 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
   const [pendingPaymentsCache, setPendingPaymentsCache] = useState<Array<{ model: string; id: string; amount: number }>>([])
   // Receipt dialog state
   const [showReceiptDialog, setShowReceiptDialog] = useState(false)
-  const [receiptData, setReceiptData] = useState<CollectionReceiptPayload | null>(null)
+  const [receiptData, setReceiptData] = useState<any>(null)
   
   // Receipt dialog state for individual collected invoices
   const [showCollectedReceiptDialog, setShowCollectedReceiptDialog] = useState(false)
-  const [collectedReceiptData, setCollectedReceiptData] = useState<CollectionReceiptPayload | null>(null)
+  const [collectedReceiptData, setCollectedReceiptData] = useState<any>(null)
   // Customer selection state
   const [customers, setCustomers] = useState<any[]>([])
   const [customerSearch, setCustomerSearch] = useState("")
@@ -137,6 +109,23 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     chequeNumber: string
   }>({ method: 'cash', bankName: '', chequeNumber: '' })
 
+  const truncateMoney = (value: unknown) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric)) return 0
+    return Math.trunc(numeric * 100) / 100
+  }
+
+  const getSelectedItemTotal = (
+    selectedItems: Array<{
+      invoice: PendingInvoice
+      item: PendingInvoiceItem
+      itemId: string
+      amount: number
+    }>
+  ) => truncateMoney(
+    selectedItems.reduce((sum, entry) => sum + Math.max(0, Number(entry.amount || 0)), 0)
+  )
+
   const getReceiptCustomer = (receiptInvoices: PendingInvoice[]) => {
     const primaryInvoice = receiptInvoices[0]
     const customerId = selectedCustomer?._id || primaryInvoice?.customer?._id
@@ -153,7 +142,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
   const buildCollectionReceiptItems = (
     receiptInvoices: PendingInvoice[],
     appliedAmounts?: Record<string, number>
-  ): CollectionReceiptItem[] => {
+  ): any[] => {
     return receiptInvoices.map((invoice) => {
       const appliedAmount = appliedAmounts?.[invoice._id]
       const hasAppliedAmount = typeof appliedAmount === 'number' && Number.isFinite(appliedAmount) && appliedAmount > 0
@@ -202,7 +191,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     createdAt: string
     signature?: string | null
     appliedAmounts?: Record<string, number>
-  }): CollectionReceiptPayload => {
+  }): any => {
     const receiptItems = buildCollectionReceiptItems(receiptInvoices, appliedAmounts)
     const totalAmount = receiptItems.reduce((sum, item) => sum + Number(item.total || 0), 0)
     const paymentStatus = receiptInvoices.every((invoice) => invoice.paymentStatus === 'cleared') ? 'cleared' : 'pending'
@@ -315,7 +304,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
           throw new Error(data.error || 'Failed to fetch collected invoices')
         }
         
-        const arr: PendingInvoice[] = Array.isArray(data?.data) ? data.data : []
+        const arr: CollectionReceiptRecord[] = Array.isArray(data?.data) ? data.data : []
         setCollectedInvoices(arr)
       }
     } catch (e: any) {
@@ -392,52 +381,11 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       return collectedInvoices
     }
     const searchTerm = collectedInvoiceSearch.toLowerCase().trim()
-    return collectedInvoices.filter((inv) => 
-      inv.invoiceNumber.toLowerCase().includes(searchTerm) ||
-      (inv.rcNo && inv.rcNo.toLowerCase().includes(searchTerm))
+    return collectedInvoices.filter((receipt) => 
+      String(receipt.rcNo || '').toLowerCase().includes(searchTerm) ||
+      receipt.lines.some((line) => String(line.invoiceNumber || '').toLowerCase().includes(searchTerm))
     )
   }, [collectedInvoices, collectedInvoiceSearch])
-
-  // Group collected invoices by rcNo
-  const groupedByRcNo = useMemo(() => {
-    const groups: Record<string, PendingInvoice[]> = {}
-    const noRcNoGroup: PendingInvoice[] = []
-    
-    filteredCollectedInvoices.forEach((inv) => {
-      const rcNo = inv.rcNo || ''
-      if (rcNo) {
-        if (!groups[rcNo]) {
-          groups[rcNo] = []
-        }
-        groups[rcNo].push(inv)
-      } else {
-        noRcNoGroup.push(inv)
-      }
-    })
-    
-    // Convert to array and sort by rcNo (newest first, then invoices without rcNo)
-    const groupedArray = Object.entries(groups)
-      .map(([rcNo, invoices]) => ({
-        rcNo,
-        invoices: invoices.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      }))
-      .sort((a, b) => {
-        // Extract number from RC-NO-0001 format for sorting
-        const numA = parseInt(a.rcNo.replace(/\D/g, '')) || 0
-        const numB = parseInt(b.rcNo.replace(/\D/g, '')) || 0
-        return numB - numA // Descending order (newest first)
-      })
-    
-    // Add invoices without rcNo at the end
-    if (noRcNoGroup.length > 0) {
-      groupedArray.push({
-        rcNo: '',
-        invoices: noRcNoGroup.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      })
-    }
-    
-    return groupedArray
-  }, [filteredCollectedInvoices])
 
   // Toggle expand/collapse for rcNo groups
   const toggleRcNoGroup = (rcNo: string) => {
@@ -557,7 +505,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     // Truncate to 2 decimal places (exact calculation, no rounding)
     const totalAmount = Math.trunc(selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) * 100) / 100
     const currentReceived = Math.trunc(selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0) * 100) / 100
-    const remaining = Math.max(0, Math.trunc((totalAmount - currentReceived) * 100) / 100)
+    const remaining = Math.max(0, getSelectedItemTotal(selectedItems))
     
     console.log('Opening payment dialog with:', {
       totalAmount,
@@ -651,59 +599,57 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     
     console.log('Processing payment for', paymentDialog.selectedInvoices.length, 'invoice(s)')
     
-    // For single invoice collection, apply the full amount directly
-    if (paymentDialog.selectedInvoices.length === 1) {
+    const selectedItemTotal = getSelectedItemTotal(paymentDialog.selectedItems)
+    const shouldUseSelectedItemAmounts =
+      paymentDialog.selectedItems.length > 0 &&
+      Math.abs(selectedItemTotal - roundedAdd) <= 0.01
+
+    if (shouldUseSelectedItemAmounts) {
+      console.log('Using exact selected invoice amounts for payment application')
+
+      paymentDialog.selectedItems.forEach(({ invoice, amount }) => {
+        const safeAmount = truncateMoney(Math.max(0, Math.min(Number(amount || 0), Number(invoice.balance || 0))))
+        if (safeAmount <= 0) return
+
+        payments.push({
+          model: invoice.model,
+          id: invoice._id,
+          amount: safeAmount,
+        })
+      })
+    } else if (paymentDialog.selectedInvoices.length === 1) {
       const invoice = paymentDialog.selectedInvoices[0]
       const roundedAmount = Math.trunc(roundedAdd * 100) / 100
       console.log('Single invoice payment:', { model: invoice.model, id: invoice._id, amount: roundedAmount })
       payments.push({
         model: invoice.model,
         id: invoice._id,
-        amount: roundedAmount  // Apply the rounded amount entered in the dialog
+        amount: roundedAmount
       })
     } else {
-      // For multiple invoices, calculate proportional payment based on remaining balance
-      console.log('Multiple invoices payment calculation:')
-      // Truncate invoice amounts to 2 decimal places (exact calculation, no rounding)
-      const invoiceRemainings = paymentDialog.selectedInvoices.map(inv => {
-        const invTotal = Math.trunc(inv.totalAmount * 100) / 100
-        const invReceived = Math.trunc((inv.receivedAmount || 0) * 100) / 100
-        return Math.trunc((invTotal - invReceived) * 100) / 100
+      console.log('Applying partial amount sequentially across selected invoices')
+
+      let remainingToAllocate = roundedAdd
+
+      paymentDialog.selectedItems.forEach(({ invoice, amount }) => {
+        if (remainingToAllocate <= 0) return
+
+        const requestedAmount = truncateMoney(Math.max(0, Number(amount || 0)))
+        const invoiceRemaining = truncateMoney(invoice.balance || 0)
+        const safeAmount = truncateMoney(Math.min(requestedAmount || invoiceRemaining, invoiceRemaining, remainingToAllocate))
+
+        if (safeAmount <= 0) return
+
+        payments.push({
+          model: invoice.model,
+          id: invoice._id,
+          amount: safeAmount,
+        })
+
+        remainingToAllocate = truncateMoney(remainingToAllocate - safeAmount)
       })
-      const totalRemaining = Math.trunc(invoiceRemainings.reduce((sum, rem) => sum + rem, 0) * 100) / 100
-      
-      console.log('Invoice remainings:', invoiceRemainings)
-      console.log('Total remaining:', totalRemaining)
-      console.log('Amount to distribute:', roundedAdd)
-      
-      let distributedTotal = 0
-      paymentDialog.selectedInvoices.forEach((invoice, index) => {
-        const invoiceRemaining = invoiceRemainings[index]
-        if (invoiceRemaining > 0 && totalRemaining > 0) {
-          // Calculate proportional amount
-          let proportionalAmount = (invoiceRemaining / totalRemaining) * roundedAdd
-          proportionalAmount = Math.trunc(proportionalAmount * 100) / 100
-          
-          // For the last invoice, ensure we don't exceed the total amount
-          if (index === paymentDialog.selectedInvoices.length - 1) {
-            proportionalAmount = Math.trunc((roundedAdd - distributedTotal) * 100) / 100
-          }
-          
-          distributedTotal += proportionalAmount
-          
-          console.log(`  Invoice ${index + 1} (${invoice.invoiceNumber}): remaining=${invoiceRemaining}, proportionalAmount=${proportionalAmount}`)
-          
-          if (proportionalAmount > 0) {
-            payments.push({
-              model: invoice.model,
-              id: invoice._id,
-              amount: proportionalAmount
-            })
-          }
-        }
-      })
-      
-      console.log('Total distributed:', distributedTotal)
+
+      console.log('Sequential allocation remaining amount:', remainingToAllocate)
     }
     
     console.log('Generated payments array:', payments)
@@ -769,30 +715,9 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
       await fetchData(selectedCustomer?._id, true) // Force refresh after collection
       await fetchCollectedInvoices(selectedCustomer?._id, true) // Also refresh collected invoices
       
-      // Get RC-NO from API response (generated sequentially starting from 0001)
-      const rcNo = data?.data?.rcNo || '0001'
-
-      const receiptInvoices = payments
-        .map((payment) => invoices.find((invoice) => invoice._id === payment.id))
-        .filter((invoice): invoice is PendingInvoice => Boolean(invoice))
-      const appliedAmounts = payments.reduce<Record<string, number>>((acc, payment) => {
-        acc[payment.id] = Number(payment.amount || 0)
-        return acc
-      }, {})
-
-      setReceiptData(
-        buildCollectionReceiptPayload({
-          receiptId: `collection-${Date.now()}`,
-          receiptNumber: rcNo,
-          receiptInvoices,
-          paymentMethod: lastPaymentMethod.method === 'cheque' ? 'Cheque' : 'Cash',
-          bankName: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.bankName : '',
-          chequeNumber: lastPaymentMethod.method === 'cheque' ? lastPaymentMethod.chequeNumber : '',
-          createdAt: new Date().toISOString(),
-          signature,
-          appliedAmounts,
-        })
-      )
+      if (data?.data?.receipt) {
+        setReceiptData(buildCollectionReceiptDialogPayload(data.data.receipt))
+      }
       setShowReceiptDialog(true)
     } catch (e: any) {
       toast({ title: "Collection failed", description: e?.message || "", variant: "destructive" })
@@ -802,39 +727,9 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
     }
   }
 
-  const generateReceiptForCollectedInvoices = (receiptInvoices: PendingInvoice[]) => {
-    if (!receiptInvoices.length) return
-
-    const savedMeta = getSavedCollectionReceiptMeta(receiptInvoices)
-    generateReceiptWithSignature(receiptInvoices, savedMeta?.signature || null)
-  }
-
-  const generateReceiptWithSignature = (receiptInvoices: PendingInvoice[], signature: string | null) => {
-    if (!receiptInvoices.length) return
-
-    const sortedInvoices = [...receiptInvoices].sort((a, b) => {
-      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    })
-    const primaryInvoice = sortedInvoices[0]
-    const receiptNumber = primaryInvoice.rcNo || primaryInvoice.invoiceNumber || '0001'
-    const savedMeta = getSavedCollectionReceiptMeta(sortedInvoices)
-    const paymentMethod = savedMeta?.paymentMethod || primaryInvoice.collectionPaymentMethod || primaryInvoice.paymentMethod || 'Cash'
-    const bankName = savedMeta?.bankName || primaryInvoice.collectionBankName || primaryInvoice.bankName || ''
-    const chequeNumber = savedMeta?.chequeNumber || primaryInvoice.collectionChequeNumber || primaryInvoice.chequeNumber || ''
-    const createdAt = savedMeta?.createdAt || primaryInvoice.collectionReceiptCreatedAt || primaryInvoice.createdAt
-
-    setCollectedReceiptData(
-      buildCollectionReceiptPayload({
-        receiptId: primaryInvoice.rcNo ? `collection-${primaryInvoice.rcNo}` : primaryInvoice._id,
-        receiptNumber,
-        receiptInvoices: sortedInvoices,
-        paymentMethod,
-        bankName,
-        chequeNumber,
-        createdAt,
-        signature: signature || savedMeta?.signature || primaryInvoice.collectionSignature,
-      })
-    )
+  const generateReceiptForCollectedInvoices = (receipt: CollectionReceiptRecord) => {
+    if (!receipt) return
+    setCollectedReceiptData(buildCollectionReceiptDialogPayload(receipt))
     setShowCollectedReceiptDialog(true)
   }
 
@@ -1029,6 +924,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                           
                           const totalAmount = selectedInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0)
                           const currentReceived = selectedInvoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
+                          const selectedAmountTotal = getSelectedItemTotal(selectedItems)
                           
                           // Open payment collection dialog with selected invoices
                           setPaymentDialog({
@@ -1038,7 +934,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                             method: 'cash',
                             bankName: '',
                             chequeNumber: '',
-                            inputAmount: '',
+                            inputAmount: selectedAmountTotal > 0 ? selectedAmountTotal.toFixed(2) : '',
                             selectedInvoices,
                             selectedItems
                           })
@@ -1189,72 +1085,23 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {groupedByRcNo.map((group) => {
-                      const isExpanded = expandedRcNos.has(group.rcNo)
-                      const hasMultipleInvoices = group.invoices.length > 1
-                      const groupTotal = group.invoices.reduce((sum, inv) => sum + inv.totalAmount, 0)
-                      const groupReceived = group.invoices.reduce((sum, inv) => sum + inv.receivedAmount, 0)
-                      const groupBalance = group.invoices.reduce((sum, inv) => sum + inv.balance, 0)
-                      
-                      // If only one invoice in group, show it directly (no grouping needed)
-                      if (!hasMultipleInvoices && !group.rcNo) {
-                        const inv = group.invoices[0]
-                        const itemsSummary = inv.items && inv.items.length > 0 
-                          ? inv.items.map(item => `${item.product.name} (${item.quantity})`).join(', ')
-                          : 'No items'
-                        
-                        return (
-                          <tr key={inv._id} className="border-b hover:bg-gray-50">
-                            <td className="p-2 align-middle"></td>
-                            <td className="p-2 align-middle font-medium">{inv.invoiceNumber}</td>
-                            <td className="p-2 align-middle">
-                              <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                                {inv.source}
-                              </Badge>
-                            </td>
-                            <td className="p-2 align-middle">
-                              <div className="text-sm max-w-xs truncate" title={itemsSummary}>
-                                {itemsSummary}
-                              </div>
-                            </td>
-                            <td className="p-2 align-middle text-right font-semibold">{inv.totalAmount.toFixed(2)}</td>
-                            <td className="p-2 align-middle text-right text-green-600">{inv.receivedAmount.toFixed(2)}</td>
-                            <td className="p-2 align-middle text-right font-semibold text-red-600">{inv.balance.toFixed(2)}</td>
-                            <td className="p-2 align-middle">
-                              <Badge className={inv.paymentStatus === 'cleared' ? 'bg-green-600' : 'bg-yellow-500'}>
-                                {inv.paymentStatus}
-                              </Badge>
-                            </td>
-                            <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
-                            <td className="p-2 align-middle">
-                              <div className="flex gap-2 justify-center">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => generateReceiptForCollectedInvoices([inv])}
-                                  className="text-xs"
-                                >
-                                  <FileText className="w-3 h-3 mr-1" />
-                                  Receipt
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      }
-                      
-                      // Show grouped invoices with expandable header
+                    {filteredCollectedInvoices.map((receipt) => {
+                      const groupKey = receipt.rcNo || receipt._id
+                      const isExpanded = expandedRcNos.has(groupKey)
+                      const hasMultipleInvoices = receipt.lines.length > 1
+                      const sourcesLabel = receipt.sources.length > 1 ? 'mixed' : (receipt.sources[0] || '-')
+                      const summaryText = receipt.lines.map((line) => line.invoiceNumber).join(', ')
+
                       return (
-                        <React.Fragment key={group.rcNo || 'no-rcno'}>
-                          {/* Header row with RC-NO */}
-                          <tr className="border-b bg-gray-50 hover:bg-gray-100 cursor-pointer" onClick={() => toggleRcNoGroup(group.rcNo)}>
+                        <React.Fragment key={receipt._id}>
+                          <tr className="border-b bg-gray-50 hover:bg-gray-100 cursor-pointer" onClick={() => toggleRcNoGroup(groupKey)}>
                             <td className="p-2 align-middle">
                               {hasMultipleInvoices && (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    toggleRcNoGroup(group.rcNo)
+                                    toggleRcNoGroup(groupKey)
                                   }}
                                   className="p-1 rounded hover:bg-gray-200"
                                 >
@@ -1267,20 +1114,39 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                               )}
                             </td>
                             <td className="p-2 align-middle font-semibold text-[#2B3068]">
-                              {group.rcNo ? `RC-NO-${group.rcNo.padStart(4, '0')}` : 'No Receipt Number'}
-                              {hasMultipleInvoices && (
-                                <span className="ml-2 text-sm font-normal text-gray-500">
-                                  ({group.invoices.length} invoice{group.invoices.length > 1 ? 's' : ''})
-                                </span>
+                              {receipt.rcNo ? `RC-NO-${receipt.rcNo.padStart(4, '0')}` : 'Legacy Receipt'}
+                              {receipt.legacyFallback && (
+                                <span className="ml-2 text-xs font-normal text-amber-600">legacy fallback</span>
                               )}
                             </td>
-                            <td className="p-2 align-middle">-</td>
-                            <td className="p-2 align-middle">-</td>
-                            <td className="p-2 align-middle text-right font-semibold">{groupTotal.toFixed(2)}</td>
-                            <td className="p-2 align-middle text-right text-green-600 font-semibold">{groupReceived.toFixed(2)}</td>
-                            <td className="p-2 align-middle text-right font-semibold text-red-600">{groupBalance.toFixed(2)}</td>
-                            <td className="p-2 align-middle">-</td>
-                            <td className="p-2 align-middle">-</td>
+                            <td className="p-2 align-middle">
+                              <Badge
+                                variant="secondary"
+                                className={
+                                  sourcesLabel === 'employee'
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : sourcesLabel === 'mixed'
+                                      ? 'bg-slate-100 text-slate-700'
+                                      : 'bg-blue-100 text-blue-700'
+                                }
+                              >
+                                {sourcesLabel}
+                              </Badge>
+                            </td>
+                            <td className="p-2 align-middle">
+                              <div className="text-sm max-w-xs truncate" title={summaryText}>
+                                {summaryText || 'No invoices'}
+                              </div>
+                            </td>
+                            <td className="p-2 align-middle text-right font-semibold">{receipt.totalInvoiceAmount.toFixed(2)}</td>
+                            <td className="p-2 align-middle text-right text-green-600 font-semibold">{receipt.totalAppliedAmount.toFixed(2)}</td>
+                            <td className="p-2 align-middle text-right font-semibold text-red-600">{receipt.totalRemainingAmount.toFixed(2)}</td>
+                            <td className="p-2 align-middle">
+                              <Badge className={receipt.status === 'cleared' ? 'bg-green-600' : 'bg-yellow-500'}>
+                                {receipt.status}
+                              </Badge>
+                            </td>
+                            <td className="p-2 align-middle">{receipt.createdAt ? format(new Date(receipt.createdAt), 'yyyy-MM-dd') : '-'}</td>
                             <td className="p-2 align-middle">
                               <div className="flex gap-2 justify-center">
                                 <Button
@@ -1288,7 +1154,7 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                                   variant="outline"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    generateReceiptForCollectedInvoices(group.invoices)
+                                    generateReceiptForCollectedInvoices(receipt)
                                   }}
                                   className="text-xs"
                                 >
@@ -1298,52 +1164,45 @@ export const CollectionPage = ({ user }: CollectionPageProps) => {
                               </div>
                             </td>
                           </tr>
-                          
-                          {/* Expanded invoice rows */}
-                          {isExpanded && group.invoices.map((inv) => {
-                            const itemsSummary = inv.items && inv.items.length > 0 
-                              ? inv.items.map(item => `${item.product.name} (${item.quantity})`).join(', ')
-                              : 'No items'
-                            
-                            return (
-                              <tr key={inv._id} className="border-b hover:bg-gray-50 bg-white">
-                                <td className="p-2 align-middle"></td>
-                                <td className="p-2 align-middle pl-6 text-gray-700">{inv.invoiceNumber}</td>
-                                <td className="p-2 align-middle">
-                                  <Badge variant="secondary" className={inv.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                                    {inv.source}
-                                  </Badge>
-                                </td>
-                                <td className="p-2 align-middle">
-                                  <div className="text-sm max-w-xs truncate" title={itemsSummary}>
-                                    {itemsSummary}
-                                  </div>
-                                </td>
-                                <td className="p-2 align-middle text-right font-semibold">{inv.totalAmount.toFixed(2)}</td>
-                                <td className="p-2 align-middle text-right text-green-600">{inv.receivedAmount.toFixed(2)}</td>
-                                <td className="p-2 align-middle text-right font-semibold text-red-600">{inv.balance.toFixed(2)}</td>
-                                <td className="p-2 align-middle">
-                                  <Badge className={inv.paymentStatus === 'cleared' ? 'bg-green-600' : 'bg-yellow-500'}>
-                                    {inv.paymentStatus}
-                                  </Badge>
-                                </td>
-                                <td className="p-2 align-middle">{inv.createdAt ? format(new Date(inv.createdAt), 'yyyy-MM-dd') : '-'}</td>
-                                <td className="p-2 align-middle">
-                                  <div className="flex gap-2 justify-center">
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => generateReceiptForCollectedInvoices(group.invoices)}
-                                      className="text-xs"
-                                    >
-                                      <FileText className="w-3 h-3 mr-1" />
-                                      Receipt
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })}
+
+                          {isExpanded && hasMultipleInvoices && receipt.lines.map((line) => (
+                            <tr key={line.id} className="border-b hover:bg-gray-50 bg-white">
+                              <td className="p-2 align-middle"></td>
+                              <td className="p-2 align-middle pl-6 text-gray-700">{line.invoiceNumber}</td>
+                              <td className="p-2 align-middle">
+                                <Badge variant="secondary" className={line.source === 'admin' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
+                                  {line.source}
+                                </Badge>
+                              </td>
+                              <td className="p-2 align-middle">
+                                <div className="text-sm max-w-xs truncate" title={line.itemsSummary || ''}>
+                                  {line.itemsSummary || 'No items'}
+                                </div>
+                              </td>
+                              <td className="p-2 align-middle text-right font-semibold">{line.totalAmount.toFixed(2)}</td>
+                              <td className="p-2 align-middle text-right text-green-600">{line.appliedAmount.toFixed(2)}</td>
+                              <td className="p-2 align-middle text-right font-semibold text-red-600">{line.remainingAmount.toFixed(2)}</td>
+                              <td className="p-2 align-middle">
+                                <Badge className={line.paymentStatus === 'cleared' ? 'bg-green-600' : 'bg-yellow-500'}>
+                                  {line.paymentStatus}
+                                </Badge>
+                              </td>
+                              <td className="p-2 align-middle">{line.invoiceDate ? format(new Date(line.invoiceDate), 'yyyy-MM-dd') : '-'}</td>
+                              <td className="p-2 align-middle">
+                                <div className="flex gap-2 justify-center">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => generateReceiptForCollectedInvoices(receipt)}
+                                    className="text-xs"
+                                  >
+                                    <FileText className="w-3 h-3 mr-1" />
+                                    Receipt
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
                         </React.Fragment>
                       )
                     })}

@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { SearchableSelect } from "@/components/ui/searchable-select"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Loader2, Package, Pencil, Send, Trash2 } from "lucide-react"
@@ -19,6 +20,7 @@ type StockAssignmentRow = {
   productName?: string
   category?: string
   cylinderStatus?: string
+  cylinderProductId?: string | { _id?: string; name?: string; category?: string } | null
   quantity?: number
   assignedDate?: string
   createdAt?: string
@@ -58,6 +60,7 @@ export function EmployeeStock({ user }: { user: User }) {
 
   const [pendingAssignments, setPendingAssignments] = useState<StockAssignmentRow[]>([])
   const [processingBatch, setProcessingBatch] = useState<Record<string, boolean>>({})
+  const [selectedEmptyCylinderByAssignmentId, setSelectedEmptyCylinderByAssignmentId] = useState<Record<string, string>>({})
 
   const [inventory, setInventory] = useState<EmployeeInventoryRow[]>([])
   const [draftReturnItem, setDraftReturnItem] = useState<DraftReturnItemRow>(createEmptyReturnDraft())
@@ -112,10 +115,20 @@ export function EmployeeStock({ user }: { user: User }) {
     setError("")
     try {
       for (const a of rows) {
+        const emptyCylinderId = isGasAssignment(a) ? selectedEmptyCylinderByAssignmentId[String(a._id)] : undefined
+        if (isGasAssignment(a) && !emptyCylinderId) {
+          throw new Error(`Please verify/select empty cylinder for gas item: ${getAssignmentProductName(a)}`)
+        }
+
         const res = await fetch(`/api/stock-assignments/${a._id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: "received", createEmployeeInventory: true, employeeId: user.id }),
+          body: JSON.stringify({
+            status: "received",
+            createEmployeeInventory: true,
+            employeeId: user.id,
+            emptyCylinderId,
+          }),
         })
         const json = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(json?.error || "Failed to accept assignment")
@@ -168,6 +181,51 @@ export function EmployeeStock({ user }: { user: User }) {
     : ""
 
   const getInventoryItemName = (item?: EmployeeInventoryRow | null) => item?.product?.name || item?.productName || "-"
+  const getAssignmentProductName = (assignment?: StockAssignmentRow | null) => assignment?.product?.name || assignment?.productName || "-"
+
+  const getAssignmentCylinderProductId = (assignment?: StockAssignmentRow | null) => {
+    const raw = assignment?.cylinderProductId
+    if (!raw) return ""
+    if (typeof raw === "string") return raw
+    return raw._id || ""
+  }
+
+  const isGasAssignment = (assignment?: StockAssignmentRow | null) =>
+    (assignment?.category || assignment?.product?.category || "").toLowerCase() === "gas"
+
+  const emptyCylinderOptions = useMemo(
+    () =>
+      emptyCylinderItems.map((item) => ({
+        value: item._id,
+        label: `${getInventoryItemName(item)} (Empty: ${Number(item.availableEmpty || 0)})`,
+        keywords: `${getInventoryItemName(item)} empty cylinder ${item.product?.name || ""} ${item.productName || ""}`,
+      })),
+    [emptyCylinderItems]
+  )
+
+  const returnItemOptions = useMemo(
+    () =>
+      availableReturnInventory.map((item) => ({
+        value: item._id,
+        label: `${getInventoryItemName(item)} ${
+          draftReturnItem.stockType === "gas"
+            ? `(Gas: ${Number(item.currentStock || 0)})`
+            : `(Empty: ${Number(item.availableEmpty || 0)})`
+        }`,
+        keywords: `${getInventoryItemName(item)} ${item.category} ${item.product?.name || ""} ${item.productName || ""}`,
+      })),
+    [availableReturnInventory, draftReturnItem.stockType]
+  )
+
+  const fullCylinderOptions = useMemo(
+    () =>
+      fullCylinderSelectOptions.map((item) => ({
+        value: item.product?._id || item.productId || item._id || "",
+        label: `${getInventoryItemName(item)} (Full: ${Number(item.availableFull || 0)})`,
+        keywords: `${getInventoryItemName(item)} cylinder full ${item.product?.name || ""} ${item.productName || ""}`,
+      })),
+    [fullCylinderSelectOptions]
+  )
 
   const normalizeName = (value?: string | null) => (value || "").toLowerCase().replace(/\s+/g, " ").trim()
 
@@ -175,6 +233,64 @@ export function EmployeeStock({ user }: { user: User }) {
     const words = (value || "").trim().split(/\s+/).filter(Boolean)
     return words.length > 1 ? words.slice(1).join(" ") : words[0] || ""
   }
+
+  const findMatchingEmptyCylinderInventoryId = (assignment?: StockAssignmentRow | null) => {
+    if (!assignment || !isGasAssignment(assignment)) return ""
+
+    const linkedCylinderProductId = getAssignmentCylinderProductId(assignment)
+    if (linkedCylinderProductId) {
+      const exactInventoryMatch = emptyCylinderItems.find(
+        (item) => (item.product?._id || item.productId || "") === linkedCylinderProductId
+      )
+      if (exactInventoryMatch?._id) return exactInventoryMatch._id
+    }
+
+    const assignmentBaseName = normalizeName(removeFirstWord(getAssignmentProductName(assignment)))
+    if (!assignmentBaseName) return ""
+
+    const exactNameMatch = emptyCylinderItems.find(
+      (item) => normalizeName(removeFirstWord(getInventoryItemName(item))) === assignmentBaseName
+    )
+    if (exactNameMatch?._id) return exactNameMatch._id
+
+    const partialNameMatch = emptyCylinderItems.find((item) => {
+      const cylinderBaseName = normalizeName(removeFirstWord(getInventoryItemName(item)))
+      return !!cylinderBaseName && (
+        cylinderBaseName.includes(assignmentBaseName) || assignmentBaseName.includes(cylinderBaseName)
+      )
+    })
+
+    return partialNameMatch?._id || ""
+  }
+
+  useEffect(() => {
+    if (!pendingAssignments.length || !emptyCylinderItems.length) return
+
+    setSelectedEmptyCylinderByAssignmentId((prev) => {
+      let changed = false
+      const next = { ...prev }
+
+      for (const assignment of pendingAssignments) {
+        if (!isGasAssignment(assignment)) continue
+
+        const assignmentId = String(assignment._id)
+        const currentValue = next[assignmentId]
+        const isStillValid = currentValue
+          ? emptyCylinderItems.some((item) => item._id === currentValue && Number(item.availableEmpty || 0) > 0)
+          : false
+
+        if (isStillValid) continue
+
+        const autoSelectedId = findMatchingEmptyCylinderInventoryId(assignment)
+        if (autoSelectedId && autoSelectedId !== currentValue) {
+          next[assignmentId] = autoSelectedId
+          changed = true
+        }
+      }
+
+      return changed ? next : prev
+    })
+  }, [pendingAssignments, emptyCylinderItems])
 
   const findRelatedCylinderProductId = (gasInventoryItemId: string) => {
     const selectedGasItem = gasInventory.find((item) => item._id === gasInventoryItemId)
@@ -351,6 +467,7 @@ export function EmployeeStock({ user }: { user: User }) {
                               <TableHead>Category</TableHead>
                               <TableHead>Status</TableHead>
                               <TableHead className="text-right">Qty</TableHead>
+                              <TableHead>Empty Cylinder (Gas)</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -360,6 +477,26 @@ export function EmployeeStock({ user }: { user: User }) {
                                 <TableCell>{a.category || a.product?.category || "-"}</TableCell>
                                 <TableCell>{a.cylinderStatus || "-"}</TableCell>
                                 <TableCell className="text-right">{Number(a.quantity || 0)}</TableCell>
+                                <TableCell>
+                                  {isGasAssignment(a) ? (
+                                    <SearchableSelect
+                                      value={selectedEmptyCylinderByAssignmentId[String(a._id)] || ""}
+                                      onValueChange={(value) =>
+                                        setSelectedEmptyCylinderByAssignmentId((prev) => ({
+                                          ...prev,
+                                          [String(a._id)]: value,
+                                        }))
+                                      }
+                                      options={emptyCylinderOptions}
+                                      placeholder="Select matching empty cylinder"
+                                      searchPlaceholder="Search empty cylinder..."
+                                      emptyText="No empty cylinder found."
+                                      triggerClassName="w-[320px] min-h-12 justify-between py-2 [&>span:first-child]:text-xs [&>span:first-child]:leading-snug [&>span:first-child]:text-left [&>span:first-child]:whitespace-normal [&>span:first-child]:break-words"
+                                    />
+                                  ) : (
+                                    <span className="text-sm text-gray-500">-</span>
+                                  )}
+                                </TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
@@ -433,7 +570,7 @@ export function EmployeeStock({ user }: { user: User }) {
                         </Select>
                       </TableCell>
                       <TableCell>
-                        <Select
+                        <SearchableSelect
                           value={selectedReturnItemValue}
                           onValueChange={(v) =>
                             updateReturnDraft({
@@ -441,39 +578,24 @@ export function EmployeeStock({ user }: { user: User }) {
                               cylinderProductId: draftReturnItem.stockType === "gas" ? findRelatedCylinderProductId(v) : undefined,
                             })
                           }
-                        >
-                          <SelectTrigger className="w-[260px]">
-                            <SelectValue placeholder="Select item" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableReturnInventory.map((it) => (
-                              <SelectItem key={it._id} value={it._id}>
-                                {getInventoryItemName(it)}{" "}
-                                {draftReturnItem.stockType === "gas"
-                                  ? `(Gas: ${Number(it.currentStock || 0)})`
-                                  : `(Empty: ${Number(it.availableEmpty || 0)})`}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          options={returnItemOptions}
+                          placeholder="Select item"
+                          searchPlaceholder="Search item..."
+                          emptyText="No item found."
+                          triggerClassName="w-[320px] min-h-12 justify-between py-2 [&>span:first-child]:text-xs [&>span:first-child]:leading-snug [&>span:first-child]:text-left [&>span:first-child]:whitespace-normal [&>span:first-child]:break-words"
+                        />
                       </TableCell>
                       <TableCell>
                         {draftReturnItem.stockType === "gas" ? (
-                          <Select
+                          <SearchableSelect
                             value={selectedFullCylinderValue}
                             onValueChange={(v) => updateReturnDraft({ cylinderProductId: v })}
-                          >
-                            <SelectTrigger className="w-[260px]">
-                              <SelectValue placeholder="Select full cylinder" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {fullCylinderSelectOptions.map((it) => (
-                                <SelectItem key={it.product?._id || it.productId || it._id} value={it.product?._id || it.productId || it._id}>
-                                  {getInventoryItemName(it)} (Full: {Number(it.availableFull || 0)})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            options={fullCylinderOptions}
+                            placeholder="Select full cylinder"
+                            searchPlaceholder="Search full cylinder..."
+                            emptyText="No full cylinder found."
+                            triggerClassName="w-[320px] min-h-12 justify-between py-2 [&>span:first-child]:text-xs [&>span:first-child]:leading-snug [&>span:first-child]:text-left [&>span:first-child]:whitespace-normal [&>span:first-child]:break-words"
+                          />
                         ) : (
                           <span className="text-sm text-gray-500">-</span>
                         )}
