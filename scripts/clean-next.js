@@ -2,7 +2,7 @@ const fs = require("fs")
 const path = require("path")
 
 const root = process.cwd()
-const targets = [".next"]
+const targets = [".next", ".next-dev"]
 
 for (const rel of targets) {
   const abs = path.join(root, rel)
