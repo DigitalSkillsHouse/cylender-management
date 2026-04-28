@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Package, Loader2, Edit, ChevronDown, RefreshCw, Eye } from "lucide-react"
-import { purchaseOrdersAPI, inventoryAPI, productsAPI, suppliersAPI } from "@/lib/api"
+import { purchaseOrdersAPI, productsAPI, suppliersAPI } from "@/lib/api"
 import employeePurchaseOrdersAPI from "@/lib/api/employee-purchase-orders"
 
 interface InventoryItem {
@@ -155,10 +155,24 @@ export const Inventory = () => {
   }, [showReturnCylinderDialog, selectedReturn])
 
   const fetchInventoryData = async () => {
+    const withTimeout = async <T,>(promise: Promise<T>, timeoutMs = 15000): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs)
+          }),
+        ])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }
+
     try {
       setError("")
       // Always attempt to load inventory items first (public aggregate source for Received tabs)
-      const invItemsRes = await fetch('/api/inventory-items', { cache: 'no-store' })
+      const invItemsRes = await withTimeout(fetch('/api/inventory-items', { cache: 'no-store' }), 15000)
       const invItemsJson = await (async () => { try { return await invItemsRes.json() } catch { return {} as any } })()
       const invItemsData = Array.isArray(invItemsJson?.data) ? invItemsJson.data : []
 
@@ -167,22 +181,26 @@ export const Inventory = () => {
       let employeePurchaseOrdersData: any[] = []
       let productsData: any[] = []
       let suppliersData: any[] = []
-      try {
-        const res = await purchaseOrdersAPI.getAll()
-        purchaseOrdersData = res.data?.data || res.data || []
-      } catch (_) {}
-      try {
-        const res = await employeePurchaseOrdersAPI.getAll()
-        employeePurchaseOrdersData = res.data?.data || res.data || []
-      } catch (_) {}
-      try {
-        const res = await productsAPI.getAll()
+      const [purchaseOrdersRes, employeePurchaseOrdersRes, productsRes, suppliersRes] = await Promise.allSettled([
+        withTimeout(purchaseOrdersAPI.getAll(), 12000),
+        withTimeout(employeePurchaseOrdersAPI.getAll(), 12000),
+        withTimeout(productsAPI.getAll(), 12000),
+        withTimeout(suppliersAPI.getAll(), 12000),
+      ])
+      if (purchaseOrdersRes.status === "fulfilled") {
+        purchaseOrdersData = purchaseOrdersRes.value.data?.data || purchaseOrdersRes.value.data || []
+      }
+      if (employeePurchaseOrdersRes.status === "fulfilled") {
+        employeePurchaseOrdersData = employeePurchaseOrdersRes.value.data?.data || employeePurchaseOrdersRes.value.data || []
+      }
+      if (productsRes.status === "fulfilled") {
+        const res = productsRes.value
         productsData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
-      } catch (_) {}
-      try {
-        const res = await suppliersAPI.getAll()
+      }
+      if (suppliersRes.status === "fulfilled") {
+        const res = suppliersRes.value
         suppliersData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
-      } catch (_) {}
+      }
 
       const allPurchaseOrders = [
         ...purchaseOrdersData.map((order: any) => ({ ...order, isEmployeePurchase: false })),
@@ -589,18 +607,28 @@ export const Inventory = () => {
       // Add item to processing set to disable the button
       setProcessingItems(prev => new Set(prev).add(id))
       
-      let response
+      let responseData: any = null
       if (itemIndex !== undefined && itemIndex >= 0) {
         // Use item-level API for multi-item orders
-        response = await inventoryAPI.updateItemStatus(orderIdToUpdate, itemIndex, { status: "received" })
+        const res = await fetch(`/api/inventory/item/${orderIdToUpdate}/${itemIndex}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "received" }),
+        })
+        responseData = await res.json().catch(() => ({}))
       } else {
         // Use order-level API for single-item orders (backward compatibility)
-        response = await inventoryAPI.updateStatus(orderIdToUpdate, { status: "received" })
+        const res = await fetch(`/api/inventory/${orderIdToUpdate}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "received" }),
+        })
+        responseData = await res.json().catch(() => ({}))
       }
       
-      console.log("Inventory update response:", response)
+      console.log("Inventory update response:", responseData)
       
-      if (response.data.success) {
+      if (responseData?.success) {
         // For employee purchases, create EmployeeInventory record
         if (inventoryItem?.isEmployeePurchase && inventoryItem?.employeeId) {
           try {

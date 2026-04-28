@@ -641,7 +641,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
 
       // Critical employee orders first
       try {
-        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll({ meOnly: true, mode: "list" })
+        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll({ meOnly: true, mode: "list", limit: 200 })
         const ordersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
         let finalData = Array.isArray(ordersData) ? ordersData : []
         if (user?.id) {
@@ -660,6 +660,9 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
         }
         setPurchaseOrders([])
       }
+
+      // Unblock UI as soon as critical purchase orders are ready/failed
+      setLoading(false)
 
       if (skipSupportingFetch) {
         return
@@ -972,17 +975,6 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     return sum + itemTotal
   }, 0)
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-[#2B3068]" />
-          <p className="text-gray-600">Loading purchase orders...</p>
-        </div>
-      </div>
-    )
-  }
-
   const norm = (v?: string) => (v || "").toLowerCase()
   const displayCylinderSize = (s?: string) => {
     if (!s) return "-"
@@ -1054,6 +1046,12 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
 
   return (
     <div className="pt-16 lg:pt-0 space-y-6 sm:space-y-8">
+      {loading && (
+        <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700 flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading purchase orders...
+        </div>
+      )}
       {supportingLoading && (
         <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
           Supporting data (suppliers/products/empty cylinders) is hydrating in background...

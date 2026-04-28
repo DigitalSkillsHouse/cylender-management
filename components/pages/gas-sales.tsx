@@ -734,7 +734,7 @@ export const GasSales = () => {
           const route = "/api/sales"
           const startedAt = trackRouteStart(route)
           try {
-            return await salesAPI.getAll({ mode: "list" })
+            return await salesAPI.getAll({ mode: "list", limit: 500 })
           } finally {
             trackRouteEnd(route, startedAt)
           }
@@ -743,7 +743,7 @@ export const GasSales = () => {
           const route = "/api/employee-sales"
           const startedAt = trackRouteStart(route)
           try {
-            return await employeeSalesAPI.getAll({ mode: "list" })
+            return await employeeSalesAPI.getAll({ mode: "list", limit: 500 })
           } finally {
             trackRouteEnd(route, startedAt)
           }
@@ -752,18 +752,49 @@ export const GasSales = () => {
 
       // Normalize sales and customers
       const salesResponse = salesResult.status === "fulfilled" ? salesResult.value : null
-      const employeeSalesResponse = employeeSalesResult.status === "fulfilled" ? employeeSalesResult.value : null
+      let employeeSalesResponse: any = employeeSalesResult.status === "fulfilled" ? employeeSalesResult.value : null
 
       if (salesResult.status === "rejected") {
         console.warn("Failed to fetch admin sales list:", salesResult.reason)
       }
       if (employeeSalesResult.status === "rejected") {
         console.warn("Failed to fetch employee sales list:", employeeSalesResult.reason)
+        try {
+          const fallbackRes = await fetch("/api/employee-sales?mode=list&limit=500", {
+            cache: "no-store",
+            credentials: "include",
+          })
+          if (fallbackRes.ok) {
+            const fallbackJson = await fallbackRes.json()
+            employeeSalesResponse = { data: fallbackJson }
+          }
+        } catch (fallbackError) {
+          console.warn("Employee sales fallback fetch also failed:", fallbackError)
+        }
       }
 
-      const adminSalesData = Array.isArray(salesResponse?.data?.data) ? salesResponse.data.data :
-                           Array.isArray(salesResponse?.data) ? salesResponse.data : []
-      const employeeSalesData = (Array.isArray(employeeSalesResponse?.data) ? employeeSalesResponse.data : []).map((sale: any) => ({
+      const adminSalesData = (
+        Array.isArray(salesResponse?.data?.data)
+          ? salesResponse.data.data
+          : Array.isArray(salesResponse?.data)
+            ? salesResponse.data
+            : Array.isArray((salesResponse as any)?.data?.sales)
+              ? (salesResponse as any).data.sales
+              : []
+      ).map((sale: any) => ({
+        ...sale,
+        isEmployeeSale: Boolean((sale as any)?.isEmployeeSale),
+      }))
+
+      const employeeSalesDataRaw = Array.isArray(employeeSalesResponse?.data?.data)
+        ? employeeSalesResponse.data.data
+        : Array.isArray(employeeSalesResponse?.data)
+          ? employeeSalesResponse.data
+          : Array.isArray((employeeSalesResponse as any)?.data?.sales)
+            ? (employeeSalesResponse as any).data.sales
+            : []
+
+      const employeeSalesData = employeeSalesDataRaw.map((sale: any) => ({
         ...sale,
         isEmployeeSale: true,
       }))

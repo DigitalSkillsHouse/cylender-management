@@ -41,26 +41,71 @@ export const EmployeeDashboard = ({ user, setUnreadCount }: EmployeeDashboardPro
     }
   }, [user?.id])
 
+  const fetchJsonWithTimeout = async (url: string, timeoutMs = 15000) => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        throw new Error(`Request failed (${response.status}) for ${url}`)
+      }
+      return await response.json()
+    } finally {
+      window.clearTimeout(timer)
+    }
+  }
+
   const fetchEmployeeData = async () => {
     try {
-      const [salesResponse, stockResponse, purchaseResponse] = await Promise.all([
-        fetch(`/api/employee-sales?employeeId=${user.id}`),
-        fetch(`/api/stock-assignments?employeeId=${user.id}`),
-        fetch(`/api/employee-purchase-orders?me=true`)
+      const [salesResult, stockResult, purchaseResult] = await Promise.allSettled([
+        fetchJsonWithTimeout(`/api/employee-sales?employeeId=${user.id}&mode=list`),
+        fetchJsonWithTimeout(`/api/stock-assignments?employeeId=${user.id}`),
+        fetchJsonWithTimeout(`/api/employee-purchase-orders?me=true&mode=list`)
       ])
 
       // Fetch sales data for account summary
-      const salesData = await salesResponse.json()
-      const salesArray = Array.isArray(salesData) ? salesData : []
+      const salesData =
+        salesResult.status === "fulfilled"
+          ? salesResult.value
+          : []
+      const salesArray = Array.isArray(salesData?.data?.data)
+        ? salesData.data.data
+        : Array.isArray(salesData?.data)
+          ? salesData.data
+          : Array.isArray(salesData?.data?.sales)
+            ? salesData.data.sales
+        : Array.isArray(salesData)
+          ? salesData
+          : []
       setSalesData(salesArray)
-      
+
       // Get pending items count for redirect card
-      const stockData = await stockResponse.json()
-      const purchaseData = await purchaseResponse.json()
-      
-      const pendingStock = Array.isArray(stockData?.data) ? stockData.data.filter((s: any) => s.status === 'assigned').length : 0
-      const pendingPurchases = Array.isArray(purchaseData?.data) ? purchaseData.data.filter((p: any) => p.inventoryStatus === 'approved').length : 0
-      
+      const stockData =
+        stockResult.status === "fulfilled"
+          ? stockResult.value
+          : { data: [] }
+      const purchaseData =
+        purchaseResult.status === "fulfilled"
+          ? purchaseResult.value
+          : { data: [] }
+
+      const stockArray = Array.isArray(stockData?.data?.data)
+        ? stockData.data.data
+        : Array.isArray(stockData?.data)
+          ? stockData.data
+          : []
+      const purchaseArray = Array.isArray(purchaseData?.data?.data)
+        ? purchaseData.data.data
+        : Array.isArray(purchaseData?.data)
+          ? purchaseData.data
+          : []
+
+      const pendingStock = stockArray.filter((s: any) => s.status === 'assigned').length
+      const pendingPurchases = purchaseArray.filter((p: any) => p.inventoryStatus === 'approved').length
+
       setPendingItemsCount(pendingStock + pendingPurchases)
     } catch (error) {
       console.error("Failed to fetch employee data:", error)

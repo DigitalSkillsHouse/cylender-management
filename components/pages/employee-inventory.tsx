@@ -91,12 +91,29 @@ export const EmployeeInventory = ({ user }: EmployeeInventoryProps) => {
   }, [])
 
   const fetchInventoryData = async () => {
+    const withTimeout = async <T,>(promise: Promise<T>, timeoutMs = 15000): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs)
+          }),
+        ])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }
+
     try {
       setError("")
       console.log('🔄 Fetching employee inventory data for user:', user.id)
       
       // Load employee-specific inventory items (like admin inventory-items but filtered by employee)
-      const invItemsRes = await fetch(`/api/employee-inventory-items?employeeId=${user.id}&t=${Date.now()}`, { cache: 'no-store' })
+      const invItemsRes = await withTimeout(
+        fetch(`/api/employee-inventory-items?employeeId=${user.id}&t=${Date.now()}`, { cache: 'no-store' }),
+        15000,
+      )
       const invItemsJson = await (async () => { try { return await invItemsRes.json() } catch { return {} as any } })()
       const invItemsData = Array.isArray(invItemsJson?.data) ? invItemsJson.data : []
 
@@ -106,7 +123,7 @@ export const EmployeeInventory = ({ user }: EmployeeInventoryProps) => {
       let productsData: any[] = []
       let suppliersData: any[] = []
       try {
-        const res = await employeePurchaseOrdersAPI.getAll()
+        const res = await withTimeout(employeePurchaseOrdersAPI.getAll(), 12000)
         employeePurchaseOrdersData = res.data?.data || res.data || []
         console.log('🔍 Employee purchase orders fetched:', {
           totalOrders: employeePurchaseOrdersData.length,
@@ -122,11 +139,11 @@ export const EmployeeInventory = ({ user }: EmployeeInventoryProps) => {
         console.error('❌ Failed to fetch employee purchase orders:', error)
       }
       try {
-        const res = await productsAPI.getAll()
+        const res = await withTimeout(productsAPI.getAll(), 12000)
         productsData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
       } catch (_) {}
       try {
-        const res = await suppliersAPI.getAll()
+        const res = await withTimeout(suppliersAPI.getAll(), 12000)
         suppliersData = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : (Array.isArray(res) ? (res as any) : []))
       } catch (_) {}
 

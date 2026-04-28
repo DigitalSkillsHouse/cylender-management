@@ -152,90 +152,59 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
   }, [])
 
   const fetchEmployeeInventoryData = async () => {
+    const fetchJsonWithTimeout = async (url: string, timeoutMs = 15000) => {
+      const controller = new AbortController()
+      const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        const response = await fetch(url, {
+          cache: "no-store",
+          signal: controller.signal,
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
+          },
+        })
+        if (!response.ok) return { data: [] as any[] }
+        return await response.json()
+      } catch {
+        return { data: [] as any[] }
+      } finally {
+        window.clearTimeout(timer)
+      }
+    }
+
     try {
       setError("")
       setLoading(true)
-      
-      console.log('🔍 [EMPLOYEE INVENTORY] Starting fetch for employee:', user.id)
-      
-      // Fetch employee's pending purchase orders
-      // Add cache-busting timestamp and headers to ensure fresh data
+
       const pendingUrl = `/api/employee-inventory-new/pending?employeeId=${user.id}&t=${Date.now()}`
-      console.log('📡 [PENDING] Fetching from:', pendingUrl)
-      
-      const pendingRes = await fetch(pendingUrl, { 
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      })
-      console.log('📡 [PENDING] Response status:', pendingRes.status, pendingRes.ok)
-      
-      if (!pendingRes.ok) {
-        const errorText = await pendingRes.text()
-        console.error('📡 [PENDING] Error response:', errorText)
-      }
-      
-      const pendingData = pendingRes.ok ? await pendingRes.json() : { data: [] }
-      console.log('📊 [PENDING] Data received:', pendingData)
-      console.log('📊 [PENDING] Orders count:', pendingData.data?.length || 0)
-      console.log('📊 [PENDING] Individual orders:', pendingData.data)
-      
-      // Fetch employee's pending assignments from admin
-      // Add cache-busting timestamp and headers to ensure fresh data
       const assignmentsUrl = `/api/employee-inventory-new/assignments?employeeId=${user.id}&t=${Date.now()}`
-      console.log('📡 [ASSIGNMENTS] Fetching from:', assignmentsUrl)
-      
-      const assignmentsRes = await fetch(assignmentsUrl, { 
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      })
-      console.log('📡 [ASSIGNMENTS] Response status:', assignmentsRes.status, assignmentsRes.ok)
-      
-      const assignmentsData = assignmentsRes.ok ? await assignmentsRes.json() : { data: [] }
-      console.log('📊 [ASSIGNMENTS] Data received:', assignmentsData)
-      
-      // Fetch employee's received inventory stock
-      // Add cache-busting timestamp and headers to ensure fresh data
       const receivedUrl = `/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`
-      console.log('📡 [RECEIVED] Fetching from:', receivedUrl)
-      
-      const receivedRes = await fetch(receivedUrl, { 
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      })
-      console.log('📡 [RECEIVED] Response status:', receivedRes.status, receivedRes.ok)
-      
-      const receivedData = receivedRes.ok ? await receivedRes.json() : { data: [] }
-      console.log('📊 [RECEIVED] Data received:', receivedData)
-      
-      setPendingOrders(pendingData.data || [])
-      setPendingAssignments(assignmentsData.data || [])
-      setReceivedStock(receivedData.data || [])
-      
-      console.log('✅ [EMPLOYEE INVENTORY] Fetch completed successfully')
-      
+
+      const [pendingResult, assignmentsResult, receivedResult] = await Promise.allSettled([
+        fetchJsonWithTimeout(pendingUrl, 15000),
+        fetchJsonWithTimeout(assignmentsUrl, 15000),
+        fetchJsonWithTimeout(receivedUrl, 15000),
+      ])
+
+      const pendingData = pendingResult.status === "fulfilled" ? pendingResult.value : { data: [] }
+      const assignmentsData = assignmentsResult.status === "fulfilled" ? assignmentsResult.value : { data: [] }
+      const receivedData = receivedResult.status === "fulfilled" ? receivedResult.value : { data: [] }
+
+      setPendingOrders(Array.isArray(pendingData?.data) ? pendingData.data : [])
+      setPendingAssignments(Array.isArray(assignmentsData?.data) ? assignmentsData.data : [])
+      setReceivedStock(Array.isArray(receivedData?.data) ? receivedData.data : [])
     } catch (error: any) {
-      console.error('❌ [EMPLOYEE INVENTORY] Fetch failed:', error)
       setError(`Failed to load inventory: ${error.message}`)
       setPendingOrders([])
+      setPendingAssignments([])
       setReceivedStock([])
     } finally {
       setLoading(false)
     }
   }
-
-  const handleAcceptOrder = async (orderId: string) => {
+const handleAcceptOrder = async (orderId: string) => {
     try {
       setError("")
       
@@ -1331,3 +1300,4 @@ export const EmployeeInventoryNew = ({ user }: EmployeeInventoryProps) => {
     </div>
   )
 }
+

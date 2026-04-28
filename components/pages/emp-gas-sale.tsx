@@ -175,6 +175,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   const pendingSupportingRefetchRef = useRef(false)
   const hasLoadedSupportingOnceRef = useRef(false)
   const inFlightRouteCountsRef = useRef<Record<string, number>>({})
+  const lastLoadedEmployeeIdRef = useRef<string>("")
 
   const isPerfDebugEnabled = () => {
     if (typeof window === "undefined") return false
@@ -638,15 +639,20 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   }
 
   useEffect(() => {
-    if (hasLoadedSalesOnceRef.current) return
+    if (!user?.id) return
+    const currentId = String(user.id)
+    if (lastLoadedEmployeeIdRef.current === currentId) return
+    lastLoadedEmployeeIdRef.current = currentId
     hasLoadedSalesOnceRef.current = true
     void fetchSalesData({ showLoader: true })
-  }, [])
+  }, [user?.id])
 
   useEffect(() => {
     if (!loading || criticalSalesReady) return
     const timeoutId = window.setTimeout(() => {
       setInitialLoadTimedOut(true)
+      setCriticalSalesReady(true)
+      setLoading(false)
     }, 5500)
     return () => window.clearTimeout(timeoutId)
   }, [loading, criticalSalesReady])
@@ -719,13 +725,35 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       // Get current employee ID from user prop
       const employeeId = user.id
       
-      const employeeSalesResponse = await employeeSalesAPI.getByEmployeeId(employeeId)
+      const employeeSalesResponse = await employeeSalesAPI.getByEmployeeId(employeeId, { mode: "list", limit: 500 })
 
-      // Normalize sales and customers - only show employee sales
-      const employeeSalesData = Array.isArray(employeeSalesResponse.data) ? employeeSalesResponse.data : []
-      const salesData = employeeSalesData.sort((a, b) => getSaleCreationTime(b) - getSaleCreationTime(a))
+      // Normalize sales payload (supports both array and wrapped { data: [...] } shapes)
+      const employeeSalesData = Array.isArray(employeeSalesResponse?.data?.data)
+        ? employeeSalesResponse.data.data
+        : Array.isArray(employeeSalesResponse?.data)
+          ? employeeSalesResponse.data
+          : Array.isArray((employeeSalesResponse as any)?.data?.sales)
+            ? (employeeSalesResponse as any).data.sales
+          : []
+      let normalizedEmployeeSales = employeeSalesData
+      if (!normalizedEmployeeSales.length) {
+        try {
+          const fallbackResponse = await employeeSalesAPI.getAll({ mode: "list", limit: 500 })
+          const fallbackData = Array.isArray(fallbackResponse?.data?.data)
+            ? fallbackResponse.data.data
+            : Array.isArray(fallbackResponse?.data)
+              ? fallbackResponse.data
+              : []
+          normalizedEmployeeSales = fallbackData.filter((sale: any) => {
+            const saleEmployeeId = String((sale?.employee?._id || sale?.employee || ""))
+            return saleEmployeeId === String(employeeId)
+          })
+        } catch {}
+      }
+      const salesData = normalizedEmployeeSales.sort((a, b) => getSaleCreationTime(b) - getSaleCreationTime(a))
 
       setSales(salesData)
+      setCriticalSalesReady(true)
       // Fetch supporting data in background after main sales list is rendered
       void fetchSupportingData()
     } catch (error) {
@@ -737,6 +765,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         console.error("Error status:", axiosError.response?.status)
       }
       setSales([])
+      setCriticalSalesReady(true)
     } finally {
       isFetchingSalesRef.current = false
       if (showLoader) setLoading(false)
@@ -754,22 +783,29 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     }
     isFetchingSupportingRef.current = true
     try {
+      setSupportingLoading(true)
       const employeeId = user.id
-      const [customersResponse, employeeInventoryResponse] = await Promise.all([
+      const [customersResponse, employeeInventoryResponse] = await Promise.allSettled([
         customersAPI.getAll(),
         fetch(`/api/employee-inventory-new/received?employeeId=${employeeId}`), // Use new employee inventory API
       ])
 
-      const customersData = Array.isArray(customersResponse.data?.data)
-        ? customersResponse.data.data
-        : Array.isArray(customersResponse.data)
-          ? customersResponse.data
-          : Array.isArray(customersResponse)
-            ? customersResponse
-            : []
+      const customersData =
+        customersResponse.status === "fulfilled"
+          ? Array.isArray(customersResponse.value.data?.data)
+            ? customersResponse.value.data.data
+            : Array.isArray(customersResponse.value.data)
+              ? customersResponse.value.data
+              : Array.isArray(customersResponse.value)
+                ? customersResponse.value
+                : []
+          : []
 
       // Fetch employee's own inventory using new API format
-      const employeeInventoryData = await employeeInventoryResponse.json()
+      const employeeInventoryData =
+        employeeInventoryResponse.status === "fulfilled"
+          ? await employeeInventoryResponse.value.json()
+          : { data: [] }
       // Extract products from employee inventory with any stock (gas, full cylinders, or empty cylinders)
       const allEmployeeProducts: Product[] = [];
       const supportingInventoryAvailability: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
@@ -815,6 +851,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     } catch (error) {
       console.error("Failed to fetch supporting data:", error)
     } finally {
+      setSupportingLoading(false)
       isFetchingSupportingRef.current = false
       if (pendingSupportingRefetchRef.current) {
         pendingSupportingRefetchRef.current = false
@@ -2025,7 +2062,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     })
   }, [cashGrandTotal, formData.paymentOption, setFormData])
 
-  if (loading) {
+  if (loading && !criticalSalesReady) {
     return (
       <div className="space-y-6">
         <div className="animate-pulse">
