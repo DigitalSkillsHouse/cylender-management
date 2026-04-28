@@ -24,8 +24,16 @@ export async function GET(request) {
     const meOnly = meParam === '1' || meParam === 'true'
     const mode = url.searchParams.get("mode")
     const limitParam = Number(url.searchParams.get("limit") || 0)
+    const pageParam = Number(url.searchParams.get("page") || 1)
     const isListMode = mode === "list"
-    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 0
+    const requestedLimit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 0
+    const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1
+    // Keep list queries bounded to avoid upstream timeouts (524)
+    const maxListLimit = 200
+    const limit = isListMode
+      ? (requestedLimit > 0 ? Math.min(requestedLimit, maxListLimit) : 100)
+      : (requestedLimit > 0 ? Math.min(requestedLimit, 500) : 0)
+    const skip = isListMode ? (page - 1) * limit : 0
 
     // Normalize role to avoid case mismatches
     const role = String(user.role || '').trim().toLowerCase()
@@ -49,20 +57,25 @@ export async function GET(request) {
       console.log(`   Filter: All employees`)
     }
     
+    const shouldPopulateEmployee = !(role === 'employee' || meOnly)
     let query = EmployeePurchaseOrder.find(filter).sort({ createdAt: -1 })
     if (isListMode) {
       query = query
-        .select("supplier product employee purchaseDate purchaseType cylinderSize cylinderStatus quantity unitPrice totalAmount notes status poNumber purchasePaperImage emptyCylinderId emptyCylinderName createdAt updatedAt")
+        .select("supplier product employee purchaseDate purchaseType cylinderSize cylinderStatus quantity unitPrice totalAmount notes status inventoryStatus poNumber purchasePaperImage emptyCylinderId emptyCylinderName createdAt updatedAt")
         .populate('supplier', 'companyName')
         .populate('product', 'name productCode category')
-        .populate('employee', 'name email')
+      if (shouldPopulateEmployee) {
+        query = query.populate('employee', 'name email')
+      }
     } else {
       query = query
         .populate('supplier', 'companyName')
         .populate('product', 'name productCode category')
         .populate('employee', 'name email')
     }
-    if (limit > 0) {
+    if (isListMode) {
+      query = query.limit(limit).skip(skip)
+    } else if (limit > 0) {
       query = query.limit(limit)
     }
 
@@ -72,7 +85,10 @@ export async function GET(request) {
       const scope = role === "employee" || meOnly ? "employee-scope" : "all"
       console.info(`[route-timing] GET /api/employee-purchase-orders mode=${isListMode ? "list" : "full"} scope=${scope} durationMs=${Date.now() - startedAt}`)
     }
-    return NextResponse.json({ data: purchaseOrders })
+    return NextResponse.json({
+      data: purchaseOrders,
+      meta: isListMode ? { page, limit, hasMore: purchaseOrders.length === limit } : undefined,
+    })
   } catch (error) {
     console.error("Error fetching employee purchase orders:", error)
     return NextResponse.json({ error: "Failed to fetch employee purchase orders", details: error.message }, { status: 500 })

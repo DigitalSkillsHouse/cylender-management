@@ -23,7 +23,7 @@ interface InventoryItem {
   quantity: number
   unitPrice: number
   totalAmount: number
-  status: "pending" | "received"
+  status: "pending" | "approved" | "received"
   purchaseType: "gas" | "cylinder" | "multiple"
   cylinderStatus?: "empty" | "full"
   gasType?: string
@@ -182,8 +182,8 @@ export const Inventory = () => {
       let productsData: any[] = []
       let suppliersData: any[] = []
       const [purchaseOrdersRes, employeePurchaseOrdersRes, productsRes, suppliersRes] = await Promise.allSettled([
-        withTimeout(purchaseOrdersAPI.getAll(), 12000),
-        withTimeout(employeePurchaseOrdersAPI.getAll(), 12000),
+        withTimeout(purchaseOrdersAPI.getAll({ mode: "list", limit: 500 }), 12000),
+        withTimeout(employeePurchaseOrdersAPI.getAll({ mode: "list", limit: 500 }), 12000),
         withTimeout(productsAPI.getAll(), 12000),
         withTimeout(suppliersAPI.getAll(), 12000),
       ])
@@ -788,7 +788,9 @@ export const Inventory = () => {
     }
   }
 
-  const pendingItems = inventory.filter(item => item.status === "pending")
+  const pendingItems = inventory.filter(
+    (item) => item.status === "pending" || (item.isEmployeePurchase && item.status === "approved"),
+  )
   const receivedItemsRaw = inventory.filter(item => item.status === "received")
 
   // Build aggregated lists for Received tabs from live inventory to show ALL items (including 0 stock)
@@ -1043,6 +1045,16 @@ export const Inventory = () => {
                         >
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />
                           Processing...
+                        </Button>
+                      )}
+                      {item.isEmployeePurchase && item.status === "approved" && (
+                        <Button
+                          size="sm"
+                          disabled={true}
+                          style={{ backgroundColor: "#6B7280" }}
+                          className="text-white cursor-not-allowed"
+                        >
+                          Waiting Employee Acceptance
                         </Button>
                       )}
                       {item.status === "received" && (

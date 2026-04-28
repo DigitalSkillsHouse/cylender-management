@@ -640,14 +640,28 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   }, [isDialogOpen, suppliers.length, products.length])
 
   const fetchFormDependencies = async () => {
+    const withTimeout = async <T,>(promise: Promise<T>, timeoutMs = 12000): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs)
+          }),
+        ])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }
+
     if (isFetchingFormDepsRef.current) return
     isFetchingFormDepsRef.current = true
     try {
       setSupportingLoading(true)
       const [suppliersRes, productsRes, employeeInventoryRes] = await Promise.allSettled([
-        suppliersAPI.getAll(),
-        productsAPI.getAll(),
-        user?.id ? fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`) : Promise.resolve(null),
+        withTimeout(suppliersAPI.getAll(), 12000),
+        withTimeout(productsAPI.getAll(), 12000),
+        user?.id ? withTimeout(fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`), 12000) : Promise.resolve(null),
       ])
 
       if (suppliersRes.status === "fulfilled") setSuppliers(suppliersRes.value.data || [])
@@ -668,6 +682,20 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   }
 
   const fetchData = async () => {
+    const withTimeout = async <T,>(promise: Promise<T>, timeoutMs = 15000): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs)
+          }),
+        ])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    }
+
     if (isFetchingRef.current) return
     isFetchingRef.current = true
     let skipSupportingFetch = false
@@ -677,7 +705,10 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
 
       // Critical employee orders first
       try {
-        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll({ meOnly: true, mode: "list", limit: 500 })
+        const purchaseOrdersRes = await withTimeout(
+          employeePurchaseOrdersAPI.getAll({ meOnly: true, mode: "list", limit: 200 }),
+          15000,
+        )
         const ordersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
         let finalData = Array.isArray(ordersData) ? ordersData : []
         if (user?.id) {
@@ -798,9 +829,10 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
         await Promise.all(createPayloads.map((purchaseData) => employeePurchaseOrdersAPI.create(purchaseData)))
       }
 
-      await fetchData()
+      // Close and reset immediately for responsive UX; refresh in background
       resetForm()
       setIsDialogOpen(false)
+      void fetchData()
       
       // Notify other pages that a purchase order was created and approved
       localStorage.setItem('purchaseOrderCreated', Date.now().toString())
