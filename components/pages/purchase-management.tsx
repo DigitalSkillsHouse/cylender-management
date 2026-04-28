@@ -124,11 +124,46 @@ export const PurchaseManagement = () => {
   }))
   const [inventoryItems, setInventoryItems] = useState<InventoryItemLite[]>([])
   const isFetchingRef = useRef(false)
+  const isFetchingFormDepsRef = useRef(false)
   const lastFocusRefreshRef = useRef(0)
 
   useEffect(() => {
     fetchData()
+    void fetchFormDependencies()
   }, [])
+
+  useEffect(() => {
+    if (!isDialogOpen) return
+    if (suppliers.length > 0 && products.length > 0) return
+    void fetchFormDependencies()
+  }, [isDialogOpen, suppliers.length, products.length])
+
+  const fetchFormDependencies = async () => {
+    if (isFetchingFormDepsRef.current) return
+    isFetchingFormDepsRef.current = true
+    try {
+      setSupportingLoading(true)
+      const [suppliersRes, productsRes, inventoryRes] = await Promise.allSettled([
+        suppliersAPI.getAll(),
+        productsAPI.getAll(),
+        fetch('/api/inventory-items', { cache: 'no-store' }),
+      ])
+
+      if (suppliersRes.status === "fulfilled") {
+        setSuppliers(suppliersRes.value.data || [])
+      }
+      if (productsRes.status === "fulfilled") {
+        setProducts(productsRes.value.data || [])
+      }
+      if (inventoryRes.status === "fulfilled") {
+        const inventoryDataRaw = await (async () => { try { return (await inventoryRes.value.json())?.data || [] } catch { return [] } })()
+        setInventoryItems(inventoryDataRaw)
+      }
+    } finally {
+      setSupportingLoading(false)
+      isFetchingFormDepsRef.current = false
+    }
+  }
 
   // Add window focus listener to refresh data when user returns to the page
   useEffect(() => {
@@ -211,7 +246,7 @@ export const PurchaseManagement = () => {
       setError("")
 
       // Critical call only: admin purchase orders
-      const purchaseOrdersResult = await Promise.allSettled([purchaseOrdersAPI.getAll({ mode: "list" })])
+      const purchaseOrdersResult = await Promise.allSettled([purchaseOrdersAPI.getAll({ mode: "list", limit: 500 })])
       if (purchaseOrdersResult[0].status === "fulfilled") {
         const ordersData = purchaseOrdersResult[0].value.data?.data || purchaseOrdersResult[0].value.data || []
         setPurchaseOrders(Array.isArray(ordersData) ? ordersData : [])
@@ -244,28 +279,11 @@ export const PurchaseManagement = () => {
           setEmployeePurchaseOrders([])
         })
 
-      // Supporting data in background (non-blocking)
-      setSupportingLoading(true)
-      const [suppliersRes, productsRes, inventoryRes] = await Promise.allSettled([
-        suppliersAPI.getAll(),
-        productsAPI.getAll(),
-        fetch('/api/inventory-items', { cache: 'no-store' }),
-      ])
-
-      if (suppliersRes.status === "fulfilled") {
-        setSuppliers(suppliersRes.value.data || [])
-      }
-      if (productsRes.status === "fulfilled") {
-        setProducts(productsRes.value.data || [])
-      }
-      if (inventoryRes.status === "fulfilled") {
-        const inventoryDataRaw = await (async () => { try { return (await inventoryRes.value.json())?.data || [] } catch { return [] } })()
-        setInventoryItems(inventoryDataRaw)
-      }
+      // Keep form dependencies hydrating in parallel/background
+      void fetchFormDependencies()
     } catch (error: any) {
       setError("Failed to load suppliers and products. Please refresh the page.")
     } finally {
-      setSupportingLoading(false)
       setLoading(false)
       isFetchingRef.current = false
     }

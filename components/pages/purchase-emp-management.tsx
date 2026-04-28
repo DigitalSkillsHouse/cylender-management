@@ -626,10 +626,46 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     notes: "",
     purchasePaperImage: "",
   }))
+  const isFetchingFormDepsRef = useRef(false)
 
   useEffect(() => {
     fetchData()
+    void fetchFormDependencies()
   }, [])
+
+  useEffect(() => {
+    if (!isDialogOpen) return
+    if (suppliers.length > 0 && products.length > 0) return
+    void fetchFormDependencies()
+  }, [isDialogOpen, suppliers.length, products.length])
+
+  const fetchFormDependencies = async () => {
+    if (isFetchingFormDepsRef.current) return
+    isFetchingFormDepsRef.current = true
+    try {
+      setSupportingLoading(true)
+      const [suppliersRes, productsRes, employeeInventoryRes] = await Promise.allSettled([
+        suppliersAPI.getAll(),
+        productsAPI.getAll(),
+        user?.id ? fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`) : Promise.resolve(null),
+      ])
+
+      if (suppliersRes.status === "fulfilled") setSuppliers(suppliersRes.value.data || [])
+      if (productsRes.status === "fulfilled") setProducts(productsRes.value.data || [])
+
+      if (employeeInventoryRes.status === "fulfilled" && employeeInventoryRes.value && (employeeInventoryRes.value as any).ok) {
+        const inventoryData = await (employeeInventoryRes.value as Response).json()
+        const inventoryItems = inventoryData.data || []
+        const emptyCylinderItems = inventoryItems.filter((item: any) => item.category === 'cylinder' && item.availableEmpty > 0)
+        setEmptyCylinders(emptyCylinderItems)
+      } else {
+        setEmptyCylinders([])
+      }
+    } finally {
+      setSupportingLoading(false)
+      isFetchingFormDepsRef.current = false
+    }
+  }
 
   const fetchData = async () => {
     if (isFetchingRef.current) return
@@ -668,29 +704,11 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
         return
       }
 
-      // Supporting datasets in background
-      setSupportingLoading(true)
-      const [suppliersRes, productsRes, employeeInventoryRes] = await Promise.allSettled([
-        suppliersAPI.getAll(),
-        productsAPI.getAll(),
-        user?.id ? fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`) : Promise.resolve(null),
-      ])
-
-      if (suppliersRes.status === "fulfilled") setSuppliers(suppliersRes.value.data || [])
-      if (productsRes.status === "fulfilled") setProducts(productsRes.value.data || [])
-
-      if (employeeInventoryRes.status === "fulfilled" && employeeInventoryRes.value && (employeeInventoryRes.value as any).ok) {
-        const inventoryData = await (employeeInventoryRes.value as Response).json()
-        const inventoryItems = inventoryData.data || []
-        const emptyCylinderItems = inventoryItems.filter((item: any) => item.category === 'cylinder' && item.availableEmpty > 0)
-        setEmptyCylinders(emptyCylinderItems)
-      } else {
-        setEmptyCylinders([])
-      }
+      // Keep form dependencies hydrating in parallel/background
+      void fetchFormDependencies()
     } catch (error: any) {
       setError("Failed to load suppliers and products. Please refresh the page.")
     } finally {
-      setSupportingLoading(false)
       setLoading(false)
       isFetchingRef.current = false
     }
