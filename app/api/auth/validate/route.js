@@ -7,11 +7,15 @@ export async function GET(request) {
     const user = await verifyToken(request)
     
     if (!user) {
-      return NextResponse.json({ error: "No valid session" }, { status: 401 })
+      return NextResponse.json({
+        authenticated: false,
+        user: null,
+      })
     }
 
     // Return user data if token is valid
     return NextResponse.json({ 
+      authenticated: true,
       user: {
         id: user.id,
         email: user.email,
@@ -23,6 +27,9 @@ export async function GET(request) {
     })
   } catch (error) {
     console.error("Session validation error:", error)
-    return NextResponse.json({ error: "Invalid session" }, { status: 401 })
+    return NextResponse.json({
+      authenticated: false,
+      user: null,
+    })
   }
 }

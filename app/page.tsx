@@ -22,6 +22,13 @@ export default function Home() {
   useEffect(() => {
     setMounted(true)
     checkAuthStatus()
+
+    const onAuthExpired = () => {
+      setUser(null)
+      setLoading(false)
+    }
+    window.addEventListener("auth-expired", onAuthExpired)
+    return () => window.removeEventListener("auth-expired", onAuthExpired)
   }, [])
 
   const checkAuthStatus = async () => {
@@ -33,13 +40,11 @@ export default function Home() {
         credentials: 'include', // Include cookies
         cache: 'no-store', // Prevent browser caching
       })
-      
-      if (response.ok) {
-        const data = await response.json()
-        if (data.user) {
-          setUser(data.user)
-          // User data is now managed by server cookie only, not client-side storage
-        }
+
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && data?.authenticated && data?.user) {
+        setUser(data.user)
+        // User data is now managed by server cookie only, not client-side storage
       } else {
         // No valid session, clear any stale state
         setUser(null)

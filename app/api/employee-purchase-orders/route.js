@@ -7,6 +7,8 @@ import { verifyToken } from "@/lib/auth"
 
 // GET - Fetch employee purchase orders (filtered by employee ID)
 export async function GET(request) {
+  const startedAt = Date.now()
+  const shouldLogTiming = process.env.NODE_ENV === "development" || process.env.LOG_ROUTE_TIMING === "true"
   try {
     // Verify authentication
     const user = await verifyToken(request)
@@ -20,6 +22,10 @@ export async function GET(request) {
     const url = new URL(request.url)
     const meParam = (url.searchParams.get('me') || '').toString().toLowerCase()
     const meOnly = meParam === '1' || meParam === 'true'
+    const mode = url.searchParams.get("mode")
+    const limitParam = Number(url.searchParams.get("limit") || 0)
+    const isListMode = mode === "list"
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 0
 
     // Normalize role to avoid case mismatches
     const role = String(user.role || '').trim().toLowerCase()
@@ -43,12 +49,29 @@ export async function GET(request) {
       console.log(`   Filter: All employees`)
     }
     
-    const purchaseOrders = await EmployeePurchaseOrder.find(filter)
-      .populate('supplier', 'companyName')
-      .populate('product', 'name productCode category')
-      .populate('employee', 'name email')
-      .sort({ createdAt: -1 })
+    let query = EmployeePurchaseOrder.find(filter).sort({ createdAt: -1 })
+    if (isListMode) {
+      query = query
+        .select("supplier product employee purchaseDate purchaseType cylinderSize cylinderStatus quantity unitPrice totalAmount notes status poNumber purchasePaperImage emptyCylinderId emptyCylinderName createdAt updatedAt")
+        .populate('supplier', 'companyName')
+        .populate('product', 'name productCode category')
+        .populate('employee', 'name email')
+    } else {
+      query = query
+        .populate('supplier', 'companyName')
+        .populate('product', 'name productCode category')
+        .populate('employee', 'name email')
+    }
+    if (limit > 0) {
+      query = query.limit(limit)
+    }
+
+    const purchaseOrders = await query.lean()
     
+    if (shouldLogTiming) {
+      const scope = role === "employee" || meOnly ? "employee-scope" : "all"
+      console.info(`[route-timing] GET /api/employee-purchase-orders mode=${isListMode ? "list" : "full"} scope=${scope} durationMs=${Date.now() - startedAt}`)
+    }
     return NextResponse.json({ data: purchaseOrders })
   } catch (error) {
     console.error("Error fetching employee purchase orders:", error)

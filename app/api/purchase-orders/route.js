@@ -8,6 +8,8 @@ import { verifyToken } from "@/lib/auth"
 
 // GET - Fetch all purchase orders
 export async function GET(request) {
+  const startedAt = Date.now()
+  const shouldLogTiming = process.env.NODE_ENV === "development" || process.env.LOG_ROUTE_TIMING === "true"
   try {
     console.log("GET /api/purchase-orders - Starting request")
     
@@ -24,13 +26,36 @@ export async function GET(request) {
     await dbConnect()
     console.log("Database connected")
     
+    const url = new URL(request.url)
+    const mode = url.searchParams.get("mode")
+    const limitParam = Number(url.searchParams.get("limit") || 0)
+    const isListMode = mode === "list"
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 0
+
     console.log("Fetching purchase orders...")
-    const purchaseOrders = await PurchaseOrder.find({})
-      .populate('supplier', 'companyName')
-      .populate('items.product', 'name productCode category')
-      .sort({ createdAt: -1 })
+    let query = PurchaseOrder.find({}).sort({ createdAt: -1 })
+
+    if (isListMode) {
+      query = query
+        .select("supplier items purchaseDate totalAmount notes status poNumber createdAt updatedAt")
+        .populate('supplier', 'companyName')
+        .populate('items.product', 'name productCode category')
+    } else {
+      query = query
+        .populate('supplier', 'companyName')
+        .populate('items.product', 'name productCode category')
+    }
+
+    if (limit > 0) {
+      query = query.limit(limit)
+    }
+
+    const purchaseOrders = await query.lean()
     
     console.log(`Found ${purchaseOrders.length} purchase orders`)
+    if (shouldLogTiming) {
+      console.info(`[route-timing] GET /api/purchase-orders mode=${isListMode ? "list" : "full"} durationMs=${Date.now() - startedAt}`)
+    }
     return NextResponse.json({ data: purchaseOrders })
   } catch (error) {
     console.error("Error fetching purchase orders:", error)

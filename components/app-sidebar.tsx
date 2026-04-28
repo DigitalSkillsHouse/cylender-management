@@ -42,7 +42,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { useState, useEffect, Fragment } from "react"
-import { notificationsAPI } from "@/lib/api"
 
 interface AppSidebarProps {
   currentPage: string
@@ -50,7 +49,6 @@ interface AppSidebarProps {
   user: { id: string; email: string; role: "admin" | "employee"; name: string }
   onLogout: () => void
   unreadCount?: number
-  setUnreadCount?: (count: number) => void
   creditAmount?: number
   debitAmount?: number
 }
@@ -209,41 +207,9 @@ const employeeMenuItems = [
   },
 ]
 
-export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCount: externalUnreadCount, setUnreadCount, creditAmount = 0, debitAmount = 0 }: AppSidebarProps) => {
-  const [notifications, setNotifications] = useState<any[]>([])
-  const [unreadCount, setLocalUnreadCount] = useState(0)
+export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCount: externalUnreadCount, creditAmount = 0, debitAmount = 0 }: AppSidebarProps) => {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [registrationOpen, setRegistrationOpen] = useState(false)
-
-  useEffect(() => {
-    if (user?.id) {
-      fetchNotifications()
-
-      const handleNotificationEvent = () => {
-        fetchNotifications()
-      }
-      window.addEventListener('notification-refresh', handleNotificationEvent)
-
-      return () => {
-        window.removeEventListener('notification-refresh', handleNotificationEvent)
-      }
-    }
-  }, [user?.id])
-
-  const fetchNotifications = async () => {
-    try {
-      const response = await notificationsAPI.getAll(user.id)
-      setNotifications(response.data || [])
-      const count = (response.data || []).filter((n: any) => !n.isRead).length
-      setLocalUnreadCount(count)
-      if (setUnreadCount) setUnreadCount(count)
-    } catch (error) {
-      console.error("Failed to fetch notifications:", error)
-      setNotifications([])
-      setLocalUnreadCount(0)
-      if (setUnreadCount) setUnreadCount(0)
-    }
-  }
 
   const handlePageChange = (page: string) => {
     onPageChange(page)
@@ -258,7 +224,7 @@ export const AppSidebar = ({ currentPage, onPageChange, user, onLogout, unreadCo
     if (registrationActive) setRegistrationOpen(true)
   }, [registrationActive])
 
-  const effectiveUnreadCount = externalUnreadCount !== undefined ? externalUnreadCount : unreadCount
+  const effectiveUnreadCount = externalUnreadCount !== undefined ? externalUnreadCount : 0
 
   const SidebarContentComponent = () => (
     <>

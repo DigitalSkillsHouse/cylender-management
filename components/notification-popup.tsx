@@ -6,11 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 
 interface NotificationPopupProps {
-  user: {
-    id: string
-    name: string
-    role: "admin" | "employee"
-  }
+  notifications: Notification[]
+  markAsRead: (notificationId: string) => Promise<void> | void
 }
 
 interface Notification {
@@ -25,80 +22,37 @@ interface Notification {
   }
 }
 
-export const NotificationPopup = ({ user }: NotificationPopupProps) => {
-  const [notifications, setNotifications] = useState<Notification[]>([])
+export const NotificationPopup = ({ notifications, markAsRead }: NotificationPopupProps) => {
   const [visibleNotification, setVisibleNotification] = useState<Notification | null>(null)
   const [lastChecked, setLastChecked] = useState<Date>(new Date())
-
   useEffect(() => {
-    // Show popups for both admin and employees
-    // Initial check on mount only - no continuous polling
-    // Notifications will be checked when user navigates or after actions
-    checkForNewNotifications()
+    const newNotifications = (notifications || []).filter(
+      (notification: Notification) => new Date(notification.createdAt) > lastChecked && !notification.isRead,
+    )
+    if (newNotifications.length === 0) return
 
-    // Listen for custom events to refresh notifications (event-driven)
-    const handleNotificationEvent = () => {
-      checkForNewNotifications()
-    }
-    window.addEventListener('notification-refresh', handleNotificationEvent)
+    const latestNotification = newNotifications[0]
+    setVisibleNotification(latestNotification)
+
+    const hideTimer = window.setTimeout(() => {
+      setVisibleNotification(null)
+    }, 8000)
+
+    const markReadTimer = window.setTimeout(() => {
+      void markAsRead(latestNotification._id)
+    }, 2000)
+
+    setLastChecked(new Date())
 
     return () => {
-      window.removeEventListener('notification-refresh', handleNotificationEvent)
+      window.clearTimeout(hideTimer)
+      window.clearTimeout(markReadTimer)
     }
-  }, [user.id, user.role])
-
-  const checkForNewNotifications = async () => {
-    try {
-      const response = await fetch(`/api/notifications?userId=${user.id}&unread=true`)
-      if (response.ok) {
-        const data = await response.json()
-        
-        // Filter notifications that are newer than last check
-        const newNotifications = data.filter((notification: Notification) => 
-          new Date(notification.createdAt) > lastChecked && !notification.isRead
-        )
-
-        if (newNotifications.length > 0) {
-          // Show the most recent notification as popup
-          const latestNotification = newNotifications[0]
-          setVisibleNotification(latestNotification)
-          
-          // Auto-hide after 8 seconds
-          setTimeout(() => {
-            setVisibleNotification(null)
-          }, 8000)
-
-          // Mark notification as read after showing
-          setTimeout(() => {
-            markAsRead(latestNotification._id)
-          }, 2000)
-        }
-
-        setNotifications(data)
-        setLastChecked(new Date())
-      }
-    } catch (error) {
-      console.error('Failed to check notifications:', error)
-    }
-  }
-
-  const markAsRead = async (notificationId: string) => {
-    try {
-      await fetch(`/api/notifications/${notificationId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ isRead: true }),
-      })
-    } catch (error) {
-      console.error('Failed to mark notification as read:', error)
-    }
-  }
+  }, [notifications, lastChecked, markAsRead])
 
   const handleDismiss = () => {
     if (visibleNotification) {
-      markAsRead(visibleNotification._id)
+      void markAsRead(visibleNotification._id)
       setVisibleNotification(null)
     }
   }

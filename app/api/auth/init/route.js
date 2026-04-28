@@ -6,22 +6,50 @@ export async function POST() {
   try {
     await dbConnect()
 
-    // Remove any existing admin users (including old admin@gmail.com)
-    await User.deleteMany({ role: "admin" })
-    console.log("Removed all existing admin users")
+    const targetName = process.env.ADMIN_NAME || "Syed Tayyab Industrial Gases LLC"
+    const targetEmail = process.env.ADMIN_EMAIL || "syyedtayyabindustrialgasesllc@gmail.com"
+    const targetPassword = process.env.ADMIN_PASSWORD || "Syed@8175"
 
-    // Create the new admin user with credentials from environment variables
-    const admin = await User.create({
-      name: process.env.ADMIN_NAME || "Syed Tayyab Industrial Gases LLC",
-      email: process.env.ADMIN_EMAIL || "syyedtayyabindustrialgasesllc@gmail.com",
-      password: process.env.ADMIN_PASSWORD || "Syed@8175",
+    // Idempotent behavior: keep existing admin if present.
+    let admin = await User.findOne({ role: "admin" })
+    if (admin) {
+      return NextResponse.json({
+        message: "Admin user already initialized",
+        email: admin.email,
+      })
+    }
+
+    // If user exists with admin email (possibly employee), elevate/update safely.
+    admin = await User.findOne({ email: targetEmail })
+    if (admin) {
+      admin.name = admin.name || targetName
+      admin.role = "admin"
+      if (!admin.password || admin.password.length < 20) {
+        admin.password = targetPassword
+      }
+      await admin.save()
+      return NextResponse.json({
+        message: "Existing user promoted to admin",
+        email: admin.email,
+      })
+    }
+
+    admin = await User.create({
+      name: targetName,
+      email: targetEmail,
+      password: targetPassword,
       role: "admin",
     })
 
-    console.log("Created new admin user:", admin.email)
-    return NextResponse.json({ message: "Admin user created successfully" })
+    return NextResponse.json({
+      message: "Admin user created successfully",
+      email: admin.email,
+    })
   } catch (error) {
     console.error("Init error:", error)
-    return NextResponse.json({ error: "Failed to initialize admin user" }, { status: 500 })
+    return NextResponse.json(
+      { error: "Failed to initialize admin user", details: error?.message || "unknown" },
+      { status: 500 },
+    )
   }
 }

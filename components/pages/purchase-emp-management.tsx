@@ -126,12 +126,14 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [supportingLoading, setSupportingLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
   const [verificationGroup, setVerificationGroup] = useState<InvoiceGroup | null>(null)
   const [error, setError] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
+  const isFetchingRef = useRef(false)
 
   const generateEmployeePurchasePDF = async () => {
     setShowPDFDatePopup(false);
@@ -630,109 +632,66 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
   }, [])
 
   const fetchData = async () => {
+    if (isFetchingRef.current) return
+    isFetchingRef.current = true
+    let skipSupportingFetch = false
     try {
+      setLoading(true)
       setError("")
-      
-      // Fetch suppliers and products first (they don't require auth)
-      const [suppliersRes, productsRes] = await Promise.all([
-        suppliersAPI.getAll(), 
-        productsAPI.getAll()
-      ])
-      
-      const suppliersData = suppliersRes.data || []
-      const productsData = productsRes.data || []
-      
-      setSuppliers(suppliersData)
-      setProducts(productsData)
-      
-      // Fetch employee's empty cylinders from inventory
+
+      // Critical employee orders first
       try {
-        // Use user prop instead of reading from storage to prevent data leakage
-        if (user?.id) {
-            // Fetch from employee received inventory to get current inventory
-          const employeeInventoryRes = await fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`)
-            if (employeeInventoryRes.ok) {
-              const inventoryData = await employeeInventoryRes.json()
-              const inventoryItems = inventoryData.data || []
-              
-              // Filter for empty cylinders with available stock
-              const emptyCylinderItems = inventoryItems.filter((item: any) => {
-                const isEmptyCylinder = (
-                  item.category === 'cylinder' && 
-                  item.availableEmpty > 0
-                )
-                
-                return isEmptyCylinder
-              })
-              
-              console.log('🔍 Empty cylinders loaded:', {
-                totalInventoryItems: inventoryItems.length,
-                emptyCylinderItems: emptyCylinderItems.length,
-                items: emptyCylinderItems.map((item: any) => ({
-                  id: item._id,
-                  name: item.productName,
-                  stock: item.availableEmpty || item.currentStock,
-                  category: item.category,
-                  cylinderStatus: item.cylinderStatus
-                }))
-              })
-              
-              setEmptyCylinders(emptyCylinderItems)
-          }
-        }
-      } catch (cylinderError) {
-        console.warn('Failed to load empty cylinders:', cylinderError)
-        setEmptyCylinders([])
-      }
-      
-      // Try to fetch employee purchase orders separately (requires auth)
-      try {
-        // Force API to return only the authenticated employee's orders
-        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll({ meOnly: true })
-        
-        // The API response structure is: response.data.data (nested)
+        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll({ meOnly: true, mode: "list" })
         const ordersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
-        
-        // Ensure it's always an array
         let finalData = Array.isArray(ordersData) ? ordersData : []
-        
-        // Client-side safety filter: If we somehow got other employees' orders, filter them out
-        // This is a belt-and-suspenders approach in case the API filter fails
-        try {
-          // Use user prop instead of reading from storage to prevent data leakage
-          if (user?.id) {
-              const beforeCount = finalData.length
-              finalData = finalData.filter((order: any) => {
-                const orderEmployeeId = order.employee?._id || order.employee
-              return orderEmployeeId === user.id
-              })
-              const afterCount = finalData.length
-              if (beforeCount !== afterCount) {
-                console.warn(`Filtered out ${beforeCount - afterCount} orders that don't belong to current employee`)
-            }
-          }
-        } catch (filterError) {
-          console.warn('Client-side order filtering failed:', filterError)
-          // Continue with original data if filtering fails
+        if (user?.id) {
+          finalData = finalData.filter((order: any) => {
+            const orderEmployeeId = order.employee?._id || order.employee
+            return orderEmployeeId === user.id
+          })
         }
-        
         setPurchaseOrders(finalData)
       } catch (purchaseError: any) {
-        
         if (purchaseError.response?.status === 401) {
           setError("Authentication required. Please log in to view purchase orders.")
+          skipSupportingFetch = true
         } else {
           setError(`Failed to load purchase orders: ${purchaseError.message}`)
         }
         setPurchaseOrders([])
       }
+
+      if (skipSupportingFetch) {
+        return
+      }
+
+      // Supporting datasets in background
+      setSupportingLoading(true)
+      const [suppliersRes, productsRes, employeeInventoryRes] = await Promise.allSettled([
+        suppliersAPI.getAll(),
+        productsAPI.getAll(),
+        user?.id ? fetch(`/api/employee-inventory-new/received?employeeId=${user.id}&t=${Date.now()}`) : Promise.resolve(null),
+      ])
+
+      if (suppliersRes.status === "fulfilled") setSuppliers(suppliersRes.value.data || [])
+      if (productsRes.status === "fulfilled") setProducts(productsRes.value.data || [])
+
+      if (employeeInventoryRes.status === "fulfilled" && employeeInventoryRes.value && (employeeInventoryRes.value as any).ok) {
+        const inventoryData = await (employeeInventoryRes.value as Response).json()
+        const inventoryItems = inventoryData.data || []
+        const emptyCylinderItems = inventoryItems.filter((item: any) => item.category === 'cylinder' && item.availableEmpty > 0)
+        setEmptyCylinders(emptyCylinderItems)
+      } else {
+        setEmptyCylinders([])
+      }
     } catch (error: any) {
       setError("Failed to load suppliers and products. Please refresh the page.")
     } finally {
+      setSupportingLoading(false)
       setLoading(false)
+      isFetchingRef.current = false
     }
   }
-
   const generatePONumber = () => {
     const date = new Date()
     const year = date.getFullYear()
@@ -1095,6 +1054,11 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
 
   return (
     <div className="pt-16 lg:pt-0 space-y-6 sm:space-y-8">
+      {supportingLoading && (
+        <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          Supporting data (suppliers/products/empty cylinders) is hydrating in background...
+        </div>
+      )}
       {/* Error Alert */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
@@ -2044,3 +2008,4 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
     </div>
   )
 }
+

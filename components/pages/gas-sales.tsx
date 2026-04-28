@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useMemo, Fragment } from "react"
+import { useState, useEffect, useMemo, Fragment, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -114,6 +114,9 @@ export const GasSales = () => {
   const [stockErrorMessage, setStockErrorMessage] = useState("")
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [criticalSalesReady, setCriticalSalesReady] = useState(false)
+  const [supportingLoading, setSupportingLoading] = useState(false)
+  const [initialLoadTimedOut, setInitialLoadTimedOut] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
@@ -158,6 +161,42 @@ export const GasSales = () => {
   const [showEntryCylinderSuggestions, setShowEntryCylinderSuggestions] = useState(false)
   // Live availability from inventory-items (authoritative for cylinder availability)
   const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
+  const isFetchingSalesRef = useRef(false)
+  const pendingSalesRefetchRef = useRef(false)
+  const hasLoadedSalesOnceRef = useRef(false)
+  const isFetchingSupportingRef = useRef(false)
+  const pendingSupportingRefetchRef = useRef(false)
+  const hasLoadedSupportingOnceRef = useRef(false)
+  const inFlightRouteCountsRef = useRef<Record<string, number>>({})
+
+  const isPerfDebugEnabled = () => {
+    if (typeof window === "undefined") return false
+    try {
+      return localStorage.getItem("perf_debug") === "1"
+    } catch {
+      return false
+    }
+  }
+
+  const trackRouteStart = (route: string) => {
+    const current = inFlightRouteCountsRef.current[route] || 0
+    const next = current + 1
+    inFlightRouteCountsRef.current[route] = next
+    if (isPerfDebugEnabled()) {
+      console.info(`[perf][sales] in-flight start route=${route} count=${next}`)
+    }
+    return performance.now()
+  }
+
+  const trackRouteEnd = (route: string, startedAt: number) => {
+    const current = inFlightRouteCountsRef.current[route] || 0
+    const next = Math.max(0, current - 1)
+    inFlightRouteCountsRef.current[route] = next
+    if (isPerfDebugEnabled()) {
+      const duration = performance.now() - startedAt
+      console.info(`[perf][sales] in-flight end route=${route} count=${next} durationMs=${duration.toFixed(1)}`)
+    }
+  }
 
   // Gas product handlers
   const handleEntryGasSearchChange = (value: string) => {
@@ -211,6 +250,7 @@ export const GasSales = () => {
   
   // Export autocomplete handlers (customers only)
   const handleExportSearchChange = (value: string) => {
+    ensureSupportingDataLoaded()
     setExportSearch(value)
     const v = value.trim().toLowerCase()
     if (v.length === 0) {
@@ -611,13 +651,31 @@ export const GasSales = () => {
   }
 
   useEffect(() => {
-    fetchData()
+    if (hasLoadedSalesOnceRef.current) return
+    hasLoadedSalesOnceRef.current = true
+    void fetchSalesData({ showLoader: true })
   }, [])
+
+  useEffect(() => {
+    if (!loading || criticalSalesReady) return
+    const timeoutId = window.setTimeout(() => {
+      setInitialLoadTimedOut(true)
+      setLoading(false)
+    }, 5500)
+    return () => window.clearTimeout(timeoutId)
+  }, [loading, criticalSalesReady])
+
+  useEffect(() => {
+    if (!criticalSalesReady || typeof window === "undefined") return
+    if (!isPerfDebugEnabled()) return
+    performance.mark("gas-sales:first-paint-ready")
+    console.info("[perf][sales] first paint shell ready")
+  }, [criticalSalesReady])
 
   // Refresh availability when other pages update stock
   useEffect(() => {
     const onStockUpdated = () => {
-      fetchData()
+      void fetchSupportingData()
     }
     window.addEventListener('stockUpdated', onStockUpdated)
     return () => window.removeEventListener('stockUpdated', onStockUpdated)
@@ -626,7 +684,7 @@ export const GasSales = () => {
   // Ensure fresh availability when opening the dialog
   useEffect(() => {
     if (isDialogOpen) {
-      fetchData()
+      void fetchSupportingData()
     }
   }, [isDialogOpen])
 
@@ -652,54 +710,165 @@ export const GasSales = () => {
         return (product.currentStock || 0) > 0
       })
       
-      console.log('GasSales - Category changed to:', formData.category)
-      console.log('GasSales - Re-filtered products:', filteredProducts.length)
-      console.log('GasSales - Gas products available:', allProducts.filter(p => p.category === 'gas').map(p => ({
-        name: p.name,
-        productStock: p.currentStock,
-        inventoryStock: inventoryAvailability[p._id]?.currentStock || 0
-      })))
-      
       setProducts(filteredProducts)
     }
   }, [formData.category, allProducts, inventoryAvailability])
 
-  const fetchData = async () => {
+  const fetchSalesData = async (options?: { showLoader?: boolean }) => {
+    const showLoader = options?.showLoader ?? true
+    if (isFetchingSalesRef.current) {
+      pendingSalesRefetchRef.current = true
+      return
+    }
+    isFetchingSalesRef.current = true
     try {
-      setLoading(true)
-      const [salesResponse, employeeSalesResponse, customersResponse, productsResponse] = await Promise.all([
-        salesAPI.getAll(),
-        employeeSalesAPI.getAll(),
-        customersAPI.getAll(),
-        productsAPI.getAll(),
+      if (showLoader) {
+        setLoading(true)
+        setInitialLoadTimedOut(false)
+      }
+      if (isPerfDebugEnabled()) {
+        performance.mark("gas-sales:critical-fetch:start")
+      }
+      const [salesResult, employeeSalesResult] = await Promise.allSettled([
+        (async () => {
+          const route = "/api/sales"
+          const startedAt = trackRouteStart(route)
+          try {
+            return await salesAPI.getAll({ mode: "list" })
+          } finally {
+            trackRouteEnd(route, startedAt)
+          }
+        })(),
+        (async () => {
+          const route = "/api/employee-sales"
+          const startedAt = trackRouteStart(route)
+          try {
+            return await employeeSalesAPI.getAll({ mode: "list" })
+          } finally {
+            trackRouteEnd(route, startedAt)
+          }
+        })(),
       ])
 
       // Normalize sales and customers
-      const adminSalesData = Array.isArray(salesResponse.data?.data) ? salesResponse.data.data :
-                           Array.isArray(salesResponse.data) ? salesResponse.data : []
-      const employeeSalesData = (Array.isArray(employeeSalesResponse.data) ? employeeSalesResponse.data : []).map((sale: any) => ({
+      const salesResponse = salesResult.status === "fulfilled" ? salesResult.value : null
+      const employeeSalesResponse = employeeSalesResult.status === "fulfilled" ? employeeSalesResult.value : null
+
+      if (salesResult.status === "rejected") {
+        console.warn("Failed to fetch admin sales list:", salesResult.reason)
+      }
+      if (employeeSalesResult.status === "rejected") {
+        console.warn("Failed to fetch employee sales list:", employeeSalesResult.reason)
+      }
+
+      const adminSalesData = Array.isArray(salesResponse?.data?.data) ? salesResponse.data.data :
+                           Array.isArray(salesResponse?.data) ? salesResponse.data : []
+      const employeeSalesData = (Array.isArray(employeeSalesResponse?.data) ? employeeSalesResponse.data : []).map((sale: any) => ({
         ...sale,
         isEmployeeSale: true,
       }))
       const combinedSales = [...adminSalesData, ...employeeSalesData].sort((a, b) => getSaleCreationTime(b) - getSaleCreationTime(a))
       const salesData = combinedSales
 
-      const customersData = Array.isArray(customersResponse.data?.data)
+      setSales(salesData)
+      setCriticalSalesReady(true)
+      if (isPerfDebugEnabled()) {
+        performance.mark("gas-sales:critical-fetch:end")
+        performance.measure("gas-sales:critical-fetch", "gas-sales:critical-fetch:start", "gas-sales:critical-fetch:end")
+      }
+      // Fetch supporting data in background after critical sales data is rendered
+      void fetchSupportingData()
+    } catch (error) {
+      console.error("Failed to fetch data:", error)
+      // Type guard to check if error is an axios error
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as any
+        console.error("Error details:", axiosError.response?.data)
+        console.error("Error status:", axiosError.response?.status)
+      }
+      setSales([])
+      setCriticalSalesReady(true)
+    } finally {
+      isFetchingSalesRef.current = false
+      if (showLoader) setLoading(false)
+      if (pendingSalesRefetchRef.current) {
+        pendingSalesRefetchRef.current = false
+        void fetchSalesData({ showLoader: false })
+      }
+    }
+  }
+
+  const fetchSupportingData = async () => {
+    if (isFetchingSupportingRef.current) {
+      pendingSupportingRefetchRef.current = true
+      return
+    }
+    isFetchingSupportingRef.current = true
+    setSupportingLoading(true)
+    try {
+      if (isPerfDebugEnabled()) {
+        performance.mark("gas-sales:supporting-fetch:start")
+      }
+      const [customersResult, productsResult, invResult] = await Promise.allSettled([
+        (async () => {
+          const route = "/api/customers"
+          const startedAt = trackRouteStart(route)
+          try {
+            return await customersAPI.getAll()
+          } finally {
+            trackRouteEnd(route, startedAt)
+          }
+        })(),
+        (async () => {
+          const route = "/api/products"
+          const startedAt = trackRouteStart(route)
+          try {
+            return await productsAPI.getAll()
+          } finally {
+            trackRouteEnd(route, startedAt)
+          }
+        })(),
+        (async () => {
+          const route = "/api/inventory-items"
+          const startedAt = trackRouteStart(route)
+          try {
+            return await fetch('/api/inventory-items', { cache: 'no-store' })
+          } finally {
+            trackRouteEnd(route, startedAt)
+          }
+        })(),
+      ])
+
+      const customersResponse = customersResult.status === "fulfilled" ? customersResult.value : null
+      const productsResponse = productsResult.status === "fulfilled" ? productsResult.value : null
+      const invRes = invResult.status === "fulfilled" ? invResult.value : null
+
+      if (customersResult.status === "rejected") {
+        console.warn("Failed to fetch customers (supporting):", customersResult.reason)
+      }
+      if (productsResult.status === "rejected") {
+        console.warn("Failed to fetch products (supporting):", productsResult.reason)
+      }
+      if (invResult.status === "rejected") {
+        console.warn("Failed to fetch inventory availability (supporting):", invResult.reason)
+      }
+
+      const customersData = Array.isArray(customersResponse?.data?.data)
         ? customersResponse.data.data
-        : Array.isArray(customersResponse.data)
+        : Array.isArray(customersResponse?.data)
           ? customersResponse.data
-          : Array.isArray(customersResponse)
-            ? customersResponse
-            : []
+        : Array.isArray(customersResponse)
+          ? customersResponse
+          : []
 
       // Normalize products from Products API (source of truth updated by Inventory receive flow)
-      const rawProducts = Array.isArray(productsResponse.data?.data)
+      const rawProducts = Array.isArray(productsResponse?.data?.data)
         ? productsResponse.data.data
-        : Array.isArray(productsResponse.data)
+        : Array.isArray(productsResponse?.data)
           ? productsResponse.data
-          : Array.isArray(productsResponse)
-            ? productsResponse
-            : []
+        : Array.isArray(productsResponse)
+          ? productsResponse
+          : []
 
       const productsData: Product[] = (rawProducts as any[]).map((p: any) => ({
         _id: p._id,
@@ -712,15 +881,9 @@ export const GasSales = () => {
         currentStock: Number(p.currentStock) || 0,
       }))
 
-      setSales(salesData)
-      setCustomers(customersData)
-      setAllProducts(productsData)
-
-      // Fetch live inventory-items availability (authoritative for gas and cylinder availability)
       let availMap: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
       try {
-        const invRes = await fetch('/api/inventory-items', { cache: 'no-store' })
-        const invJson = await (async () => { try { return await invRes.json() } catch { return {} as any } })()
+        const invJson = await (async () => { try { return invRes ? await invRes.json() : {} as any } catch { return {} as any } })()
         const invArr = Array.isArray(invJson?.data) ? invJson.data : []
         for (const ii of invArr) {
           if (ii?.productId) {
@@ -731,55 +894,38 @@ export const GasSales = () => {
             }
           }
         }
-        setInventoryAvailability(availMap)
       } catch (_) {
         // Non-fatal; keep suggestions functional with product.currentStock fallback
       }
 
-      // Filter by selected category using inventory data for accurate stock levels
-      const filteredProducts = productsData.filter((product: Product) => {
-        if (product.category !== formData.category) return false
-        
-        if (product.category === 'cylinder') {
-          // For cylinders, only show full cylinders (available for sale)
-          if (product.cylinderStatus !== 'full') return false
-          // Check cylinder stock from inventory availability
-          const availableFull = availMap[product._id]?.availableFull || 0
-          return availableFull > 0
-        } else if (product.category === 'gas') {
-          // For gas, check currentStock from inventory availability (Gas tab)
-          const gasStock = availMap[product._id]?.currentStock || 0
-          return gasStock > 0
-        }
-        
-        // Fallback to product.currentStock for other categories
-        return (product.currentStock || 0) > 0
-      })
-      
-      console.log('GasSales - Category filter:', formData.category)
-      console.log('GasSales - All products:', productsData.length)
-      console.log('GasSales - Filtered products:', filteredProducts.length)
-      console.log('GasSales - Gas products with stock:', productsData.filter(p => p.category === 'gas').map(p => ({
-        name: p.name,
-        productStock: p.currentStock,
-        inventoryStock: availMap[p._id]?.currentStock || 0
-      })))
-      
-      setProducts(filteredProducts)
-    } catch (error) {
-      console.error("Failed to fetch data:", error)
-      // Type guard to check if error is an axios error
-      if (error && typeof error === 'object' && 'response' in error) {
-        const axiosError = error as any
-        console.error("Error details:", axiosError.response?.data)
-        console.error("Error status:", axiosError.response?.status)
+      setCustomers(customersData)
+      setAllProducts(productsData)
+      setInventoryAvailability(availMap)
+      hasLoadedSupportingOnceRef.current = true
+      if (isPerfDebugEnabled()) {
+        performance.mark("gas-sales:supporting-fetch:end")
+        performance.measure("gas-sales:supporting-fetch", "gas-sales:supporting-fetch:start", "gas-sales:supporting-fetch:end")
       }
-      setSales([])
-      setCustomers([])
-      setProducts([])
+    } catch (error) {
+      console.error("Failed to fetch supporting data:", error)
     } finally {
-      setLoading(false)
+      isFetchingSupportingRef.current = false
+      setSupportingLoading(false)
+      if (pendingSupportingRefetchRef.current) {
+        pendingSupportingRefetchRef.current = false
+        void fetchSupportingData()
+      }
     }
+  }
+
+  const ensureSupportingDataLoaded = () => {
+    if (!hasLoadedSupportingOnceRef.current && !isFetchingSupportingRef.current) {
+      void fetchSupportingData()
+    }
+  }
+
+  const fetchData = async (options?: { showLoader?: boolean }) => {
+    await fetchSalesData(options)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -912,6 +1058,11 @@ export const GasSales = () => {
         notes: formData.notes,
         lpoNo: formData.lpoNo.trim(),
       }
+      const normalizeCustomerName = (value: unknown) => String(value || "").trim().toLowerCase()
+      const originalCustomerName = normalizeCustomerName(editingSale?.customer?.name)
+      const updatedCustomerName = normalizeCustomerName(selectedCustomer?.name)
+      const shouldRequireFreshSignature =
+        Boolean(editingSale) && originalCustomerName !== updatedCustomerName
 
       console.log('🚀 GasSales - Submitting sale data:', saleData)
       console.log('📦 GasSales - Sale items (main):', saleItems)
@@ -972,9 +1123,11 @@ export const GasSales = () => {
           invoiceNumber: (editingSale as any).invoiceNumber,
           customer: saleData.customer,
         }
-        const fullUpdatePayload = {
+        const fullUpdatePayload: any = {
           ...updatePayload,
-          customerSignature: (editingSale as any).customerSignature || "",
+        }
+        if (shouldRequireFreshSignature) {
+          fullUpdatePayload.customerSignature = ""
         }
         try {
           console.log('GasSales - PUT full payload:', fullUpdatePayload)
@@ -995,6 +1148,9 @@ export const GasSales = () => {
             totalAmount: totalAmount,
             notes: formData.notes,
             lpoNo: formData.lpoNo.trim(),
+          }
+          if (shouldRequireFreshSignature) {
+            ;(minimalUpdatePayload as any).customerSignature = ""
           }
           console.log('GasSales - PUT minimal payload:', minimalUpdatePayload)
           // Use employeeSalesAPI if it's an employee sale, otherwise use salesAPI
@@ -1033,13 +1189,29 @@ export const GasSales = () => {
         console.log('✅ Sale created successfully:', savedResponse)
       }
 
-      console.log('GasSales - Sale completed successfully, refreshing data...')
-      await fetchData()
+      const savedSale = (savedResponse?.data?.data) || (savedResponse?.data) || null
+      if (savedSale?._id) {
+        const mergedSale: any = {
+          ...savedSale,
+          isEmployeeSale: Boolean(savedSale?.isEmployeeSale || savedSale?.employee || (editingSale as any)?.isEmployeeSale || (editingSale as any)?.employee),
+        }
+        setSales((prev) => {
+          const existingIndex = prev.findIndex((sale) => sale._id === mergedSale._id)
+          if (existingIndex === -1) {
+            return [mergedSale, ...prev]
+          }
+          const next = [...prev]
+          next[existingIndex] = { ...next[existingIndex], ...mergedSale }
+          return next
+        })
+      }
+
+      console.log('GasSales - Sale completed successfully, syncing in background...')
+      void fetchData({ showLoader: false })
       
       // Force refresh inventory data after sale
-      setTimeout(async () => {
-        console.log('GasSales - Force refreshing inventory data after 1 second...')
-        await fetchData()
+      setTimeout(() => {
+        void fetchData({ showLoader: false })
       }, 1000)
       
       resetForm()
@@ -1117,8 +1289,11 @@ export const GasSales = () => {
           createdAt: saved?.saleDate || saved?.createdAt || formData.saleDate || new Date().toISOString(),
           employee: saved?.employee || (editingSale as any)?.employee || null,
         }
-        setPendingSale(normalizedSale)
-        setShowSignatureDialog(true)
+        const shouldAutoPromptForSignature = !editingSale || shouldRequireFreshSignature
+        if (shouldAutoPromptForSignature) {
+          setPendingSale(normalizedSale)
+          setShowSignatureDialog(true)
+        }
       } catch {}
     } catch (error: any) {
       console.error("❌ Failed to save sale:", error?.response?.data || error?.message)
@@ -1215,7 +1390,7 @@ export const GasSales = () => {
         } else {
         await salesAPI.delete(id)
         }
-        await fetchData()
+        await fetchData({ showLoader: false })
       } catch (error) {
         console.error("Failed to delete sale:", error)
         alert("Failed to delete sale")
@@ -1773,6 +1948,7 @@ export const GasSales = () => {
 
   // Customer autocomplete functionality
   const handleCustomerSearchChange = (value: string) => {
+    ensureSupportingDataLoaded()
     setCustomerSearchTerm(value)
     
     if (value.trim().length > 0) {
@@ -1806,6 +1982,7 @@ export const GasSales = () => {
   }
 
   const handleCustomerInputFocus = () => {
+    ensureSupportingDataLoaded()
     if (customerSearchTerm.trim().length > 0 && filteredCustomerSuggestions.length > 0) {
       setShowCustomerSuggestions(true)
     }
@@ -1813,6 +1990,7 @@ export const GasSales = () => {
 
   // Search filter autocomplete functionality
   const handleSearchChange = (value: string) => {
+    ensureSupportingDataLoaded()
     setSearchTerm(value)
     
     if (value.trim().length > 0) {
@@ -1844,6 +2022,7 @@ export const GasSales = () => {
   }
 
   const handleSearchInputFocus = () => {
+    ensureSupportingDataLoaded()
     if (searchTerm.trim().length > 0 && filteredSearchSuggestions.length > 0) {
       setShowSearchSuggestions(true)
     }
@@ -1852,7 +2031,7 @@ export const GasSales = () => {
   // Ensure sales is always an array with proper type checking
   const salesArray = Array.isArray(sales) ? sales : []
   
-  const filteredSales = salesArray.filter((sale) => {
+  const filteredSales = useMemo(() => salesArray.filter((sale) => {
     // Add null checks for sale properties
     if (!sale || !sale.invoiceNumber || !sale.customer) {
       return false
@@ -1863,11 +2042,11 @@ export const GasSales = () => {
       (sale.customer.name && sale.customer.name.toLowerCase().includes(searchTerm.toLowerCase()))
     const matchesStatus = statusFilter === "all" || sale.paymentStatus === statusFilter
     return matchesSearch && matchesStatus
-  })
+  }), [salesArray, searchTerm, statusFilter])
 
   // Group filtered sales by invoice number for expandable rows
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
-  const groupedByInvoice = (() => {
+  const groupedByInvoice = useMemo(() => {
     const map: Record<string, any> = {}
     for (const s of filteredSales) {
       const key = s.invoiceNumber || `N/A-${s._id}`
@@ -1905,7 +2084,7 @@ export const GasSales = () => {
       }
     }
     return Object.values(map).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-  })()
+  }, [filteredSales])
   const toggleGroup = (key: string) => {
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }))
   }
@@ -1955,19 +2134,46 @@ export const GasSales = () => {
     })
   }, [cashGrandTotal, formData.paymentOption, setFormData])
 
-  if (loading) {
+  if (loading && !criticalSalesReady) {
     return (
       <div className="space-y-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/4 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+        <div className="animate-pulse space-y-3">
+          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
         </div>
+        <div className="rounded-xl border bg-white p-4">
+          <div className="grid grid-cols-5 gap-2 mb-3">
+            {Array.from({ length: 5 }).map((_, idx) => (
+              <div key={idx} className="h-3 bg-gray-100 rounded" />
+            ))}
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, idx) => (
+              <div key={idx} className="h-10 bg-gray-50 rounded" />
+            ))}
+          </div>
+        </div>
+        {initialLoadTimedOut && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+            Initial data is taking longer than expected. Basic shell loaded; data will continue to hydrate in background.
+          </div>
+        )}
       </div>
     )
   }
 
   return (
     <div className="pt-6 lg:pt-0 space-y-8">
+      {initialLoadTimedOut && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          First load hit timeout guard; showing available content while remaining calls continue.
+        </div>
+      )}
+      {supportingLoading && (
+        <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          Filters and lookup data are hydrating in background...
+        </div>
+      )}
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">
         <h1 className="text-4xl font-bold mb-2">Gas Sales Management</h1>
         <p className="text-white/80 text-lg">Create and manage gas sales transactions</p>
@@ -2200,18 +2406,6 @@ export const GasSales = () => {
                         })
                         .slice(0, 8)
                       
-                      console.log('GasSales - Autocomplete:', {
-                        category: currentItem.category,
-                        searchTerm: entryProductSearch,
-                        allProductsCount: allProducts.length,
-                        filteredCount: filteredProducts.length,
-                        showSuggestions: showEntrySuggestions,
-                        availableProducts: allProducts.filter(p => p.category === currentItem.category).map(p => ({
-                          name: p.name,
-                          nameMatch: entryProductSearch.trim().length === 0 || p.name.toLowerCase().includes(entryProductSearch.toLowerCase())
-                        }))
-                      })
-                      
                       return (
                         <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
                           {filteredProducts.length === 0 ? (
@@ -2282,19 +2476,6 @@ export const GasSales = () => {
                             availableCylinders = availableCylinders
                               .filter((p: Product) => entryCylinderSearch.trim().length === 0 || p.name.toLowerCase().includes(entryCylinderSearch.toLowerCase()))
                               .slice(0, 8)
-                            
-                            console.log('GasSales - Cylinder Selection Debug:', {
-                              allProductsCount: allProducts.length,
-                              cylinderProducts: allProducts.filter(p => p.category === 'cylinder').map(p => ({
-                                name: p.name,
-                                cylinderStatus: (p as any).cylinderStatus,
-                                availableFull: inventoryAvailability[p._id]?.availableFull || 0,
-                                currentStock: p.currentStock
-                              })),
-                              fullCylinders: allProducts.filter(p => p.category === 'cylinder' && (p as any).cylinderStatus === 'full'),
-                              availableCylindersCount: availableCylinders.length,
-                              searchTerm: entryCylinderSearch
-                            })
                             
                             if (availableCylinders.length === 0) {
                               return (
@@ -2375,6 +2556,7 @@ export const GasSales = () => {
                       type="number"
                       min="1"
                       value={currentItem.quantity}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => handleEntryQuantityChange(e.target.value)}
                     />
                   </div>

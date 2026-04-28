@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { Dashboard } from "@/components/pages/dashboard"
@@ -27,7 +27,7 @@ import { PurchaseManagement as EmployeePurchaseManagement } from "@/components/p
 import { Notifications } from "@/components/pages/notifications"
 import { NotificationPopup } from "@/components/notification-popup"
 import { LogoutConfirmation } from "@/components/logout-confirmation"
-import { authAPI } from "@/lib/api"
+import { authAPI, notificationsAPI } from "@/lib/api"
 import { AdminSignatureDialog } from "@/components/admin-signature-dialog"
 import { CollectionPage } from "@/components/pages/collection"
 import { RentalCollection } from "@/components/pages/rental-collection"
@@ -47,6 +47,16 @@ interface MainLayoutProps {
   onLogout: () => void
 }
 
+interface UserNotification {
+  _id: string
+  title: string
+  message: string
+  type: string
+  isRead: boolean
+  createdAt: string
+  sender?: { name: string }
+}
+
 export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
   const [currentPage, setCurrentPage] = useState("dashboard")
   const [mounted, setMounted] = useState(false)
@@ -56,6 +66,65 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
   const [debitAmount, setDebitAmount] = useState(0)
   const [showAdminSignatureDialog, setShowAdminSignatureDialog] = useState(false)
   const [showInvoiceSettings, setShowInvoiceSettings] = useState(false)
+  const [notifications, setNotifications] = useState<UserNotification[]>([])
+  const notificationsInFlightRef = useRef<Promise<void> | null>(null)
+
+  const scheduleIdleTask = useCallback((task: () => void, timeout = 450) => {
+    const win = window as Window & {
+      requestIdleCallback?: (cb: IdleRequestCallback, options?: IdleRequestOptions) => number
+      cancelIdleCallback?: (id: number) => void
+    }
+
+    if (typeof win.requestIdleCallback === "function") {
+      const idleId = win.requestIdleCallback(() => task(), { timeout })
+      return () => {
+        if (typeof win.cancelIdleCallback === "function") {
+          win.cancelIdleCallback(idleId)
+        }
+      }
+    }
+
+    const timerId = window.setTimeout(task, timeout)
+    return () => window.clearTimeout(timerId)
+  }, [])
+
+  const fetchNotifications = useCallback(async () => {
+    if (!user?.id) return
+    if (notificationsInFlightRef.current) {
+      return notificationsInFlightRef.current
+    }
+
+    notificationsInFlightRef.current = (async () => {
+      try {
+        const response = await notificationsAPI.getAll(user.id)
+        const list = Array.isArray(response.data) ? response.data : []
+        setNotifications(list)
+        setUnreadCount(list.filter((n: any) => !n.isRead).length)
+      } catch (error) {
+        console.error("Failed to fetch notifications:", error)
+        setNotifications([])
+        setUnreadCount(0)
+      } finally {
+        notificationsInFlightRef.current = null
+      }
+    })()
+
+    return notificationsInFlightRef.current
+  }, [user?.id])
+
+  const markNotificationAsRead = useCallback(async (notificationId: string) => {
+    try {
+      await notificationsAPI.markAsRead(notificationId)
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          notification._id === notificationId ? { ...notification, isRead: true } : notification,
+        ),
+      )
+      setUnreadCount((prev) => Math.max(0, prev - 1))
+    } catch (error) {
+      console.error("Failed to mark notification as read:", error)
+    }
+  }, [])
 
   useEffect(() => {
     // Initialize current page from URL on mount
@@ -83,46 +152,53 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
     }
   }, [currentPage, mounted])
 
-  // Check for invoice settings on admin login
+  // Check for invoice settings on admin login (non-critical, idle)
   useEffect(() => {
-    const checkInvoiceSettings = async () => {
-      if (user?.role === 'admin') {
-        try {
-          const res = await fetch('/api/invoice-settings')
-          const data = await res.json()
-          if (data.needsStartingNumber) {
-            setShowInvoiceSettings(true)
-          }
-        } catch (error) {
-          console.error('Failed to check invoice settings:', error)
-        }
-      }
-    }
+    if (!mounted || user?.role !== "admin") return
 
-    if (mounted) {
-      checkInvoiceSettings()
+    const cancel = scheduleIdleTask(async () => {
+      try {
+        const res = await fetch('/api/invoice-settings')
+        const data = await res.json()
+        if (data.needsStartingNumber) {
+          setShowInvoiceSettings(true)
+        }
+      } catch (error) {
+        console.error('Failed to check invoice settings:', error)
+      }
+    })
+
+    return cancel
+  }, [mounted, user?.role, scheduleIdleTask])
+
+  // Shared notifications fetch (single source for sidebar + popup)
+  useEffect(() => {
+    if (!mounted || !user?.id) return
+    void fetchNotifications()
+
+    const handleNotificationEvent = () => {
+      void fetchNotifications()
     }
-  }, [mounted, user?.role])
+    window.addEventListener("notification-refresh", handleNotificationEvent)
+
+    return () => {
+      window.removeEventListener("notification-refresh", handleNotificationEvent)
+    }
+  }, [mounted, user?.id, fetchNotifications])
 
   // Fetch employee financial data if user is an employee
   useEffect(() => {
     const fetchEmployeeFinancialData = async () => {
       if (user?.role === "employee" && user?.id) {
         try {
-          const response = await fetch(`/api/employee-sales?employeeId=${user.id}`)
-          const salesData = await response.json().catch(() => ({}))
-          const salesArray = Array.isArray(salesData)
-            ? salesData
-            : Array.isArray(salesData?.data)
-              ? salesData.data
-              : []
-          
-          // Calculate Debit (Total Amount) and Credit (Received Amount)
-          const debit = salesArray.reduce((sum: number, sale: any) => sum + (Number(sale.totalAmount) || 0), 0)
-          const credit = salesArray.reduce((sum: number, sale: any) => sum + (Number(sale.receivedAmount) || 0), 0)
-          
-          setDebitAmount(debit)
-          setCreditAmount(credit)
+          const response = await fetch(`/api/employee-sales?employeeId=${user.id}&totals=true`, {
+            cache: "no-store",
+          })
+          const payload = await response.json().catch(() => ({}))
+          const totals = payload?.data || {}
+
+          setDebitAmount(Number(totals.totalDebit || 0))
+          setCreditAmount(Number(totals.totalCredit || 0))
         } catch (error) {
           console.error("Failed to fetch employee financial data:", error)
           setDebitAmount(0)
@@ -134,55 +210,52 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
     fetchEmployeeFinancialData()
   }, [user?.id, user?.role])
 
-  // Prompt admin to capture signature post login if not already saved
+  // Prompt admin to capture signature post login if not already saved (non-critical, idle)
   useEffect(() => {
     if (!mounted) return
-    if (user?.role === "admin") {
-      // Fetch from database first, then check localStorage
-      const checkAdminSignature = async () => {
-        try {
-          const response = await fetch("/api/admin-signature", {
-            cache: "no-store",
-          })
-          
-          if (response.ok) {
-            const data = await response.json()
-            if (data.success && data.data?.signature) {
-              // Save to localStorage as cache
-              if (typeof window !== "undefined") {
-                try {
-                  localStorage.setItem("adminSignature", data.data.signature)
-                } catch (e) {
-                  console.warn("Failed to cache admin signature", e)
-                }
-              }
-              setShowAdminSignatureDialog(false)
-              return
-            }
-          }
-        } catch (error) {
-          console.warn("Failed to fetch admin signature from database:", error)
-        }
+    if (user?.role !== "admin") {
+      setShowAdminSignatureDialog(false)
+      return
+    }
 
-        // Fallback to localStorage check
-        try {
-          const sig = typeof window !== "undefined" ? localStorage.getItem("adminSignature") : null
-          if (!sig) {
-            setShowAdminSignatureDialog(true)
-          } else {
+    const cancel = scheduleIdleTask(async () => {
+      // Fetch from database first, then check localStorage
+      try {
+        const response = await fetch("/api/admin-signature", {
+          cache: "no-store",
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.data?.signature) {
+            // Save to localStorage as cache
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem("adminSignature", data.data.signature)
+              } catch (e) {
+                console.warn("Failed to cache admin signature", e)
+              }
+            }
             setShowAdminSignatureDialog(false)
+            return
           }
-        } catch (e) {
-          // If localStorage is unavailable, still prompt
-          setShowAdminSignatureDialog(true)
         }
+      } catch (error) {
+        console.warn("Failed to fetch admin signature from database:", error)
       }
 
-      checkAdminSignature()
-    } else {
-      setShowAdminSignatureDialog(false)
-    }
-  }, [mounted, user?.role])
+      // Fallback to localStorage check
+      try {
+        const sig = typeof window !== "undefined" ? localStorage.getItem("adminSignature") : null
+        setShowAdminSignatureDialog(!sig)
+      } catch {
+        // If localStorage is unavailable, still prompt
+        setShowAdminSignatureDialog(true)
+      }
+    }, 600)
+
+    return cancel
+  }, [mounted, user?.role, scheduleIdleTask])
 
   const handleLogoutClick = () => {
     setShowLogoutConfirmation(true)
@@ -290,7 +363,6 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
             user={user} 
             onLogout={handleLogoutClick} 
             unreadCount={unreadCount} 
-            setUnreadCount={setUnreadCount} 
             creditAmount={creditAmount} 
             debitAmount={debitAmount} 
           />
@@ -299,7 +371,7 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
           <div className="pt-16 lg:pt-0 p-3 sm:p-4 lg:p-4 xl:p-5">{renderPage()}</div>
         </main>
         {/* Global notification popup for both admin and employees */}
-        <NotificationPopup user={user} />
+        <NotificationPopup notifications={notifications} markAsRead={markNotificationAsRead} />
         
         {/* Logout confirmation popup */}
         <LogoutConfirmation 

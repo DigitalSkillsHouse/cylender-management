@@ -13,10 +13,6 @@ export const fetchCache = 'force-no-store'
 
 export async function GET(request) {
   try {
-    console.log('🔍 Admin pending returns API called')
-    console.log('🌍 [DEBUG] Environment:', process.env.NODE_ENV)
-    console.log('🌍 [DEBUG] Database URI exists:', !!process.env.MONGODB_URI)
-    
     await dbConnect()
 
     // Auto-expire pending returns at 23:55 Dubai time (lazy, runs on read)
@@ -95,36 +91,11 @@ export async function GET(request) {
       console.warn('[pending-returns] expiry check failed:', e?.message || e)
     }
     
-    // Verify database connection
+    // Verify database connection state before querying pending returns
     const connectionState = mongoose.connection.readyState
     const connectionStates = ['disconnected', 'connected', 'connecting', 'disconnecting']
-    console.log('📡 [DEBUG] MongoDB connection state:', connectionStates[connectionState] || connectionState)
-    
-    // First, let's check ALL return transactions to see what's in the database
-    const allReturns = await ReturnTransaction.find({})
-      .select('_id status returnDate employee product')
-      .lean()
-    
-    console.log('📊 [DEBUG] Total return transactions in database:', allReturns.length)
-    console.log('📊 [DEBUG] Return transactions by status:', {
-      pending: allReturns.filter(r => r.status === 'pending').length,
-      received: allReturns.filter(r => r.status === 'received').length,
-      rejected: allReturns.filter(r => r.status === 'rejected').length,
-      other: allReturns.filter(r => !['pending', 'received', 'rejected'].includes(r.status)).length
-    })
-    
-    // Log recent return transactions for debugging
-    if (allReturns.length > 0) {
-      const recent = allReturns
-        .sort((a, b) => new Date(b.returnDate || b.createdAt || 0) - new Date(a.returnDate || a.createdAt || 0))
-        .slice(0, 5)
-      console.log('📋 [DEBUG] Recent return transactions (last 5):', recent.map(r => ({
-        id: r._id.toString(),
-        status: r.status,
-        returnDate: r.returnDate,
-        employeeId: r.employee?.toString(),
-        productId: r.product?.toString()
-      })))
+    if (connectionState !== 1) {
+      console.warn(`[pending-returns] MongoDB state is ${connectionStates[connectionState] || connectionState}`)
     }
     
     // Get pending return transactions - ensure we get fresh data from database
@@ -146,8 +117,6 @@ export async function GET(request) {
         })
         .sort({ returnDate: -1 })
         .lean() // Use lean() to get plain JavaScript objects and avoid caching issues
-      
-      console.log('📊 [DEBUG] Query executed successfully, found:', pendingReturns.length, 'pending returns')
     } catch (queryError) {
       console.error('❌ [DEBUG] Error executing pending returns query:', queryError)
       // Try without populate to see if that's the issue
@@ -155,7 +124,6 @@ export async function GET(request) {
         const pendingWithoutPopulate = await ReturnTransaction.find({ 
           status: { $eq: 'pending' }
         }).lean()
-        console.log('📊 [DEBUG] Found', pendingWithoutPopulate.length, 'pending returns without populate')
         pendingReturns = pendingWithoutPopulate
       } catch (fallbackError) {
         console.error('❌ [DEBUG] Fallback query also failed:', fallbackError)
@@ -179,32 +147,6 @@ export async function GET(request) {
       const removed = pendingReturns.length - verifiedPendingReturns.length
       console.warn(`⚠️ [PENDING RETURNS] Filtered out ${removed} return(s) with non-pending status`)
     }
-    
-    console.log('✅ Found pending returns:', verifiedPendingReturns.length, '(after verification)')
-    console.log('📊 [DEBUG] Query returned:', pendingReturns.length, 'items, verified as pending:', verifiedPendingReturns.length)
-    
-    // Log for debugging - if database was cleared, this should be 0
-    if (verifiedPendingReturns.length > 0) {
-      console.log('📋 Pending returns details:', verifiedPendingReturns.map(r => ({
-        id: r._id.toString(),
-        employee: r.employee?.name,
-        product: r.product?.name,
-        returnDate: r.returnDate,
-        status: r.status
-      })))
-    } else {
-      console.log('⚠️ [DEBUG] No pending returns found. Checking if there are any with null/undefined status...')
-      const nullStatusReturns = await ReturnTransaction.find({ 
-        $or: [
-          { status: null },
-          { status: { $exists: false } }
-        ]
-      }).lean()
-      if (nullStatusReturns.length > 0) {
-        console.log('⚠️ [DEBUG] Found return transactions with null/undefined status:', nullStatusReturns.length)
-      }
-    }
-    
     // Format the data for frontend - only include verified pending returns
     const formattedReturns = verifiedPendingReturns.map(returnTx => {
       // Handle both populated and non-populated cases
@@ -241,9 +183,6 @@ export async function GET(request) {
         notes: returnTx.notes || ''
       }
     })
-    
-    console.log('📦 [DEBUG] Formatted returns count:', formattedReturns.length)
-
     // Return response with no-cache headers to prevent browser caching
     return NextResponse.json({ 
       success: true,

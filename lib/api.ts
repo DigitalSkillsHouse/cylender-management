@@ -2,26 +2,61 @@ import axios from "axios"
 
 const api = axios.create({
   baseURL: "/api",
+  withCredentials: true,
+  timeout: 12000,
   headers: {
     "Content-Type": "application/json",
   },
 })
 
-// Add cache busting interceptor for Vercel
+// Apply cache-busting only to highly dynamic endpoints.
+// This keeps critical data fresh while avoiding unnecessary overhead on every GET.
+const CACHE_BUST_ENDPOINT_PREFIXES = [
+  "/dashboard/stats",
+  "/reports/ledger",
+  "/sales",
+  "/employee-sales",
+  "/stock-assignments",
+  "/inventory-items",
+  "/employee-inventory-new/received",
+  "/notifications",
+]
+
+const shouldBustCache = (url?: string) => {
+  if (!url) return false
+  return CACHE_BUST_ENDPOINT_PREFIXES.some((prefix) => url.startsWith(prefix))
+}
+
+// Request interceptor
 api.interceptors.request.use((config) => {
-  // Add timestamp to prevent caching on Vercel
   if (config.method === 'get') {
-    config.params = {
-      ...config.params,
-      _t: Date.now()
+    const bustCache = shouldBustCache(config.url)
+    if (bustCache) {
+      config.params = {
+        ...config.params,
+        _t: Date.now()
+      }
+      config.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+      config.headers.set('Pragma', 'no-cache')
+      config.headers.set('Expires', '0')
     }
-    // Set cache control headers properly
-    config.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
-    config.headers.set('Pragma', 'no-cache')
-    config.headers.set('Expires', '0')
   }
   return config
 })
+
+// Response interceptor: broadcast auth-expired for centralized session handling.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status
+    const url: string = error?.config?.url || ""
+    const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/validate") || url.includes("/auth/logout")
+    if (status === 401 && !isAuthEndpoint && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("auth-expired", { detail: { url, status } }))
+    }
+    return Promise.reject(error)
+  },
+)
 
 // Auth API
 export const authAPI = {
@@ -59,7 +94,7 @@ export const suppliersAPI = {
 
 // Sales API
 export const salesAPI = {
-  getAll: () => api.get("/sales"),
+  getAll: (params?: any) => api.get("/sales", { params }),
   getById: (id: string) => api.get(`/sales/${id}`),
   create: (data: any) => api.post("/sales", data),
   update: (id: string, data: any) => api.put(`/sales/${id}`, data),
@@ -69,8 +104,8 @@ export const salesAPI = {
 
 // Employee Sales API
 export const employeeSalesAPI = {
-  getAll: () => api.get("/employee-sales"),
-  getByEmployeeId: (employeeId: string) => api.get(`/employee-sales?employeeId=${employeeId}`),
+  getAll: (params?: any) => api.get("/employee-sales", { params }),
+  getByEmployeeId: (employeeId: string, params?: any) => api.get(`/employee-sales`, { params: { ...params, employeeId } }),
   getById: (id: string) => api.get(`/employee-sales/${id}`),
   create: (data: any) => api.post("/employee-sales", data),
   update: (id: string, data: any) => api.put(`/employee-sales/${id}`, data),
@@ -112,7 +147,7 @@ export const notificationsAPI = {
 
 // Purchase Orders API
 export const purchaseOrdersAPI = {
-  getAll: () => api.get("/purchase-orders"),
+  getAll: (params?: any) => api.get("/purchase-orders", { params }),
   getById: (id: string) => api.get(`/purchase-orders/${id}`),
   create: (data: any) => api.post("/purchase-orders", data),
   update: (id: string, data: any) => api.put(`/purchase-orders/${id}`, data),

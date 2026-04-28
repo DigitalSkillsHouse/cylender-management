@@ -2410,9 +2410,19 @@ export const CylinderManagement = () => {
                     <Input
                       type="number"
                       min={1}
-                      value={draftItem.quantity}
+                      value={draftItem.quantity === 0 ? "" : draftItem.quantity}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => {
-                        const q = Number.parseInt(e.target.value) || 1
+                        const rawValue = e.target.value
+                        if (rawValue === "") {
+                          setDraftItem(prev => ({ ...prev, quantity: 0 }))
+                          return
+                        }
+                        const q = Number.parseInt(rawValue)
+                        if (!Number.isFinite(q) || q <= 0) {
+                          setDraftItem(prev => ({ ...prev, quantity: 0 }))
+                          return
+                        }
                         
                         // Real-time stock validation for quantity changes
                         if (draftItem.productId && q > 0 && formData.type !== 'return') {

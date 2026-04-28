@@ -25,7 +25,16 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
 
   useEffect(() => {
     setMounted(true)
-    initializeAdmin()
+    const isLocalhost =
+      typeof window !== "undefined" &&
+      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+    const alreadyInitialized =
+      typeof window !== "undefined" && sessionStorage.getItem("adminInitAttempted") === "1"
+
+    if (isLocalhost && !alreadyInitialized) {
+      void initializeAdmin()
+      sessionStorage.setItem("adminInitAttempted", "1")
+    }
   }, [])
 
   const initializeAdmin = async () => {

@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useMemo, Fragment } from "react"
+import { useState, useEffect, useMemo, Fragment, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,6 +34,7 @@ interface Sale {
     name: string
     phone: string
     address: string
+    trNumber?: string
   }
   items: Array<{
     product: {
@@ -72,6 +73,7 @@ interface Customer {
   phone: string
   address: string
   email?: string
+  trNumber?: string
   itemRates?: Array<{
     product?: string | { _id?: string }
     rate?: number
@@ -119,6 +121,9 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   const [stockErrorMessage, setStockErrorMessage] = useState("")
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [criticalSalesReady, setCriticalSalesReady] = useState(false)
+  const [supportingLoading, setSupportingLoading] = useState(false)
+  const [initialLoadTimedOut, setInitialLoadTimedOut] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSale, setEditingSale] = useState<Sale | null>(null)
@@ -163,6 +168,42 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   const [showEntryCylinderSuggestions, setShowEntryCylinderSuggestions] = useState(false)
   // Live availability from inventory-items (authoritative for cylinder availability)
   const [inventoryAvailability, setInventoryAvailability] = useState<Record<string, { availableEmpty: number; availableFull: number; currentStock: number }>>({})
+  const isFetchingSalesRef = useRef(false)
+  const pendingSalesRefetchRef = useRef(false)
+  const hasLoadedSalesOnceRef = useRef(false)
+  const isFetchingSupportingRef = useRef(false)
+  const pendingSupportingRefetchRef = useRef(false)
+  const hasLoadedSupportingOnceRef = useRef(false)
+  const inFlightRouteCountsRef = useRef<Record<string, number>>({})
+
+  const isPerfDebugEnabled = () => {
+    if (typeof window === "undefined") return false
+    try {
+      return localStorage.getItem("perf_debug") === "1"
+    } catch {
+      return false
+    }
+  }
+
+  const trackRouteStart = (route: string) => {
+    const current = inFlightRouteCountsRef.current[route] || 0
+    const next = current + 1
+    inFlightRouteCountsRef.current[route] = next
+    if (isPerfDebugEnabled()) {
+      console.info(`[perf][emp-sales] in-flight start route=${route} count=${next}`)
+    }
+    return performance.now()
+  }
+
+  const trackRouteEnd = (route: string, startedAt: number) => {
+    const current = inFlightRouteCountsRef.current[route] || 0
+    const next = Math.max(0, current - 1)
+    inFlightRouteCountsRef.current[route] = next
+    if (isPerfDebugEnabled()) {
+      const duration = performance.now() - startedAt
+      console.info(`[perf][emp-sales] in-flight end route=${route} count=${next} durationMs=${duration.toFixed(1)}`)
+    }
+  }
 
   const getSaleCreationTime = (sale: { _id?: string; createdAt?: string }) => {
     const id = typeof sale?._id === "string" ? sale._id : ""
@@ -224,6 +265,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   
   // Export autocomplete handlers (customers only)
   const handleExportSearchChange = (value: string) => {
+    ensureSupportingDataLoaded()
     setExportSearch(value)
     const v = value.trim().toLowerCase()
     if (v.length === 0) {
@@ -596,13 +638,30 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   }
 
   useEffect(() => {
-    fetchData()
+    if (hasLoadedSalesOnceRef.current) return
+    hasLoadedSalesOnceRef.current = true
+    void fetchSalesData({ showLoader: true })
   }, [])
+
+  useEffect(() => {
+    if (!loading || criticalSalesReady) return
+    const timeoutId = window.setTimeout(() => {
+      setInitialLoadTimedOut(true)
+    }, 5500)
+    return () => window.clearTimeout(timeoutId)
+  }, [loading, criticalSalesReady])
+
+  useEffect(() => {
+    if (!criticalSalesReady || typeof window === "undefined") return
+    if (!isPerfDebugEnabled()) return
+    performance.mark("emp-gas-sales:first-paint-ready")
+    console.info("[perf][emp-sales] first paint shell ready")
+  }, [criticalSalesReady])
 
   // Refresh availability when other pages update stock
   useEffect(() => {
     const onStockUpdated = () => {
-      fetchData()
+      void fetchSupportingData()
     }
     window.addEventListener('stockUpdated', onStockUpdated)
     return () => window.removeEventListener('stockUpdated', onStockUpdated)
@@ -611,7 +670,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   // Ensure fresh availability when opening the dialog
   useEffect(() => {
     if (isDialogOpen) {
-      fetchData()
+      void fetchSupportingData()
     }
   }, [isDialogOpen])
 
@@ -628,13 +687,6 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
           if (!productCategory.includes('gas')) return false
           // For gas, check currentStock from inventory availability
           const gasStock = inventoryAvailability[product._id]?.currentStock || 0
-          console.log('🔍 useEffect gas filter check:', {
-            productName: product.name,
-            productId: product._id,
-            gasStock: gasStock,
-            hasAvailability: !!inventoryAvailability[product._id],
-            availabilityData: inventoryAvailability[product._id]
-          })
           return gasStock > 0
         }
         
@@ -651,36 +703,62 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         return false
       })
       
-      console.log('EmployeeGasSales - Category changed to:', formData.category)
-      console.log('EmployeeGasSales - Re-filtered products:', filteredProducts.length)
-      console.log('EmployeeGasSales - Gas products available:', allProducts.filter(p => p.category === 'gas').map(p => ({
-        name: p.name,
-        productStock: p.currentStock,
-        inventoryStock: inventoryAvailability[p._id]?.currentStock || 0
-      })))
-      
       setProducts(filteredProducts)
     }
   }, [formData.category, allProducts, inventoryAvailability])
 
-  const fetchData = async () => {
+  const fetchSalesData = async (options?: { showLoader?: boolean }) => {
+    const showLoader = options?.showLoader ?? true
+    if (isFetchingSalesRef.current) {
+      pendingSalesRefetchRef.current = true
+      return
+    }
+    isFetchingSalesRef.current = true
     try {
-      setLoading(true)
+      if (showLoader) setLoading(true)
       // Get current employee ID from user prop
       const employeeId = user.id
       
-      const [employeeSalesResponse, customersResponse, employeeInventoryResponse] = await Promise.all([
-        employeeSalesAPI.getAll(), // Only fetch employee sales
-        customersAPI.getAll(),
-        fetch(`/api/employee-inventory-new/received?employeeId=${employeeId}`), // Use new employee inventory API
-      ])
+      const employeeSalesResponse = await employeeSalesAPI.getByEmployeeId(employeeId)
 
       // Normalize sales and customers - only show employee sales
       const employeeSalesData = Array.isArray(employeeSalesResponse.data) ? employeeSalesResponse.data : []
-      // Filter to show only this employee's sales
-      const salesData = employeeSalesData
-        .filter((sale: any) => sale.employee?._id === employeeId || sale.employee === employeeId)
-        .sort((a, b) => getSaleCreationTime(b) - getSaleCreationTime(a))
+      const salesData = employeeSalesData.sort((a, b) => getSaleCreationTime(b) - getSaleCreationTime(a))
+
+      setSales(salesData)
+      // Fetch supporting data in background after main sales list is rendered
+      void fetchSupportingData()
+    } catch (error) {
+      console.error("Failed to fetch data:", error)
+      // Type guard to check if error is an axios error
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as any
+        console.error("Error details:", axiosError.response?.data)
+        console.error("Error status:", axiosError.response?.status)
+      }
+      setSales([])
+    } finally {
+      isFetchingSalesRef.current = false
+      if (showLoader) setLoading(false)
+      if (pendingSalesRefetchRef.current) {
+        pendingSalesRefetchRef.current = false
+        void fetchSalesData({ showLoader: false })
+      }
+    }
+  }
+
+  const fetchSupportingData = async () => {
+    if (isFetchingSupportingRef.current) {
+      pendingSupportingRefetchRef.current = true
+      return
+    }
+    isFetchingSupportingRef.current = true
+    try {
+      const employeeId = user.id
+      const [customersResponse, employeeInventoryResponse] = await Promise.all([
+        customersAPI.getAll(),
+        fetch(`/api/employee-inventory-new/received?employeeId=${employeeId}`), // Use new employee inventory API
+      ])
 
       const customersData = Array.isArray(customersResponse.data?.data)
         ? customersResponse.data.data
@@ -692,47 +770,32 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
 
       // Fetch employee's own inventory using new API format
       const employeeInventoryData = await employeeInventoryResponse.json()
-      console.log('Employee inventory response (new API):', employeeInventoryData)
-      console.log('🔍 Raw inventory items:', employeeInventoryData?.data?.map((item: any) => ({
-        productId: item.productId,
-        productName: item.productName,
-        category: item.category,
-        currentStock: item.currentStock,
-        availableEmpty: item.availableEmpty,
-        availableFull: item.availableFull
-      })))
-      
       // Extract products from employee inventory with any stock (gas, full cylinders, or empty cylinders)
       const allEmployeeProducts: Product[] = [];
-      const inventoryAvailability: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
+      const supportingInventoryAvailability: Record<string, { availableEmpty: number; availableFull: number; currentStock: number }> = {}
       
       if (employeeInventoryData?.data && Array.isArray(employeeInventoryData.data)) {
         employeeInventoryData.data.forEach((inventoryItem: any) => {
           if (inventoryItem.productId) {
-            // Include products that have any stock (gas, full cylinders, or empty cylinders)
             const currentStock = inventoryItem.currentStock || 0
             const availableEmpty = inventoryItem.availableEmpty || 0
             const availableFull = inventoryItem.availableFull || 0
             
-            // Store inventory availability for stock validation
-            inventoryAvailability[inventoryItem.productId] = {
+            supportingInventoryAvailability[inventoryItem.productId] = {
               currentStock,
               availableEmpty,
               availableFull
             }
             
-            // Include ALL products (even with 0 stock) so filtering can work properly
             const productWithStock = {
               _id: inventoryItem.productId,
               name: inventoryItem.productName,
               productCode: inventoryItem.productCode,
               category: inventoryItem.category,
               currentStock: currentStock,
-              // Add inventory-specific fields for availability checking
               availableEmpty: availableEmpty,
               availableFull: availableFull,
               cylinderSize: inventoryItem.cylinderSize,
-              // Get price fields from the API response - they should be populated by the backend
               costPrice: inventoryItem.costPrice || 0,
               leastPrice: inventoryItem.leastPrice || 0,
             }
@@ -741,72 +804,33 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         })
       }
       
-      // Deduplicate products by _id
       const productsData = Array.from(
         new Map(allEmployeeProducts.map(p => [p._id, p])).values()
       )
-      
-      setSales(salesData)
+
       setCustomers(customersData)
       setAllProducts(productsData)
-      setInventoryAvailability(inventoryAvailability)
-
-      // Filter by selected category using inventory data for accurate stock levels (matching admin logic)
-      const filteredProducts = productsData.filter((product: Product) => {
-        if (product.category !== formData.category) return false
-        
-        if (product.category === 'cylinder') {
-          // For cylinders, show based on available stock (both full and empty)
-          const availableFull = inventoryAvailability[product._id]?.availableFull || 0
-          const availableEmpty = inventoryAvailability[product._id]?.availableEmpty || 0
-          return availableFull > 0 || availableEmpty > 0
-        } else if (product.category === 'gas') {
-          // For gas, check currentStock from inventory availability (Gas tab) - matching admin logic
-          const gasStock = inventoryAvailability[product._id]?.currentStock || 0
-          return gasStock > 0
-        }
-        
-        // Fallback to product.currentStock for other categories
-        return (product.currentStock || 0) > 0
-      })
-      
-      console.log('Employee Gas Sales - Category filter:', formData.category)
-      console.log('Employee Gas Sales - All products:', productsData.length)
-      console.log('Employee Gas Sales - Filtered products:', filteredProducts.length)
-      console.log('Employee Gas Sales - Gas products with stock:', productsData.filter(p => p.category === 'gas').map(p => ({
-        name: p.name,
-        productStock: p.currentStock,
-        inventoryStock: inventoryAvailability[p._id]?.currentStock || 0
-      })))
-      console.log('Employee Gas Sales - Cylinder products with stock:', productsData.filter(p => p.category === 'cylinder').map(p => ({
-        name: p.name,
-        status: (p as any).cylinderStatus,
-        availableFull: inventoryAvailability[p._id]?.availableFull || 0,
-        availableEmpty: inventoryAvailability[p._id]?.availableEmpty || 0
-      })))
-      console.log('Employee Gas Sales - Loaded inventory:', {
-        totalItems: employeeInventoryData?.data?.length || 0,
-        gasProducts: productsData.filter(p => p.category === 'gas').length,
-        cylinderProducts: productsData.filter(p => p.category === 'cylinder').length,
-        availabilityMap: Object.keys(inventoryAvailability).length,
-        inventoryAvailability: inventoryAvailability
-      })
-      
-      setProducts(filteredProducts)
+      setInventoryAvailability(supportingInventoryAvailability)
+      hasLoadedSupportingOnceRef.current = true
     } catch (error) {
-      console.error("Failed to fetch data:", error)
-      // Type guard to check if error is an axios error
-      if (error && typeof error === 'object' && 'response' in error) {
-        const axiosError = error as any
-        console.error("Error details:", axiosError.response?.data)
-        console.error("Error status:", axiosError.response?.status)
-      }
-      setSales([])
-      setCustomers([])
-      setProducts([])
+      console.error("Failed to fetch supporting data:", error)
     } finally {
-      setLoading(false)
+      isFetchingSupportingRef.current = false
+      if (pendingSupportingRefetchRef.current) {
+        pendingSupportingRefetchRef.current = false
+        void fetchSupportingData()
+      }
     }
+  }
+
+  const ensureSupportingDataLoaded = () => {
+    if (!hasLoadedSupportingOnceRef.current && !isFetchingSupportingRef.current) {
+      void fetchSupportingData()
+    }
+  }
+
+  const fetchData = async (options?: { showLoader?: boolean }) => {
+    await fetchSalesData(options)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -941,6 +965,11 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         notes: formData.notes,
         lpoNo: formData.lpoNo.trim(),
       }
+      const normalizeCustomerName = (value: unknown) => String(value || "").trim().toLowerCase()
+      const originalCustomerName = normalizeCustomerName(editingSale?.customer?.name)
+      const updatedCustomerName = normalizeCustomerName(selectedCustomer?.name)
+      const shouldRequireFreshSignature =
+        Boolean(editingSale) && originalCustomerName !== updatedCustomerName
 
       console.log('🚀 EmployeeGasSales - Submitting sale data:', saleData)
       console.log('📦 EmployeeGasSales - Sale items (main):', saleItems)
@@ -996,9 +1025,11 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
           invoiceNumber: (editingSale as any).invoiceNumber,
           customer: saleData.customer,
         }
-        const fullUpdatePayload = {
+        const fullUpdatePayload: any = {
           ...updatePayload,
-          customerSignature: (editingSale as any).customerSignature || "",
+        }
+        if (shouldRequireFreshSignature) {
+          fullUpdatePayload.customerSignature = ""
         }
         try {
           console.log('EmployeeGasSales - PUT full payload:', fullUpdatePayload)
@@ -1014,6 +1045,9 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
             totalAmount: totalAmount,
             notes: formData.notes,
             lpoNo: formData.lpoNo.trim(),
+          }
+          if (shouldRequireFreshSignature) {
+            ;(minimalUpdatePayload as any).customerSignature = ""
           }
           console.log('EmployeeGasSales - PUT minimal payload:', minimalUpdatePayload)
           savedResponse = await employeeSalesAPI.update(editingSale._id, minimalUpdatePayload)
@@ -1047,13 +1081,25 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
         console.log('✅ Employee sale created successfully:', savedResponse)
       }
 
-      console.log('EmployeeGasSales - Sale completed successfully, refreshing data...')
-      await fetchData()
+      const savedSale = (savedResponse?.data?.data) || (savedResponse?.data) || null
+      if (savedSale?._id) {
+        setSales((prev) => {
+          const existingIndex = prev.findIndex((sale) => sale._id === savedSale._id)
+          if (existingIndex === -1) {
+            return [savedSale, ...prev]
+          }
+          const next = [...prev]
+          next[existingIndex] = { ...next[existingIndex], ...savedSale }
+          return next
+        })
+      }
+
+      console.log('EmployeeGasSales - Sale completed successfully, syncing in background...')
+      void fetchData({ showLoader: false })
       
       // Force refresh inventory data after sale
-      setTimeout(async () => {
-        console.log('EmployeeGasSales - Force refreshing inventory data after 1 second...')
-        await fetchData()
+      setTimeout(() => {
+        void fetchData({ showLoader: false })
       }, 1000)
       
       resetForm()
@@ -1129,8 +1175,11 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
           // Include employee field for signature lookup
           employee: saved?.employee || user?.id || null,
         }
-        setPendingSale(normalizedSale)
-        setShowSignatureDialog(true)
+        const shouldAutoPromptForSignature = !editingSale || shouldRequireFreshSignature
+        if (shouldAutoPromptForSignature) {
+          setPendingSale(normalizedSale)
+          setShowSignatureDialog(true)
+        }
       } catch (normalizeError: any) {
         // Log error but don't block the flow - signature dialog is optional enhancement
         console.warn("Failed to normalize sale data for signature dialog:", normalizeError?.message || normalizeError)
@@ -1231,7 +1280,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     if (confirm("Are you sure you want to delete this sale?")) {
       try {
         await employeeSalesAPI.delete(id)
-        await fetchData()
+        await fetchData({ showLoader: false })
       } catch (error: any) {
         console.error("Failed to delete sale:", error)
         const errorMessage = error?.response?.data?.error || "Failed to delete sale"
@@ -1790,6 +1839,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
 
   // Customer autocomplete functionality
   const handleCustomerSearchChange = (value: string) => {
+    ensureSupportingDataLoaded()
     setCustomerSearchTerm(value)
     
     if (value.trim().length > 0) {
@@ -1823,6 +1873,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   }
 
   const handleCustomerInputFocus = () => {
+    ensureSupportingDataLoaded()
     if (customerSearchTerm.trim().length > 0 && filteredCustomerSuggestions.length > 0) {
       setShowCustomerSuggestions(true)
     }
@@ -1830,6 +1881,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
 
   // Search filter autocomplete functionality
   const handleSearchChange = (value: string) => {
+    ensureSupportingDataLoaded()
     setSearchTerm(value)
     
     if (value.trim().length > 0) {
@@ -1861,6 +1913,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   }
 
   const handleSearchInputFocus = () => {
+    ensureSupportingDataLoaded()
     if (searchTerm.trim().length > 0 && filteredSearchSuggestions.length > 0) {
       setShowSearchSuggestions(true)
     }
@@ -1869,7 +1922,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
   // Ensure sales is always an array with proper type checking
   const salesArray = Array.isArray(sales) ? sales : []
   
-  const filteredSales = salesArray.filter((sale) => {
+  const filteredSales = useMemo(() => salesArray.filter((sale) => {
     // Add null checks for sale properties
     if (!sale || !sale.invoiceNumber || !sale.customer) {
       return false
@@ -1880,11 +1933,11 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       (sale.customer.name && sale.customer.name.toLowerCase().includes(searchTerm.toLowerCase()))
     const matchesStatus = statusFilter === "all" || sale.paymentStatus === statusFilter
     return matchesSearch && matchesStatus
-  })
+  }), [salesArray, searchTerm, statusFilter])
 
   // Group filtered sales by invoice number for expandable rows
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
-  const groupedByInvoice = (() => {
+  const groupedByInvoice = useMemo(() => {
     const map: Record<string, any> = {}
     for (const s of filteredSales) {
       const key = s.invoiceNumber || `N/A-${s._id}`
@@ -1922,7 +1975,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       }
     }
     return Object.values(map).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-  })()
+  }, [filteredSales])
   const toggleGroup = (key: string) => {
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }))
   }
@@ -2202,20 +2255,11 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                           const productCategory = (p.category || '').toLowerCase()
                           const filterCategory = currentItem.category.toLowerCase()
                           
-                          console.log('🔍 Product suggestion filter:', {
-                            productName: p.name,
-                            productCategory: productCategory,
-                            filterCategory: filterCategory,
-                            cylinderStatus: currentItem.cylinderStatus,
-                            inventoryData: inventoryAvailability[p._id]
-                          })
-                          
                           // Match gas categories
                           if (filterCategory === 'gas') {
                             if (!productCategory.includes('gas')) return false
                             // For gas, check currentStock from inventory availability
                             const gasStock = inventoryAvailability[p._id]?.currentStock || 0
-                            console.log('🔍 Gas suggestion check:', { productName: p.name, gasStock })
                             if (gasStock <= 0) return false
                           }
                           
@@ -2226,12 +2270,10 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                             if (currentItem.cylinderStatus === 'empty') {
                               // Show cylinders with empty stock available
                               const availableEmpty = inventoryAvailability[p._id]?.availableEmpty || 0
-                              console.log('🔍 Empty cylinder suggestion check:', { productName: p.name, availableEmpty })
                               if (availableEmpty <= 0) return false
                             } else {
                               // Show cylinders with full stock available
                               const availableFull = inventoryAvailability[p._id]?.availableFull || 0
-                              console.log('🔍 Full cylinder suggestion check:', { productName: p.name, availableFull })
                               if (availableFull <= 0) return false
                             }
                           }
@@ -2403,6 +2445,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
                       type="number"
                       min="1"
                       value={currentItem.quantity}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => handleEntryQuantityChange(e.target.value)}
                     />
                   </div>

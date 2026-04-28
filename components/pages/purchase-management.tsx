@@ -1,7 +1,7 @@
 "use client"
 
 import React, { Fragment } from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -78,6 +78,7 @@ export const PurchaseManagement = () => {
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [supportingLoading, setSupportingLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null)
@@ -122,6 +123,8 @@ export const PurchaseManagement = () => {
     notes: "",
   }))
   const [inventoryItems, setInventoryItems] = useState<InventoryItemLite[]>([])
+  const isFetchingRef = useRef(false)
+  const lastFocusRefreshRef = useRef(0)
 
   useEffect(() => {
     fetchData()
@@ -130,8 +133,10 @@ export const PurchaseManagement = () => {
   // Add window focus listener to refresh data when user returns to the page
   useEffect(() => {
     const handleFocus = () => {
-      console.log("Purchase Management page focused, refreshing data...")
-      fetchData()
+      const now = Date.now()
+      if (now - lastFocusRefreshRef.current < 15000) return
+      lastFocusRefreshRef.current = now
+      fetchData({ silent: true })
     }
 
     window.addEventListener('focus', handleFocus)
@@ -197,56 +202,72 @@ export const PurchaseManagement = () => {
     loadAdminSignature()
   }, [])
 
-  const fetchData = async () => {
+  const fetchData = async (options?: { silent?: boolean }) => {
+    if (isFetchingRef.current) return
+    isFetchingRef.current = true
+    let skipSupportingFetch = false
     try {
+      if (!options?.silent) setLoading(true)
       setError("")
-      
-      // Fetch suppliers, products, and inventory items
-      const [suppliersRes, productsRes, inventoryRes] = await Promise.all([
-        suppliersAPI.getAll(), 
-        productsAPI.getAll(),
-        fetch('/api/inventory-items', { cache: 'no-store' })
-      ])
-      
-      const suppliersData = suppliersRes.data || []
-      const productsData = productsRes.data || []
-      const inventoryDataRaw = await (async () => { try { return (await inventoryRes.json())?.data || [] } catch { return [] } })()
-      
-      setSuppliers(suppliersData)
-      setProducts(productsData)
-      setInventoryItems(inventoryDataRaw)
-      
-      // Try to fetch purchase orders separately (requires auth)
-      try {
-        const [purchaseOrdersRes, employeeOrdersRes] = await Promise.all([
-          purchaseOrdersAPI.getAll(),
-          employeePurchaseOrdersAPI.getAll({ meOnly: false }).catch(() => ({ data: { data: [] } })) // Fetch all employee orders for admin
-        ])
-        
-        // The API response structure is: response.data.data (nested)
-        const ordersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
-        const employeeOrdersData = employeeOrdersRes.data?.data || employeeOrdersRes.data || []
-        
-        // Ensure it's always an array
-        const finalData = Array.isArray(ordersData) ? ordersData : []
-        const finalEmployeeData = Array.isArray(employeeOrdersData) ? employeeOrdersData : []
-        
-        setPurchaseOrders(finalData)
-        setEmployeePurchaseOrders(finalEmployeeData)
-      } catch (purchaseError: any) {
-        
-        if (purchaseError.response?.status === 401) {
+
+      // Critical call only: admin purchase orders
+      const purchaseOrdersResult = await Promise.allSettled([purchaseOrdersAPI.getAll({ mode: "list" })])
+      if (purchaseOrdersResult[0].status === "fulfilled") {
+        const ordersData = purchaseOrdersResult[0].value.data?.data || purchaseOrdersResult[0].value.data || []
+        setPurchaseOrders(Array.isArray(ordersData) ? ordersData : [])
+      } else {
+        const purchaseError: any = purchaseOrdersResult[0].reason
+        if (purchaseError?.response?.status === 401) {
           setError("Authentication required. Please log in to view purchase orders.")
+          skipSupportingFetch = true
         } else {
-          setError(`Failed to load purchase orders: ${purchaseError.message}`)
+          setError(`Failed to load purchase orders: ${purchaseError?.message || "unknown error"}`)
         }
         setPurchaseOrders([])
-        setEmployeePurchaseOrders([])
+      }
+
+      // Unblock UI immediately after critical data
+      setLoading(false)
+
+      if (skipSupportingFetch) {
+        return
+      }
+
+      // Background: employee orders (for PDF merge), no blocking
+      void employeePurchaseOrdersAPI
+        .getAll({ meOnly: false, mode: "list" })
+        .then((employeeOrdersRes: any) => {
+          const employeeOrdersData = employeeOrdersRes.data?.data || employeeOrdersRes.data || []
+          setEmployeePurchaseOrders(Array.isArray(employeeOrdersData) ? employeeOrdersData : [])
+        })
+        .catch(() => {
+          setEmployeePurchaseOrders([])
+        })
+
+      // Supporting data in background (non-blocking)
+      setSupportingLoading(true)
+      const [suppliersRes, productsRes, inventoryRes] = await Promise.allSettled([
+        suppliersAPI.getAll(),
+        productsAPI.getAll(),
+        fetch('/api/inventory-items', { cache: 'no-store' }),
+      ])
+
+      if (suppliersRes.status === "fulfilled") {
+        setSuppliers(suppliersRes.value.data || [])
+      }
+      if (productsRes.status === "fulfilled") {
+        setProducts(productsRes.value.data || [])
+      }
+      if (inventoryRes.status === "fulfilled") {
+        const inventoryDataRaw = await (async () => { try { return (await inventoryRes.value.json())?.data || [] } catch { return [] } })()
+        setInventoryItems(inventoryDataRaw)
       }
     } catch (error: any) {
       setError("Failed to load suppliers and products. Please refresh the page.")
     } finally {
+      setSupportingLoading(false)
       setLoading(false)
+      isFetchingRef.current = false
     }
   }
 
@@ -531,17 +552,6 @@ export const PurchaseManagement = () => {
     const itemTotal = Math.trunc((subtotal + vatAmount) * 100) / 100
     return sum + itemTotal
   }, 0)
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-[#2B3068]" />
-          <p className="text-gray-600">Loading purchase orders...</p>
-        </div>
-      </div>
-    )
-  }
 
   const norm = (v?: string) => (v || "").toLowerCase()
   const filteredOrders = purchaseOrders.filter((o) => {
@@ -1119,6 +1129,17 @@ export const PurchaseManagement = () => {
 
   return (
     <div className="pt-6 lg:pt-0 space-y-6 sm:space-y-8">
+      {supportingLoading && (
+        <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          Supporting data (suppliers/products/inventory) is hydrating in background...
+        </div>
+      )}
+      {loading && (
+        <div className="rounded-md border border-[#2B3068]/20 bg-white px-3 py-2 text-xs text-[#2B3068] flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Loading purchase orders...
+        </div>
+      )}
       {/* Error Alert */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">

@@ -19,8 +19,7 @@ export async function GET() {
   }
 
   try {
-    const customers = await Customer.find({}).sort({ createdAt: -1 });
-    console.log(`Fetched ${customers.length} customers`);
+    const customers = await Customer.find({}).sort({ createdAt: -1 }).lean();
     return NextResponse.json({ data: customers });
   } catch (error) {
     console.error("Customers GET error:", error);

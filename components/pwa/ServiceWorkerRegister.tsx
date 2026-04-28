@@ -13,6 +13,29 @@ const ServiceWorkerRegister = () => {
   useEffect(() => {
     if (typeof window === "undefined") return
     if (!("serviceWorker" in navigator)) return
+    
+    // Some browser extensions emit noisy unhandled rejections in devtools.
+    // Ignore the known extension-only message so app errors stay readable.
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reasonText =
+        typeof event.reason === "string"
+          ? event.reason
+          : event.reason?.message || ""
+      if (
+        reasonText.includes("No Listener: tabs:outgoing.message.ready") ||
+        reasonText.includes("Cannot set properties of null (setting 'code')")
+      ) {
+        event.preventDefault()
+      }
+    }
+    const onWindowError = (event: ErrorEvent) => {
+      const msg = String(event?.message || "")
+      if (msg.includes("No Listener: tabs:outgoing.message.ready")) {
+        event.preventDefault()
+      }
+    }
+    window.addEventListener("unhandledrejection", onUnhandledRejection)
+    window.addEventListener("error", onWindowError)
 
     const isLocalhost = Boolean(
       window.location.hostname === "localhost" ||
@@ -113,6 +136,8 @@ const ServiceWorkerRegister = () => {
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
       }
+      window.removeEventListener("unhandledrejection", onUnhandledRejection)
+      window.removeEventListener("error", onWindowError)
     }
   }, [])
 

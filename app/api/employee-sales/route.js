@@ -17,11 +17,18 @@ export const revalidate = 0
 export const fetchCache = 'force-no-store'
 
 export async function GET(request) {
+  const startedAt = Date.now()
+  const shouldLogTiming = process.env.NODE_ENV === "development" || process.env.LOG_ROUTE_TIMING === "true"
   try {
     await dbConnect()
     
     const { searchParams } = new URL(request.url)
     const employeeId = searchParams.get('employeeId')
+    const totalsOnly = searchParams.get('totals') === 'true'
+    const mode = searchParams.get("mode")
+    const limitParam = Number(searchParams.get("limit") || 0)
+    const isListMode = mode === "list"
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 0
     
     let query = {}
     if (employeeId) {
@@ -29,11 +36,55 @@ export async function GET(request) {
     }
     // If no employeeId provided, fetch all employee sales (for admin panel)
 
-    const sales = await EmployeeSale.find(query)
-      .populate("customer", "name email phone address trNumber")
-      .populate("items.product", "name category cylinderSize costPrice leastPrice")
-      .populate("employee", "name email")
+    if (totalsOnly) {
+      const [totals] = await EmployeeSale.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            totalDebit: { $sum: { $ifNull: ["$totalAmount", 0] } },
+            totalCredit: { $sum: { $ifNull: ["$receivedAmount", 0] } },
+            totalSales: { $sum: 1 },
+          },
+        },
+      ])
+
+      return NextResponse.json({
+        data: {
+          totalDebit: Number(totals?.totalDebit || 0),
+          totalCredit: Number(totals?.totalCredit || 0),
+          totalSales: Number(totals?.totalSales || 0),
+        },
+      })
+    }
+
+    let salesQuery = EmployeeSale.find(query)
       .sort({ createdAt: -1 })
+      .lean()
+
+    if (isListMode) {
+      salesQuery = salesQuery
+        .select("invoiceNumber employee customer items totalAmount paymentMethod paymentStatus receivedAmount notes lpoNo customerSignature createdAt updatedAt")
+        .populate("customer", "name phone address trNumber")
+        .populate("items.product", "name category cylinderSize")
+        .populate("employee", "name email")
+    } else {
+      salesQuery = salesQuery
+        .populate("customer", "name email phone address trNumber")
+        .populate("items.product", "name category cylinderSize")
+        .populate("employee", "name email")
+    }
+
+    if (limit > 0) {
+      salesQuery = salesQuery.limit(limit)
+    }
+
+    const sales = await salesQuery
+
+    if (shouldLogTiming) {
+      const scope = employeeId ? "employee" : "all"
+      console.info(`[route-timing] GET /api/employee-sales mode=${isListMode ? "list" : "full"} scope=${scope} durationMs=${Date.now() - startedAt}`)
+    }
 
     return NextResponse.json(sales)
   } catch (error) {
@@ -64,24 +115,16 @@ export async function POST(request) {
 
     // Get employee's inventory using new system
     const EmployeeInventoryItem = (await import("@/models/EmployeeInventoryItem")).default
-    
-    console.log(`🔍 [EMPLOYEE SALES] Fetching inventory for employee: ${employeeId}`)
-    
     // Fetch employee's available inventory from new system
     const employeeInventoryItems = await EmployeeInventoryItem.find({
       employee: employeeId
     }).populate('product', 'name productCode category costPrice leastPrice cylinderSize')
-    
-    console.log(`📊 [EMPLOYEE SALES] Found ${employeeInventoryItems.length} inventory items`)
-    
     // Build employee inventory map using new system
     const employeeStockMap = new Map()
     
     employeeInventoryItems.forEach(item => {
       if (item.product) {
         const key = `${item.product._id}-${item.category}`
-        console.log(`📦 [EMPLOYEE SALES] Processing item: ${item.product.name}, Category: ${item.category}, Stock: Gas=${item.currentStock}, Full=${item.availableFull}, Empty=${item.availableEmpty}`)
-        
         employeeStockMap.set(key, {
           product: item.product,
           currentStock: item.currentStock || 0,
@@ -91,10 +134,6 @@ export async function POST(request) {
         })
       }
     })
-    
-    console.log(`🗺️ [EMPLOYEE SALES] Built inventory map with ${employeeStockMap.size} entries`)
-    console.log(`🔍 [EMPLOYEE SALES] Inventory map keys:`, Array.from(employeeStockMap.keys()))
-
     for (const item of items) {
       const product = await Product.findById(item.product)
       if (!product) {
@@ -104,17 +143,7 @@ export async function POST(request) {
       // Find employee's inventory for this product
       const itemCategory = item.category || product.category
       const key = `${item.product}-${itemCategory}`
-      console.log(`🔍 [EMPLOYEE SALES] Checking inventory for: ${product.name}, Category: ${itemCategory}, Key: ${key}`)
-      console.log(`📊 [EMPLOYEE SALES] Employee stock found:`, employeeStockMap.get(key) ? {
-        product: employeeStockMap.get(key).product.name,
-        currentStock: employeeStockMap.get(key).currentStock,
-        availableEmpty: employeeStockMap.get(key).availableEmpty,
-        availableFull: employeeStockMap.get(key).availableFull
-      } : 'Not found')
-      
       if (!employeeStockMap.get(key)) {
-        console.log(`❌ [EMPLOYEE SALES] No inventory found for key: ${key}`)
-        console.log(`🗺️ [EMPLOYEE SALES] Available keys:`, Array.from(employeeStockMap.keys()))
         return NextResponse.json({ 
           error: `No inventory found for ${product.name} for this employee` 
         }, { status: 400 })
@@ -126,8 +155,6 @@ export async function POST(request) {
         if (item.cylinderStatus === 'full') {
           // Allow full cylinder sales - check availableFull stock
           availableStock = employeeStockMap.get(key).availableFull
-          console.log(`🔍 [EMPLOYEE SALES] Full cylinder sale - Available: ${availableStock}, Requested: ${item.quantity}`)
-          
           if (availableStock < item.quantity) {
             return NextResponse.json({ 
               error: `Insufficient full cylinder stock for ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}` 
@@ -136,8 +163,6 @@ export async function POST(request) {
         } else {
           // Empty cylinder sales - check availableEmpty stock
           availableStock = employeeStockMap.get(key).availableEmpty
-          console.log(`🔍 [EMPLOYEE SALES] Empty cylinder sale - Available: ${availableStock}, Requested: ${item.quantity}`)
-          
           if (availableStock < item.quantity) {
             return NextResponse.json({ 
               error: `Insufficient empty cylinder stock for ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}` 
@@ -147,8 +172,6 @@ export async function POST(request) {
       } else {
         // Gas sales - check currentStock
         availableStock = employeeStockMap.get(key).currentStock
-        console.log(`🔍 [EMPLOYEE SALES] Gas sale - Available: ${availableStock}, Requested: ${item.quantity}`)
-        
         if (availableStock < item.quantity) {
           return NextResponse.json({ 
             error: `Insufficient stock for ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}` 
@@ -185,8 +208,6 @@ export async function POST(request) {
       if (productCategory === 'gas' && !item.cylinderProductId) {
         // Auto-determine cylinder based on gas name
         const gasName = product?.name || ''
-        console.log(`Auto-determining cylinder for employee gas sale: ${gasName}`)
-        
         // Get all products to find matching cylinder
         const allProducts = await Product.find({ category: 'cylinder' })
         
@@ -198,7 +219,6 @@ export async function POST(request) {
         if (matchingCylinder) {
           validatedItem.cylinderProductId = matchingCylinder._id
           validatedItem.cylinderName = matchingCylinder.name
-          console.log(`Found matching cylinder: ${matchingCylinder.name} for gas: ${gasName}`)
         } else {
           // Try reverse matching - check if any cylinder name contains the gas name parts
           const gasWords = gasName.toLowerCase().split(' ').filter(word => 
@@ -212,7 +232,6 @@ export async function POST(request) {
             if (cylinder) {
               validatedItem.cylinderProductId = cylinder._id
               validatedItem.cylinderName = cylinder.name
-              console.log(`Found cylinder by word match: ${cylinder.name} for gas: ${gasName} (word: ${word})`)
               break
             }
           }
@@ -251,7 +270,6 @@ export async function POST(request) {
     // Update Employee DSR tracking (EmpGasSales model) - same as admin DSR
     try {
       await updateEmpGasSalesTracking(savedSale, employeeId)
-      console.log(`✅ [EMPLOYEE SALES] Employee DSR tracking updated successfully`)
     } catch (dsrError) {
       console.error(`❌ [EMPLOYEE SALES] Failed to update employee DSR tracking:`, dsrError.message)
       // Don't fail the entire sale if DSR tracking fails
@@ -260,20 +278,15 @@ export async function POST(request) {
     // Update daily sales aggregation for DSR
     try {
       await updateDailySalesAggregation(savedSale, employeeId)
-      console.log(`✅ [EMPLOYEE SALES] Daily sales aggregation updated successfully`)
     } catch (trackingError) {
       console.error(`❌ [EMPLOYEE SALES] Failed to update daily sales aggregation:`, trackingError.message)
       // Don't fail the entire sale if tracking fails
     }
 
     // Update employee inventory using new system
-    console.log(`🔄 [EMPLOYEE SALES] Starting inventory updates for ${validatedItems.length} items`)
-    
     for (const item of validatedItems) {
       const product = await Product.findById(item.product)
       if (product) {
-        console.log(`🔄 [EMPLOYEE SALES] Processing ${item.quantity} units of ${product.name} (${product.category})`)
-        
         if (product.category === 'gas') {
           // Update gas inventory - decrease gas stock from employee inventory
           const gasInventory = await EmployeeInventoryItem.findOne({
@@ -285,7 +298,6 @@ export async function POST(request) {
             gasInventory.currentStock = Math.max(0, (gasInventory.currentStock || 0) - item.quantity)
             gasInventory.lastUpdatedAt = new Date()
             await gasInventory.save()
-            console.log(`✅ [EMPLOYEE SALES] Gas inventory updated: ${product.name} decreased by ${item.quantity}, remaining: ${gasInventory.currentStock}`)
           }
           
           // Handle cylinder conversion for gas sales (from cylinderProductId)
@@ -301,7 +313,6 @@ export async function POST(request) {
               cylinderInventory.availableEmpty = (cylinderInventory.availableEmpty || 0) + item.quantity
               cylinderInventory.lastUpdatedAt = new Date()
               await cylinderInventory.save()
-              console.log(`✅ [EMPLOYEE SALES] Cylinder conversion: ${item.quantity} moved from Full to Empty, Full: ${cylinderInventory.availableFull}, Empty: ${cylinderInventory.availableEmpty}`)
             }
           }
           
@@ -318,8 +329,6 @@ export async function POST(request) {
               cylinderInventory.availableFull = Math.max(0, (cylinderInventory.availableFull || 0) - item.quantity)
               cylinderInventory.lastUpdatedAt = new Date()
               await cylinderInventory.save()
-              console.log(`✅ [EMPLOYEE SALES] Full cylinder sale: ${product.name} decreased by ${item.quantity}, remaining: ${cylinderInventory.availableFull}`)
-              
               // Record employee full cylinder sale in daily tracking system
               try {
                 // Use local date instead of UTC to ensure correct date assignment
@@ -334,9 +343,6 @@ export async function POST(request) {
                   employeeId: employeeId,
                   isEmployeeTransaction: true // This is employee sale
                 }
-                
-                console.log(`📊 [EMPLOYEE SALES] Recording daily full cylinder sale:`, dailyTrackingData)
-                
                 const dailyTrackingResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/daily-cylinder-transactions`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -344,7 +350,6 @@ export async function POST(request) {
                 })
                 
                 if (dailyTrackingResponse.ok) {
-                  console.log(`✅ [EMPLOYEE SALES] Daily full cylinder sale recorded successfully`)
                 } else {
                   console.error(`❌ [EMPLOYEE SALES] Failed to record daily full cylinder sale:`, await dailyTrackingResponse.text())
                 }
@@ -363,7 +368,6 @@ export async function POST(request) {
                   gasInventory.currentStock = Math.max(0, (gasInventory.currentStock || 0) - item.quantity)
                   gasInventory.lastUpdatedAt = new Date()
                   await gasInventory.save()
-                  console.log(`✅ [EMPLOYEE SALES] Gas deducted for full cylinder: ${item.quantity} units, remaining: ${gasInventory.currentStock}`)
                 }
               }
             } else {
@@ -371,19 +375,14 @@ export async function POST(request) {
               cylinderInventory.availableEmpty = Math.max(0, (cylinderInventory.availableEmpty || 0) - item.quantity)
               cylinderInventory.lastUpdatedAt = new Date()
               await cylinderInventory.save()
-              console.log(`✅ [EMPLOYEE SALES] Empty cylinder sale: ${product.name} decreased by ${item.quantity}, remaining: ${cylinderInventory.availableEmpty}`)
             }
           }
         }
       }
     }
-
-    console.log(`✅ [EMPLOYEE SALES] Inventory updates completed successfully`)
-
     // Add daily sales tracking for employee DSR (same logic as admin sales)
     try {
       await updateEmployeeDailySalesTracking(savedSale, employeeId)
-      console.log(`✅ [EMPLOYEE SALES] Daily sales tracking updated successfully`)
     } catch (trackingError) {
       console.error(`❌ [EMPLOYEE SALES] Failed to update daily sales tracking:`, trackingError.message)
       // Don't fail the entire sale if tracking fails
@@ -392,7 +391,6 @@ export async function POST(request) {
     try {
       const affectedDate = getLocalDateStringFromDate(savedSale.createdAt)
       await recalculateEmployeeDailyStockReportsFrom(employeeId, affectedDate)
-      console.log(`âœ… [EMPLOYEE SALES] Employee DSR snapshots rebuilt from ${affectedDate}`)
     } catch (syncError) {
       console.error(`âŒ [EMPLOYEE SALES] Failed to rebuild employee DSR snapshots:`, syncError.message)
     }
@@ -423,9 +421,6 @@ export async function POST(request) {
 async function updateDailySalesAggregation(sale, employeeId) {
   // Use local date instead of UTC to ensure correct date assignment
   const saleDate = getLocalDateStringFromDate(sale.createdAt) // YYYY-MM-DD format
-  
-  console.log(`📊 [DAILY AGGREGATION] Processing sale for date: ${saleDate}, employee: ${employeeId}`)
-  
   // Process each item in the sale
   for (const item of sale.items) {
     const product = await Product.findById(item.product)
@@ -436,9 +431,6 @@ async function updateDailySalesAggregation(sale, employeeId) {
     
     const quantity = Number(item.quantity) || 0
     const revenue = Number(item.price) * quantity || 0
-    
-    console.log(`📊 [DAILY AGGREGATION] Processing item: ${product.name}, Category: ${product.category}, Qty: ${quantity}, Revenue: ${revenue}`)
-    
     // Prepare sales data based on category and cylinder status
     let salesData = {}
     
@@ -448,8 +440,6 @@ async function updateDailySalesAggregation(sale, employeeId) {
         gasSales: quantity,
         gasRevenue: revenue
       }
-      console.log(`📊 [DAILY AGGREGATION] Gas sale recorded: ${quantity} units, ${revenue} revenue`)
-      
     } else if (product.category === 'cylinder') {
       // Cylinder sales
       if (item.cylinderStatus === 'full') {
@@ -457,13 +447,11 @@ async function updateDailySalesAggregation(sale, employeeId) {
           fullCylinderSales: quantity,
           fullCylinderRevenue: revenue
         }
-        console.log(`📊 [DAILY AGGREGATION] Full cylinder sale recorded: ${quantity} units, ${revenue} revenue`)
       } else {
         salesData = {
           emptyCylinderSales: quantity,
           emptyCylinderRevenue: revenue
         }
-        console.log(`📊 [DAILY AGGREGATION] Empty cylinder sale recorded: ${quantity} units, ${revenue} revenue`)
       }
     }
     
@@ -477,20 +465,10 @@ async function updateDailySalesAggregation(sale, employeeId) {
         product.category,
         salesData
       )
-      
-      console.log(`✅ [DAILY AGGREGATION] Updated aggregation for ${product.name}:`, {
-        totalGasSales: aggregation.totalGasSales,
-        totalFullCylinderSales: aggregation.totalFullCylinderSales,
-        totalEmptyCylinderSales: aggregation.totalEmptyCylinderSales,
-        salesCount: aggregation.salesCount
-      })
-      
     } catch (aggregationError) {
       console.error(`❌ [DAILY AGGREGATION] Failed to update aggregation for ${product.name}:`, aggregationError.message)
     }
   }
-  
-  console.log(`✅ [DAILY AGGREGATION] Completed processing sale ${sale.invoiceNumber}`)
 }
 
 // Helper function to update employee daily sales tracking (same logic as admin sales)
@@ -498,9 +476,6 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
   // Use local date instead of UTC to ensure correct date assignment
   const saleDate = getLocalDateStringFromDate(sale.createdAt) // YYYY-MM-DD format
   const DailyEmployeeSales = (await import('@/models/DailyEmployeeSales')).default
-  
-  console.log(`📊 [EMPLOYEE DAILY SALES] Processing ${sale.items.length} items for date: ${saleDate}, employee: ${employeeId}`)
-  
   // Process each item in the sale
   for (const item of sale.items) {
     const product = await Product.findById(item.product)
@@ -513,9 +488,6 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
     const amount = Number(item.price) * quantity || 0
     
     if (quantity <= 0) continue
-    
-    console.log(`[EMPLOYEE DAILY SALES] Processing: ${product.name}, Category: ${item.category || product.category}, Status: ${item.cylinderStatus}, Qty: ${quantity}`)
-    
     // Determine the type of sale and update accordingly
     if (product.category === 'gas' || item.category === 'gas') {
       // Gas Sales - record gas sales and handle cylinder conversion
@@ -541,9 +513,7 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
           },
           { upsert: true, new: true }
         )
-        console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale tracked (no cylinder): ${product.name} - ${quantity} units`)
       } else {
-        console.log(`ℹ️ [EMPLOYEE DAILY SALES] Gas sale with cylinder - will be tracked under cylinder product: ${product.name} - ${quantity} units`)
       }
       
       // Also record gas sales under cylinder product if cylinderProductId is provided
@@ -573,20 +543,11 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
             },
             { upsert: true, new: true }
           )
-          console.log(`✅ [EMPLOYEE DAILY SALES] Gas sale recorded for ${cylinderProduct.name}: ${quantity} units`)
         }
       }
       
     } else if (product.category === 'cylinder' || item.category === 'cylinder') {
       // Cylinder Sales - distinguish between Full and Empty
-      console.log(`🔍 [EMPLOYEE DAILY SALES] Processing cylinder item:`, {
-        productName: product.name,
-        itemCylinderStatus: item.cylinderStatus,
-        itemGasProductId: item.gasProductId,
-        itemCategory: item.category,
-        productCategory: product.category
-      })
-      
       // Check if cylinderStatus is explicitly set, or infer from other indicators
       let isFullCylinder = item.cylinderStatus === 'full'
       
@@ -597,11 +558,9 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
         if (item.gasProductId) {
           // gasProductId presence indicates a full cylinder sale (full cylinders have gas inside)
           isFullCylinder = true
-          console.log(`⚠️ [EMPLOYEE DAILY SALES] cylinderStatus not set to 'full', but gasProductId present - inferring full cylinder sale`)
         } else if (!item.cylinderStatus || item.cylinderStatus === '') {
           // No cylinderStatus and no gasProductId - default to empty
           isFullCylinder = false
-          console.log(`⚠️ [EMPLOYEE DAILY SALES] cylinderStatus not set and no gasProductId - defaulting to empty cylinder sale`)
         } else {
           // cylinderStatus is explicitly set to something other than 'full' (likely 'empty')
           isFullCylinder = false
@@ -631,8 +590,6 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
           },
           { upsert: true, new: true }
         )
-        console.log(`✅ [EMPLOYEE DAILY SALES] Full cylinder sale tracked: ${product.name} - ${quantity} units (cylinderStatus: ${item.cylinderStatus || 'inferred'})`)
-        
         // NOTE: Do NOT record gas sales for direct full cylinder sales
         // Full cylinder sales should only show in "Full Cyl Sales" column, not "Gas Sales"
         // Gas sales are only recorded when:
@@ -663,10 +620,7 @@ async function updateEmployeeDailySalesTracking(sale, employeeId) {
           },
           { upsert: true, new: true }
         )
-        console.log(`✅ [EMPLOYEE DAILY SALES] Empty cylinder sale tracked: ${product.name} - ${quantity} units`)
       }
     }
   }
-  
-  console.log(`✅ [EMPLOYEE DAILY SALES] Daily sales tracking completed for ${sale.items.length} items`)
 }

@@ -613,6 +613,7 @@ export function AcceptReturn({ user }: { user: AdminUser }) {
                         <Input
                           className="w-[90px] text-right"
                           value={draftItem.quantity}
+                          onFocus={(e) => e.currentTarget.select()}
                           onChange={(e) => updateDraftItem({ quantity: e.target.value.replace(/[^\d]/g, "") || "" })}
                           inputMode="numeric"
                         />
