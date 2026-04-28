@@ -100,12 +100,13 @@ const purchaseOrderSchema = new mongoose.Schema({
   timestamps: true
 })
 
-// Add index for efficient queries
-purchaseOrderSchema.index({ supplier: 1 })
-purchaseOrderSchema.index({ product: 1 })
+// Add indexes for efficient queries
+purchaseOrderSchema.index({ supplier: 1, createdAt: -1 })
+purchaseOrderSchema.index({ "items.product": 1, createdAt: -1 })
 purchaseOrderSchema.index({ purchaseDate: -1 })
-purchaseOrderSchema.index({ status: 1 })
-purchaseOrderSchema.index({ poNumber: 1 })
+purchaseOrderSchema.index({ status: 1, createdAt: -1 })
+purchaseOrderSchema.index({ inventoryStatus: 1, createdAt: -1 })
+purchaseOrderSchema.index({ poNumber: 1 }, { unique: true })
 
 const PurchaseOrder = mongoose.models.PurchaseOrder || mongoose.model("PurchaseOrder", purchaseOrderSchema)
 

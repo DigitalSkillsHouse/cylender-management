@@ -677,7 +677,7 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
 
       // Critical employee orders first
       try {
-        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll({ meOnly: true, mode: "list", limit: 200 })
+        const purchaseOrdersRes = await employeePurchaseOrdersAPI.getAll({ meOnly: true, mode: "list", limit: 500 })
         const ordersData = purchaseOrdersRes.data?.data || purchaseOrdersRes.data || []
         let finalData = Array.isArray(ordersData) ? ordersData : []
         if (user?.id) {
@@ -779,27 +779,23 @@ export const PurchaseManagement = ({ user }: PurchaseManagementProps) => {
         }
         await employeePurchaseOrdersAPI.update(editingOrder._id, purchaseData)
       } else {
-        // For new orders, create multiple purchase orders (one per item)
-        // Auto-approve them so they go directly to employee pending inventory
-        for (const item of formData.items) {
-          const purchaseData = {
-            supplier: formData.supplierId,
-            product: item.productId,
-            purchaseDate: formData.purchaseDate,
-            purchaseType: item.purchaseType,
-            quantity: Number.parseInt(item.quantity),
-            ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
-            // totalAmount computed server-side when not provided
-            notes: formData.notes,
-            invoiceNumber: formData.invoiceNumber.trim(),
-            emptyCylinderId: item.emptyCylinderId,
-            emptyCylinderName: item.emptyCylinderName,
-            purchasePaperImage: formData.purchasePaperImage,
-            status: 'approved', // Auto-approve so it goes directly to pending inventory
-            autoApproved: true, // Flag to indicate this was auto-approved
-          }
-          await employeePurchaseOrdersAPI.create(purchaseData)
-        }
+        // For new orders, create multiple purchase orders in parallel for faster submission
+        const createPayloads = formData.items.map((item) => ({
+          supplier: formData.supplierId,
+          product: item.productId,
+          purchaseDate: formData.purchaseDate,
+          purchaseType: item.purchaseType,
+          quantity: Number.parseInt(item.quantity),
+          ...(item.unitPrice ? { unitPrice: Number.parseFloat(item.unitPrice) } : {}),
+          notes: formData.notes,
+          invoiceNumber: formData.invoiceNumber.trim(),
+          emptyCylinderId: item.emptyCylinderId,
+          emptyCylinderName: item.emptyCylinderName,
+          purchasePaperImage: formData.purchasePaperImage,
+          status: 'approved', // Auto-approve so it goes directly to pending inventory
+          autoApproved: true, // Flag to indicate this was auto-approved
+        }))
+        await Promise.all(createPayloads.map((purchaseData) => employeePurchaseOrdersAPI.create(purchaseData)))
       }
 
       await fetchData()

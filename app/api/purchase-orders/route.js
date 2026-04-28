@@ -101,156 +101,146 @@ export async function POST(request) {
       )
     }
 
-    // Validate and process each item
+    // Validate and process items using bulk lookups (faster than per-item queries)
+    const supplierExists = await Supplier.exists({ _id: supplier })
+    if (!supplierExists) {
+      return NextResponse.json({ error: "Supplier not found" }, { status: 400 })
+    }
+
+    const productIds = [...new Set(items.map((item) => String(item.productId)).filter(Boolean))]
+    const emptyCylinderIds = [...new Set(items.map((item) => String(item.emptyCylinderId || "")).filter(Boolean))]
+    const allLookupIds = [...new Set([...productIds, ...emptyCylinderIds])]
+
+    const products = await Product.find({ _id: { $in: allLookupIds } })
+      .select("_id name productCode category cylinderStatus")
+      .lean()
+    const productMap = new Map(products.map((p) => [String(p._id), p]))
+
+    const emptyInventoryDocs = emptyCylinderIds.length
+      ? await InventoryItem.find({ product: { $in: emptyCylinderIds } })
+          .select("product category availableEmpty")
+          .lean()
+      : []
+    const emptyInventoryMap = new Map(emptyInventoryDocs.map((inv) => [String(inv.product), inv]))
+
     const processedItems = []
     let totalOrderAmount = 0
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
-      console.log(`Processing item ${i + 1}:`, item)
-
-      // Validate item fields
       if (!item.productId || !item.purchaseType || !item.quantity) {
         return NextResponse.json(
           { error: `Item ${i + 1}: Missing required fields (productId, purchaseType, quantity)` },
-          { status: 400 }
+          { status: 400 },
         )
       }
 
-      // CRITICAL: Validate that the product exists and prevent new product creation
-      console.log(`🔍 VALIDATING PRODUCT EXISTS: ${item.productId}`)
-      const existingProduct = await Product.findById(item.productId)
+      const existingProduct = productMap.get(String(item.productId))
       if (!existingProduct) {
-        console.error(`❌ PRODUCT NOT FOUND: ${item.productId}`)
         return NextResponse.json(
           { error: `Item ${i + 1}: Product not found. Only existing products can be purchased.` },
-          { status: 400 }
+          { status: 400 },
         )
       }
-      console.log(`✅ PRODUCT VALIDATED: ${existingProduct.name} (${existingProduct.productCode}) - Category: ${existingProduct.category}${existingProduct.cylinderStatus ? '-' + existingProduct.cylinderStatus : ''}`)
 
-      // Optional productCode validation for main product
       if (item.productCode !== undefined) {
-        const expected = String(existingProduct.productCode || '')
-        const provided = String(item.productCode || '')
+        const expected = String(existingProduct.productCode || "")
+        const provided = String(item.productCode || "")
         if (expected && provided && expected !== provided) {
           return NextResponse.json(
             { error: `Item ${i + 1}: productCode mismatch for selected product. Expected ${expected}, got ${provided}` },
-            { status: 400 }
+            { status: 400 },
           )
         }
       }
 
       let effectiveCylinderStatus = item.cylinderStatus
-      if (item.purchaseType === 'cylinder' && !effectiveCylinderStatus) {
-        console.log(`Item ${i + 1}: Cylinder purchase without status, looking up product:`, item.productId)
-        try {
-          const prod = await Product.findById(item.productId)
-          console.log("Found product:", prod)
-          if (prod && prod.cylinderStatus) {
-            effectiveCylinderStatus = prod.cylinderStatus
-            console.log("Inferred cylinder status:", effectiveCylinderStatus)
-          } else {
-            return NextResponse.json(
-              { error: `Item ${i + 1}: cylinderStatus is required for cylinder purchases` },
-              { status: 400 }
-            )
-          }
-        } catch (productError) {
-          console.error("Error fetching product:", productError)
+      if (item.purchaseType === "cylinder" && !effectiveCylinderStatus) {
+        if (existingProduct.cylinderStatus) {
+          effectiveCylinderStatus = existingProduct.cylinderStatus
+        } else {
           return NextResponse.json(
-            { error: `Item ${i + 1}: Failed to validate product details` },
-            { status: 500 }
+            { error: `Item ${i + 1}: cylinderStatus is required for cylinder purchases` },
+            { status: 400 },
           )
         }
       }
 
-      // Validate gasType for full cylinders
-      if (item.purchaseType === 'cylinder' && effectiveCylinderStatus === 'full' && !item.gasType) {
+      if (item.purchaseType === "cylinder" && effectiveCylinderStatus === "full" && !item.gasType) {
         return NextResponse.json(
           { error: `Item ${i + 1}: gasType is required for full cylinder purchases` },
-          { status: 400 }
+          { status: 400 },
         )
       }
 
-      // Validate emptyCylinderId for gas purchases
-      if (item.purchaseType === 'gas' && !item.emptyCylinderId) {
+      if (item.purchaseType === "gas" && !item.emptyCylinderId) {
         return NextResponse.json(
           { error: `Item ${i + 1}: emptyCylinderId is required for gas purchases` },
-          { status: 400 }
+          { status: 400 },
         )
       }
 
-      // Validate empty cylinder stock for gas purchases using InventoryItem (no deductions here)
-      if (item.purchaseType === 'gas' && item.emptyCylinderId) {
-        try {
-          // Optional productCode validation for empty cylinder product
-          if (item.emptyCylinderCode !== undefined) {
-            const emptyCylinderProd = await Product.findById(item.emptyCylinderId)
-            if (!emptyCylinderProd) {
-              return NextResponse.json(
-                { error: `Item ${i + 1}: Empty cylinder product not found` },
-                { status: 400 }
-              )
-            }
-            const expectedCode = String(emptyCylinderProd.productCode || '')
-            const providedCode = String(item.emptyCylinderCode || '')
-            if (expectedCode && providedCode && expectedCode !== providedCode) {
-              return NextResponse.json(
-                { error: `Item ${i + 1}: emptyCylinderCode mismatch. Expected ${expectedCode}, got ${providedCode}` },
-                { status: 400 }
-              )
-            }
-          }
-
-          const emptyInv = await InventoryItem.findOne({ product: item.emptyCylinderId })
-          if (!emptyInv) {
-            return NextResponse.json(
-              { error: `Item ${i + 1}: Empty cylinder inventory not found` },
-              { status: 400 }
-            )
-          }
-          if (emptyInv.category !== 'cylinder') {
-            return NextResponse.json(
-              { error: `Item ${i + 1}: Selected item is not a cylinder` },
-              { status: 400 }
-            )
-          }
-          const available = Number(emptyInv.availableEmpty || 0)
-          if (available < Number(item.quantity)) {
-            return NextResponse.json(
-              { error: `Item ${i + 1}: Not enough empty cylinders available. Available: ${available}, Requested: ${item.quantity}` },
-              { status: 400 }
-            )
-          }
-          console.log(`✅ Inventory validated for empty cylinders: requested=${item.quantity}, available=${available}`)
-        } catch (cylinderError) {
-          console.error("Error validating empty cylinder inventory:", cylinderError)
+      if (item.purchaseType === "gas" && item.emptyCylinderId) {
+        const emptyCylinderProd = productMap.get(String(item.emptyCylinderId))
+        if (!emptyCylinderProd) {
           return NextResponse.json(
-            { error: `Item ${i + 1}: Failed to validate empty cylinder inventory` },
-            { status: 500 }
+            { error: `Item ${i + 1}: Empty cylinder product not found` },
+            { status: 400 },
+          )
+        }
+        if (item.emptyCylinderCode !== undefined) {
+          const expectedCode = String(emptyCylinderProd.productCode || "")
+          const providedCode = String(item.emptyCylinderCode || "")
+          if (expectedCode && providedCode && expectedCode !== providedCode) {
+            return NextResponse.json(
+              { error: `Item ${i + 1}: emptyCylinderCode mismatch. Expected ${expectedCode}, got ${providedCode}` },
+              { status: 400 },
+            )
+          }
+        }
+
+        const emptyInv = emptyInventoryMap.get(String(item.emptyCylinderId))
+        if (!emptyInv) {
+          return NextResponse.json(
+            { error: `Item ${i + 1}: Empty cylinder inventory not found` },
+            { status: 400 },
+          )
+        }
+        if (emptyInv.category !== "cylinder") {
+          return NextResponse.json(
+            { error: `Item ${i + 1}: Selected item is not a cylinder` },
+            { status: 400 },
+          )
+        }
+        const available = Number(emptyInv.availableEmpty || 0)
+        if (available < Number(item.quantity)) {
+          return NextResponse.json(
+            { error: `Item ${i + 1}: Not enough empty cylinders available. Available: ${available}, Requested: ${item.quantity}` },
+            { status: 400 },
           )
         }
       }
 
       const qtyNum = Number(item.quantity)
-      const unitPriceNum = (item.unitPrice !== undefined && item.unitPrice !== null && item.unitPrice !== "") ? Number(item.unitPrice) : 0
+      const unitPriceNum = item.unitPrice !== undefined && item.unitPrice !== null && item.unitPrice !== "" ? Number(item.unitPrice) : 0
       const itemTotal = qtyNum * unitPriceNum
 
-      const processedItem = {
+      processedItems.push({
         product: item.productId,
         purchaseType: item.purchaseType,
-        ...(item.purchaseType === 'cylinder' ? { 
-          cylinderStatus: effectiveCylinderStatus,
-          ...(effectiveCylinderStatus === 'full' ? { gasType: item.gasType } : {})
-        } : {}),
-        ...(item.purchaseType === 'gas' ? { emptyCylinderId: item.emptyCylinderId } : {}),
+        ...(item.purchaseType === "cylinder"
+          ? {
+              cylinderStatus: effectiveCylinderStatus,
+              ...(effectiveCylinderStatus === "full" ? { gasType: item.gasType } : {}),
+            }
+          : {}),
+        ...(item.purchaseType === "gas" ? { emptyCylinderId: item.emptyCylinderId } : {}),
         quantity: qtyNum,
         unitPrice: unitPriceNum,
-        itemTotal: itemTotal
-      }
+        itemTotal,
+        inventoryStatus: "pending",
+      })
 
-      processedItems.push(processedItem)
       totalOrderAmount += itemTotal
     }
 
@@ -275,8 +265,10 @@ export async function POST(request) {
       items: processedItems,
       totalAmount: totalOrderAmount,
       notes: notes || "",
-      status,
+      status: status || "pending",
+      inventoryStatus: "pending",
       poNumber,
+      purchasePaperImage: String(purchasePaperImage || "").trim(),
       createdBy: user.id
     })
 

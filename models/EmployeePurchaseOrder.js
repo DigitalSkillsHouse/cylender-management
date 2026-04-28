@@ -95,11 +95,12 @@ const employeePurchaseOrderSchema = new mongoose.Schema({
 })
 
 // Add indexes for efficient queries
-employeePurchaseOrderSchema.index({ supplier: 1 })
-employeePurchaseOrderSchema.index({ product: 1 })
-employeePurchaseOrderSchema.index({ employee: 1 })
+employeePurchaseOrderSchema.index({ employee: 1, createdAt: -1 })
+employeePurchaseOrderSchema.index({ supplier: 1, createdAt: -1 })
+employeePurchaseOrderSchema.index({ product: 1, createdAt: -1 })
 employeePurchaseOrderSchema.index({ purchaseDate: -1 })
-employeePurchaseOrderSchema.index({ status: 1 })
+employeePurchaseOrderSchema.index({ status: 1, createdAt: -1 })
+employeePurchaseOrderSchema.index({ inventoryStatus: 1, createdAt: -1 })
 employeePurchaseOrderSchema.index({ poNumber: 1 })
 
 const EmployeePurchaseOrder = mongoose.models.EmployeePurchaseOrder || mongoose.model("EmployeePurchaseOrder", employeePurchaseOrderSchema)

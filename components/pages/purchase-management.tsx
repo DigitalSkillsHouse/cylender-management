@@ -270,7 +270,7 @@ export const PurchaseManagement = () => {
 
       // Background: employee orders (for PDF merge), no blocking
       void employeePurchaseOrdersAPI
-        .getAll({ meOnly: false, mode: "list" })
+        .getAll({ meOnly: false, mode: "list", limit: 500 })
         .then((employeeOrdersRes: any) => {
           const employeeOrdersData = employeeOrdersRes.data?.data || employeeOrdersRes.data || []
           setEmployeePurchaseOrders(Array.isArray(employeeOrdersData) ? employeeOrdersData : [])
