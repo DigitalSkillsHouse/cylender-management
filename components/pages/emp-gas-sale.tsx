@@ -725,7 +725,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       // Get current employee ID from user prop
       const employeeId = user.id
       
-      const employeeSalesResponse = await employeeSalesAPI.getByEmployeeId(employeeId, { mode: "list", limit: 500 })
+      const employeeSalesResponse = await employeeSalesAPI.getByEmployeeId(employeeId, { mode: "list" })
 
       // Normalize sales payload (supports both array and wrapped { data: [...] } shapes)
       const employeeSalesData = Array.isArray(employeeSalesResponse?.data?.data)
@@ -738,7 +738,7 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
       let normalizedEmployeeSales = employeeSalesData
       if (!normalizedEmployeeSales.length) {
         try {
-          const fallbackResponse = await employeeSalesAPI.getAll({ mode: "list", limit: 500 })
+          const fallbackResponse = await employeeSalesAPI.getAll({ mode: "list" })
           const fallbackData = Array.isArray(fallbackResponse?.data?.data)
             ? fallbackResponse.data.data
             : Array.isArray(fallbackResponse?.data)

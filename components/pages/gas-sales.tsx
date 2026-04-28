@@ -734,7 +734,7 @@ export const GasSales = () => {
           const route = "/api/sales"
           const startedAt = trackRouteStart(route)
           try {
-            return await salesAPI.getAll({ mode: "list", limit: 500 })
+            return await salesAPI.getAll({ mode: "list" })
           } finally {
             trackRouteEnd(route, startedAt)
           }
@@ -743,7 +743,7 @@ export const GasSales = () => {
           const route = "/api/employee-sales"
           const startedAt = trackRouteStart(route)
           try {
-            return await employeeSalesAPI.getAll({ mode: "list", limit: 500 })
+            return await employeeSalesAPI.getAll({ mode: "list" })
           } finally {
             trackRouteEnd(route, startedAt)
           }
@@ -760,7 +760,7 @@ export const GasSales = () => {
       if (employeeSalesResult.status === "rejected") {
         console.warn("Failed to fetch employee sales list:", employeeSalesResult.reason)
         try {
-          const fallbackRes = await fetch("/api/employee-sales?mode=list&limit=500", {
+          const fallbackRes = await fetch("/api/employee-sales?mode=list", {
             cache: "no-store",
             credentials: "include",
           })

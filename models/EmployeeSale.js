@@ -143,8 +143,11 @@ const EmployeeSaleSchema = new mongoose.Schema(
 // Index for faster queries
 EmployeeSaleSchema.index({ employee: 1, createdAt: -1 })
 EmployeeSaleSchema.index({ customer: 1, createdAt: -1 })
+EmployeeSaleSchema.index({ createdAt: -1 })
 EmployeeSaleSchema.index({ invoiceNumber: 1 })
 EmployeeSaleSchema.index({ paymentStatus: 1 })
+EmployeeSaleSchema.index({ paymentStatus: 1, createdAt: -1 })
+EmployeeSaleSchema.index({ customer: 1, paymentStatus: 1, createdAt: -1 })
 
 // Clear the existing model if it exists to force schema update
 if (mongoose.models.EmployeeSale) {

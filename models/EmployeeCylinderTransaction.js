@@ -117,6 +117,8 @@ EmployeeCylinderTransactionSchema.index({ customer: 1, createdAt: -1 })
 EmployeeCylinderTransactionSchema.index({ supplier: 1, createdAt: -1 })
 EmployeeCylinderTransactionSchema.index({ type: 1 })
 EmployeeCylinderTransactionSchema.index({ status: 1 })
+EmployeeCylinderTransactionSchema.index({ customer: 1, status: 1, createdAt: -1 })
+EmployeeCylinderTransactionSchema.index({ customer: 1, type: 1, createdAt: -1 })
 // Index to quickly find returns linked to a deposit
 EmployeeCylinderTransactionSchema.index({ linkedDeposit: 1 })
 

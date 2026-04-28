@@ -130,6 +130,9 @@ try {
     { invoiceNumber: 1 },
     { unique: true, partialFilterExpression: { invoiceNumber: { $exists: true } } }
   );
+  CylinderTransactionSchema.index({ customer: 1, createdAt: -1 });
+  CylinderTransactionSchema.index({ customer: 1, status: 1, createdAt: -1 });
+  CylinderTransactionSchema.index({ customer: 1, type: 1, createdAt: -1 });
 } catch (e) {
   // no-op: index creation errors will be logged by Mongo
 }

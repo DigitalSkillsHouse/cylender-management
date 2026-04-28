@@ -7,368 +7,439 @@ import EmployeeCylinderTransaction from "@/models/EmployeeCylinderTransaction";
 import User from "@/models/User";
 import Product from "@/models/Product";
 import { NextResponse } from "next/server";
-import { normalizeSalePaymentState } from "@/lib/payment-status";
 
-// Disable caching for this route - force dynamic rendering
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-export const fetchCache = 'force-no-store'
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
-// Helper function to truncate to 2 decimal places (exact calculation, no rounding)
 const roundToTwo = (value) => {
-  if (value === null || value === undefined || isNaN(value)) {
-    return 0;
-  }
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return 0;
   return Math.trunc(Number(value) * 100) / 100;
+};
+
+const monthKey = (year, month) => `${year}-${String(month).padStart(2, "0")}`;
+
+const buildLastSixMonths = () => {
+  const out = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push({
+      key: monthKey(d.getFullYear(), d.getMonth() + 1),
+      label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+    });
+  }
+  return out;
 };
 
 export async function GET() {
   try {
     await dbConnect();
 
-    // Get all basic counts and transaction data
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5, 1);
+    sixMonthsAgo.setHours(0, 0, 0, 0);
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
     const [
       totalCustomers,
       totalEmployees,
       totalProducts,
-      adminSales,
-      employeeSales,
-      adminCylinderTransactions,
-      employeeCylinderTransactions
+      adminSalesAgg,
+      employeeSalesAgg,
+      adminCylAgg,
+      employeeCylAgg,
+      salesMonthlyAdmin,
+      salesMonthlyEmployee,
+      cylMonthlyAdmin,
+      cylMonthlyEmployee,
+      topSalesAdmin,
+      topSalesEmployee,
+      topCylAdmin,
+      topCylEmployee,
+      overdueSalesAdminCustomers,
+      overdueSalesEmployeeCustomers,
+      pendingSalesAdminCustomers,
+      pendingSalesEmployeeCustomers,
+      overdueCylAdminCustomers,
+      overdueCylEmployeeCustomers,
+      pendingCylAdminCustomers,
+      pendingCylEmployeeCustomers,
     ] = await Promise.all([
       Customer.countDocuments(),
-      User.countDocuments({ role: 'employee' }),
+      User.countDocuments({ role: "employee" }),
       Product.countDocuments(),
-      Sale.find({}).populate('items.product').lean(),
-      EmployeeSale.find({}).populate('items.product').lean(),
-      CylinderTransaction.find({}).lean(),
-      EmployeeCylinderTransaction.find({}).lean()
-    ]);
-
-    const normalizeStatsSale = (sale) => {
-      const normalizedPayment = normalizeSalePaymentState({
-        totalAmount: sale.totalAmount,
-        receivedAmount: sale.receivedAmount,
-        paymentStatus: sale.paymentStatus,
-      })
-
-      return {
-        ...sale,
-        totalAmount: normalizedPayment.totalAmount,
-        receivedAmount: normalizedPayment.receivedAmount,
-        paymentStatus: normalizedPayment.paymentStatus,
-        outstandingAmount: normalizedPayment.balance,
-      }
-    }
-
-    // Combine all sales for calculations
-    const allSales = [...adminSales, ...employeeSales].map(normalizeStatsSale);
-    const allCylinderTransactions = [...adminCylinderTransactions, ...employeeCylinderTransactions];
-
-    // Calculate revenue from all sales (admin + employee)
-    const adminSalesRevenue = roundToTwo(adminSales.reduce((sum, sale) => sum + roundToTwo(sale.totalAmount || 0), 0));
-    const employeeSalesRevenue = roundToTwo(employeeSales.reduce((sum, sale) => sum + roundToTwo(sale.totalAmount || 0), 0));
-    const totalSalesRevenue = roundToTwo(adminSalesRevenue + employeeSalesRevenue);
-
-    // Calculate cylinder revenue (deposits from admin + employee)
-    const adminCylinderRevenue = roundToTwo(adminCylinderTransactions
-      .filter(t => t.type === 'deposit')
-      .reduce((sum, transaction) => sum + roundToTwo(transaction.amount || 0), 0));
-    const employeeCylinderRevenue = roundToTwo(employeeCylinderTransactions
-      .filter(t => t.type === 'deposit')
-      .reduce((sum, transaction) => sum + roundToTwo(transaction.amount || 0), 0));
-    const totalCylinderRevenue = roundToTwo(adminCylinderRevenue + employeeCylinderRevenue);
-
-    // Total combined revenue
-    const totalRevenue = roundToTwo(totalSalesRevenue + totalCylinderRevenue);
-
-    // Calculate gas sales count (number of gas sales transactions)
-    const gasSales = allSales.length;
-
-    // Calculate cylinder statistics
-    const cylinderRefills = allCylinderTransactions.filter(t => t.type === 'refill').length;
-    const cylinderDeposits = allCylinderTransactions.filter(t => t.type === 'deposit').length;
-    const cylinderReturns = allCylinderTransactions.filter(t => t.type === 'return').length;
-
-
-    // Get recent activity (last 30 days)
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    
-    const recentSales = allSales.filter(sale => 
-      new Date(sale.createdAt) > thirtyDaysAgo
-    ).length;
-    
-    const recentCylinderTransactions = allCylinderTransactions.filter(transaction => 
-      new Date(transaction.createdAt) > thirtyDaysAgo
-    ).length;
-
-    // Calculate monthly trends (last 6 months)
-    const monthlyData = [];
-    for (let i = 5; i >= 0; i--) {
-      const monthStart = new Date();
-      monthStart.setMonth(monthStart.getMonth() - i);
-      monthStart.setDate(1);
-      monthStart.setHours(0, 0, 0, 0);
-      
-      const monthEnd = new Date(monthStart);
-      monthEnd.setMonth(monthEnd.getMonth() + 1);
-      monthEnd.setDate(0);
-      monthEnd.setHours(23, 59, 59, 999);
-
-      const monthSales = allSales.filter(sale => {
-        const saleDate = new Date(sale.createdAt);
-        return saleDate >= monthStart && saleDate <= monthEnd;
-      });
-
-      const monthCylinderTransactions = allCylinderTransactions.filter(transaction => {
-        const transactionDate = new Date(transaction.createdAt);
-        return transactionDate >= monthStart && transactionDate <= monthEnd;
-      });
-
-      const monthRevenue = roundToTwo(monthSales.reduce((sum, sale) => sum + roundToTwo(sale.totalAmount || 0), 0));
-      const monthCylinderRevenue = roundToTwo(monthCylinderTransactions
-        .filter(t => t.type === 'deposit')
-        .reduce((sum, transaction) => 
-        sum + roundToTwo(transaction.amount || 0), 0
-      ));
-
-      monthlyData.push({
-        month: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-        sales: monthSales.length,
-        revenue: monthRevenue,
-        cylinderTransactions: monthCylinderTransactions.length,
-        cylinderRevenue: monthCylinderRevenue,
-        totalRevenue: roundToTwo(monthRevenue + monthCylinderRevenue)
-      });
-    }
-
-    // Get top customers by transaction volume
-    const customerStats = await Customer.aggregate([
-      {
-        $lookup: {
-          from: 'sales',
-          localField: '_id',
-          foreignField: 'customer',
-          as: 'sales'
-        }
-      },
-      {
-        $lookup: {
-          from: 'cylindertransactions',
-          localField: '_id',
-          foreignField: 'customer',
-          as: 'cylinderTransactions'
-        }
-      },
-      {
-        $addFields: {
-          totalTransactions: { $add: [{ $size: '$sales' }, { $size: '$cylinderTransactions' }] },
-          totalSalesAmount: { $sum: '$sales.totalAmount' },
-          totalCylinderAmount: { 
-            $sum: { 
-              $map: { 
-                input: { 
-                  $filter: { 
-                    input: '$cylinderTransactions', 
-                    as: 'txn', 
-                    cond: { $eq: ['$$txn.type', 'deposit'] } 
-                  } 
-                }, 
-                as: 'filteredTxn', 
-                in: '$$filteredTxn.amount' 
-              } 
-            } 
+      Sale.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: { $ifNull: ["$totalAmount", 0] } },
+            totalSales: { $sum: 1 },
+            recentSales: {
+              $sum: {
+                $cond: [{ $gte: ["$createdAt", thirtyDaysAgo] }, 1, 0],
+              },
+            },
           },
-          totalAmount: { 
-            $add: [
-              { $sum: '$sales.totalAmount' }, 
-              { 
-                $sum: { 
-                  $map: { 
-                    input: { 
-                      $filter: { 
-                        input: '$cylinderTransactions', 
-                        as: 'txn', 
-                        cond: { $eq: ['$$txn.type', 'deposit'] } 
-                      } 
-                    }, 
-                    as: 'filteredTxn', 
-                    in: '$$filteredTxn.amount' 
-                  } 
-                } 
-              }
-            ] 
-          }
-        }
-      },
-      {
-        $sort: { totalAmount: -1 }
-      },
-      {
-        $limit: 5
-      },
-      {
-        $project: {
-          name: 1,
-          totalTransactions: 1,
-          totalAmount: 1,
-          balance: 1
-        }
-      }
+        },
+      ]),
+      EmployeeSale.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: { $ifNull: ["$totalAmount", 0] } },
+            totalSales: { $sum: 1 },
+            recentSales: {
+              $sum: {
+                $cond: [{ $gte: ["$createdAt", thirtyDaysAgo] }, 1, 0],
+              },
+            },
+          },
+        },
+      ]),
+      CylinderTransaction.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalTransactions: { $sum: 1 },
+            cylinderRefills: { $sum: { $cond: [{ $eq: ["$type", "refill"] }, 1, 0] } },
+            cylinderDeposits: { $sum: { $cond: [{ $eq: ["$type", "deposit"] }, 1, 0] } },
+            cylinderReturns: { $sum: { $cond: [{ $eq: ["$type", "return"] }, 1, 0] } },
+            cylinderRevenue: {
+              $sum: { $cond: [{ $eq: ["$type", "deposit"] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+            recentTransactions: {
+              $sum: { $cond: [{ $gte: ["$createdAt", thirtyDaysAgo] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+      EmployeeCylinderTransaction.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalTransactions: { $sum: 1 },
+            cylinderRefills: { $sum: { $cond: [{ $eq: ["$type", "refill"] }, 1, 0] } },
+            cylinderDeposits: { $sum: { $cond: [{ $eq: ["$type", "deposit"] }, 1, 0] } },
+            cylinderReturns: { $sum: { $cond: [{ $eq: ["$type", "return"] }, 1, 0] } },
+            cylinderRevenue: {
+              $sum: { $cond: [{ $eq: ["$type", "deposit"] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+            recentTransactions: {
+              $sum: { $cond: [{ $gte: ["$createdAt", thirtyDaysAgo] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+      Sale.aggregate([
+        { $match: { createdAt: { $gte: sixMonthsAgo } } },
+        {
+          $group: {
+            _id: { y: { $year: "$createdAt" }, m: { $month: "$createdAt" } },
+            sales: { $sum: 1 },
+            revenue: { $sum: { $ifNull: ["$totalAmount", 0] } },
+          },
+        },
+      ]),
+      EmployeeSale.aggregate([
+        { $match: { createdAt: { $gte: sixMonthsAgo } } },
+        {
+          $group: {
+            _id: { y: { $year: "$createdAt" }, m: { $month: "$createdAt" } },
+            sales: { $sum: 1 },
+            revenue: { $sum: { $ifNull: ["$totalAmount", 0] } },
+          },
+        },
+      ]),
+      CylinderTransaction.aggregate([
+        { $match: { createdAt: { $gte: sixMonthsAgo } } },
+        {
+          $group: {
+            _id: { y: { $year: "$createdAt" }, m: { $month: "$createdAt" } },
+            cylinderTransactions: { $sum: 1 },
+            cylinderRevenue: {
+              $sum: { $cond: [{ $eq: ["$type", "deposit"] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+          },
+        },
+      ]),
+      EmployeeCylinderTransaction.aggregate([
+        { $match: { createdAt: { $gte: sixMonthsAgo } } },
+        {
+          $group: {
+            _id: { y: { $year: "$createdAt" }, m: { $month: "$createdAt" } },
+            cylinderTransactions: { $sum: 1 },
+            cylinderRevenue: {
+              $sum: { $cond: [{ $eq: ["$type", "deposit"] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+          },
+        },
+      ]),
+      Sale.aggregate([
+        { $match: { customer: { $ne: null } } },
+        {
+          $group: {
+            _id: "$customer",
+            totalTransactions: { $sum: 1 },
+            totalSalesAmount: { $sum: { $ifNull: ["$totalAmount", 0] } },
+          },
+        },
+      ]),
+      EmployeeSale.aggregate([
+        { $match: { customer: { $ne: null } } },
+        {
+          $group: {
+            _id: "$customer",
+            totalTransactions: { $sum: 1 },
+            totalSalesAmount: { $sum: { $ifNull: ["$totalAmount", 0] } },
+          },
+        },
+      ]),
+      CylinderTransaction.aggregate([
+        { $match: { customer: { $ne: null } } },
+        {
+          $group: {
+            _id: "$customer",
+            totalTransactions: { $sum: 1 },
+            totalCylinderAmount: {
+              $sum: { $cond: [{ $eq: ["$type", "deposit"] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+          },
+        },
+      ]),
+      EmployeeCylinderTransaction.aggregate([
+        { $match: { customer: { $ne: null } } },
+        {
+          $group: {
+            _id: "$customer",
+            totalTransactions: { $sum: 1 },
+            totalCylinderAmount: {
+              $sum: { $cond: [{ $eq: ["$type", "deposit"] }, { $ifNull: ["$amount", 0] }, 0] },
+            },
+          },
+        },
+      ]),
+      Sale.distinct("customer", { paymentStatus: "overdue", customer: { $ne: null } }),
+      EmployeeSale.distinct("customer", { paymentStatus: "overdue", customer: { $ne: null } }),
+      Sale.distinct("customer", {
+        customer: { $ne: null },
+        $or: [
+          { paymentStatus: { $in: ["pending", "overdue"] } },
+          { $expr: { $lt: [{ $ifNull: ["$receivedAmount", 0] }, { $ifNull: ["$totalAmount", 0] }] } },
+        ],
+      }),
+      EmployeeSale.distinct("customer", {
+        customer: { $ne: null },
+        $or: [
+          { paymentStatus: { $in: ["pending", "overdue"] } },
+          { $expr: { $lt: [{ $ifNull: ["$receivedAmount", 0] }, { $ifNull: ["$totalAmount", 0] }] } },
+        ],
+      }),
+      CylinderTransaction.distinct("customer", { status: "overdue", customer: { $ne: null } }),
+      EmployeeCylinderTransaction.distinct("customer", { status: "overdue", customer: { $ne: null } }),
+      CylinderTransaction.distinct("customer", { status: { $in: ["pending", "overdue"] }, customer: { $ne: null } }),
+      EmployeeCylinderTransaction.distinct("customer", {
+        status: { $in: ["pending", "overdue"] },
+        customer: { $ne: null },
+      }),
     ]);
 
-    // Calculate customer status breakdown based on actual transaction payment status
-    const allCustomers = await Customer.find({}).lean();
-    let pendingCustomersCount = 0;
-    let clearedCustomersCount = 0;
-    let overdueCustomersCount = 0;
+    const salesSummary = {
+      totalRevenue: Number(adminSalesAgg[0]?.totalRevenue || 0) + Number(employeeSalesAgg[0]?.totalRevenue || 0),
+      totalSales: Number(adminSalesAgg[0]?.totalSales || 0) + Number(employeeSalesAgg[0]?.totalSales || 0),
+      recentSales: Number(adminSalesAgg[0]?.recentSales || 0) + Number(employeeSalesAgg[0]?.recentSales || 0),
+    };
 
-    for (const customer of allCustomers) {
-      // Get all transactions for this customer
-      const customerAdminSales = allSales.filter(sale => !sale.employee && sale.customer?.toString() === customer._id.toString());
-      const customerEmployeeSales = allSales.filter(sale => sale.employee && sale.customer?.toString() === customer._id.toString());
-      const customerAdminCylinders = adminCylinderTransactions.filter(txn => txn.customer?.toString() === customer._id.toString());
-      const customerEmployeeCylinders = employeeCylinderTransactions.filter(txn => txn.customer?.toString() === customer._id.toString());
+    const cylinderSummary = {
+      totalTransactions:
+        Number(adminCylAgg[0]?.totalTransactions || 0) + Number(employeeCylAgg[0]?.totalTransactions || 0),
+      cylinderRefills: Number(adminCylAgg[0]?.cylinderRefills || 0) + Number(employeeCylAgg[0]?.cylinderRefills || 0),
+      cylinderDeposits:
+        Number(adminCylAgg[0]?.cylinderDeposits || 0) + Number(employeeCylAgg[0]?.cylinderDeposits || 0),
+      cylinderReturns: Number(adminCylAgg[0]?.cylinderReturns || 0) + Number(employeeCylAgg[0]?.cylinderReturns || 0),
+      cylinderRevenue:
+        Number(adminCylAgg[0]?.cylinderRevenue || 0) + Number(employeeCylAgg[0]?.cylinderRevenue || 0),
+      recentTransactions:
+        Number(adminCylAgg[0]?.recentTransactions || 0) + Number(employeeCylAgg[0]?.recentTransactions || 0),
+    };
 
-      const allCustomerTransactions = [
-        ...customerAdminSales,
-        ...customerEmployeeSales,
-        ...customerAdminCylinders,
-        ...customerEmployeeCylinders
-      ];
-
-      if (allCustomerTransactions.length === 0) {
-        // Customer with no transactions - consider as cleared
-        clearedCustomersCount++;
-        continue;
+    const monthMap = new Map();
+    const addMonthly = (rows, type) => {
+      for (const row of rows) {
+        const key = monthKey(row._id.y, row._id.m);
+        if (!monthMap.has(key)) {
+          monthMap.set(key, {
+            sales: 0,
+            revenue: 0,
+            cylinderTransactions: 0,
+            cylinderRevenue: 0,
+          });
+        }
+        const curr = monthMap.get(key);
+        if (type === "sales") {
+          curr.sales += Number(row.sales || 0);
+          curr.revenue += Number(row.revenue || 0);
+        } else {
+          curr.cylinderTransactions += Number(row.cylinderTransactions || 0);
+          curr.cylinderRevenue += Number(row.cylinderRevenue || 0);
+        }
       }
+    };
 
-      // Check if customer has any pending transactions
-      const hasPendingTransactions = allCustomerTransactions.some(txn => {
-        if (txn.paymentStatus) {
-          return txn.paymentStatus !== 'cleared';
-        }
-        if (txn.status) {
-          return txn.status === 'pending' || txn.status === 'overdue';
-        }
-        return true;
-      });
+    addMonthly(salesMonthlyAdmin, "sales");
+    addMonthly(salesMonthlyEmployee, "sales");
+    addMonthly(cylMonthlyAdmin, "cyl");
+    addMonthly(cylMonthlyEmployee, "cyl");
 
-      const hasOverdueTransactions = allCustomerTransactions.some(txn => {
-        if (txn.paymentStatus) {
-          return txn.paymentStatus === 'overdue';
-        }
-        if (txn.status) {
-          return txn.status === 'overdue';
-        }
-        return false;
-      });
-
-      if (hasOverdueTransactions) {
-        overdueCustomersCount++;
-      } else if (hasPendingTransactions) {
-        pendingCustomersCount++;
-      } else {
-        clearedCustomersCount++;
-      }
-    }
-
-    console.log('Customer status breakdown:', {
-      total: allCustomers.length,
-      pending: pendingCustomersCount,
-      cleared: clearedCustomersCount,
-      overdue: overdueCustomersCount
+    const monthlyData = buildLastSixMonths().map((m) => {
+      const row = monthMap.get(m.key) || {
+        sales: 0,
+        revenue: 0,
+        cylinderTransactions: 0,
+        cylinderRevenue: 0,
+      };
+      return {
+        month: m.label,
+        sales: row.sales,
+        revenue: roundToTwo(row.revenue),
+        cylinderTransactions: row.cylinderTransactions,
+        cylinderRevenue: roundToTwo(row.cylinderRevenue),
+        totalRevenue: roundToTwo(row.revenue + row.cylinderRevenue),
+      };
     });
 
-    // Ensure all values are numbers and not null/undefined
+    const topMap = new Map();
+    const mergeTopRows = (rows, source) => {
+      for (const row of rows) {
+        const id = String(row._id || "");
+        if (!id) continue;
+        if (!topMap.has(id)) {
+          topMap.set(id, {
+            _id: id,
+            totalTransactions: 0,
+            totalAmount: 0,
+            totalSalesAmount: 0,
+            totalCylinderAmount: 0,
+          });
+        }
+        const curr = topMap.get(id);
+        curr.totalTransactions += Number(row.totalTransactions || 0);
+        if (source === "sales") {
+          curr.totalSalesAmount += Number(row.totalSalesAmount || 0);
+        } else {
+          curr.totalCylinderAmount += Number(row.totalCylinderAmount || 0);
+        }
+        curr.totalAmount = curr.totalSalesAmount + curr.totalCylinderAmount;
+      }
+    };
+
+    mergeTopRows(topSalesAdmin, "sales");
+    mergeTopRows(topSalesEmployee, "sales");
+    mergeTopRows(topCylAdmin, "cyl");
+    mergeTopRows(topCylEmployee, "cyl");
+
+    const topIds = Array.from(topMap.keys());
+    const topCustomersById = new Map(
+      (await Customer.find({ _id: { $in: topIds } }).select("name balance").lean()).map((c) => [String(c._id), c])
+    );
+
+    const topCustomers = Array.from(topMap.values())
+      .map((row) => ({
+        name: topCustomersById.get(row._id)?.name || "Unknown",
+        balance: Number(topCustomersById.get(row._id)?.balance || 0),
+        totalTransactions: row.totalTransactions,
+        totalAmount: roundToTwo(row.totalAmount),
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .slice(0, 5);
+
+    const overdueSet = new Set(
+      [...overdueSalesAdminCustomers, ...overdueSalesEmployeeCustomers, ...overdueCylAdminCustomers, ...overdueCylEmployeeCustomers].map(
+        (id) => String(id)
+      )
+    );
+    const pendingSet = new Set(
+      [...pendingSalesAdminCustomers, ...pendingSalesEmployeeCustomers, ...pendingCylAdminCustomers, ...pendingCylEmployeeCustomers].map(
+        (id) => String(id)
+      )
+    );
+
+    let overdueCustomersCount = 0;
+    let pendingCustomersCount = 0;
+    let clearedCustomersCount = 0;
+    for (const c of await Customer.find({}).select("_id").lean()) {
+      const id = String(c._id);
+      if (overdueSet.has(id)) overdueCustomersCount++;
+      else if (pendingSet.has(id)) pendingCustomersCount++;
+      else clearedCustomersCount++;
+    }
+
+    const totalSalesRevenue = roundToTwo(salesSummary.totalRevenue);
+    const totalCylinderRevenue = roundToTwo(cylinderSummary.cylinderRevenue);
+    const totalRevenue = roundToTwo(totalSalesRevenue + totalCylinderRevenue);
+    const gasSales = salesSummary.totalSales;
+
     const stats = {
-      // Basic counts
       totalCustomers: Number(totalCustomers) || 0,
       totalEmployees: Number(totalEmployees) || 0,
       totalProducts: Number(totalProducts) || 0,
-      totalSales: Number(allSales.length) || 0,
-      
-      // Financial data
-      totalRevenue: roundToTwo(totalRevenue),
-      totalSalesRevenue: roundToTwo(totalSalesRevenue),
-      cylinderRevenue: roundToTwo(totalCylinderRevenue),
-      totalCombinedRevenue: roundToTwo(totalRevenue),
-      
-      // Activity data
+      totalSales: Number(gasSales) || 0,
+      totalRevenue,
+      totalSalesRevenue,
+      cylinderRevenue: totalCylinderRevenue,
+      totalCombinedRevenue: totalRevenue,
       gasSales: Number(gasSales) || 0,
-      cylinderRefills: Number(cylinderRefills) || 0,
-      cylinderDeposits: Number(cylinderDeposits) || 0,
-      cylinderReturns: Number(cylinderReturns) || 0,
-      totalCylinderTransactions: Number(allCylinderTransactions.length) || 0,
-      
-      // Recent activity
-      recentSales: Number(recentSales) || 0,
-      recentCylinderTransactions: Number(recentCylinderTransactions) || 0,
-      
-      // Trends and analytics
-      monthlyData: monthlyData || [],
-      topCustomers: customerStats || [],
-      
-      // Additional metrics
-      averageSaleAmount: allSales.length > 0 ? Number(totalSalesRevenue / allSales.length) || 0 : 0,
-      averageCylinderAmount: allCylinderTransactions.length > 0 ? Number(totalCylinderRevenue / allCylinderTransactions.length) || 0 : 0,
-      
-      // Status breakdown - based on actual transaction payment status
+      cylinderRefills: Number(cylinderSummary.cylinderRefills) || 0,
+      cylinderDeposits: Number(cylinderSummary.cylinderDeposits) || 0,
+      cylinderReturns: Number(cylinderSummary.cylinderReturns) || 0,
+      totalCylinderTransactions: Number(cylinderSummary.totalTransactions) || 0,
+      recentSales: Number(salesSummary.recentSales) || 0,
+      recentCylinderTransactions: Number(cylinderSummary.recentTransactions) || 0,
+      monthlyData,
+      topCustomers,
+      averageSaleAmount: gasSales > 0 ? Number(totalSalesRevenue / gasSales) || 0 : 0,
+      averageCylinderAmount:
+        cylinderSummary.totalTransactions > 0 ? Number(totalCylinderRevenue / cylinderSummary.totalTransactions) || 0 : 0,
       pendingCustomers: Number(pendingCustomersCount) || 0,
       overdueCustomers: Number(overdueCustomersCount) || 0,
-      clearedCustomers: Number(clearedCustomersCount) || 0
+      clearedCustomers: Number(clearedCustomersCount) || 0,
     };
 
-    console.log('Reports stats response:', stats);
-    return NextResponse.json({
-      success: true,
-      data: stats
-    });
-
+    return NextResponse.json({ success: true, data: stats });
   } catch (error) {
     console.error("Reports Stats API error:", error);
-    // Return default zero values when there's an error to ensure frontend displays 0 values
-    return NextResponse.json({
-      success: true,
-      data: {
-        // Basic counts
-        totalCustomers: 0,
-        totalEmployees: 0,
-        totalProducts: 0,
-        totalSales: 0,
-        
-        // Financial data
-        totalRevenue: 0,
-        totalPaid: 0,
-        totalPending: 0,
-        cylinderRevenue: 0,
-        totalCombinedRevenue: 0,
-        
-        // Activity data
-        gasSales: 0,
-        cylinderRefills: 0,
-        cylinderDeposits: 0,
-        cylinderReturns: 0,
-        totalCylinderTransactions: 0,
-        
-        // Recent activity
-        recentSales: 0,
-        recentCylinderTransactions: 0,
-        
-        // Trends and analytics
-        monthlyData: [],
-        topCustomers: [],
-        
-        // Additional metrics
-        averageSaleAmount: 0,
-        averageCylinderAmount: 0,
-        
-        // Status breakdown
-        pendingCustomers: 0,
-        overdueCustomers: 0,
-        clearedCustomers: 0
+    return NextResponse.json(
+      {
+        success: true,
+        data: {
+          totalCustomers: 0,
+          totalEmployees: 0,
+          totalProducts: 0,
+          totalSales: 0,
+          totalRevenue: 0,
+          totalPaid: 0,
+          totalPending: 0,
+          cylinderRevenue: 0,
+          totalCombinedRevenue: 0,
+          gasSales: 0,
+          cylinderRefills: 0,
+          cylinderDeposits: 0,
+          cylinderReturns: 0,
+          totalCylinderTransactions: 0,
+          recentSales: 0,
+          recentCylinderTransactions: 0,
+          monthlyData: [],
+          topCustomers: [],
+          averageSaleAmount: 0,
+          averageCylinderAmount: 0,
+          pendingCustomers: 0,
+          overdueCustomers: 0,
+          clearedCustomers: 0,
+        },
+        error: "Failed to fetch stats data - showing default values",
       },
-      error: "Failed to fetch stats data - showing default values"
-    }, { status: 200 }); // Return 200 status so frontend can still show 0 values
+      { status: 200 }
+    );
   }
 }

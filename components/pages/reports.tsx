@@ -96,6 +96,10 @@ export const Reports = () => {
   // Pending receipt context for signature-first flow after Receive Amount
   const [pendingReceiptData, setPendingReceiptData] = useState<{ kind: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder'; targetId: string } | null>(null)
   const [pendingCollectionReceipt, setPendingCollectionReceipt] = useState<CollectionReceiptRecord | null>(null)
+  const [detailLoadingByCustomer, setDetailLoadingByCustomer] = useState<Record<string, boolean>>({})
+  const [pendingDownloadCache, setPendingDownloadCache] = useState<CustomerLedgerData[] | null>(null)
+  const [pendingDownloadCacheKey, setPendingDownloadCacheKey] = useState<string>("")
+  const [pendingDownloadPreparing, setPendingDownloadPreparing] = useState(false)
 
   const openReceiveDialog = (opts: { id: string; totalAmount: number; currentReceived: number; kind?: 'sale' | 'employee_sale' | 'cylinder' | 'employee_cylinder' }) => {
     setReceiveDialog({ open: true, targetId: opts.id, kind: opts.kind || 'sale', totalAmount: opts.totalAmount, currentReceived: opts.currentReceived, inputAmount: '', method: 'cash', bankName: '', chequeNumber: '' })
@@ -704,10 +708,48 @@ export const Reports = () => {
   }
   interface EmployeeLite { _id: string; name?: string; email?: string }
   
+  const buildPendingCacheKey = () =>
+    JSON.stringify({
+      customerName: (filters.customerName || "").trim().toLowerCase(),
+      startDate: filters.startDate || "",
+      endDate: filters.endDate || "",
+      status: filters.status || "all",
+    })
+
+  const fetchPendingDownloadData = async () => {
+    const detailQuery = new URLSearchParams()
+    if (filters.startDate) detailQuery.set("startDate", filters.startDate)
+    if (filters.endDate) detailQuery.set("endDate", filters.endDate)
+    if (filters.customerName.trim()) detailQuery.set("customerName", filters.customerName.trim())
+    detailQuery.set("status", "pending")
+    detailQuery.set("includeTransactions", "true")
+    detailQuery.set("downloadMode", "pending")
+    detailQuery.set("_t", Date.now().toString())
+    const detailRes = await fetch(`/api/reports/ledger?${detailQuery.toString()}`, { cache: "no-store" })
+    const detailJson = await detailRes.json().catch(() => ({}))
+    if (detailRes.ok && detailJson?.success && Array.isArray(detailJson?.data)) {
+      return detailJson.data as CustomerLedgerData[]
+    }
+    return null
+  }
+
   // Download pending transactions PDF
   const downloadPendingTransactionsPdf = async () => {
+    const cacheKey = buildPendingCacheKey()
+    let detailedCustomers: CustomerLedgerData[] = []
+    if (pendingDownloadCache && pendingDownloadCacheKey === cacheKey) {
+      detailedCustomers = pendingDownloadCache
+    } else {
+      const fresh = await fetchPendingDownloadData()
+      detailedCustomers = fresh || customers
+      if (fresh) {
+        setPendingDownloadCache(fresh)
+        setPendingDownloadCacheKey(cacheKey)
+      }
+    }
+
     // Filter customers with pending transactions
-    let pendingCustomers = customers.filter(customer => {
+    let pendingCustomers = detailedCustomers.filter(customer => {
       // Check if customer has any pending transactions
       const hasPendingGasSales = customer.recentSales?.some((sale: any) => 
         hasPendingSaleBalance(sale)
@@ -718,9 +760,10 @@ export const Reports = () => {
 
     // If a specific customer is selected, filter to only that customer
     if (filters.customerName.trim() !== '') {
+      const query = filters.customerName.toLowerCase()
       pendingCustomers = pendingCustomers.filter(customer => 
-        customer.name.toLowerCase().includes(filters.customerName.toLowerCase()) ||
-        customer.trNumber.toLowerCase().includes(filters.customerName.toLowerCase())
+        String(customer.name || "").toLowerCase().includes(query) ||
+        String(customer.trNumber || "").toLowerCase().includes(query)
       );
     }
 
@@ -2436,14 +2479,27 @@ export const Reports = () => {
 
       // Only fetch customer data if requested (with optional date filter)
       if (loadCustomers) {
-        const ledgerParams: Record<string, string> = {};
-        if (filters.startDate) ledgerParams.startDate = filters.startDate;
-        if (filters.endDate) ledgerParams.endDate = filters.endDate;
-        const ledgerResponse = await reportsAPI.getLedger(ledgerParams);
-        if (ledgerResponse.data?.success && Array.isArray(ledgerResponse.data.data)) {
-          setCustomers(ledgerResponse.data.data);
+        const query = new URLSearchParams()
+        if (filters.startDate) query.set("startDate", filters.startDate)
+        if (filters.endDate) query.set("endDate", filters.endDate)
+        query.set("_t", Date.now().toString())
+
+        const ledgerRes = await fetch(`/api/reports/ledger?${query.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
+          },
+        })
+
+        const ledgerJson = await ledgerRes.json().catch(() => ({}))
+        if (ledgerRes.ok && ledgerJson?.success && Array.isArray(ledgerJson?.data)) {
+          setCustomers(ledgerJson.data)
         } else {
-          setCustomers([]);
+          console.error("Ledger fetch failed:", ledgerJson)
+          setCustomers([])
         }
       }
 
@@ -2464,6 +2520,18 @@ export const Reports = () => {
   const handleFilter = async () => {
     setFiltersApplied(true);
     await fetchReportsData(true);
+    if (filters.status === "pending") {
+      setPendingDownloadPreparing(true)
+      const data = await fetchPendingDownloadData()
+      if (data) {
+        setPendingDownloadCache(data)
+        setPendingDownloadCacheKey(buildPendingCacheKey())
+      }
+      setPendingDownloadPreparing(false)
+    } else {
+      setPendingDownloadCache(null)
+      setPendingDownloadCacheKey("")
+    }
   };
 
   // Autocomplete functionality
@@ -2471,10 +2539,11 @@ export const Reports = () => {
     setFilters({ ...filters, customerName: value })
     
     if (value.trim().length > 0) {
+      const query = value.toLowerCase()
       const filtered = customers.filter(customer => 
-        customer.name.toLowerCase().includes(value.toLowerCase()) ||
-        customer.trNumber.toLowerCase().includes(value.toLowerCase()) ||
-        customer.phone.includes(value)
+        String(customer.name || "").toLowerCase().includes(query) ||
+        String(customer.trNumber || "").toLowerCase().includes(query) ||
+        String(customer.phone || "").includes(value)
       ).slice(0, 5) // Limit to 5 suggestions
       
       setFilteredSuggestions(filtered)
@@ -2512,6 +2581,31 @@ export const Reports = () => {
       newExpanded.add(customerId)
     }
     setExpandedCustomers(newExpanded)
+  }
+
+  const ensureCustomerDetailsLoaded = async (customerId: string) => {
+    const existing = customers.find((c) => c._id === customerId)
+    if (!existing) return null
+    if ((existing.recentSales?.length || 0) > 0 || (existing.recentCylinderTransactions?.length || 0) > 0) return existing
+    if (detailLoadingByCustomer[customerId]) return existing
+
+    setDetailLoadingByCustomer((prev) => ({ ...prev, [customerId]: true }))
+    try {
+      const q = new URLSearchParams()
+      q.set("customerId", customerId)
+      if (filters.startDate) q.set("startDate", filters.startDate)
+      if (filters.endDate) q.set("endDate", filters.endDate)
+      q.set("includeTransactions", "true")
+      q.set("_t", Date.now().toString())
+      const res = await fetch(`/api/reports/ledger?${q.toString()}`, { cache: "no-store" })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json?.success || !Array.isArray(json?.data) || !json.data[0]) return existing
+      const detailed = json.data[0] as CustomerLedgerData
+      setCustomers((prev) => prev.map((c) => (c._id === customerId ? { ...c, ...detailed } : c)))
+      return detailed
+    } finally {
+      setDetailLoadingByCustomer((prev) => ({ ...prev, [customerId]: false }))
+    }
   }
 
   const getStatusBadge = (status?: string) => {
@@ -2558,17 +2652,21 @@ export const Reports = () => {
     setFiltersApplied(false);
     setCustomers([]);
     setExpandedCustomers(new Set());
+    setPendingDownloadCache(null)
+    setPendingDownloadCacheKey("")
+    setPendingDownloadPreparing(false)
   }
 
-  const handleReceiptClick = (customer: CustomerLedgerData) => {
+  const handleReceiptClick = async (customer: CustomerLedgerData) => {
+    const hydrated = (await ensureCustomerDetailsLoaded(customer._id)) || customer
     if (!customerSignature) {
       // No signature yet - show signature dialog first
-      setPendingCustomer(customer)
+      setPendingCustomer(hydrated)
       setShowSignatureDialog(true)
     } else {
       // Build receipt items as separate rows per product for gas sales, plus cylinder transactions
-      const recentSales = customer.recentSales || []
-      const recentCylinderTransactions = customer.recentCylinderTransactions || []
+      const recentSales = hydrated.recentSales || []
+      const recentCylinderTransactions = hydrated.recentCylinderTransactions || []
       const pendingOnly = shouldUsePendingOnlyStatement(recentSales, recentCylinderTransactions)
       const gasItems = buildStatementSaleItems(recentSales, pendingOnly)
       const cylItems = buildStatementCylinderItems(recentCylinderTransactions, pendingOnly)
@@ -2590,18 +2688,18 @@ export const Reports = () => {
       
       const mockSale = {
         _id: customer._id,
-        invoiceNumber: `STATEMENT-${customer.trNumber}`,
+        invoiceNumber: `STATEMENT-${hydrated.trNumber}`,
         customer: {
-          name: customer.name,
-          phone: customer.phone,
-          address: customer.address || '',
-          trNumber: customer.trNumber || ''
+          name: hydrated.name,
+          phone: hydrated.phone,
+          address: hydrated.address || '',
+          trNumber: hydrated.trNumber || ''
         },
         items: items,
         totalAmount: totalAmount,
         paymentMethod: "Account Statement",
-        paymentStatus: customer.status,
-        createdAt: customer.lastTransactionDate || new Date().toISOString(),
+        paymentStatus: hydrated.status,
+        createdAt: hydrated.lastTransactionDate || new Date().toISOString(),
         customerSignature: customerSignature
       }
       
@@ -2791,9 +2889,9 @@ export const Reports = () => {
               </Button>
             </div>
             {filters.status === 'pending' && (
-              <Button onClick={downloadPendingTransactionsPdf} variant="outline" className="bg-red-50 hover:bg-red-100 text-red-700 border-red-200 w-full sm:w-auto">
+              <Button onClick={downloadPendingTransactionsPdf} disabled={pendingDownloadPreparing} variant="outline" className="bg-red-50 hover:bg-red-100 text-red-700 border-red-200 w-full sm:w-auto">
                 <FileText className="mr-2 h-4 w-4" />
-                Download Pendings
+                {pendingDownloadPreparing ? "Preparing Pendings..." : "Download Pendings"}
               </Button>
             )}
           </div>
@@ -2811,7 +2909,7 @@ export const Reports = () => {
                     Please apply filters above to view customer ledger data. You can filter by customer name, status, or date range.
                   </p>
                 </div>
-                <Button onClick={() => { setFiltersApplied(true); fetchReportsData(true); }} style={{ backgroundColor: "#2B3068" }}>
+                <Button onClick={handleFilter} style={{ backgroundColor: "#2B3068" }}>
                   <Eye className="w-4 h-4 mr-2" />
                   Load All Customers
                 </Button>
@@ -2846,8 +2944,9 @@ export const Reports = () => {
                     
                     // Filter by customer name
                     if (filters.customerName.trim() !== '') {
-                      return customer.name.toLowerCase().includes(filters.customerName.toLowerCase()) ||
-                             customer.trNumber.toLowerCase().includes(filters.customerName.toLowerCase());
+                      const query = filters.customerName.toLowerCase()
+                      return String(customer.name || "").toLowerCase().includes(query) ||
+                             String(customer.trNumber || "").toLowerCase().includes(query);
                     }
                     
                     return true;
@@ -2859,7 +2958,11 @@ export const Reports = () => {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => toggleCustomerExpansion(customer._id)}
+                          onClick={async () => {
+                            const isExpanding = !expandedCustomers.has(customer._id)
+                            toggleCustomerExpansion(customer._id)
+                            if (isExpanding) await ensureCustomerDetailsLoaded(customer._id)
+                          }}
                           className="p-0 h-auto"
                         >
                           {expandedCustomers.has(customer._id) ? (
@@ -2922,6 +3025,9 @@ export const Reports = () => {
                     {expandedCustomers.has(customer._id) && (
                       <TableRow>
                         <TableCell colSpan={9} className="bg-gray-50 p-6">
+                          {detailLoadingByCustomer[customer._id] ? (
+                            <div className="text-sm text-gray-500">Loading customer transaction details...</div>
+                          ) : (
                           <Tabs defaultValue="all" className="w-full">
                             <TabsList className="grid w-full grid-cols-4">
                               <TabsTrigger value="all">All Transactions</TabsTrigger>
@@ -3333,6 +3439,7 @@ export const Reports = () => {
                               </div>
                             </TabsContent>
                           </Tabs>
+                          )}
                         </TableCell>
                       </TableRow>
                     )}
