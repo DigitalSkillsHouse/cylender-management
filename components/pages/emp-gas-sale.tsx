@@ -2062,17 +2062,6 @@ export const EmployeeGasSales = ({ user }: EmployeeGasSalesProps) => {
     })
   }, [cashGrandTotal, formData.paymentOption, setFormData])
 
-  if (loading && !criticalSalesReady) {
-    return (
-      <div className="space-y-6">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/4 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="pt-5 lg:pt-0 space-y-8">
       <div className="bg-gradient-to-r from-[#2B3068] to-[#1a1f4a] rounded-2xl p-8 text-white">

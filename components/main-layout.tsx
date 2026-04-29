@@ -347,11 +347,6 @@ export const MainLayout = ({ user, onLogout }: MainLayoutProps) => {
     }
   }
 
-  // Don't render until mounted
-  if (!mounted) {
-    return null
-  }
-
   return (
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-gray-50">

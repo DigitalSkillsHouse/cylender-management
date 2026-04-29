@@ -21,10 +21,8 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState("")
-  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
     const isLocalhost =
       typeof window !== "undefined" &&
       (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
@@ -72,11 +70,6 @@ export const LoginForm = ({ onLogin }: LoginFormProps) => {
       setEmail("")
       setPassword("")
     }
-  }
-
-  // Don't render until mounted
-  if (!mounted) {
-    return null
   }
 
   if (initializing) {

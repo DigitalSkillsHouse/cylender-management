@@ -2165,34 +2165,6 @@ export const GasSales = () => {
     })
   }, [cashGrandTotal, formData.paymentOption, setFormData])
 
-  if (loading && !criticalSalesReady) {
-    return (
-      <div className="space-y-6">
-        <div className="animate-pulse space-y-3">
-          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-        </div>
-        <div className="rounded-xl border bg-white p-4">
-          <div className="grid grid-cols-5 gap-2 mb-3">
-            {Array.from({ length: 5 }).map((_, idx) => (
-              <div key={idx} className="h-3 bg-gray-100 rounded" />
-            ))}
-          </div>
-          <div className="space-y-2">
-            {Array.from({ length: 6 }).map((_, idx) => (
-              <div key={idx} className="h-10 bg-gray-50 rounded" />
-            ))}
-          </div>
-        </div>
-        {initialLoadTimedOut && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-            Initial data is taking longer than expected. Basic shell loaded; data will continue to hydrate in background.
-          </div>
-        )}
-      </div>
-    )
-  }
-
   return (
     <div className="pt-6 lg:pt-0 space-y-8">
       {initialLoadTimedOut && (

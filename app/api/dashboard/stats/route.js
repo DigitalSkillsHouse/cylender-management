@@ -376,202 +376,119 @@ export async function GET(request) {
     employeeGasSales.employeeGasSalesPaid = allEmployeeSalesPaid.employeeGasSalesPaid
     employeeGasSales.employeeTotalSales = allEmployeeSalesPaid.employeeTotalSales
     employeeGasSales.employeeGasSalesRevenue = employeeGasSalesRevenue
-    // Calculate employee cylinder revenue with date filter
-    const employeeCylinderMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
-    const employeeCylinderRevenueResult = await EmployeeCylinderTransaction.aggregate([
-      ...employeeCylinderMatch,
-      {
-        $group: {
-          _id: null,
-          employeeCylinderRevenue: { 
-            $sum: {
-              $add: [
-                { $ifNull: ["$depositAmount", 0] },
-                { $ifNull: ["$refillAmount", 0] },
-                { $ifNull: ["$amount", 0] }
-              ]
-            }
-          },
-          employeeTotalTransactions: { $sum: 1 },
-        },
-      },
-    ])
-
-    const employeeCylinderRevenue = employeeCylinderRevenueResult[0] || { employeeCylinderRevenue: 0, employeeTotalTransactions: 0 }
-
-    // Calculate cylinder revenue (sum of all cylinder transactions) with date filter
-    const cylinderMatch = dateFilter.createdAt ? [{ $match: dateFilter }] : []
-    const cylinderRevenueResult = await CylinderTransaction.aggregate([
-      ...cylinderMatch,
-      {
-        $group: {
-          _id: null,
-          cylinderRevenue: { 
-            $sum: {
-              $add: [
-                { $ifNull: ["$depositAmount", 0] },
-                { $ifNull: ["$refillAmount", 0] },
-                { $ifNull: ["$amount", 0] }
-              ]
-            }
-          },
-          totalTransactions: { $sum: 1 },
-        },
-      },
-    ])
-
-    const cylinderRevenue = cylinderRevenueResult[0] || { cylinderRevenue: 0, totalTransactions: 0 }
-
-    // Get customer count with the same date-filter snapshot logic as dashboard cards
+    // Run independent counters/aggregations in parallel to reduce dashboard latency.
     const customerCountQuery = dateFilter.createdAt ? { createdAt: dateFilter.createdAt } : {}
-    const customerCount = await Customer.countDocuments(customerCountQuery)
-
-    // Get employee count
-    const employeeCount = await User.countDocuments({ role: "employee" })
-
-    // Get product count
-    const productCount = await Product.countDocuments()
-
-    // Calculate products sold (sum of quantities from admin sales items) with date filter
-    const productsSoldResult = await Sale.aggregate([
-      ...salesMatch,
-      { $unwind: "$items" },
-      {
-        $group: {
-          _id: null,
-          totalQuantity: { $sum: "$items.quantity" },
+    const [
+      customerCount,
+      employeeCount,
+      productCount,
+      productsSoldResult,
+      employeeProductsSoldResult,
+      adminSalesQuantityResult,
+      employeeSalesQuantityResult,
+    ] = await Promise.all([
+      Customer.countDocuments(customerCountQuery),
+      User.countDocuments({ role: "employee" }),
+      Product.countDocuments(),
+      Sale.aggregate([
+        ...salesMatch,
+        { $unwind: "$items" },
+        {
+          $group: {
+            _id: null,
+            totalQuantity: { $sum: "$items.quantity" },
+          },
         },
-      },
-    ])
-
-    // Calculate products sold from employee sales with date filter
-    const employeeProductsSoldResult = await EmployeeSale.aggregate([
-      ...employeeSalesMatch,
-      { $unwind: "$items" },
-      {
-        $group: {
-          _id: null,
-          totalQuantity: { $sum: "$items.quantity" },
+      ]),
+      EmployeeSale.aggregate([
+        ...employeeSalesMatch,
+        { $unwind: "$items" },
+        {
+          $group: {
+            _id: null,
+            totalQuantity: { $sum: "$items.quantity" },
+          },
         },
-      },
+      ]),
+      Sale.aggregate([
+        ...salesMatch,
+        { $unwind: "$items" },
+        {
+          $group: {
+            _id: null,
+            gasSalesQuantity: {
+              $sum: {
+                $cond: [{ $eq: ["$items.category", "gas"] }, { $ifNull: ["$items.quantity", 0] }, 0]
+              }
+            },
+            cylinderSalesQuantity: {
+              $sum: {
+                $cond: [{ $eq: ["$items.category", "cylinder"] }, { $ifNull: ["$items.quantity", 0] }, 0]
+              }
+            },
+            fullCylinderSalesQuantity: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ["$items.category", "cylinder"] }, { $eq: ["$items.cylinderStatus", "full"] }] },
+                  { $ifNull: ["$items.quantity", 0] },
+                  0
+                ]
+              }
+            },
+            emptyCylinderSalesQuantity: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ["$items.category", "cylinder"] }, { $eq: ["$items.cylinderStatus", "empty"] }] },
+                  { $ifNull: ["$items.quantity", 0] },
+                  0
+                ]
+              }
+            },
+          },
+        },
+      ]),
+      EmployeeSale.aggregate([
+        ...employeeSalesMatch,
+        { $unwind: "$items" },
+        {
+          $group: {
+            _id: null,
+            gasSalesQuantity: {
+              $sum: {
+                $cond: [{ $eq: ["$items.category", "gas"] }, { $ifNull: ["$items.quantity", 0] }, 0]
+              }
+            },
+            cylinderSalesQuantity: {
+              $sum: {
+                $cond: [{ $eq: ["$items.category", "cylinder"] }, { $ifNull: ["$items.quantity", 0] }, 0]
+              }
+            },
+            fullCylinderSalesQuantity: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ["$items.category", "cylinder"] }, { $eq: ["$items.cylinderStatus", "full"] }] },
+                  { $ifNull: ["$items.quantity", 0] },
+                  0
+                ]
+              }
+            },
+            emptyCylinderSalesQuantity: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ["$items.category", "cylinder"] }, { $eq: ["$items.cylinderStatus", "empty"] }] },
+                  { $ifNull: ["$items.quantity", 0] },
+                  0
+                ]
+              }
+            },
+          },
+        },
+      ]),
     ])
 
     const adminProductsSold = productsSoldResult[0]?.totalQuantity || 0
     const employeeProductsSold = employeeProductsSoldResult[0]?.totalQuantity || 0
     const totalProductsSold = adminProductsSold + employeeProductsSold
-
-    // Calculate sales quantities by category (admin + employee)
-    const adminSalesQuantityResult = await Sale.aggregate([
-      ...salesMatch,
-      { $unwind: "$items" },
-      {
-        $group: {
-          _id: null,
-          gasSalesQuantity: {
-            $sum: {
-              $cond: [
-                { $eq: ["$items.category", "gas"] },
-                { $ifNull: ["$items.quantity", 0] },
-                0
-              ]
-            }
-          },
-          cylinderSalesQuantity: {
-            $sum: {
-              $cond: [
-                { $eq: ["$items.category", "cylinder"] },
-                { $ifNull: ["$items.quantity", 0] },
-                0
-              ]
-            }
-          },
-          fullCylinderSalesQuantity: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $eq: ["$items.category", "cylinder"] },
-                    { $eq: ["$items.cylinderStatus", "full"] }
-                  ]
-                },
-                { $ifNull: ["$items.quantity", 0] },
-                0
-              ]
-            }
-          },
-          emptyCylinderSalesQuantity: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $eq: ["$items.category", "cylinder"] },
-                    { $eq: ["$items.cylinderStatus", "empty"] }
-                  ]
-                },
-                { $ifNull: ["$items.quantity", 0] },
-                0
-              ]
-            }
-          },
-        },
-      },
-    ])
-
-    const employeeSalesQuantityResult = await EmployeeSale.aggregate([
-      ...employeeSalesMatch,
-      { $unwind: "$items" },
-      {
-        $group: {
-          _id: null,
-          gasSalesQuantity: {
-            $sum: {
-              $cond: [
-                { $eq: ["$items.category", "gas"] },
-                { $ifNull: ["$items.quantity", 0] },
-                0
-              ]
-            }
-          },
-          cylinderSalesQuantity: {
-            $sum: {
-              $cond: [
-                { $eq: ["$items.category", "cylinder"] },
-                { $ifNull: ["$items.quantity", 0] },
-                0
-              ]
-            }
-          },
-          fullCylinderSalesQuantity: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $eq: ["$items.category", "cylinder"] },
-                    { $eq: ["$items.cylinderStatus", "full"] }
-                  ]
-                },
-                { $ifNull: ["$items.quantity", 0] },
-                0
-              ]
-            }
-          },
-          emptyCylinderSalesQuantity: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $eq: ["$items.category", "cylinder"] },
-                    { $eq: ["$items.cylinderStatus", "empty"] }
-                  ]
-                },
-                { $ifNull: ["$items.quantity", 0] },
-                0
-              ]
-            }
-          },
-        },
-      },
-    ])
 
     const totalGasSalesQuantity =
       Number(adminSalesQuantityResult[0]?.gasSalesQuantity || 0) +
@@ -604,40 +521,41 @@ export async function GET(request) {
       ? [{ $match: { ...dateFilter, type: { $in: ['refill', 'return'] } } }] 
       : [{ $match: { type: { $in: ['refill', 'return'] } } }]
     
-    const adminCylinderRevenueExcludingDeposits = await CylinderTransaction.aggregate([
-      ...adminCylinderRevenueMatch,
-      {
-        $group: {
-          _id: null,
-          cylinderRevenue: { 
-            $sum: {
-              $add: [
-                { $ifNull: ["$refillAmount", 0] },
-                { $ifNull: ["$returnAmount", 0] },
-                { $ifNull: ["$amount", 0] }
-              ]
-            }
+    const [adminCylinderRevenueExcludingDeposits, employeeCylinderRevenueExcludingDeposits] = await Promise.all([
+      CylinderTransaction.aggregate([
+        ...adminCylinderRevenueMatch,
+        {
+          $group: {
+            _id: null,
+            cylinderRevenue: {
+              $sum: {
+                $add: [
+                  { $ifNull: ["$refillAmount", 0] },
+                  { $ifNull: ["$returnAmount", 0] },
+                  { $ifNull: ["$amount", 0] }
+                ]
+              }
+            },
           },
         },
-      },
-    ])
-    
-    const employeeCylinderRevenueExcludingDeposits = await EmployeeCylinderTransaction.aggregate([
-      ...employeeCylinderRevenueMatch,
-      {
-        $group: {
-          _id: null,
-          employeeCylinderRevenue: { 
-            $sum: {
-              $add: [
-                { $ifNull: ["$refillAmount", 0] },
-                { $ifNull: ["$returnAmount", 0] },
-                { $ifNull: ["$amount", 0] }
-              ]
-            }
+      ]),
+      EmployeeCylinderTransaction.aggregate([
+        ...employeeCylinderRevenueMatch,
+        {
+          $group: {
+            _id: null,
+            employeeCylinderRevenue: {
+              $sum: {
+                $add: [
+                  { $ifNull: ["$refillAmount", 0] },
+                  { $ifNull: ["$returnAmount", 0] },
+                  { $ifNull: ["$amount", 0] }
+                ]
+              }
+            },
           },
         },
-      },
+      ]),
     ])
     
     // Calculate cylinder transaction revenue (refills + returns, excluding deposits)
@@ -659,28 +577,29 @@ export async function GET(request) {
       ? [{ $match: { ...dateFilter, status: 'pending' } }] 
       : [{ $match: { status: 'pending' } }]
     
-    const adminPendingCylinderDue = await CylinderTransaction.aggregate([
-      ...adminPendingCylinderMatch,
-      {
-        $group: {
-          _id: null,
-          pendingCylinderAmount: { 
-            $sum: { $round: [{ $ifNull: ["$amount", 0] }, 2] }
+    const [adminPendingCylinderDue, employeePendingCylinderDue] = await Promise.all([
+      CylinderTransaction.aggregate([
+        ...adminPendingCylinderMatch,
+        {
+          $group: {
+            _id: null,
+            pendingCylinderAmount: {
+              $sum: { $round: [{ $ifNull: ["$amount", 0] }, 2] }
+            },
           },
         },
-      },
-    ])
-    
-    const employeePendingCylinderDue = await EmployeeCylinderTransaction.aggregate([
-      ...employeePendingCylinderMatch,
-      {
-        $group: {
-          _id: null,
-          pendingCylinderAmount: { 
-            $sum: { $round: [{ $ifNull: ["$amount", 0] }, 2] }
+      ]),
+      EmployeeCylinderTransaction.aggregate([
+        ...employeePendingCylinderMatch,
+        {
+          $group: {
+            _id: null,
+            pendingCylinderAmount: {
+              $sum: { $round: [{ $ifNull: ["$amount", 0] }, 2] }
+            },
           },
         },
-      },
+      ]),
     ])
     
     const adminPendingCylinderAmount = adminPendingCylinderDue[0]?.pendingCylinderAmount || 0
@@ -698,52 +617,39 @@ export async function GET(request) {
     const oneMonthAgo = new Date()
     oneMonthAgo.setDate(oneMonthAgo.getDate() - 30)
 
-    // Get all customers who made transactions in the last 30 days
-    const activeCustomerIds = new Set()
+    // Use distinct + parallel reads to avoid loading full documents in memory.
+    const [
+      recentAdminSalesCustomerIds,
+      recentEmployeeSalesCustomerIds,
+      recentAdminCylinderCustomerIds,
+      recentEmployeeCylinderCustomerIds,
+      recentViewedCustomerIds,
+      allCustomers,
+    ] = await Promise.all([
+      Sale.distinct("customer", { createdAt: { $gte: oneMonthAgo } }),
+      EmployeeSale.distinct("customer", { createdAt: { $gte: oneMonthAgo } }),
+      CylinderTransaction.distinct("customer", { createdAt: { $gte: oneMonthAgo } }),
+      EmployeeCylinderTransaction.distinct("customer", { createdAt: { $gte: oneMonthAgo } }),
+      InactiveCustomerView.distinct("customerId", { viewedAt: { $gte: oneMonthAgo } }),
+      Customer.find({}).select("_id name email phone"),
+    ])
 
-    // Check admin gas sales
-    const recentAdminSales = await Sale.find({ 
-      createdAt: { $gte: oneMonthAgo } 
-    }).select('customer')
-    recentAdminSales.forEach(sale => {
-      if (sale.customer) activeCustomerIds.add(sale.customer.toString())
-    })
+    const activeCustomerIds = new Set(
+      [
+        ...recentAdminSalesCustomerIds,
+        ...recentEmployeeSalesCustomerIds,
+        ...recentAdminCylinderCustomerIds,
+        ...recentEmployeeCylinderCustomerIds,
+      ]
+        .filter(Boolean)
+        .map((id) => id.toString())
+    )
 
-    // Check employee gas sales
-    const recentEmployeeSales = await EmployeeSale.find({ 
-      createdAt: { $gte: oneMonthAgo } 
-    }).select('customer')
-    recentEmployeeSales.forEach(sale => {
-      if (sale.customer) activeCustomerIds.add(sale.customer.toString())
-    })
-
-    // Check admin cylinder transactions
-    const recentAdminCylinders = await CylinderTransaction.find({ 
-      createdAt: { $gte: oneMonthAgo } 
-    }).select('customer')
-    recentAdminCylinders.forEach(transaction => {
-      if (transaction.customer) activeCustomerIds.add(transaction.customer.toString())
-    })
-
-    // Check employee cylinder transactions
-    const recentEmployeeCylinders = await EmployeeCylinderTransaction.find({ 
-      createdAt: { $gte: oneMonthAgo } 
-    }).select('customer')
-    recentEmployeeCylinders.forEach(transaction => {
-      if (transaction.customer) activeCustomerIds.add(transaction.customer.toString())
-    })
-
-    // Get customers who have been viewed in the last 30 days
-    const viewedCustomerIds = new Set()
-    const recentViews = await InactiveCustomerView.find({
-      viewedAt: { $gte: oneMonthAgo }
-    }).select('customerId')
-    recentViews.forEach(view => {
-      if (view.customerId) viewedCustomerIds.add(view.customerId.toString())
-    })
-
-    // Get all customers and find inactive ones (excluding recently viewed ones)
-    const allCustomers = await Customer.find({}).select('_id name email phone')
+    const viewedCustomerIds = new Set(
+      recentViewedCustomerIds
+        .filter(Boolean)
+        .map((id) => id.toString())
+    )
     const inactiveCustomers = allCustomers.filter(customer => 
       !activeCustomerIds.has(customer._id.toString()) && 
       !viewedCustomerIds.has(customer._id.toString())
